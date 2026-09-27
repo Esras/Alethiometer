@@ -8,8 +8,9 @@
 //! - Rule 6: the AI suggests and answers. The system prompts forbid drafting
 //!   the user's replies, notes or reflections, and nothing here writes user text.
 //!
-//! Providers: `bedrock` (Converse API, SigV4). Tiers: `small` for topic
-//! suggestions, `large` for questions.
+//! Providers: `bedrock` (Converse API on bedrock-runtime, SigV4; serves every
+//! current Claude model via `us.`/`global.` inference profiles). Tiers: `small`
+//! for topic suggestions, `large` for questions.
 
 pub mod bedrock;
 pub mod context;
@@ -65,9 +66,10 @@ pub struct Deps<'a> {
     pub time: SystemTime,
 }
 
-/// Run `f` with real HTTP (90 s timeout) and the AWS credential chain.
+/// Run `f` with real HTTP (120 s timeout: non-streaming, and thinking models
+/// answer only once they're done) and the AWS credential chain.
 pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
-    let http = UreqHttp::with_timeout(90);
+    let http = UreqHttp::with_timeout(120);
     let env = |k: &str| std::env::var(k).ok();
     let secret = |k: &str| app.platform.secret_get(k);
     let resolve = || {
@@ -99,7 +101,10 @@ Never draft messages, replies, notes or reflections for the user to send or past
 you may say which points they might cover, and they will write it in their own words. \
 When it helps the user find the source, mention it like [item 12].";
 
-const ASK_MAX_TOKENS: u32 = 1024;
+/// Sonnet 5 and Opus 5.x think by default (Opus 5.5 can't turn it off), and
+/// thinking counts against this cap, so 1024 could end before any answer. Kept
+/// well below 16k because Bedrock reserves `max_tokens` against the output quota.
+const ASK_MAX_TOKENS: u32 = 4096;
 const QUESTION_CAP: usize = 2_000;
 
 #[derive(Debug, Serialize)]
@@ -180,7 +185,7 @@ pub mod tests {
     }
 
     fn configured(app: &mut App) {
-        app.settings.ai.large.model = "us.anthropic.claude-sonnet-4-6".into();
+        app.settings.ai.large.model = "us.anthropic.claude-opus-5-5".into();
     }
 
     fn ok_http() -> FakeHttp {
@@ -269,7 +274,7 @@ pub mod tests {
 
         let reqs = http.requests();
         assert_eq!(reqs.len(), 1);
-        assert!(reqs[0].1.starts_with("https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-6/converse"));
+        assert_eq!(reqs[0].1, "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-5-5/converse");
         let body = reqs[0].2.clone().unwrap();
         assert!(!body.contains("PERSONAL-SECRET"), "{body}");
         let v: Value = serde_json::from_str(&body).unwrap();
@@ -277,6 +282,7 @@ pub mod tests {
         assert!(user.contains("Topic: Datadog renewal") && user.ends_with("Question: When is the renewal due?"));
         let system = v["system"][0]["text"].as_str().unwrap();
         assert!(system.contains("plain text") && system.contains("Never draft"));
+        assert_eq!(v["inferenceConfig"]["maxTokens"], ASK_MAX_TOKENS);
     }
 
     #[test]

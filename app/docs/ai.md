@@ -22,24 +22,35 @@ In the AWS console, open **Amazon Bedrock → Model access** in the region you'l
 
 ### 2. Pick model IDs
 
-Claude models that are current on the Converse API take an **inference-profile ID**: the base model ID with a `us.` / `global.` / `eu.` (…) prefix. The bare base ID fails with "on-demand throughput isn't supported", and Helm tells you to add a prefix.
+Every current Claude model, including Opus 4.7 and later, Sonnet 5 and Opus 5.x, is served by `bedrock-runtime`, the endpoint Helm uses. You pick a model by giving its **inference-profile ID**: the model ID with a `us.` (or `global.`, `eu.`, …) prefix. A `us.` profile keeps the request in US regions.
 
-Suggested values. These IDs come from Anthropic's Bedrock docs (Sept 2026). They haven't been called live from Helm.
+Suggested values:
 
 | Tier | Use | Suggested `model` |
 |---|---|---|
-| `small` | topic suggestions (short JSON answers) | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
-| `large` | questions (assistant pane, Reflect) | `us.anthropic.claude-sonnet-4-6`, or `us.anthropic.claude-opus-4-6-v1` for harder questions |
+| `small` | topic suggestions (short JSON answers) | `us.anthropic.claude-haiku-4-5-20251001-v1:0` (Haiku 4.5) |
+| `large` | questions (assistant pane, Reflect) | `us.anthropic.claude-opus-5-5` (Opus 5.5), or `us.anthropic.claude-opus-4-8` (Opus 4.8) |
 
-Swap `us.` for `global.` if global routing is acceptable. You can also give a full inference-profile ARN (`arn:aws:bedrock:<region>:<account>:inference-profile/<id>`).
+Where these IDs come from (Sept 2026):
 
-**Newer models:** Claude Opus 4.7 and later (Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, Fable 5.x) are served on Bedrock's Messages-API endpoint (`https://bedrock-mantle.<region>.api.aws/anthropic/v1/messages`, model IDs like `anthropic.claude-opus-5`, IAM action `bedrock-mantle:CreateInference`). Anthropic documents them for `InvokeModel` but not for Converse. Helm doesn't talk to that endpoint yet. If you want those models, adding that endpoint is a small follow-up: the same SigV4 signer with service `bedrock-mantle` and a Messages-API body.
+- Haiku 4.5: Anthropic's Bedrock model table lists base ID `anthropic.claude-haiku-4-5-20251001-v1:0` with a `us` profile, and Claude Code's Bedrock guide uses `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
+- Opus 5.5 and Opus 4.8: Claude Code's Bedrock guide uses `us.anthropic.claude-opus-5-5` (its default in `us-*` regions) and `us.anthropic.claude-opus-4-8` on the same endpoint. A public bug report shows `us.anthropic.claude-opus-5-5` answering through Converse in `us-east-1`.
+- Sonnet 5 (`us.anthropic.claude-sonnet-5`) appears on AWS's model card, but Helm's build environment couldn't open AWS's docs to check it, so it isn't in the table.
 
-The shipped defaults leave both models empty, so the AI stays off until you choose models and confirm the BAA.
+None of these has been called from Helm itself (no AWS account here). Before you rely on one, confirm it's listed under **Bedrock → Cross-region inference** in your region.
+
+Notes:
+
+- **Newer IDs have no date or version suffix.** `us.anthropic.claude-opus-5-5` is the whole ID. Older models keep theirs (`…-20251001-v1:0`).
+- **Don't copy the `anthropic.claude-…` IDs** from Anthropic's model overview or its "Claude in Amazon Bedrock" page. Those belong to Bedrock's separate Messages-API endpoint (`bedrock-mantle`), which Helm doesn't use. Sent to `bedrock-runtime` they fail with a 400. Helm's error message names the `us.` ID to use instead.
+- **Opus 5.5 always thinks, and Sonnet 5 and Opus 5 think by default.** Thinking tokens are billed and count toward the reply cap. Helm allows 4,096 output tokens per question and 1,024 per topic suggestion, so that thinking doesn't crowd out the answer. Haiku 4.5 doesn't think unless asked, so it stays the cheap choice for suggestions.
+- Swap `us.` for `global.` only if routing outside the US is acceptable (see the BAA section). You can also give a full inference-profile ARN (`arn:aws:bedrock:<region>:<account>:inference-profile/<id>`).
+
+**Why the shipped defaults stay empty.** `settings.rs` leaves both models empty, so the AI stays off until you confirm the BAA covers Bedrock and the model you pick. The IDs above also haven't been checked against a live account. Filling them in by default would send work data the first time someone opens the assistant pane.
 
 ### 3. IAM policy
 
-Converse needs `bedrock:InvokeModel` on the model or inference profile named in the request. With a cross-region inference profile, the caller needs `bedrock:InvokeModel` on **both** the inference-profile ARN and the underlying foundation-model ARN in every region the profile can route to. A region wildcard covers that:
+Converse needs `bedrock:InvokeModel` on the model or inference profile named in the request. This is the same for every model, Opus 5.5 included. With a cross-region inference profile, the caller needs `bedrock:InvokeModel` on **both** the inference-profile ARN and the underlying foundation-model ARN in every region the profile can route to. A region wildcard covers that:
 
 ```json
 {
@@ -50,9 +61,9 @@ Converse needs `bedrock:InvokeModel` on the model or inference profile named in 
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": [
-        "arn:aws:bedrock:us-east-1:<account-id>:inference-profile/us.anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:us-east-1:<account-id>:inference-profile/us.anthropic.claude-opus-5-5",
         "arn:aws:bedrock:us-east-1:<account-id>:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-5-5",
         "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
       ]
     }
@@ -60,7 +71,9 @@ Converse needs `bedrock:InvokeModel` on the model or inference profile named in 
 }
 ```
 
-Helm doesn't stream, so it doesn't need `bedrock:InvokeModelWithResponseStream`. Nothing else is needed: no list or describe calls, and no S3.
+Replace `us-east-1` with `ai.region`. The foundation-model name is the profile ID without its `us.` prefix. That matches AWS's naming for older models, but for Opus 5.5 it hasn't been checked against a live account. If you get a 403 that names a foundation-model ARN, copy that ARN into the policy. If your policy rules allow it, `arn:aws:bedrock:*::foundation-model/anthropic.claude-*` avoids this.
+
+Helm doesn't stream, so it doesn't need `bedrock:InvokeModelWithResponseStream`. Nothing else is needed: no list or describe calls, and no S3. Helm never calls the `bedrock-mantle` endpoint, so it needs no `bedrock-mantle:*` permissions (for example `bedrock-mantle:CreateInference`).
 
 ### 4. Credentials
 
@@ -101,7 +114,7 @@ Credentials are read for every call and are never logged or shown in errors.
   "region": "us-east-1",
   "aws_profile": "helm",
   "small": { "provider": "bedrock", "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0" },
-  "large": { "provider": "bedrock", "model": "us.anthropic.claude-sonnet-4-6" }
+  "large": { "provider": "bedrock", "model": "us.anthropic.claude-opus-5-5" }
 }
 ```
 
@@ -150,6 +163,9 @@ Each Unsorted item costs one small-model call of roughly 300 input and 30 output
 | `Bedrock denied access … model access not enabled in Bedrock console for <region>` | 403. Enable model access in that region, or fix the IAM policy. |
 | `Bedrock rejected the AWS credentials` | 403: bad, expired or unsigned credentials. |
 | `Bedrock needs an inference-profile id` | 400. Add a `us.` or `global.` prefix. |
+| `Bedrock doesn't know 'anthropic.claude-…' on bedrock-runtime` | 400. That's an ID for the `bedrock-mantle` endpoint. Use the `us.` ID from step 2. |
+| `Bedrock rejected the request (400)` | Anything else the model or Converse refused. AWS's text follows. |
+| `Bedrock returned no text (stop reason: max_tokens…)` | The model used its whole reply budget, usually on thinking. Try a lighter model for that tier. |
 | `Bedrock is throttling requests` | 429, a quota limit or the model isn't ready. Retry later. |
 | `Bedrock had a temporary problem` | 408, 424 or 5xx. |
 
@@ -161,4 +177,11 @@ There were no AWS credentials in the build environment, so no live call was made
 - Request and response JSON match the botocore `bedrock-runtime` service model.
 - Error statuses match that model's error shapes.
 
-Still to confirm on a real account: the model and inference-profile IDs and region availability, the exact IAM resource list, and real error message texts.
+Still to confirm on a real account: the model and inference-profile IDs and region availability, the exact IAM resource list (especially the foundation-model ARN behind `us.anthropic.claude-opus-5-5`), and real error message texts.
+
+Sources for the model and endpoint facts above (Sept 2026):
+
+- Anthropic, "Claude on Amazon Bedrock (Opus 4.6 and earlier)" (`platform.claude.com/docs/en/build-with-claude/claude-on-amazon-bedrock-legacy`): *"Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5, Claude Opus 4.8, and Claude Opus 4.7 are reachable through `InvokeModel` on `bedrock-runtime`."* It also has the base-ID and prefix table for Haiku 4.5.
+- Anthropic, "Claude in Amazon Bedrock (Opus 4.7 and later)" (`…/claude-in-amazon-bedrock`): the separate `https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages` endpoint, SigV4 service `bedrock-mantle`, IAM `bedrock-mantle:CreateInference`, IDs `anthropic.claude-…`.
+- Claude Code, "Claude Code on Amazon Bedrock" (`code.claude.com/docs/en/amazon-bedrock`): *"Primary model: Opus 5.5, for example `us.anthropic.claude-opus-5-5` in a `us-*` region"* on the Invoke API, and *"Mantle has its own model lineup … inference profile IDs such as `us.anthropic.claude-sonnet-4-6` will not work."*
+- llama_index issue #23207: a live `us-east-1` call with `us.anthropic.claude-opus-5-5` failing *"when calling the Converse operation: The model returned the following errors: tool_choice …"*. The model answered through Converse; only that request's forced tool choice was refused.

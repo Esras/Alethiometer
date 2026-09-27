@@ -4,6 +4,11 @@
 //! (IAM action `bedrock:InvokeModel`). Request and response shapes follow the
 //! `bedrock-runtime` service model (botocore `bedrock-runtime/2023-09-30`).
 //!
+//! Every current Claude model is reachable here, including Opus 4.7+, Sonnet 5
+//! and Opus 5.x, through dateless inference-profile IDs such as
+//! `us.anthropic.claude-opus-5-5`. Bedrock's separate Messages-API endpoint
+//! (`bedrock-mantle`, IDs like `anthropic.claude-opus-5-5`) is not used.
+//!
 //! Signing uses AWS's own `aws-sigv4` crate rather than the full AWS SDK: the
 //! SDK would pull in tokio, hyper and a second HTTP stack for one POST, while
 //! hand-rolling SigV4 is easy to get subtly wrong (path double-encoding,
@@ -87,7 +92,10 @@ pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
         .unwrap_or_default();
     let text = text.trim().to_string();
     if text.is_empty() {
-        anyhow::bail!("Bedrock returned no text (stop reason: {})", if stop_reason.is_empty() { "none" } else { &stop_reason });
+        let why = if stop_reason.is_empty() { "none" } else { &stop_reason };
+        // Models that think by default can spend the whole budget before answering.
+        let hint = if stop_reason == "max_tokens" { "; the model used its whole token budget, often on thinking" } else { "" };
+        anyhow::bail!("Bedrock returned no text (stop reason: {why}{hint})");
     }
     Ok(Reply { text, stop_reason })
 }
@@ -116,6 +124,15 @@ pub fn map_error(status: u16, body: &str, req: &Request) -> anyhow::Error {
         400 if lower.contains("on-demand throughput") || lower.contains("inference profile") => anyhow::anyhow!(
             "Bedrock needs an inference-profile id for this model (400); try a 'us.' or 'global.' prefix, \
              e.g. us.{model}. AWS said: {aws}"
+        ),
+        // Anthropic's model tables list the IDs of Bedrock's separate Messages-API
+        // endpoint (bedrock-mantle), e.g. `anthropic.claude-haiku-4-5`. Some of them
+        // don't exist on bedrock-runtime at all, so AWS answers "invalid" instead
+        // of the on-demand hint above.
+        400 if model.starts_with("anthropic.") && lower.contains("identifier") => anyhow::anyhow!(
+            "Bedrock doesn't know '{model}' on bedrock-runtime (400). Helm needs the inference-profile id, \
+             e.g. us.anthropic.claude-opus-5-5 or us.anthropic.claude-haiku-4-5-20251001-v1:0 (see docs/ai.md). \
+             AWS said: {aws}"
         ),
         400 => anyhow::anyhow!("Bedrock rejected the request (400). AWS said: {aws}"),
         408 | 424 | 500..=599 => anyhow::anyhow!("Bedrock had a temporary problem (HTTP {status}). Try again. AWS said: {aws}"),
@@ -293,8 +310,55 @@ mod tests {
         assert!(e.contains("inference-profile id"), "{e}");
         let e = err_for(400, r#"{"message":"The provided model identifier is invalid."}"#);
         assert!(e.contains("rejected the request (400)") && e.contains("model identifier is invalid"), "{e}");
+        // Model errors pass through Converse as a 400 ValidationException.
+        let e = err_for(400, r#"{"message":"The model returned the following errors: tool_choice: type \"tool\" and \"any\" are not supported for this model."}"#);
+        assert!(e.contains("rejected the request (400)") && e.contains("tool_choice"), "{e}");
+    }
+
+    fn err_for_model(model: &str, status: u16, fixture: &str) -> String {
+        let http = FakeHttp::default();
+        http.on("POST", "/converse", status, fixture);
+        let r = Request { model, ..req() };
+        converse(&http, &creds(None), &r, SystemTime::now()).unwrap_err().to_string()
+    }
+
+    /// Bare `anthropic.` IDs (Anthropic's Messages-API table) point the user at
+    /// the inference-profile ID instead of a generic 400.
+    #[test]
+    fn bare_anthropic_ids_get_an_inference_profile_hint() {
+        let e = err_for_model(
+            "anthropic.claude-opus-5-5",
+            400,
+            r#"{"message":"Invocation of model ID anthropic.claude-opus-5-5 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model."}"#,
+        );
+        assert!(e.contains("us.anthropic.claude-opus-5-5"), "{e}");
+        let e = err_for_model("anthropic.claude-haiku-4-5", 400, r#"{"message":"The provided model identifier is invalid."}"#);
+        assert!(e.contains("inference-profile id") && e.contains("us.anthropic.claude-haiku-4-5-20251001-v1:0"), "{e}");
         let e = err_for(503, r#"{"message":"Service unavailable"}"#);
         assert!(e.contains("temporary"), "{e}");
+    }
+
+    /// Opus 4.7+ / Sonnet 5 / Opus 5.x are served by bedrock-runtime too, with
+    /// dateless `us.` inference-profile IDs: same endpoint, same signing scope.
+    #[test]
+    fn new_generation_us_profiles_use_converse_and_bedrock_scope() {
+        for model in ["us.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-5", "us.anthropic.claude-opus-4-8"] {
+            let spy = HeaderSpy { inner: FakeHttp::default(), headers: Mutex::new(vec![]) };
+            spy.inner.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
+            converse(&spy, &creds(None), &Request { model, ..req() }, at("2026-09-27T12:00:00Z")).unwrap();
+            assert_eq!(spy.inner.requests()[0].1, format!("https://bedrock-runtime.us-east-1.amazonaws.com/model/{model}/converse"));
+            let h = spy.headers.lock().unwrap().clone();
+            assert!(header(&h, "authorization").contains("/20260927/us-east-1/bedrock/aws4_request"), "{model}");
+        }
+    }
+
+    /// Models that think by default (Sonnet 5, Opus 5.x) return a
+    /// `reasoningContent` block before the text; only the text is the answer.
+    #[test]
+    fn reasoning_blocks_are_not_part_of_the_answer() {
+        let r = parse_reply(include_str!("../../tests/fixtures/bedrock/converse_reasoning.json")).unwrap();
+        assert_eq!(r.text, "Two open items: the Datadog quote and the Acme postmortem.");
+        assert_eq!(r.stop_reason, "end_turn");
     }
 
     #[test]
@@ -302,5 +366,8 @@ mod tests {
         let body = r#"{"output":{"message":{"role":"assistant","content":[]}},"stopReason":"content_filtered","usage":{"inputTokens":1,"outputTokens":0,"totalTokens":1},"metrics":{"latencyMs":5}}"#;
         let e = parse_reply(body).unwrap_err().to_string();
         assert!(e.contains("content_filtered"), "{e}");
+        let body = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"reasoningText":{"text":"","signature":"x"}}}]}},"stopReason":"max_tokens"}"#;
+        let e = parse_reply(body).unwrap_err().to_string();
+        assert!(e.contains("max_tokens") && e.contains("thinking"), "{e}");
     }
 }

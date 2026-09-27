@@ -21,7 +21,9 @@ use std::fmt::Write;
 
 /// Below this the suggestion is noise; the item stays in Unsorted.
 pub const MIN_CONFIDENCE: f64 = 0.4;
-const MAX_TOKENS: u32 = 200;
+/// The answer is ~30 tokens. The headroom is for a small tier set to a model
+/// that thinks by default (Sonnet 5), whose thinking counts against this cap.
+const MAX_TOKENS: u32 = 1024;
 
 const SYSTEM: &str = "You file a single work item under one of the user's existing topics. \
 Pick a topic only if the item is clearly about it; otherwise answer null. \

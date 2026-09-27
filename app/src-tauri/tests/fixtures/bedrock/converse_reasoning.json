@@ -1,0 +1,20 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        { "reasoningContent": { "reasoningText": { "text": "", "signature": "EqQBCkYIBxgCKkDexample" } } },
+        { "text": "Two open items: the Datadog quote and the Acme postmortem." }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 1540,
+    "outputTokens": 212,
+    "totalTokens": 1752
+  },
+  "metrics": {
+    "latencyMs": 6120
+  }
+}
