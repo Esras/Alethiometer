@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "messages": [
+    {"type": "message", "user": "U0MARCO", "text": "Backoff patch is up, needs a second reviewer.", "ts": "1789990000.000200", "thread_ts": "1789990000.000200", "reply_count": 2, "reply_users_count": 2, "latest_reply": "1789996000.000700", "reply_users": ["U0SAM", "U0MARCO"], "subscribed": true, "last_read": "1789996000.000700"},
+    {"type": "message", "user": "U0SAM", "text": "<@U0MARCO> I can review &amp; merge", "ts": "1789995000.000600", "thread_ts": "1789990000.000200", "parent_user_id": "U0MARCO"},
+    {"type": "message", "user": "U0MARCO", "text": "thanks, see <https://github.com/acme/hooks/pull/812|PR 812> and <#C0INC|inc-2291>", "ts": "1789996000.000700", "thread_ts": "1789990000.000200", "parent_user_id": "U0MARCO"}
+  ],
+  "has_more": false,
+  "response_metadata": {"next_cursor": ""}
+}

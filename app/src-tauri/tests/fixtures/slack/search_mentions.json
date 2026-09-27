@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "query": "<@U0ME> after:2026-09-20",
+  "messages": {
+    "total": 3,
+    "matches": [
+      {"iid": "b1", "team": "T0ACME", "type": "message", "user": "U0SAM", "username": "sam", "text": "<@U0ME> can you approve the Q4 headcount sheet?", "ts": "1789998000.000900", "channel": {"id": "C0RANDOM", "is_channel": true, "is_im": false, "is_mpim": false, "is_private": false, "is_shared": false, "name": "random"}, "permalink": "https://acme.slack.com/archives/C0RANDOM/p1789998000000900"},
+      {"iid": "b2", "team": "T0ACME", "type": "message", "user": "U0SAM", "username": "sam", "text": "Anyone else seeing webhook lag? cc <@U0ME>", "ts": "1789960000.000100", "channel": {"id": "C0INC", "is_channel": true, "is_im": false, "is_mpim": false, "is_private": false, "name": "inc-2291"}, "permalink": "https://acme.slack.com/archives/C0INC/p1789960000000100"},
+      {"iid": "b3", "team": "T0ACME", "type": "message", "user": "U0ALICE", "username": "alice", "text": "U0ME is the owner of that dashboard", "ts": "1789997500.000850", "channel": {"id": "C0RANDOM", "is_channel": true, "is_im": false, "is_mpim": false, "is_private": false, "name": "random"}, "permalink": "https://acme.slack.com/archives/C0RANDOM/p1789997500000850"}
+    ],
+    "pagination": {"first": 1, "last": 3, "page": 1, "page_count": 1, "per_page": 50, "total_count": 3},
+    "paging": {"count": 50, "page": 1, "pages": 1, "total": 3}
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "channels": [
+    {"id": "G0MPIM", "name": "mpdm-alice--bob--me-1", "is_channel": false, "is_group": true, "is_im": false, "is_mpim": true, "is_private": true, "is_archived": false, "created": 1780000000, "creator": "U0ALICE", "topic": {"value": "Group messaging", "creator": "U0ALICE", "last_set": 1780000000}, "purpose": {"value": "Group messaging with: @alice @bob @me", "creator": "U0ALICE", "last_set": 1780000000}},
+    {"id": "C0RANDOM", "name": "random", "name_normalized": "random", "is_channel": true, "is_group": false, "is_im": false, "is_mpim": false, "is_private": false, "is_archived": false, "is_general": false, "created": 1600000000, "creator": "U0SAM", "topic": {"value": "", "creator": "", "last_set": 0}, "purpose": {"value": "", "creator": "", "last_set": 0}}
+  ],
+  "response_metadata": {"next_cursor": ""}
+}

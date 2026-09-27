@@ -7,9 +7,16 @@ use serde_json::Value;
 pub struct Response {
     pub status: u16,
     pub body: String,
+    /// Response headers, names lowercased (e.g. `retry-after` on a 429).
+    pub headers: Vec<(String, String)>,
 }
 
 impl Response {
+    /// First header named `name` (case-insensitive).
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+
     pub fn json(&self) -> anyhow::Result<Value> {
         Ok(serde_json::from_str(&self.body)?)
     }
@@ -67,8 +74,13 @@ impl Http for UreqHttp {
             None => self.agent.run(req.body(())?)?,
         };
         let status = resp.status().as_u16();
+        let headers = resp
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| Some((k.as_str().to_ascii_lowercase(), v.to_str().ok()?.to_owned())))
+            .collect();
         let body = resp.body_mut().read_to_string()?;
-        Ok(Response { status, body })
+        Ok(Response { status, body, headers })
     }
 }
 
@@ -83,10 +95,12 @@ pub struct FakeHttp {
 impl FakeHttp {
     /// Respond to `method` requests whose URL contains `url_part`. Later routes win.
     pub fn on(&self, method: &str, url_part: &str, status: u16, body: impl Into<String>) -> &Self {
-        self.routes
-            .lock()
-            .unwrap()
-            .push((method.into(), url_part.into(), Response { status, body: body.into() }));
+        self.on_response(method, url_part, Response { status, body: body.into(), headers: vec![] })
+    }
+
+    /// Like `on`, with full control over the response (e.g. headers).
+    pub fn on_response(&self, method: &str, url_part: &str, resp: Response) -> &Self {
+        self.routes.lock().unwrap().push((method.into(), url_part.into(), resp));
         self
     }
 
