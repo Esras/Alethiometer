@@ -225,6 +225,10 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             continue;
         }
         cur.seen.insert(id.to_string(), seen);
+        // Holds Helm created itself (Reflect "< schedule") aren't news.
+        if ev.pointer("/extendedProperties/private/helm_item_id").is_some() {
+            batch.seen.push(id.to_string());
+        }
         batch.items.push(item);
     }
     cur.seen.retain(|_, s| s.end >= floor);
@@ -565,6 +569,18 @@ pub(crate) mod tests {
         assert!(offsite.event.is_none() && offsite.drop_event);
         assert_eq!(offsite.occurred_at, "2026-10-01T00:00:00");
         assert_eq!(offsite.ended_at.as_deref(), Some("2026-10-03T00:00:00"));
+    }
+
+    #[test]
+    fn helm_made_holds_arrive_already_seen() {
+        let (_, first) = first_sync();
+        let http = http();
+        let mut page: Value = serde_json::from_str(fixture!("incremental.json")).unwrap();
+        page["items"][2]["extendedProperties"] = json!({ "private": { "helm_item_id": "42" } });
+        http.on("GET", "syncToken=CPDAlvWDx70CEPDAlvWDx70CGAU%3D", 200, page.to_string());
+        let b = poll(&http, json!({}), first.cursor.clone());
+        assert_eq!(b.seen, ["8nw1newinvite"]);
+        assert!(b.items.iter().any(|i| i.external_id == "8nw1newinvite"));
     }
 
     #[test]
