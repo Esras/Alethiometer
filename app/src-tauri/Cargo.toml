@@ -38,6 +38,11 @@ dirs = "7"
 tiny_http = "0.12"
 regex = "1"
 ureq = { version = "3", features = ["json"] }
+# Proton ICS: recurrence expansion (RRULE/EXDATE/RDATE) and IANA time zones.
+rrule = "0.14"
+chrono-tz = "0.10"
+# Obsidian: file watcher so vault edits sync right away (the poll still runs).
+notify = "8.2"
 
 [dev-dependencies]
 tempfile = "3"

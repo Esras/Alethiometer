@@ -304,7 +304,15 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let secret = |k: &str| app.platform.secret_get(k);
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now() };
     // Poll without holding the DB lock; network calls can be slow.
-    let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| apply(&app.db(), &source, &batch));
+    let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| {
+        let conn = app.db();
+        let n = apply(&conn, &source, &batch)?;
+        // Follow-up that needs the database (topic links, closing vanished tasks).
+        if source.kind == "obsidian" {
+            return Ok(n.saturating_sub(connectors::obsidian::after_apply(&conn, &source, &batch)?));
+        }
+        Ok(n)
+    });
     if let Err(e) = &result {
         app.db().execute("UPDATE sources SET last_error = ?2 WHERE id = ?1", params![source_id, e.to_string()])?;
     }
@@ -327,8 +335,14 @@ pub fn start(app: std::sync::Arc<App>) {
         }
     };
     for (id, name) in ids {
-        let poll = app.settings.sources.iter().find(|s| s.name == name).map(|s| s.poll_secs).unwrap_or(300).max(30);
+        let cfg = app.settings.sources.iter().find(|s| s.name == name);
+        let poll = cfg.map(|s| s.poll_secs).unwrap_or(300).max(30);
         let app = app.clone();
+        // The vault runs its own loop: file watcher plus a short poll.
+        if cfg.is_some_and(|s| s.kind == "obsidian") {
+            connectors::obsidian::run(app, id, name, std::time::Duration::from_secs(poll));
+            continue;
+        }
         std::thread::Builder::new()
             .name(format!("sync-{name}"))
             .spawn(move || loop {
