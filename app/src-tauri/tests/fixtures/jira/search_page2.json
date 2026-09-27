@@ -1,0 +1,41 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10201",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10201",
+      "key": "PLAT-1201",
+      "changelog": {
+        "startAt": 0, "maxResults": 1, "total": 1,
+        "histories": [
+          { "id": "20003", "author": { "accountId": "acc-me", "displayName": "Sam Rivera" },
+            "created": "2026-09-26T18:00:00.000+0000",
+            "items": [ { "field": "assignee", "fieldtype": "jira", "fieldId": "assignee", "from": "acc-me", "fromString": "Sam Rivera", "to": null, "toString": null } ] }
+        ]
+      },
+      "fields": {
+        "summary": "Dashboards for queue depth",
+        "issuetype": { "id": "10002", "name": "Task", "subtask": false },
+        "project": { "id": "10000", "key": "PLAT", "name": "Platform" },
+        "status": { "id": "10000", "name": "To Do", "statusCategory": { "id": 2, "key": "new", "name": "To Do" } },
+        "assignee": null,
+        "reporter": { "accountId": "acc-jordan", "displayName": "Jordan Park", "active": true },
+        "duedate": null,
+        "created": "2026-09-22T10:00:00.000+0200",
+        "updated": "2026-09-26T20:00:00.000+0200",
+        "description": null,
+        "comment": {
+          "startAt": 0, "maxResults": 1, "total": 1,
+          "comments": [
+            { "id": "30003", "author": { "accountId": "acc-jordan", "displayName": "Jordan Park" },
+              "created": "2026-09-26T17:00:00.000+0000", "updated": "2026-09-26T17:00:00.000+0000",
+              "body": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [
+                { "type": "mention", "attrs": { "id": "acc-kim", "text": "@Kim" } },
+                { "type": "text", "text": " any update?" } ] } ] } }
+          ]
+        }
+      }
+    }
+  ],
+  "isLast": true
+}

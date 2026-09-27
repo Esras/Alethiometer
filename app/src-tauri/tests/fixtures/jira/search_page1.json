@@ -1,0 +1,78 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10170",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10170",
+      "key": "PLAT-1170",
+      "changelog": {
+        "startAt": 0, "maxResults": 1, "total": 1,
+        "histories": [
+          { "id": "20001", "author": { "accountId": "acc-jordan", "displayName": "Jordan Park" },
+            "created": "2026-09-25T09:00:00.000+0000",
+            "items": [ { "field": "status", "fieldtype": "jira", "fieldId": "status", "from": "3", "fromString": "In Progress", "to": "10004", "toString": "In Review" } ] }
+        ]
+      },
+      "fields": {
+        "summary": "Retry budget for ingest workers",
+        "issuetype": { "id": "10002", "name": "Task", "subtask": false },
+        "project": { "id": "10000", "key": "PLAT", "name": "Platform" },
+        "status": { "id": "10004", "name": "In Review", "statusCategory": { "id": 4, "key": "indeterminate", "name": "In Progress" } },
+        "assignee": { "accountId": "acc-me", "displayName": "Sam Rivera", "active": true },
+        "reporter": { "accountId": "acc-jordan", "displayName": "Jordan Park", "active": true },
+        "duedate": "2026-10-02",
+        "created": "2026-09-20T10:00:00.000+0000",
+        "updated": "2026-09-26T14:05:00.000+0000",
+        "description": {
+          "type": "doc", "version": 1,
+          "content": [
+            { "type": "paragraph", "content": [ { "type": "text", "text": "Workers retry forever on 5xx." } ] },
+            { "type": "paragraph", "content": [ { "type": "text", "text": "Cap it." } ] }
+          ]
+        },
+        "comment": {
+          "startAt": 0, "maxResults": 2, "total": 2,
+          "comments": [
+            { "id": "30001", "author": { "accountId": "acc-me", "displayName": "Sam Rivera" },
+              "created": "2026-09-24T10:00:00.000+0000", "updated": "2026-09-24T10:00:00.000+0000",
+              "body": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Draft PR is up." } ] } ] } },
+            { "id": "30002", "author": { "accountId": "acc-jordan", "displayName": "Jordan Park" },
+              "created": "2026-09-26T13:00:00.000+0000", "updated": "2026-09-26T13:00:00.000+0000",
+              "body": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [
+                { "type": "mention", "attrs": { "id": "acc-me", "text": "@Sam", "accessLevel": "" } },
+                { "type": "text", "text": " can you look?" } ] } ] } }
+          ]
+        }
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10150",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10150",
+      "key": "PLAT-1150",
+      "changelog": {
+        "startAt": 0, "maxResults": 1, "total": 1,
+        "histories": [
+          { "id": "20002", "author": { "accountId": "acc-kim", "displayName": "Kim Lee" },
+            "created": "2026-09-27T08:30:12.345+0000",
+            "items": [ { "field": "status", "fieldtype": "jira", "fieldId": "status", "from": "10004", "fromString": "In Review", "to": "10001", "toString": "Done" } ] }
+        ]
+      },
+      "fields": {
+        "summary": "Rotate ingest credentials",
+        "issuetype": { "id": "10002", "name": "Task", "subtask": false },
+        "project": { "id": "10000", "key": "PLAT", "name": "Platform" },
+        "status": { "id": "10001", "name": "Done", "statusCategory": { "id": 3, "key": "done", "name": "Done" } },
+        "assignee": { "accountId": "acc-kim", "displayName": "Kim Lee", "active": true },
+        "reporter": { "accountId": "acc-me", "displayName": "Sam Rivera", "active": true },
+        "duedate": null,
+        "created": "2026-09-10T10:00:00.000+0000",
+        "updated": "2026-09-27T08:30:12.345+0000",
+        "description": null,
+        "comment": { "startAt": 0, "maxResults": 0, "total": 0, "comments": [] }
+      }
+    }
+  ],
+  "nextPageToken": "tok-page-2",
+  "isLast": false
+}

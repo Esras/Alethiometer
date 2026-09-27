@@ -305,6 +305,13 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now() };
     // Poll without holding the DB lock; network calls can be slow.
     let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| apply(&app.db(), &source, &batch));
+    // GitHub: items from a repo linked to exactly one topic become suggested links.
+    let result = result.and_then(|n| {
+        if source.kind == "github" {
+            connectors::github::link_repo_topics(&app.db(), source.id)?;
+        }
+        Ok(n)
+    });
     if let Err(e) = &result {
         app.db().execute("UPDATE sources SET last_error = ?2 WHERE id = ?1", params![source_id, e.to_string()])?;
     }

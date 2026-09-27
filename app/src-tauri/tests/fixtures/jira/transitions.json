@@ -1,0 +1,11 @@
+{
+  "expand": "transitions",
+  "transitions": [
+    { "id": "11", "name": "To Do", "hasScreen": false, "isAvailable": true,
+      "to": { "id": "10000", "name": "To Do", "statusCategory": { "id": 2, "key": "new", "name": "To Do" } } },
+    { "id": "21", "name": "Start review", "hasScreen": false, "isAvailable": true,
+      "to": { "id": "10004", "name": "In Review", "statusCategory": { "id": 4, "key": "indeterminate", "name": "In Progress" } } },
+    { "id": "31", "name": "Done", "hasScreen": false, "isAvailable": true,
+      "to": { "id": "10001", "name": "Done", "statusCategory": { "id": 3, "key": "done", "name": "Done" } } }
+  ]
+}

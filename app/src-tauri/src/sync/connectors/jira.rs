@@ -1,11 +1,686 @@
-//! Jira connector. TODO: implement.
+//! Jira Cloud connector (REST API v3), basic auth with email + API token.
+//!
+//! Poll: one JQL search (`GET /rest/api/3/search/jql`, paged by `nextPageToken`;
+//! the classic `/search` endpoint is gone). The cursor is the newest `updated`
+//! instant we have seen, stored as RFC 3339 UTC with milliseconds.
+//!
+//! JQL dates have minute precision and are read in the *Jira profile's* time
+//! zone, which we don't know without a tz database. So the JQL bound is the
+//! cursor minus one day (covers any UTC offset) and the overlap is harmless:
+//! upserts are idempotent, and "is this new signal?" (`bump`) is decided by
+//! comparing exact changelog/comment timestamps against the cursor instant.
+//!
+//! Send: transition, comment (plain text → ADF), assign, create_issue (from Notes).
 
-use crate::sync::{Batch, Connector, Ctx};
+use super::github::urlencode;
+use crate::sync::http::Response;
+use crate::sync::{local_ts, Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use chrono::{DateTime, FixedOffset, Utc};
+use serde_json::{json, Value};
 
 pub struct Jira;
 
+/// Default secret name for the API token; `config.secret` overrides it.
+pub const DEFAULT_SECRET: &str = "jira_api_token";
+
+/// Mentions can't be searched reliably in JQL (`comment ~ currentUser()` is
+/// unsupported and inconsistent in Jira Cloud), so the default covers what JQL
+/// can express. Mentions on these issues still bump them (see `bump`).
+pub const DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()";
+
+const PAGE_SIZE: usize = 100;
+const MAX_PAGES: usize = 20;
+const DEFAULT_LOOKBACK_DAYS: i64 = 14;
+const FIELDS: &str = "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype";
+/// How many recent comments to keep as expanded context.
+const KEEP_COMMENTS: usize = 5;
+
+struct Api<'a> {
+    ctx: &'a Ctx<'a>,
+    base: String,
+    auth: String,
+}
+
+impl<'a> Api<'a> {
+    fn new(ctx: &'a Ctx<'a>) -> anyhow::Result<Api<'a>> {
+        let base = ctx.config_str("base_url")?.trim_end_matches('/').to_string();
+        let email = ctx.config_str("email")?;
+        let secret = ctx.source.config.get("secret").and_then(Value::as_str).unwrap_or(DEFAULT_SECRET);
+        let token = ctx.require_secret(secret)?;
+        Ok(Api { ctx, base, auth: format!("Basic {}", base64(format!("{email}:{token}").as_bytes())) })
+    }
+
+    fn call(&self, method: &str, path: &str, body: Option<&Value>) -> anyhow::Result<Response> {
+        let url = format!("{}{path}", self.base);
+        let mut headers = vec![("authorization", self.auth.as_str()), ("accept", "application/json")];
+        let body = body.map(Value::to_string);
+        if body.is_some() {
+            headers.push(("content-type", "application/json"));
+        }
+        let resp = self.ctx.http.request(method, &url, &headers, body.as_deref())?;
+        if (200..300).contains(&resp.status) {
+            Ok(resp)
+        } else {
+            Err(error(&resp))
+        }
+    }
+
+    fn get(&self, path: &str) -> anyhow::Result<Value> {
+        self.call("GET", path, None)?.json()
+    }
+
+    fn browse(&self, key: &str) -> String {
+        format!("{}/browse/{key}", self.base)
+    }
+}
+
+/// Jira's error body is `{"errorMessages": [...], "errors": {field: msg}}`.
+/// Surface those; never the request (it carries the token).
+fn error(resp: &Response) -> anyhow::Error {
+    let v: Value = serde_json::from_str(&resp.body).unwrap_or(Value::Null);
+    let mut parts: Vec<String> = v
+        .get("errorMessages")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    if let Some(errs) = v.get("errors").and_then(Value::as_object) {
+        parts.extend(errs.iter().map(|(k, m)| format!("{k}: {}", m.as_str().unwrap_or(&m.to_string()))));
+    }
+    let detail = if !parts.is_empty() {
+        parts.join("; ")
+    } else {
+        match resp.status {
+            401 => "email or API token rejected".into(),
+            403 => "no permission (or CAPTCHA required; log in once in the browser)".into(),
+            429 => "rate limited; will retry next poll".into(),
+            _ => resp.body.chars().take(200).collect(),
+        }
+    };
+    anyhow::anyhow!("Jira {}: {detail}", resp.status)
+}
+
 impl Connector for Jira {
-    fn poll(&self, _ctx: &Ctx) -> anyhow::Result<Batch> {
-        anyhow::bail!("Jira connector not built yet")
+    fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
+        let api = Api::new(ctx)?;
+        let me = api.get("/rest/api/3/myself")?;
+        let me = me.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
+
+        let cursor = ctx.source.cursor.as_deref().and_then(parse_time).map(|t| t.with_timezone(&Utc));
+        let since = cursor.unwrap_or_else(|| {
+            let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
+            now_utc(ctx) - chrono::Duration::days(days)
+        });
+        let bound = (since - chrono::Duration::days(1)).format("%Y-%m-%d %H:%M");
+        let base_jql = ctx.source.config.get("jql").and_then(Value::as_str).unwrap_or(DEFAULT_JQL);
+        let jql = format!("({base_jql}) AND updated >= \"{bound}\" ORDER BY updated ASC");
+
+        let mut batch = Batch::default();
+        let mut newest = cursor;
+        let mut token: Option<String> = None;
+        for _ in 0..MAX_PAGES {
+            let mut path = format!(
+                "/rest/api/3/search/jql?jql={}&maxResults={PAGE_SIZE}&fields={FIELDS}&expand=changelog",
+                urlencode(&jql)
+            );
+            if let Some(t) = &token {
+                path.push_str(&format!("&nextPageToken={}", urlencode(t)));
+            }
+            let page = api.get(&path)?;
+            for issue in page.get("issues").and_then(Value::as_array).into_iter().flatten() {
+                let Some(item) = map_issue(&api, issue, &me, cursor) else { continue };
+                if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(parse_time) {
+                    let u = u.with_timezone(&Utc);
+                    if newest.is_none_or(|n| u > n) {
+                        newest = Some(u);
+                    }
+                }
+                batch.items.push(item);
+            }
+            token = page.get("nextPageToken").and_then(Value::as_str).map(str::to_owned);
+            let last = page.get("isLast").and_then(Value::as_bool).unwrap_or(token.is_none());
+            if last || token.is_none() {
+                break;
+            }
+        }
+        batch.cursor = newest.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+        Ok(batch)
+    }
+
+    fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
+        let api = Api::new(ctx)?;
+        match op {
+            "jira.transition" => transition(&api, payload),
+            "jira.comment" => {
+                let key = issue_key(payload)?;
+                let body = text(payload, "body")?;
+                let resp = api.call("POST", &format!("/rest/api/3/issue/{key}/comment"), Some(&json!({ "body": to_adf(&body) })))?;
+                let id = resp.json()?.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                Ok(json!({ "key": key, "comment_id": id, "url": format!("{}?focusedCommentId={id}", api.browse(&key)) }))
+            }
+            "jira.assign" => {
+                let key = issue_key(payload)?;
+                let account = text(payload, "account_id")?;
+                api.call("PUT", &format!("/rest/api/3/issue/{key}/assignee"), Some(&json!({ "accountId": account })))?;
+                Ok(json!({ "key": key, "account_id": account, "url": api.browse(&key) }))
+            }
+            "jira.create_issue" => create_issue(&api, payload),
+            _ => anyhow::bail!("Jira doesn't support '{op}'"),
+        }
+    }
+}
+
+fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>) -> Option<ItemUpsert> {
+    let key = issue.get("key")?.as_str()?.to_string();
+    let f = issue.get("fields")?;
+    let s = |p: &str| f.pointer(p).and_then(Value::as_str);
+    let assignee_id = s("/assignee/accountId");
+    let mine = assignee_id.is_some() && assignee_id == Some(me);
+    let who = if mine { "you".to_string() } else { s("/assignee/displayName").unwrap_or("Unassigned").to_string() };
+    let status_name = s("/status/name").unwrap_or("Unknown");
+    let done = s("/status/statusCategory/key") == Some("done");
+    let comments: Vec<&Value> = f.pointer("/comment/comments").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+    let messages = comments
+        .iter()
+        .rev()
+        .take(KEEP_COMMENTS)
+        .rev()
+        .filter_map(|c| {
+            Some(Message {
+                at: to_local(c.get("created")?.as_str()?)?,
+                author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
+                text: adf_text(c.get("body")?),
+            })
+        })
+        .collect();
+    let mut raw = issue.clone();
+    if let Some(o) = raw.as_object_mut() {
+        o.remove("changelog");
+    }
+    Some(ItemUpsert {
+        title: format!("{key} · {}", s("/summary").unwrap_or("")),
+        body: f.get("description").map(adf_text).unwrap_or_default(),
+        summary: Some(format!("{status_name} · {who}")),
+        url: Some(api.browse(&key)),
+        author: f.get("reporter").and_then(|r| {
+            Some(Handle {
+                handle: r.get("accountId")?.as_str()?.to_string(),
+                display_name: r.get("displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
+            })
+        }),
+        occurred_at: s("/updated").and_then(to_local).or_else(|| s("/created").and_then(to_local))?,
+        due_at: s("/duedate").map(|d| format!("{d}T23:59:00")),
+        status: if done { "done" } else { "open" }.into(),
+        msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
+        owner: if mine { Some("you".into()) } else { s("/assignee/displayName").map(str::to_owned) },
+        bump: cursor.is_some_and(|c| bump(issue, me, c)),
+        external_id: key,
+        kind: "issue".into(),
+        raw_json: raw,
+        messages,
+        ended_at: None,
+        event: None,
+    })
+}
+
+/// New signal on an issue we already had: someone else changed its status or
+/// assignee, or @mentioned you in a new comment, after the cursor. Our own
+/// changes (e.g. a transition sent from the outbox) never resurface an item.
+fn bump(issue: &Value, me: &str, cursor: DateTime<Utc>) -> bool {
+    let after = |v: &Value| v.get("created").and_then(Value::as_str).and_then(parse_time).is_some_and(|t| t > cursor);
+    let by_other = |v: &Value| v.pointer("/author/accountId").and_then(Value::as_str) != Some(me);
+    let changed = issue.pointer("/changelog/histories").and_then(Value::as_array).into_iter().flatten().any(|h| {
+        after(h)
+            && by_other(h)
+            && h.get("items").and_then(Value::as_array).into_iter().flatten().any(|i| {
+                let field = i.get("fieldId").or_else(|| i.get("field")).and_then(Value::as_str).unwrap_or("");
+                field == "status" || field == "assignee"
+            })
+    });
+    let mentioned = issue
+        .pointer("/fields/comment/comments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|c| after(c) && by_other(c) && c.get("body").is_some_and(|b| mentions(b, me)));
+    changed || mentioned
+}
+
+fn mentions(adf: &Value, account: &str) -> bool {
+    if adf.get("type").and_then(Value::as_str) == Some("mention") && adf.pointer("/attrs/id").and_then(Value::as_str) == Some(account) {
+        return true;
+    }
+    adf.get("content").and_then(Value::as_array).is_some_and(|c| c.iter().any(|n| mentions(n, account)))
+}
+
+fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
+    let key = issue_key(payload)?;
+    let want_id = payload.get("transition_id").or_else(|| payload.get("id")).and_then(|v| match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    });
+    let want_name = payload.get("transition_name").and_then(Value::as_str).map(str::to_lowercase);
+    if want_id.is_none() && want_name.is_none() {
+        anyhow::bail!("jira.transition needs transition_name or transition_id");
+    }
+    let list = api.get(&format!("/rest/api/3/issue/{key}/transitions"))?;
+    let all = list.get("transitions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let name_of = |t: &Value, p: &str| t.pointer(p).and_then(Value::as_str).map(str::to_lowercase);
+    // Match the transition's id, its name ("Start review"), or its target status ("In Review").
+    let found = all.iter().find(|t| {
+        let id = t.get("id").and_then(Value::as_str);
+        (want_id.is_some() && id == want_id.as_deref())
+            || (want_name.is_some() && (name_of(t, "/name") == want_name || name_of(t, "/to/name") == want_name))
+    });
+    let Some(t) = found else {
+        let names: Vec<&str> = all.iter().filter_map(|t| t.get("name").and_then(Value::as_str)).collect();
+        anyhow::bail!("{key} has no transition '{}' (available: {})", want_name.or(want_id).unwrap_or_default(), names.join(", "));
+    };
+    let id = t.get("id").and_then(Value::as_str).unwrap_or_default();
+    api.call("POST", &format!("/rest/api/3/issue/{key}/transitions"), Some(&json!({ "transition": { "id": id } })))?;
+    Ok(json!({
+        "key": key,
+        "transition": t.get("name"),
+        "to": t.pointer("/to/name"),
+        "url": api.browse(&key),
+    }))
+}
+
+/// Notes enqueues `{summary, assignee (a name from "@Name", or null), notes_line_id, item_id}`.
+/// The summary is the user's own line, sent verbatim.
+fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
+    let summary = text(payload, "summary")?;
+    let project = api.ctx.config_str("create_project")?;
+    let issue_type = api.ctx.source.config.get("create_issue_type").and_then(Value::as_str).unwrap_or("Task");
+    let mut fields = json!({
+        "project": { "key": project },
+        "issuetype": { "name": issue_type },
+        "summary": summary,
+    });
+    // A delegate name only becomes an assignee when it matches exactly one
+    // assignable user; otherwise the issue is created unassigned and the receipt says so.
+    let mut assignee = payload.get("account_id").and_then(Value::as_str).map(str::to_owned);
+    let mut unresolved = None;
+    if assignee.is_none() {
+        if let Some(name) = payload.get("assignee").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
+            let users = api.get(&format!(
+                "/rest/api/3/user/assignable/search?project={}&query={}",
+                urlencode(&project),
+                urlencode(name)
+            ))?;
+            match users.as_array().map(Vec::as_slice) {
+                Some([one]) => assignee = one.get("accountId").and_then(Value::as_str).map(str::to_owned),
+                _ => unresolved = Some(name.to_string()),
+            }
+        }
+    }
+    if let Some(a) = &assignee {
+        fields["assignee"] = json!({ "accountId": a });
+    }
+    let created = api.call("POST", "/rest/api/3/issue", Some(&json!({ "fields": fields })))?.json()?;
+    let key = created.get("key").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Jira created an issue but returned no key"))?;
+    Ok(json!({
+        "key": key,
+        "id": created.get("id"),
+        "url": api.browse(key),
+        "assignee": assignee,
+        "assignee_unresolved": unresolved,
+        "notes_line_id": payload.get("notes_line_id"),
+    }))
+}
+
+fn issue_key(payload: &Value) -> anyhow::Result<String> {
+    let key = text(payload, "key")?;
+    let ok = key.split_once('-').is_some_and(|(p, n)| {
+        !p.is_empty()
+            && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !n.is_empty()
+            && n.chars().all(|c| c.is_ascii_digit())
+    });
+    if !ok {
+        anyhow::bail!("'{key}' isn't a Jira issue key");
+    }
+    Ok(key)
+}
+
+fn text(payload: &Value, field: &str) -> anyhow::Result<String> {
+    payload
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("payload needs a non-empty '{field}'"))
+}
+
+/// Jira returns `2026-09-27T10:15:30.123+0000` (no colon in the offset), which
+/// isn't RFC 3339. Accept both.
+fn parse_time(s: &str) -> Option<DateTime<FixedOffset>> {
+    DateTime::parse_from_rfc3339(s).ok().or_else(|| DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%z").ok())
+}
+
+fn to_local(s: &str) -> Option<String> {
+    parse_time(s).and_then(|t| local_ts(&t.to_rfc3339()))
+}
+
+fn now_utc(ctx: &Ctx) -> DateTime<Utc> {
+    ctx.now.and_local_timezone(chrono::Local).earliest().map(|t| t.with_timezone(&Utc)).unwrap_or_else(Utc::now)
+}
+
+/// Plain text → Atlassian Document Format: blank lines split paragraphs,
+/// single newlines become hard breaks. Text is passed through unchanged.
+pub fn to_adf(text: &str) -> Value {
+    let paragraphs: Vec<Value> = text
+        .replace("\r\n", "\n")
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| {
+            let mut content = vec![];
+            for (i, line) in p.split('\n').enumerate() {
+                if i > 0 {
+                    content.push(json!({ "type": "hardBreak" }));
+                }
+                if !line.is_empty() {
+                    content.push(json!({ "type": "text", "text": line }));
+                }
+            }
+            json!({ "type": "paragraph", "content": content })
+        })
+        .collect();
+    json!({ "type": "doc", "version": 1, "content": paragraphs })
+}
+
+/// ADF → plain text for search and the expanded view. Mentions keep their "@Name".
+pub fn adf_text(adf: &Value) -> String {
+    fn walk(n: &Value, out: &mut String) {
+        match n.get("type").and_then(Value::as_str) {
+            Some("text") => out.push_str(n.get("text").and_then(Value::as_str).unwrap_or("")),
+            Some("mention") | Some("emoji") => out.push_str(n.pointer("/attrs/text").and_then(Value::as_str).unwrap_or("")),
+            Some("hardBreak") => out.push('\n'),
+            _ => {}
+        }
+        for c in n.get("content").and_then(Value::as_array).into_iter().flatten() {
+            walk(c, out);
+        }
+        if matches!(n.get("type").and_then(Value::as_str), Some("paragraph" | "heading" | "codeBlock" | "blockquote" | "listItem")) {
+            out.push('\n');
+        }
+    }
+    let mut out = String::new();
+    match adf {
+        Value::String(s) => out.push_str(s),
+        _ => walk(adf, &mut out),
+    }
+    out.trim().to_string()
+}
+
+/// Standard base64 for the basic-auth header (one call site; not worth a crate).
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::http::FakeHttp;
+    use crate::sync::Source;
+
+    const MYSELF: &str = include_str!("../../../tests/fixtures/jira/myself.json");
+    const PAGE1: &str = include_str!("../../../tests/fixtures/jira/search_page1.json");
+    const PAGE2: &str = include_str!("../../../tests/fixtures/jira/search_page2.json");
+    const TRANSITIONS: &str = include_str!("../../../tests/fixtures/jira/transitions.json");
+
+    fn source(cursor: Option<&str>) -> Source {
+        Source {
+            id: 1,
+            kind: "jira".into(),
+            tag: "work".into(),
+            name: "Work Jira".into(),
+            config: json!({
+                "base_url": "https://acme.atlassian.net/",
+                "email": "me@acme.test",
+                "create_project": "PLAT",
+            }),
+            cursor: cursor.map(str::to_owned),
+        }
+    }
+
+    fn with_ctx<T>(src: &Source, http: &FakeHttp, f: impl FnOnce(&Ctx) -> T) -> T {
+        let secret = |k: &str| (k == DEFAULT_SECRET).then(|| "tok-123".to_string());
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 27).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let ctx = Ctx { source: src, http, secret: &secret, now };
+        f(&ctx)
+    }
+
+    fn polled(cursor: Option<&str>) -> (Batch, Vec<(String, String, Option<String>)>) {
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/myself", 200, MYSELF);
+        http.on("GET", "/rest/api/3/search/jql", 200, PAGE1);
+        http.on("GET", "nextPageToken=tok-page-2", 200, PAGE2);
+        let src = source(cursor);
+        let b = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap();
+        (b, http.requests())
+    }
+
+    #[test]
+    fn polls_all_pages_and_maps_issues() {
+        let (b, reqs) = polled(None);
+        let searches: Vec<&String> = reqs.iter().filter(|r| r.1.contains("/search/jql")).map(|r| &r.1).collect();
+        assert_eq!(searches.len(), 2);
+        assert!(searches[0].starts_with("https://acme.atlassian.net/rest/api/3/search/jql?jql="));
+        assert!(searches[0].contains("expand=changelog"));
+        assert!(searches[1].contains("nextPageToken=tok-page-2"));
+        // JQL is URL-encoded and bounded by updated >=.
+        assert!(searches[0].contains("updated%20%3E%3D%20%22"));
+        assert_eq!(b.items.len(), 3);
+
+        let it = &b.items[0];
+        assert_eq!(it.external_id, "PLAT-1170");
+        assert_eq!(it.kind, "issue");
+        assert_eq!(it.title, "PLAT-1170 · Retry budget for ingest workers");
+        assert_eq!(it.summary.as_deref(), Some("In Review · you"));
+        assert_eq!(it.owner.as_deref(), Some("you"));
+        assert_eq!(it.url.as_deref(), Some("https://acme.atlassian.net/browse/PLAT-1170"));
+        assert_eq!(it.author.as_ref().unwrap().handle, "acc-jordan");
+        assert_eq!(it.due_at.as_deref(), Some("2026-10-02T23:59:00"));
+        assert_eq!(it.status, "open");
+        assert_eq!(it.msg_count, Some(2));
+        assert_eq!(it.occurred_at, to_local("2026-09-26T14:05:00.000+0000").unwrap());
+        assert_eq!(it.body, "Workers retry forever on 5xx.\nCap it.");
+        assert_eq!(it.messages.len(), 2);
+        assert_eq!(it.messages[1].text, "@Sam can you look?");
+        assert!(it.raw_json.get("changelog").is_none());
+        assert!(!it.bump, "first sync never bumps; new items are new signal anyway");
+
+        let other = &b.items[1];
+        assert_eq!(other.owner.as_deref(), Some("Kim Lee"));
+        assert_eq!(other.summary.as_deref(), Some("Done · Kim Lee"));
+        assert_eq!(other.status, "done");
+        let unassigned = &b.items[2];
+        assert_eq!(unassigned.owner, None);
+        assert_eq!(unassigned.summary.as_deref(), Some("To Do · Unassigned"));
+
+        // Cursor = newest `updated`, exact to the millisecond, in UTC.
+        assert_eq!(b.cursor.as_deref(), Some("2026-09-27T08:30:12.345Z"));
+    }
+
+    #[test]
+    fn cursor_bounds_the_query_and_never_goes_backwards() {
+        let (b, reqs) = polled(Some("2026-09-28T00:00:00.000Z"));
+        // Bound is the cursor minus a day (time zone slack), minute precision.
+        assert!(reqs[1].1.contains(&urlencode("updated >= \"2026-09-27 00:00\"")));
+        assert_eq!(b.cursor.as_deref(), Some("2026-09-28T00:00:00.000Z"));
+    }
+
+    #[test]
+    fn bumps_on_others_status_change_or_new_mention_only() {
+        // Cursor between the fixtures' older and newer events.
+        let (b, _) = polled(Some("2026-09-26T12:00:00.000Z"));
+        let by_key = |k: &str| b.items.iter().find(|i| i.external_id == k).unwrap();
+        // PLAT-1170: new comment by Jordan mentioning me (acc-me) after the cursor.
+        assert!(by_key("PLAT-1170").bump);
+        // PLAT-1150: status changed to Done by Kim after the cursor.
+        assert!(by_key("PLAT-1150").bump);
+        // PLAT-1201: only my own assignee change after the cursor, and a mention of someone else.
+        assert!(!by_key("PLAT-1201").bump);
+
+        // Everything is older than a later cursor: nothing bumps.
+        let (b, _) = polled(Some("2026-09-27T09:00:00.000Z"));
+        assert!(b.items.iter().all(|i| !i.bump));
+    }
+
+    #[test]
+    fn missing_secret_or_config_is_a_clear_error() {
+        let http = FakeHttp::default();
+        let mut src = source(None);
+        src.config["secret"] = json!("other_name");
+        let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
+        assert!(err.contains("missing secret 'other_name'"), "{err}");
+        let src = Source { config: json!({ "email": "x" }), ..source(None) };
+        let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
+        assert!(err.contains("config.base_url"), "{err}");
+    }
+
+    #[test]
+    fn surfaces_jira_error_messages_without_the_token() {
+        let http = FakeHttp::default();
+        http.on("GET", "/myself", 200, MYSELF);
+        http.on(
+            "GET",
+            "/search/jql",
+            400,
+            r#"{"errorMessages":["Field 'watcher' does not exist or you do not have permission to view it."],"errors":{"jql":"bad"}}"#,
+        );
+        let src = source(None);
+        let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
+        assert_eq!(err, "Jira 400: Field 'watcher' does not exist or you do not have permission to view it.; jql: bad");
+        http.on("GET", "/myself", 401, "");
+        let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
+        assert_eq!(err, "Jira 401: email or API token rejected");
+        assert!(!err.contains("tok-123"));
+    }
+
+    fn send(op: &str, payload: Value, http: &FakeHttp) -> anyhow::Result<Value> {
+        let src = source(None);
+        with_ctx(&src, http, |ctx| Jira.send(ctx, op, &payload))
+    }
+
+    #[test]
+    fn transition_looks_up_by_name_or_target_status() {
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/issue/PLAT-1170/transitions", 200, TRANSITIONS);
+        http.on("POST", "/rest/api/3/issue/PLAT-1170/transitions", 204, "");
+        let r = send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "done" }), &http).unwrap();
+        assert_eq!(r["key"], "PLAT-1170");
+        assert_eq!(r["to"], "Done");
+        assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1170");
+        let reqs = http.requests();
+        let post = reqs.last().unwrap();
+        assert_eq!(post.0, "POST");
+        assert_eq!(post.1, "https://acme.atlassian.net/rest/api/3/issue/PLAT-1170/transitions");
+        assert_eq!(serde_json::from_str::<Value>(post.2.as_deref().unwrap()).unwrap(), json!({ "transition": { "id": "31" } }));
+
+        // By transition name ("Start review" goes to "In Review") and by id.
+        send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "Start review" }), &http).unwrap();
+        assert!(http.requests().last().unwrap().2.as_deref().unwrap().contains("\"21\""));
+        send("jira.transition", json!({ "key": "PLAT-1170", "transition_id": 11 }), &http).unwrap();
+        assert!(http.requests().last().unwrap().2.as_deref().unwrap().contains("\"11\""));
+
+        let err = send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "Nope" }), &http).unwrap_err();
+        assert!(err.to_string().contains("available: To Do, Start review, Done"), "{err}");
+    }
+
+    #[test]
+    fn comment_sends_adf_and_returns_link() {
+        let http = FakeHttp::default();
+        http.on("POST", "/rest/api/3/issue/PLAT-1170/comment", 201, r#"{"id":"10042","body":{}}"#);
+        let r = send("jira.comment", json!({ "key": "PLAT-1170", "body": "Looks good.\nShip it.\n\nThanks" }), &http).unwrap();
+        assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1170?focusedCommentId=10042");
+        let reqs = http.requests();
+        let body: Value = serde_json::from_str(reqs[0].2.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            body,
+            json!({ "body": { "type": "doc", "version": 1, "content": [
+                { "type": "paragraph", "content": [
+                    { "type": "text", "text": "Looks good." }, { "type": "hardBreak" }, { "type": "text", "text": "Ship it." } ] },
+                { "type": "paragraph", "content": [ { "type": "text", "text": "Thanks" } ] }
+            ] } })
+        );
+        assert!(send("jira.comment", json!({ "key": "PLAT-1170", "body": "  " }), &http).is_err());
+        assert!(send("jira.comment", json!({ "key": "../x", "body": "hi" }), &http).is_err());
+    }
+
+    #[test]
+    fn assign_puts_account_id() {
+        let http = FakeHttp::default();
+        http.on("PUT", "/rest/api/3/issue/PLAT-1201/assignee", 204, "");
+        send("jira.assign", json!({ "key": "PLAT-1201", "account_id": "acc-kim" }), &http).unwrap();
+        let reqs = http.requests();
+        assert_eq!(reqs[0].0, "PUT");
+        assert_eq!(reqs[0].1, "https://acme.atlassian.net/rest/api/3/issue/PLAT-1201/assignee");
+        assert_eq!(serde_json::from_str::<Value>(reqs[0].2.as_deref().unwrap()).unwrap(), json!({ "accountId": "acc-kim" }));
+    }
+
+    #[test]
+    fn create_issue_from_notes_payload_resolves_a_unique_delegate() {
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/user/assignable/search", 200, r#"[{"accountId":"acc-kim","displayName":"Kim Lee","active":true}]"#);
+        http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"10500","key":"PLAT-1300","self":"https://acme.atlassian.net/rest/api/3/issue/10500"}"#);
+        // Exactly what queries/notes.rs enqueues.
+        let payload = json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
+        let r = send("jira.create_issue", payload, &http).unwrap();
+        assert_eq!(r["key"], "PLAT-1300");
+        assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1300");
+        assert_eq!(r["assignee"], "acc-kim");
+        let reqs = http.requests();
+        assert!(reqs[0].1.ends_with("/rest/api/3/user/assignable/search?project=PLAT&query=Kim"));
+        assert_eq!(reqs[1].1, "https://acme.atlassian.net/rest/api/3/issue");
+        assert_eq!(
+            serde_json::from_str::<Value>(reqs[1].2.as_deref().unwrap()).unwrap(),
+            json!({ "fields": {
+                "project": { "key": "PLAT" }, "issuetype": { "name": "Task" },
+                "summary": "Draft retry budget RFC @Kim", "assignee": { "accountId": "acc-kim" } } })
+        );
+
+        // Ambiguous delegate: created unassigned, and the receipt says why.
+        http.on("GET", "/rest/api/3/user/assignable/search", 200, r#"[{"accountId":"a"},{"accountId":"b"}]"#);
+        let r = send("jira.create_issue", json!({ "summary": "x", "assignee": "Sam" }), &http).unwrap();
+        assert_eq!(r["assignee_unresolved"], "Sam");
+        assert!(http.requests().last().unwrap().2.as_deref().unwrap().find("assignee").is_none());
+
+        // No delegate: no user lookup.
+        let before = http.requests().len();
+        send("jira.create_issue", json!({ "summary": "y", "assignee": null }), &http).unwrap();
+        assert_eq!(http.requests().len(), before + 1);
+    }
+
+    #[test]
+    fn create_issue_error_shows_field_errors() {
+        let http = FakeHttp::default();
+        http.on("POST", "/rest/api/3/issue", 400, r#"{"errorMessages":[],"errors":{"issuetype":"Specify a valid issue type"}}"#);
+        let err = send("jira.create_issue", json!({ "summary": "x" }), &http).unwrap_err().to_string();
+        assert_eq!(err, "Jira 400: issuetype: Specify a valid issue type");
+    }
+
+    #[test]
+    fn base64_matches_rfc4648() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"me@acme.test:tok"), "bWVAYWNtZS50ZXN0OnRvaw==");
     }
 }

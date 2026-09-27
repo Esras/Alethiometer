@@ -1,0 +1,35 @@
+{
+  "total_count": 1,
+  "incomplete_results": false,
+  "items": [
+    {
+      "url": "https://api.github.com/repos/platform/ingest/issues/482",
+      "repository_url": "https://api.github.com/repos/platform/ingest",
+      "html_url": "https://github.com/platform/ingest/pull/482",
+      "id": 480482,
+      "number": 482,
+      "title": "Cap retries on 5xx",
+      "user": { "login": "jpark", "id": 5003, "type": "User" },
+      "labels": [],
+      "state": "open",
+      "locked": false,
+      "assignee": null,
+      "assignees": [],
+      "comments": 4,
+      "created_at": "2026-09-20T10:00:00Z",
+      "updated_at": "2026-09-27T07:40:00Z",
+      "closed_at": null,
+      "author_association": "MEMBER",
+      "draft": false,
+      "pull_request": {
+        "url": "https://api.github.com/repos/platform/ingest/pulls/482",
+        "html_url": "https://github.com/platform/ingest/pull/482",
+        "diff_url": "https://github.com/platform/ingest/pull/482.diff",
+        "patch_url": "https://github.com/platform/ingest/pull/482.patch",
+        "merged_at": null
+      },
+      "body": "Adds a retry budget.",
+      "score": 1.0
+    }
+  ]
+}

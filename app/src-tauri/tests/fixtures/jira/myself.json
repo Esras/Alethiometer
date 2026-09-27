@@ -1,0 +1,10 @@
+{
+  "self": "https://acme.atlassian.net/rest/api/3/user?accountId=acc-me",
+  "accountId": "acc-me",
+  "accountType": "atlassian",
+  "emailAddress": "me@acme.test",
+  "displayName": "Sam Rivera",
+  "active": true,
+  "timeZone": "America/New_York",
+  "locale": "en_US"
+}
