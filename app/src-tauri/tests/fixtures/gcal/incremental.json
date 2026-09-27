@@ -1,0 +1,90 @@
+{
+  "kind": "calendar#events",
+  "etag": "\"p33c9dsk4bm8o60o\"",
+  "summary": "alex.morgan@acme.com",
+  "updated": "2026-09-28T17:58:30.001Z",
+  "timeZone": "America/Los_Angeles",
+  "accessRole": "owner",
+  "defaultReminders": [{ "method": "popup", "minutes": 10 }],
+  "nextSyncToken": "CKjC0YiEx70CEKjC0YiEx70CGAU=",
+  "items": [
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012360000\"",
+      "id": "5fh2acmeqbr",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=NWZoMmFjbWU",
+      "updated": "2026-09-28T17:50:00.000Z",
+      "summary": "Acme QBR prep",
+      "creator": { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz" },
+      "organizer": { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz" },
+      "start": { "dateTime": "2026-09-28T15:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "end": { "dateTime": "2026-09-28T15:30:00-07:00", "timeZone": "America/Los_Angeles" },
+      "iCalUID": "5fh2acmeqbr@google.com",
+      "sequence": 1,
+      "attendees": [
+        { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "needsAction" },
+        { "email": "dana.ross@acme.com", "displayName": "Dana Ross", "responseStatus": "accepted" }
+      ],
+      "reminders": { "useDefault": true },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012361000\"",
+      "id": "7kq3c1standup_20260928T150000Z",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=N2txM2Mx",
+      "updated": "2026-09-28T17:52:00.000Z",
+      "summary": "Platform standup",
+      "description": "Agenda in the standup doc. Demo day Thursday.",
+      "creator": { "email": "priya.shah@acme.com", "displayName": "Priya Shah" },
+      "organizer": { "email": "priya.shah@acme.com", "displayName": "Priya Shah" },
+      "start": { "dateTime": "2026-09-28T08:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "end": { "dateTime": "2026-09-28T08:15:00-07:00", "timeZone": "America/Los_Angeles" },
+      "recurringEventId": "7kq3c1standup",
+      "originalStartTime": { "dateTime": "2026-09-28T08:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "iCalUID": "7kq3c1standup@google.com",
+      "sequence": 0,
+      "attendees": [
+        { "email": "priya.shah@acme.com", "displayName": "Priya Shah", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "accepted" },
+        { "email": "jordan.kim@acme.com", "displayName": "Jordan Kim", "responseStatus": "accepted" },
+        { "email": "lee.wong@acme.com", "responseStatus": "accepted" },
+        { "email": "c_1888abc@resource.calendar.google.com", "displayName": "SF-4-Juniper (6)", "resource": true, "responseStatus": "accepted" },
+        { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz", "responseStatus": "tentative" },
+        { "email": "dana.ross@acme.com", "displayName": "Dana Ross", "responseStatus": "accepted", "optional": true }
+      ],
+      "reminders": { "useDefault": true },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012362000\"",
+      "id": "8nw1newinvite",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=OG53MW5ld2ludml0ZQ",
+      "updated": "2026-09-28T17:55:00.000Z",
+      "summary": "Q4 headcount review",
+      "creator": { "email": "jordan.kim@acme.com", "displayName": "Jordan Kim" },
+      "organizer": { "email": "jordan.kim@acme.com", "displayName": "Jordan Kim" },
+      "start": { "dateTime": "2026-10-01T09:30:00-07:00", "timeZone": "America/Los_Angeles" },
+      "end": { "dateTime": "2026-10-01T10:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "iCalUID": "8nw1newinvite@google.com",
+      "sequence": 0,
+      "attendees": [
+        { "email": "jordan.kim@acme.com", "displayName": "Jordan Kim", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "needsAction" }
+      ],
+      "reminders": { "useDefault": true },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012363000\"",
+      "id": "2b9vlunch0928",
+      "status": "cancelled"
+    }
+  ]
+}

@@ -326,6 +326,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, me: &str, cursor: Option<Da
         messages,
         event: None,
         bump,
+        drop_event: false,
     }))
 }
 

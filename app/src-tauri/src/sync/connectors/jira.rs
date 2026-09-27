@@ -218,6 +218,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>) 
         raw_json: raw,
         messages,
         ended_at: None,
+        drop_event: false,
         event: None,
     })
 }

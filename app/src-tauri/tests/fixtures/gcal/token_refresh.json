@@ -1,0 +1,6 @@
+{
+  "access_token": "ya29.a0AfB_byExampleAccessToken",
+  "expires_in": 3599,
+  "scope": "https://www.googleapis.com/auth/calendar.events.owned",
+  "token_type": "Bearer"
+}

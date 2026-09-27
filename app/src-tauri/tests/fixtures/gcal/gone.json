@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": 410,
+    "message": "Sync token is no longer valid, a full sync is required.",
+    "errors": [
+      { "domain": "calendar", "reason": "fullSyncRequired", "message": "Sync token is no longer valid, a full sync is required." }
+    ]
+  }
+}

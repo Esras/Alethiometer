@@ -63,6 +63,11 @@ pub struct Batch {
     pub busy: Option<Vec<Busy>>,
     /// New cursor to store (sync token, updated-since timestamp, etc.).
     pub cursor: Option<String>,
+    /// External ids the remote side cancelled or deleted. The item is kept (no
+    /// deletions of user-visible records), marked done and resurfaced as new
+    /// signal; only its calendar block, a cache of remote times, is dropped.
+    /// Unknown ids are ignored.
+    pub cancelled: Vec<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -93,6 +98,9 @@ pub struct ItemUpsert {
     /// True when this update is new signal (new messages, reassigned, state change).
     /// New items are always new signal.
     pub bump: bool,
+    /// Remove this item's calendar block if it has one (declined, or now all-day).
+    /// The item itself stays. Ignored when `event` is set.
+    pub drop_event: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -175,7 +183,7 @@ pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
 
 /// Write a batch. Returns the number of items that became new signal.
 pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
-    if source.tag == "personal" && !batch.items.is_empty() {
+    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty()) {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
             source.name
@@ -248,6 +256,17 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                     params![item_id, source.id, e.start, e.end, it.title, e.category, e.tentative, e.attendees],
                 )?,
             };
+        } else if it.drop_event {
+            tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [item_id])?;
+        }
+    }
+    for ext in &batch.cancelled {
+        let id: Option<i64> = tx
+            .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext], |r| r.get(0))
+            .optional()?;
+        if let Some(id) = id {
+            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0 WHERE id = ?1 AND status != 'done'", [id])?;
+            tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
     }
     if let Some(busy) = &batch.busy {

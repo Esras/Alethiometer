@@ -162,7 +162,7 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         items: vec![],
     };
     p.run()?;
-    Ok(Batch { items: p.items, busy: None, cursor: Some(serde_json::to_string(&p.state)?) })
+    Ok(Batch { items: p.items, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
 }
 
 impl Poller<'_> {
