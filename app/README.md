@@ -12,7 +12,7 @@ This is the UI-shell pass. All five views run against the real SQLite schema, fi
 | `settings.json` (categories, buffers, AI allow-list) | done |
 | Day strip, countdown, Life blocks, leave-by, buffer override | done |
 | Topics (7a/7b) | done |
-| Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d) | see below |
+| Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
 | Work AI gate (fail closed, Bedrock only) | done; the Bedrock client itself isn't built, so asking returns an error |
 | Connectors: Google Calendar, Slack, Jira, GitHub, Obsidian watcher, Proton ICS | not started |
 | Outbox sender (writeback) | table only |
@@ -94,3 +94,7 @@ Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine 
 | `[` `]` | Topics | previous / next topic |
 | `f` | Topics | cycle chronology filter |
 | `e` | Topics | open the note in Obsidian |
+| `j`/`k`, `[` `]`, `↵`, `c`, `x`, `t`, `o` | Incoming | move, switch topic, expand, confirm, wrong topic, move to topic, open in app |
+| `j`/`k`/`h`/`l`, `↵`, `o`, `p`, `v` | Priorities | move, open topic, open in app, peek, compact/expand quadrant |
+| `Tab`, `⌃↵`/`⌘↵`, `⌘R`, `[` `]`, `t` | Notes | change destination, send to Incoming, retry, previous/next day, today |
+| `d` `w` `m` `q`, `l`, `[` `]`, `j`/`k`, `>` `<` `x`, `u`, `a` | Reflect | scope, lens, period, carry row, carry actions, undo, ask |

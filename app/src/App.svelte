@@ -20,12 +20,12 @@
     .catch((e) => (ui.error = String(e.message ?? e)));
 
   function onKey(e: KeyboardEvent) {
-    if (mod(e) && e.key === 'k') {
+    if (mod(e) && e.key === 'k' && ui.tab !== 'reflect') {
       ui.searchOpen = true;
       e.preventDefault();
       return;
     }
-    if (e.key === '/' && !isTyping(e) && !ui.searchOpen) {
+    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect') {
       ui.searchOpen = true;
       e.preventDefault();
       return;
