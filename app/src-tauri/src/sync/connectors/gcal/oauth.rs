@@ -415,6 +415,8 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
     flows().insert(src.id, Flow::Waiting);
     let id = src.id;
     let redirect = redirect_uri.clone();
+    let platform = app.platform.clone();
+    let refresh_name = names.refresh_token.clone();
     std::thread::Builder::new()
         .name("gcal-consent".into())
         .spawn(move || {
@@ -422,13 +424,26 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
             let outcome = serve_callback(listener, Instant::now() + CONSENT_TIMEOUT, &state, |code| {
                 exchange_code(&http, &client_id, &client_secret, code, &verifier, &redirect)
             });
+            // Save the refresh token right away, so closing Helm can't lose it.
+            let outcome = match outcome {
+                Flow::Exchanged(refresh) => match platform.secret_set(&refresh_name, &refresh) {
+                    Ok(()) => {
+                        CACHE.forget_prefix(&prefix);
+                        Flow::Connected
+                    }
+                    Err(e) => Flow::Failed(format!("couldn't save the refresh token: {e}")),
+                },
+                other => other,
+            };
             flows().insert(id, outcome);
         })?;
+    // Open the consent screen unless the caller only wants the URL.
+    let opened = !args.get("no_open").and_then(Value::as_bool).unwrap_or(false) && app.platform.open_url(&url).is_ok();
     Ok(json!({
         "url": url,
         "redirect_uri": redirect_uri,
         "expires_in_secs": CONSENT_TIMEOUT.as_secs(),
-        "next": "Open the url, approve, then call gcal.auth_status",
+        "opened": opened,
     }))
 }
 

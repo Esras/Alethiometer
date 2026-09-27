@@ -17,6 +17,11 @@ pub trait Platform: Send + Sync {
         false
     }
     fn set_tray_dot(&self, _on: bool) {}
+    /// Open a URL in the default browser (consent screens, "open in app").
+    fn open_url(&self, url: &str) -> std::io::Result<()> {
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(cmd).arg(url).spawn().map(|_| ())
+    }
 }
 
 /// Secrets in `<data dir>/secrets.json`, mode 0600.

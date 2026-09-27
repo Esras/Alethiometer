@@ -46,6 +46,17 @@
     refresh();
   }
 
+  // Google needs a one-time consent in the browser; Helm saves the token itself.
+  let connectMsg = $state<string | null>(null);
+  async function connect(id: number) {
+    try {
+      const r = await call<{ url: string; opened: boolean }>('gcal.auth_start', { source_id: id });
+      connectMsg = r.opened ? 'Approve in your browser, then press Sync.' : `Open this link to approve: ${r.url}`;
+    } catch (e) {
+      connectMsg = String((e as Error).message ?? e);
+    }
+  }
+
   async function syncNow(id: number) {
     try {
       await call('sync.now', { source_id: id });
@@ -81,12 +92,17 @@
           <AppIcon source={s.kind} size={14} />
           <span class="ellipsis">{s.name}</span>
           <span class="when" class:bad={!!s.last_error} title={s.last_error ?? ''}>{s.last_error ? 'error' : ago(s.last_sync_at)}</span>
-          <button class="btn" onclick={() => syncNow(s.id)}>Sync</button>
+          {#if s.kind === 'gcal' && s.last_error}
+            <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
+          {:else}
+            <button class="btn" onclick={() => syncNow(s.id)}>Sync</button>
+          {/if}
         </div>
         {#if s.last_error}<div class="err">{s.last_error}</div>{/if}
       {:else}
         <div class="muted">No live sources yet. Add them under "sources" in settings.json.</div>
       {/each}
+      {#if connectMsg}<div class="muted connect">{connectMsg}</div>{/if}
       {#if writes.length}
         <div class="label">Writes</div>
         {#each writes.slice(0, 8) as w (w.id)}
@@ -171,6 +187,9 @@
   }
   .muted {
     color: var(--tx-label);
+  }
+  .connect {
+    word-break: break-all;
   }
   .state {
     font-size: 10.5px;

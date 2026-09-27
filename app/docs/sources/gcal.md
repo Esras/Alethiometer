@@ -96,11 +96,11 @@ curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_status -d '{}'
 # → {"state": "connected", "has_refresh_token": true, …}
 ```
 
-**`auth_status` is the step that saves the refresh token to the secret store.** Call it once after the browser says it's connected. Until then the token is only in memory, and quitting Helm loses it. The listener waits 10 minutes. Both calls take an optional `source_id` if you have more than one `gcal` source.
+Easiest: open the sync status in the tab bar and press **Connect** next to the calendar source. Helm opens the consent screen in your browser and saves the refresh token as soon as you approve; `auth_status` only reports progress. The listener waits 10 minutes. Both calls take an optional `source_id` if you have more than one `gcal` source.
 
 How it works: authorization code flow with PKCE (S256) and a loopback redirect on `127.0.0.1` at a random port. A random `state` guards the redirect, and the listener accepts only that. Helm asks for offline access with `prompt=consent`, so Google always returns a refresh token. Access tokens live in memory only. They're refreshed a minute before expiry, or after a 401.
 
-**Reconnecting.** If the sync error says "Google refused the refresh token", the token expired (Testing mode: 7 days) or you revoked access. Run `gcal.auth_start` and `gcal.auth_status` again.
+**Reconnecting.** If the sync error says "Google refused the refresh token", the token expired (Testing mode: 7 days) or you revoked access. Press **Connect** again (or run `gcal.auth_start`).
 
 ## What is read
 
@@ -160,3 +160,13 @@ All tests use recorded-shape fixtures (`src-tauri/tests/fixtures/gcal/`). Agains
 - consent works for your Workspace (admin app-access policy) and the chosen user type;
 - `calendar.events.owned` is accepted for RSVP on invitations organized by others;
 - whether the organizer gets an email for your RSVP with `rsvp_send_updates` unset.
+
+## Consent screen options
+
+| Setup | Refresh token lifetime | Notes |
+|---|---|---|
+| **Internal** app (OAuth consent screen user type "Internal") | long-lived | Needs a Google Cloud project inside your Workspace org. Best option if your org lets you create one. |
+| **External**, publishing status **Testing**, you as test user | expires after 7 days | Works anywhere; press Connect again weekly. |
+| **External**, **In production**, unverified | long-lived | Google shows an "unverified app" warning you click through; Workspace admins may block unverified apps. |
+
+Workspace admins can also restrict third-party apps entirely (Admin console → Security → API controls); if consent fails with "access blocked", ask them to allow your OAuth client ID.

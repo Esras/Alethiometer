@@ -13,7 +13,8 @@ pub struct App {
     pub clock: Clock,
     pub data_dir: PathBuf,
     pub vault: PathBuf,
-    pub platform: Box<dyn Platform>,
+    /// Shared so background threads (e.g. the OAuth callback) can store secrets.
+    pub platform: std::sync::Arc<dyn Platform>,
 }
 
 impl App {
@@ -48,7 +49,7 @@ impl App {
             clock,
             data_dir: data_dir.to_path_buf(),
             vault,
-            platform: Box::new(FileSecrets::new(data_dir)),
+            platform: std::sync::Arc::new(FileSecrets::new(data_dir)),
             settings,
         };
         crate::sync::register_sources(&app.db(), &app.settings.sources)?;
