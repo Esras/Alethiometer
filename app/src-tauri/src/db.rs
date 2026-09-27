@@ -3,7 +3,10 @@
 use rusqlite::Connection;
 use std::path::Path;
 
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_sync.sql"),
+];
 
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     let conn = Connection::open(path)?;

@@ -3,24 +3,29 @@ pub mod api;
 pub mod clock;
 pub mod db;
 pub mod error;
+pub mod outbox;
 pub mod platform;
 pub mod queries;
 pub mod seed;
 pub mod settings;
 pub mod state;
+pub mod sync;
 
 #[cfg(feature = "desktop")]
 mod desktop {
     use crate::state::App;
     use serde_json::Value;
+    use std::sync::Arc;
 
     #[tauri::command]
-    fn call(app: tauri::State<'_, App>, cmd: String, args: Value) -> Result<Value, crate::error::Error> {
+    fn call(app: tauri::State<'_, Arc<App>>, cmd: String, args: Value) -> Result<Value, crate::error::Error> {
         crate::api::call(&app, &cmd, &args)
     }
 
     pub fn run() {
-        let app = App::open(&App::default_data_dir()).expect("failed to open Helm data directory");
+        let app = Arc::new(App::open(&App::default_data_dir()).expect("failed to open Helm data directory"));
+        crate::sync::start(app.clone());
+        crate::outbox::start(app.clone());
         tauri::Builder::default()
             .manage(app)
             .invoke_handler(tauri::generate_handler![call])

@@ -396,7 +396,7 @@ fn send(app: &App, date: NaiveDate) -> Result<()> {
             let jira: Option<i64> = tx.query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).optional()?;
             if let Some(jira) = jira {
                 tx.execute(
-                    "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'create_issue', ?2)",
+                    "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'jira.create_issue', ?2)",
                     params![jira, json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item }).to_string()],
                 )?;
             }
@@ -1031,7 +1031,7 @@ mod tests {
         call(&app, "send", &json!({})).unwrap();
         let (op, state): (String, String) =
             app.db().query_row("SELECT op, state FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
-        assert_eq!((op.as_str(), state.as_str()), ("create_issue", "pending"));
+        assert_eq!((op.as_str(), state.as_str()), ("jira.create_issue", "pending"));
     }
 
     #[test]

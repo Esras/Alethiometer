@@ -643,7 +643,7 @@ fn carry_rows(conn: &Connection, scope: Scope, s: NaiveDate, e: NaiveDate) -> Re
 fn outbox_state(conn: &Connection, item_id: i64, period: &str) -> Result<Option<String>> {
     Ok(conn
         .query_row(
-            "SELECT state FROM outbox WHERE op = 'calendar.hold'
+            "SELECT state FROM outbox WHERE op = 'gcal.hold'
                AND json_extract(payload_json, '$.item_id') = ?1 AND json_extract(payload_json, '$.carried_from') = ?2
              ORDER BY id DESC LIMIT 1",
             params![item_id, period],
@@ -718,7 +718,7 @@ fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
                     let title: String = conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
                     let gcal: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'gcal' LIMIT 1", [], |r| r.get(0))?;
                     conn.execute(
-                        "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'calendar.hold', ?2)",
+                        "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'gcal.hold', ?2)",
                         params![gcal, json!({ "item_id": item_id, "title": title, "carried_from": period }).to_string()],
                     )?;
                 }
@@ -737,7 +737,7 @@ fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
                 Some("schedule") => {
                     let n = conn.execute(
                         "UPDATE outbox SET state = 'failed', error = 'cancelled before sending'
-                          WHERE op = 'calendar.hold' AND state = 'pending'
+                          WHERE op = 'gcal.hold' AND state = 'pending'
                             AND json_extract(payload_json, '$.item_id') = ?1 AND json_extract(payload_json, '$.carried_from') = ?2",
                         params![item_id, period],
                     )?;
@@ -1099,7 +1099,7 @@ mod tests {
         assert_eq!(n, 0);
 
         carry(&app, id(1), &t, "schedule").unwrap();
-        let state: String = app.db().query_row("SELECT state FROM outbox WHERE op = 'calendar.hold'", [], |r| r.get(0)).unwrap();
+        let state: String = app.db().query_row("SELECT state FROM outbox WHERE op = 'gcal.hold'", [], |r| r.get(0)).unwrap();
         assert_eq!(state, "pending");
         let got = get(&app, &json!({ "scope": "day", "lens": "both" })).unwrap();
         assert_eq!(got["carry"][1]["outbox"], "pending");

@@ -7,7 +7,9 @@ use tiny_http::{Header, Response, Server};
 
 fn main() -> anyhow::Result<()> {
     let dir: std::path::PathBuf = std::env::var_os("HELM_DATA_DIR").map(Into::into).unwrap_or_else(|| ".helm-dev".into());
-    let app = App::open(&dir)?;
+    let app = std::sync::Arc::new(App::open(&dir)?);
+    helm_lib::sync::start(app.clone());
+    helm_lib::outbox::start(app.clone());
     let addr = std::env::var("HELM_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;
     eprintln!("helm devserver on http://{addr} (data: {})", app.data_dir.display());

@@ -48,6 +48,7 @@ impl App {
             platform: Box::new(FileSecrets::new(data_dir)),
             settings,
         };
+        crate::sync::register_sources(&app.db(), &app.settings.sources)?;
         if app.settings.demo_data {
             crate::seed::seed_if_empty(&app)?;
         }

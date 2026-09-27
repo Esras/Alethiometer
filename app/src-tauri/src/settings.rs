@@ -10,6 +10,33 @@ pub struct Category {
     pub color: String,
 }
 
+/// One configured source. `kind` picks the connector; `name` must be unique per
+/// kind. Secrets are NOT stored here: `secret` names a key in the Keychain (or
+/// `secrets.json` on Linux).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceConfig {
+    pub kind: String,
+    /// "work" or "personal". Personal sources may only produce untitled busy blocks.
+    pub tag: String,
+    pub name: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Seconds between polls. Ignored by live sources (Slack Socket Mode, file watcher).
+    #[serde(default = "default_poll")]
+    pub poll_secs: u64,
+    /// Connector-specific settings (base URL, calendar id, repos, vault path…).
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn default_poll() -> u64 {
+    300
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiTier {
     pub provider: String,
@@ -44,6 +71,8 @@ pub struct Settings {
     pub ai: AiSettings,
     /// Development only: pretend the local time is this ("10:52"). Empty = real clock.
     pub fake_now: String,
+    /// Real sources to sync. Empty while running on sample data.
+    pub sources: Vec<SourceConfig>,
     /// Fill an empty database with the sample data from the design mocks.
     /// Turn off once real sources are connected.
     pub demo_data: bool,
@@ -72,6 +101,7 @@ impl Default for Settings {
                 large: AiTier { provider: "bedrock".into(), model: String::new() },
             },
             fake_now: String::new(),
+            sources: vec![],
             demo_data: true,
         }
     }
