@@ -94,6 +94,7 @@ fn source_label(kind: &str) -> &'static str {
         "notion" => "Notion",
         "marvin" => "Marvin",
         "protoncal" => "Proton Cal",
+        "helm" => "Notes",
         _ => "",
     }
 }
