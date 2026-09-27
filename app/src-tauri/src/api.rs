@@ -21,13 +21,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "search" => queries::search::call(app, name, args),
         "sync" => crate::sync::call(app, name, args),
         "outbox" => crate::outbox::call(app, name, args),
-        "ai" => match name {
-            "ask" => {
-                let q = queries::arg_str(args, "question")?;
-                Ok(json!({ "answer": crate::ai::ask(&app.settings.ai, &q)? }))
-            }
-            _ => Err(unknown(cmd)),
-        },
+        "ai" => crate::ai::call(app, name, args),
         _ => Err(unknown(cmd)),
     }
 }

@@ -1,0 +1,19 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        { "text": "{\"topic_id\": __TOPIC__, \"confidence\": 0.82, \"reason\": \"mentions the Datadog contract renewal\"}" }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 301,
+    "outputTokens": 28,
+    "totalTokens": 329
+  },
+  "metrics": {
+    "latencyMs": 412
+  }
+}
