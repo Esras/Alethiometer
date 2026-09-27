@@ -1,0 +1,96 @@
+# Helm
+
+Personal, local-first work assistant. Tauri 2 (Rust core, system WebKit) with a Svelte 5 UI. The design reference and spec live in `../project/design_handoff_helm/`.
+
+## Status
+
+This is the UI-shell pass. All five views run against the real SQLite schema, filled with sample data from the design mocks. No source connectors are wired yet; that's the next pass.
+
+| Area | State |
+|---|---|
+| Schema, migrations, FTS5 search | done (`src-tauri/migrations`) |
+| `settings.json` (categories, buffers, AI allow-list) | done |
+| Day strip, countdown, Life blocks, leave-by, buffer override | done |
+| Topics (7a/7b) | done |
+| Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d) | see below |
+| Work AI gate (fail closed, Bedrock only) | done; the Bedrock client itself isn't built, so asking returns an error |
+| Connectors: Google Calendar, Slack, Jira, GitHub, Obsidian watcher, Proton ICS | not started |
+| Outbox sender (writeback) | table only |
+| macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
+| sqlite-vec embeddings | not started |
+
+## Run it
+
+### Browser mode (fastest; what the cloud sessions use)
+
+No WebKitGTK needed. The dev server exposes the same `call(cmd, args)` API over HTTP.
+
+```sh
+npm ci
+HELM_FAKE_NOW=10:52 npm run devserver   # Rust core on 127.0.0.1:1421, data in ./.helm-dev
+npm run dev                              # UI on http://localhost:1420
+```
+
+`HELM_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.helm-dev/` to re-seed.
+
+Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses).
+
+### Desktop
+
+Linux needs `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`.
+
+```sh
+npx tauri dev
+```
+
+### Mac build and signing
+
+Build the `.app` on the Mac with `npx tauri build`. Set `bundle.macOS.signingIdentity` in `src-tauri/tauri.conf.json` to your Apple Development certificate (free Apple ID, personal team). Signing every build with the same certificate keeps Keychain and Calendar approvals across rebuilds. No notarization is needed.
+
+## Data and config
+
+Everything lives in the app data directory (`~/Library/Application Support/dev.helm.assistant` on macOS, `~/.local/share/dev.helm.assistant` on Linux; override with `HELM_DATA_DIR`):
+
+- `helm.sqlite`: the database.
+- `settings.json`: written with defaults on first run. Edit by hand.
+- `secrets.json`: API tokens on Linux (mode 0600). On the Mac these move to the Keychain.
+- `vault/`: stand-in work Obsidian vault until `obsidian_vault` is set.
+
+`settings.json` fields:
+
+| Field | Meaning |
+|---|---|
+| `categories` | Category key → `{label, color}`. Topics and calendar blocks reference the keys (`work`, `life`, `jobs`, `self`, `alert`). Change a color here and restart. |
+| `day_start_hour`, `day_end_hour` | Day strip range (default 8–19). |
+| `life_buffer_min` | Default travel buffer before a Life block (press `b` on a block to override one). |
+| `obsidian_vault` | Absolute path to the work vault. |
+| `life_calendars` | Proton Calendar "Limited view" links. Busy times only. |
+| `ai.allowed_providers` | Providers covered by a BAA. Anything else fails closed. |
+| `ai.region`, `ai.small`, `ai.large` | Bedrock region and model per tier. Empty model = AI off. |
+| `fake_now` | Dev only: pin the clock to `HH:MM`. |
+| `demo_data` | Fill an empty database with the sample data. Turn off before connecting real sources. |
+
+## Architecture
+
+- `src-tauri/src/api.rs`: one entry point, `call("<area>.<name>", args)`, used by the Tauri command and by `bin/devserver.rs`.
+- `src-tauri/src/queries/<area>.rs`: read model, actions and sample data for each view.
+- `src-tauri/src/ai.rs`: the only path to an LLM. Checks the allow-list before anything leaves the machine.
+- `src-tauri/src/platform.rs`: Mac-only integrations behind a trait.
+- `src/shell/`: title bar, tabs, day strip, search, assistant pane.
+- `src/views/`: one component per tab.
+
+Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine for one person on one machine; revisit if you travel across time zones with it.
+
+## Keys
+
+| Key | Where | Action |
+|---|---|---|
+| `⌘1`–`⌘5` | anywhere | switch tab |
+| `⌘K` or `/` | anywhere | search |
+| `⌘I` | anywhere | toggle assistant pane |
+| `Esc` | overlays | close |
+| `b` | Life block popover | change travel buffer |
+| `z` | Topics | fold the left column |
+| `[` `]` | Topics | previous / next topic |
+| `f` | Topics | cycle chronology filter |
+| `e` | Topics | open the note in Obsidian |
