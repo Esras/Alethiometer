@@ -69,8 +69,10 @@ export function openTopic(id: number) {
   ui.tab = 'topics';
 }
 
+/** Call after a write: views reload, and the Incoming count updates. */
 export function refresh() {
   ui.rev++;
+  call<AppInfo>('app.info').then((info) => (ui.info = info));
 }
 
 /** Countdown color: green > 15 min, yellow 5–15, orange 2–5, red < 2. */
