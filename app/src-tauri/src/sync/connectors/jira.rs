@@ -11,6 +11,12 @@
 //! comparing exact changelog/comment timestamps against the cursor instant.
 //!
 //! Send: transition, comment (plain text → ADF), assign, create_issue (from Notes).
+//! `create_issue` first looks for the same issue created by an earlier attempt
+//! (see `find_created`), so a retried outbox row doesn't file a duplicate.
+//!
+//! Due dates: Jira's built-in `duedate` is a date without a time; it's stored
+//! as 23:59 that day and every view shows due dates as a day only. A custom
+//! date-time field named by `config.due_field` wins when an issue has it set.
 
 use super::github::urlencode;
 use crate::sync::http::Response;
@@ -34,6 +40,8 @@ const DEFAULT_LOOKBACK_DAYS: i64 = 14;
 const FIELDS: &str = "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype";
 /// How many recent comments to keep as expanded context.
 const KEEP_COMMENTS: usize = 5;
+/// How far back `create_issue` looks for an issue an earlier attempt created.
+const DEFAULT_DEDUPE_HOURS: i64 = 24;
 
 struct Api<'a> {
     ctx: &'a Ctx<'a>,
@@ -114,12 +122,18 @@ impl Connector for Jira {
         let base_jql = ctx.source.config.get("jql").and_then(Value::as_str).unwrap_or(DEFAULT_JQL);
         let jql = format!("({base_jql}) AND updated >= \"{bound}\" ORDER BY updated ASC");
 
+        let due_field = due_field(ctx)?;
+        let fields = match due_field {
+            Some(f) => format!("{FIELDS},{f}"),
+            None => FIELDS.to_string(),
+        };
+
         let mut batch = Batch::default();
         let mut newest = cursor;
         let mut token: Option<String> = None;
         for _ in 0..MAX_PAGES {
             let mut path = format!(
-                "/rest/api/3/search/jql?jql={}&maxResults={PAGE_SIZE}&fields={FIELDS}&expand=changelog",
+                "/rest/api/3/search/jql?jql={}&maxResults={PAGE_SIZE}&fields={fields}&expand=changelog",
                 urlencode(&jql)
             );
             if let Some(t) = &token {
@@ -127,7 +141,7 @@ impl Connector for Jira {
             }
             let page = api.get(&path)?;
             for issue in page.get("issues").and_then(Value::as_array).into_iter().flatten() {
-                let Some(item) = map_issue(&api, issue, &me, cursor) else { continue };
+                let Some(item) = map_issue(&api, issue, &me, cursor, due_field) else { continue };
                 if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(parse_time) {
                     let u = u.with_timezone(&Utc);
                     if newest.is_none_or(|n| u > n) {
@@ -169,7 +183,34 @@ impl Connector for Jira {
     }
 }
 
-fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>) -> Option<ItemUpsert> {
+/// `config.due_field`: a field id like `customfield_10050`. Checked because it
+/// goes into the `fields` query parameter as-is.
+fn due_field<'c>(ctx: &'c Ctx) -> anyhow::Result<Option<&'c str>> {
+    let Some(f) = ctx.source.config.get("due_field").and_then(Value::as_str).map(str::trim).filter(|f| !f.is_empty()) else {
+        return Ok(None);
+    };
+    if !f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        anyhow::bail!("config.due_field should be a field id like customfield_10050, not '{f}'");
+    }
+    Ok(Some(f))
+}
+
+/// Local `due_at`. A date-time custom field (`2026-10-02T17:00:00.000+0200`)
+/// keeps its time, converted to local. A date alone (the built-in `duedate`, or
+/// a custom *date* field) is pinned to 23:59 that day: sorts after that day's
+/// timed work, and views only ever show the day for a due date.
+fn due_at(f: &Value, due_field: Option<&str>) -> Option<String> {
+    let as_due = |v: &Value| {
+        let s = v.as_str()?;
+        if let Some(t) = to_local(s) {
+            return Some(t);
+        }
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| format!("{d}T23:59:00"))
+    };
+    due_field.and_then(|k| f.get(k)).and_then(as_due).or_else(|| f.get("duedate").and_then(as_due))
+}
+
+fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, due_field: Option<&str>) -> Option<ItemUpsert> {
     let key = issue.get("key")?.as_str()?.to_string();
     let f = issue.get("fields")?;
     let s = |p: &str| f.pointer(p).and_then(Value::as_str);
@@ -208,7 +249,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>) 
             })
         }),
         occurred_at: s("/updated").and_then(to_local).or_else(|| s("/created").and_then(to_local))?,
-        due_at: s("/duedate").map(|d| format!("{d}T23:59:00")),
+        due_at: due_at(f, due_field),
         status: if done { "done" } else { "open" }.into(),
         msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
         owner: if mine { Some("you".into()) } else { s("/assignee/displayName").map(str::to_owned) },
@@ -292,6 +333,18 @@ fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
 fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     let summary = text(payload, "summary")?;
     let project = api.ctx.config_str("create_project")?;
+    if let Some(found) = find_created(api, &project, &summary)? {
+        let key = found.get("key").and_then(Value::as_str).unwrap_or_default();
+        return Ok(json!({
+            "key": key,
+            "id": found.get("id"),
+            "url": api.browse(key),
+            "assignee": found.pointer("/fields/assignee/accountId"),
+            "assignee_unresolved": null,
+            "notes_line_id": payload.get("notes_line_id"),
+            "existing": true,
+        }));
+    }
     let issue_type = api.ctx.source.config.get("create_issue_type").and_then(Value::as_str).unwrap_or("Task");
     let mut fields = json!({
         "project": { "key": project },
@@ -327,7 +380,79 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
         "assignee": assignee,
         "assignee_unresolved": unresolved,
         "notes_line_id": payload.get("notes_line_id"),
+        "existing": false,
     }))
+}
+
+/// An issue with exactly this summary that you reported in `project` within
+/// the last `config.create_dedupe_hours` (24): the result of an earlier attempt
+/// of this same write whose receipt got lost (timeout after Jira created it,
+/// crash, ⌘R on a row that had in fact gone through).
+///
+/// The outbox row's own `created_at` isn't passed to `send`, so the window is
+/// a fixed lower bound instead, written as a relative JQL date (`-24h`) so the
+/// Jira profile's time zone doesn't matter. The trade-off: filing the same
+/// summary twice on purpose within the window returns the first issue
+/// (receipt `existing: true`) instead of creating a second one; a retry after
+/// the window can duplicate.
+///
+/// `summary ~` is Jira's word search: it ignores punctuation, stems words and
+/// can't match exactly, so it only narrows the search; the exact comparison
+/// happens here. Its terms are the summary's words, lowercased so `AND`/`OR`/
+/// `NOT` aren't read as search operators, with everything else dropped (the
+/// characters Jira's text search reserves never reach it). If Jira still
+/// rejects the text query (e.g. only stop words), search without it.
+fn find_created(api: &Api, project: &str, summary: &str) -> anyhow::Result<Option<Value>> {
+    let hours = api.ctx.source.config.get("create_dedupe_hours").and_then(Value::as_i64).unwrap_or(DEFAULT_DEDUPE_HOURS);
+    if hours <= 0 {
+        return Ok(None);
+    }
+    let base = format!("project = {} AND reporter = currentUser() AND created >= -{hours}h", jql_string(project));
+    let words = search_words(summary);
+    let search = |jql: &str| {
+        let path = format!("/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,assignee", urlencode(jql));
+        api.get(&path)
+    };
+    let order = " ORDER BY created DESC";
+    let page = if words.is_empty() {
+        search(&format!("{base}{order}"))?
+    } else {
+        match search(&format!("{base} AND summary ~ {}{order}", jql_string(&words))) {
+            Err(e) if e.to_string().starts_with("Jira 400") => search(&format!("{base}{order}"))?,
+            r => r?,
+        }
+    };
+    Ok(page
+        .get("issues")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|i| i.pointer("/fields/summary").and_then(Value::as_str).map(str::trim) == Some(summary.trim()))
+        .cloned())
+}
+
+/// The summary's words (letters and digits), lowercased, for a `~` search.
+fn search_words(s: &str) -> String {
+    s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).take(12).collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// A JQL string literal: double-quoted, with `"` and `\` backslash-escaped.
+/// Line breaks become spaces (a JQL string can't span lines).
+fn jql_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '\n' | '\r' | '\t' => out.push(' '),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn issue_key(payload: &Value) -> anyhow::Result<String> {
@@ -467,13 +592,48 @@ mod tests {
     }
 
     fn polled(cursor: Option<&str>) -> (Batch, Vec<(String, String, Option<String>)>) {
+        polled_with(source(cursor))
+    }
+
+    fn polled_with(src: Source) -> (Batch, Vec<(String, String, Option<String>)>) {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/myself", 200, MYSELF);
         http.on("GET", "/rest/api/3/search/jql", 200, PAGE1);
         http.on("GET", "nextPageToken=tok-page-2", 200, PAGE2);
-        let src = source(cursor);
         let b = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap();
         (b, http.requests())
+    }
+
+    #[test]
+    fn due_is_the_day_unless_a_custom_datetime_field_is_set() {
+        // Built-in duedate: date only, pinned to the end of that day.
+        let (b, reqs) = polled(None);
+        assert_eq!(b.items[0].due_at.as_deref(), Some("2026-10-02T23:59:00"));
+        assert!(!reqs[1].1.contains("customfield"));
+
+        let mut src = source(None);
+        src.config["due_field"] = json!("customfield_10050");
+        let (b, reqs) = polled_with(src);
+        assert!(reqs[1].1.contains("&fields=summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,customfield_10050&"));
+        // The custom field's real time, converted to local; it wins over duedate.
+        assert_eq!(b.items[0].due_at, to_local("2026-10-01T17:00:00.000+0200"));
+        assert_eq!(b.items[0].due_at, local_ts("2026-10-01T15:00:00Z"));
+        // Field null and no duedate: no due.
+        assert_eq!(b.items[1].due_at, None);
+
+        // A custom field holding a plain date is still just a day.
+        let f = json!({ "customfield_1": "2026-10-05", "duedate": "2026-10-09" });
+        assert_eq!(due_at(&f, Some("customfield_1")).as_deref(), Some("2026-10-05T23:59:00"));
+        // Missing or unparseable custom value falls back to duedate.
+        assert_eq!(due_at(&f, Some("customfield_2")).as_deref(), Some("2026-10-09T23:59:00"));
+        assert_eq!(due_at(&json!({ "customfield_1": "soon", "duedate": null }), Some("customfield_1")), None);
+
+        let mut src = source(None);
+        src.config["due_field"] = json!("customfield_1&jql=x");
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/myself", 200, MYSELF);
+        let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
+        assert!(err.contains("config.due_field"), "{err}");
     }
 
     #[test]
@@ -635,9 +795,13 @@ mod tests {
         assert_eq!(serde_json::from_str::<Value>(reqs[0].2.as_deref().unwrap()).unwrap(), json!({ "accountId": "acc-kim" }));
     }
 
+    const NO_ISSUES: &str = r#"{"issues":[],"isLast":true}"#;
+    const CREATED: &str = include_str!("../../../tests/fixtures/jira/search_created.json");
+
     #[test]
     fn create_issue_from_notes_payload_resolves_a_unique_delegate() {
         let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/search/jql", 200, NO_ISSUES);
         http.on("GET", "/rest/api/3/user/assignable/search", 200, r#"[{"accountId":"acc-kim","displayName":"Kim Lee","active":true}]"#);
         http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"10500","key":"PLAT-1300","self":"https://acme.atlassian.net/rest/api/3/issue/10500"}"#);
         // Exactly what queries/notes.rs enqueues.
@@ -646,11 +810,13 @@ mod tests {
         assert_eq!(r["key"], "PLAT-1300");
         assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1300");
         assert_eq!(r["assignee"], "acc-kim");
+        assert_eq!(r["existing"], false);
         let reqs = http.requests();
-        assert!(reqs[0].1.ends_with("/rest/api/3/user/assignable/search?project=PLAT&query=Kim"));
-        assert_eq!(reqs[1].1, "https://acme.atlassian.net/rest/api/3/issue");
+        assert!(reqs[0].1.contains("/rest/api/3/search/jql?jql="), "looks for an earlier attempt first");
+        assert!(reqs[1].1.ends_with("/rest/api/3/user/assignable/search?project=PLAT&query=Kim"));
+        assert_eq!(reqs[2].1, "https://acme.atlassian.net/rest/api/3/issue");
         assert_eq!(
-            serde_json::from_str::<Value>(reqs[1].2.as_deref().unwrap()).unwrap(),
+            serde_json::from_str::<Value>(reqs[2].2.as_deref().unwrap()).unwrap(),
             json!({ "fields": {
                 "project": { "key": "PLAT" }, "issuetype": { "name": "Task" },
                 "summary": "Draft retry budget RFC @Kim", "assignee": { "accountId": "acc-kim" } } })
@@ -662,15 +828,79 @@ mod tests {
         assert_eq!(r["assignee_unresolved"], "Sam");
         assert!(http.requests().last().unwrap().2.as_deref().unwrap().find("assignee").is_none());
 
-        // No delegate: no user lookup.
+        // No delegate: no user lookup (the dedupe search, then the create).
         let before = http.requests().len();
         send("jira.create_issue", json!({ "summary": "y", "assignee": null }), &http).unwrap();
-        assert_eq!(http.requests().len(), before + 1);
+        assert_eq!(http.requests().len(), before + 2);
+    }
+
+    #[test]
+    fn create_issue_retry_returns_the_issue_an_earlier_attempt_created() {
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/search/jql", 200, CREATED);
+        let payload = json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
+        let r = send("jira.create_issue", payload, &http).unwrap();
+        // Exact summary match (not the similar "(v2)" one), and nothing created.
+        assert_eq!(r["key"], "PLAT-1300");
+        assert_eq!(r["id"], "10500");
+        assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1300");
+        assert_eq!(r["assignee"], "acc-kim");
+        assert_eq!(r["existing"], true);
+        assert_eq!(r["notes_line_id"], 7);
+        let reqs = http.requests();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs.iter().all(|r| r.0 == "GET"));
+        let want = "project = \"PLAT\" AND reporter = currentUser() AND created >= -24h AND summary ~ \"draft retry budget rfc kim\" ORDER BY created DESC";
+        assert!(reqs[0].1.contains(&format!("jql={}&", urlencode(want))), "{}", reqs[0].1);
+        assert!(reqs[0].1.ends_with("&maxResults=50&fields=summary,assignee"));
+
+        // Only a similar summary: create.
+        http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"10503","key":"PLAT-1303"}"#);
+        let r = send("jira.create_issue", json!({ "summary": "Draft retry budget RFC" }), &http).unwrap();
+        assert_eq!((r["key"].as_str(), r["existing"].as_bool()), (Some("PLAT-1303"), Some(false)));
+    }
+
+    #[test]
+    fn create_issue_dedupe_survives_odd_summaries() {
+        let http = FakeHttp::default();
+        // Jira rejects the text query: search again without it, still compare exactly.
+        http.on("GET", "summary%20~", 400, r#"{"errorMessages":["The text query 'the' for field 'summary' is not allowed."],"errors":{}}"#);
+        http.on("GET", "created%20%3E%3D%20-24h%20ORDER%20BY", 200, r#"{"issues":[{"id":"1","key":"PLAT-9","fields":{"summary":"To be or not"}}],"isLast":true}"#);
+        let r = send("jira.create_issue", json!({ "summary": "To be or not" }), &http).unwrap();
+        assert_eq!((r["key"].as_str(), r["existing"].as_bool()), (Some("PLAT-9"), Some(true)));
+        assert_eq!(http.requests().len(), 2);
+
+        // Only punctuation: no text clause at all. Other search errors fail the write.
+        let http = FakeHttp::default();
+        http.on("GET", "/search/jql", 500, "");
+        let err = send("jira.create_issue", json!({ "summary": "?!" }), &http).unwrap_err().to_string();
+        assert!(err.starts_with("Jira 500"), "{err}");
+        assert!(!http.requests()[0].1.contains("summary%20~"));
+        assert!(http.requests().iter().all(|r| r.0 == "GET"), "never creates blind");
+
+        // create_dedupe_hours: 0 turns the check off.
+        let http = FakeHttp::default();
+        http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"2","key":"PLAT-10"}"#);
+        let mut src = source(None);
+        src.config["create_dedupe_hours"] = json!(0);
+        with_ctx(&src, &http, |ctx| Jira.send(ctx, "jira.create_issue", &json!({ "summary": "x" }))).unwrap();
+        assert_eq!(http.requests().len(), 1);
+    }
+
+    #[test]
+    fn jql_strings_are_escaped() {
+        assert_eq!(jql_string("PLAT"), "\"PLAT\"");
+        assert_eq!(jql_string(r#"say "hi" \o/"#), r#""say \"hi\" \\o/""#);
+        assert_eq!(jql_string("a\nb"), "\"a b\"");
+        assert_eq!(search_words("Fix \"retry\" AND [ingest]: 5xx -> OR cap?"), "fix retry and ingest 5xx or cap");
+        assert_eq!(search_words("Überprüfen: Café"), "überprüfen café");
+        assert_eq!(search_words("?!"), "");
     }
 
     #[test]
     fn create_issue_error_shows_field_errors() {
         let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/search/jql", 200, NO_ISSUES);
         http.on("POST", "/rest/api/3/issue", 400, r#"{"errorMessages":[],"errors":{"issuetype":"Specify a valid issue type"}}"#);
         let err = send("jira.create_issue", json!({ "summary": "x" }), &http).unwrap_err().to_string();
         assert_eq!(err, "Jira 400: issuetype: Specify a valid issue type");

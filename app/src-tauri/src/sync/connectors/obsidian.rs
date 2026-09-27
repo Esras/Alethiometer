@@ -67,8 +67,11 @@ impl Connector for Obsidian {
                 let (abs, rel) = target(&vault, path, create)?;
                 let before = if abs.exists() { read_text(&abs)? } else { String::new() };
                 let (after, line) = append_text(&before, text, str_arg("under_heading"))?;
-                let mtime = write_checked(&abs, abs.exists().then_some(before.as_str()), &after)?;
-                Ok(receipt(&rel, true, line, mtime))
+                let mtime = match &after {
+                    Some(after) => write_checked(&abs, abs.exists().then_some(before.as_str()), after)?,
+                    None => std::fs::metadata(&abs)?.modified()?,
+                };
+                Ok(receipt(&rel, after.is_some(), line, mtime))
             }
             "obsidian.toggle_task" => {
                 let task = str_arg("task_text").ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs task_text"))?;
@@ -620,7 +623,12 @@ fn line_end(text: &str, i: usize) -> usize {
 /// trailing blank lines). A missing heading is added at the end of the file.
 /// `under_heading` may carry its level ("## Asks"), or just the text ("Asks").
 /// Returns the new text and the 1-based line number written.
-fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::Result<(String, usize)> {
+///
+/// Idempotent, so a retried outbox row can't add the line twice: when the
+/// exact line already sits where it would go (the last non-blank line of the
+/// section, or of the file), nothing changes and the text is None. The price:
+/// appending the same line twice in a row on purpose is a no-op.
+fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::Result<(Option<String>, usize)> {
     let text = text.trim_end_matches(['\r', '\n']);
     if text.contains('\n') || text.contains('\r') {
         anyhow::bail!("obsidian.append takes a single line");
@@ -633,10 +641,15 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
         }
     };
     let Some(h) = under_heading.map(str::trim).filter(|h| !h.is_empty()) else {
+        let lines: Vec<&str> = orig.lines().collect();
+        if let Some(i) = (0..lines.len()).rev().find(|&i| !lines[i].trim().is_empty()).filter(|&i| lines[i] == text) {
+            return Ok((None, i + 1));
+        }
         ensure_break(&mut out);
         out.push_str(text);
         out.push_str(nl);
-        return Ok((out.clone(), out.lines().count()));
+        let n = out.lines().count();
+        return Ok((Some(out), n));
     };
     let (want_level, want_text) = match heading_re().captures(h) {
         Some(c) => (Some(c[1].len()), c[2].to_string()),
@@ -655,12 +668,16 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
             }
             let hashes = "#".repeat(want_level.unwrap_or(2));
             out.push_str(&format!("{hashes} {want_text}{nl}{text}{nl}"));
-            Ok((out.clone(), out.lines().count()))
+            let n = out.lines().count();
+            Ok((Some(out), n))
         }
         [(at, lvl, _)] => {
             let lines: Vec<&str> = orig.lines().collect();
             let end = headings.iter().find(|(i, l, _)| i > at && l <= lvl).map_or(lines.len(), |(i, _, _)| *i);
             let last = (at + 1..end).rev().find(|&i| !lines[i].trim().is_empty()).unwrap_or(*at);
+            if last != *at && lines[last] == text {
+                return Ok((None, last + 1));
+            }
             let pos = line_end(orig, last);
             let mut insert = String::new();
             if !orig[..pos].ends_with('\n') {
@@ -669,7 +686,7 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
             insert.push_str(text);
             insert.push_str(nl);
             out.insert_str(pos, &insert);
-            Ok((out, last + 2))
+            Ok((Some(out), last + 2))
         }
         _ => anyhow::bail!("heading '{h}' appears more than once; not guessing which"),
     }
@@ -946,6 +963,47 @@ mod tests {
         v.write("e.md", "## Asks\n- one");
         send(&v, "obsidian.append", json!({ "path": "e.md", "text": "- two", "under_heading": "Asks" })).unwrap();
         assert_eq!(v.read("e.md"), "## Asks\n- one\n- two\n");
+    }
+
+    #[test]
+    fn append_is_idempotent_so_a_retry_adds_nothing() {
+        let v = Vault::new();
+        let orig = "# T\n\n## Asks\n- [ ] one\n\n## Links\n- x\n";
+        v.write("T.md", orig);
+        let append = |p: Value| send(&v, "obsidian.append", p).unwrap();
+        let under = json!({ "path": "T.md", "text": "- [ ] two", "under_heading": "Asks" });
+        assert_eq!(append(under.clone())["changed"], true);
+        let after = v.read("T.md");
+        let r = append(under.clone());
+        assert_eq!((r["changed"].as_bool(), r["line"].as_i64()), (Some(false), Some(5)));
+        assert_eq!(r["mtime"].as_str().unwrap().len(), 19);
+        assert_eq!(v.read("T.md"), after);
+
+        // Only the section's last line counts: the same words elsewhere are appended.
+        assert_eq!(append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Links" }))["changed"], true);
+        assert_eq!(append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Asks" }))["changed"], true);
+        assert_eq!(v.read("T.md"), "# T\n\n## Asks\n- [ ] one\n- [ ] two\n- [ ] one\n\n## Links\n- x\n- [ ] one\n");
+        // A heading alone isn't mistaken for the line.
+        v.write("h.md", "## Asks\n");
+        assert_eq!(append(json!({ "path": "h.md", "text": "## Asks", "under_heading": "Asks" }))["changed"], true);
+
+        // End of file, past trailing blank lines; CRLF files too.
+        v.write("e.md", "a\r\nb\r\n\r\n");
+        let r = append(json!({ "path": "e.md", "text": "b" }));
+        assert_eq!((r["changed"].as_bool(), r["line"].as_i64()), (Some(false), Some(2)));
+        assert_eq!(v.read("e.md"), "a\r\nb\r\n\r\n");
+        // Exact line only: different whitespace is a different line.
+        assert_eq!(append(json!({ "path": "e.md", "text": "b " }))["changed"], true);
+
+        // A missing heading created by the first attempt is found by the retry.
+        let log = json!({ "path": "T.md", "text": "- note", "under_heading": "### Log" });
+        assert_eq!(append(log.clone())["changed"], true);
+        assert_eq!(append(log)["changed"], false);
+        // Creating a note, retried.
+        let new = json!({ "path": "n.md", "text": "x", "create": true });
+        assert_eq!(append(new.clone())["changed"], true);
+        assert_eq!(append(new)["changed"], false);
+        assert_eq!(v.read("n.md"), "x\n");
     }
 
     #[test]
