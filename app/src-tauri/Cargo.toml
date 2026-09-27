@@ -38,6 +38,9 @@ dirs = "7"
 tiny_http = "0.12"
 regex = "1"
 ureq = { version = "3", features = ["json"] }
+# Google OAuth PKCE (SHA-256, CSPRNG, base64url). Both already come in via ureq/rustls.
+ring = "0.17"
+base64 = "0.23"
 
 [dev-dependencies]
 tempfile = "3"

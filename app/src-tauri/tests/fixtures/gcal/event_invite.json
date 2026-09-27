@@ -1,0 +1,23 @@
+{
+  "kind": "calendar#event",
+  "etag": "\"3456789012348000\"",
+  "id": "5fh2acmeqbr",
+  "status": "confirmed",
+  "htmlLink": "https://www.google.com/calendar/event?eid=NWZoMmFjbWU",
+  "created": "2026-09-27T21:10:00.000Z",
+  "updated": "2026-09-27T21:10:03.000Z",
+  "summary": "Acme QBR prep",
+  "creator": { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz" },
+  "organizer": { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz" },
+  "start": { "dateTime": "2026-09-28T14:00:00-07:00", "timeZone": "America/Los_Angeles" },
+  "end": { "dateTime": "2026-09-28T14:30:00-07:00", "timeZone": "America/Los_Angeles" },
+  "iCalUID": "5fh2acmeqbr@google.com",
+  "sequence": 0,
+  "attendees": [
+    { "email": "sam.ortiz@acme.com", "displayName": "Sam Ortiz", "organizer": true, "responseStatus": "accepted" },
+    { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "needsAction" },
+    { "email": "dana.ross@acme.com", "displayName": "Dana Ross", "responseStatus": "accepted" }
+  ],
+  "reminders": { "useDefault": true },
+  "eventType": "default"
+}

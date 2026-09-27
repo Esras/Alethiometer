@@ -1,0 +1,83 @@
+{
+  "kind": "calendar#events",
+  "etag": "\"p32g9dsk4bm8o60o\"",
+  "summary": "alex.morgan@acme.com",
+  "updated": "2026-09-28T16:40:12.117Z",
+  "timeZone": "America/Los_Angeles",
+  "accessRole": "owner",
+  "defaultReminders": [{ "method": "popup", "minutes": 10 }],
+  "nextSyncToken": "CPDAlvWDx70CEPDAlvWDx70CGAU=",
+  "items": [
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012349000\"",
+      "id": "6t1allhands",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=NnQxYWxsaGFuZHM",
+      "summary": "Eng all-hands",
+      "colorId": "9",
+      "creator": { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee" },
+      "organizer": { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee" },
+      "start": { "dateTime": "2026-09-29T10:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "end": { "dateTime": "2026-09-29T11:00:00-07:00", "timeZone": "America/Los_Angeles" },
+      "iCalUID": "6t1allhands@google.com",
+      "sequence": 1,
+      "attendees": [
+        { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "tentative" }
+      ],
+      "guestsCanSeeOtherGuests": false,
+      "reminders": { "useDefault": true },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012350000\"",
+      "id": "9zz1offsite",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=OXp6MW9mZnNpdGU",
+      "summary": "Leadership offsite",
+      "creator": { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee" },
+      "organizer": { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee" },
+      "start": { "date": "2026-10-01" },
+      "end": { "date": "2026-10-03" },
+      "transparency": "transparent",
+      "iCalUID": "9zz1offsite@google.com",
+      "sequence": 0,
+      "attendees": [
+        { "email": "morgan.lee@acme.com", "displayName": "Morgan Lee", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "accepted" }
+      ],
+      "reminders": { "useDefault": false },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012351000\"",
+      "id": "3dq8declined",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=M2RxOGRlY2xpbmVk",
+      "summary": "Vendor demo",
+      "creator": { "email": "ravi@datadog.example" },
+      "organizer": { "email": "ravi@datadog.example" },
+      "start": { "dateTime": "2026-09-30T13:00:00-07:00" },
+      "end": { "dateTime": "2026-09-30T13:30:00-07:00" },
+      "iCalUID": "3dq8declined@google.com",
+      "sequence": 0,
+      "attendees": [
+        { "email": "ravi@datadog.example", "organizer": true, "responseStatus": "accepted" },
+        { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "declined" }
+      ],
+      "reminders": { "useDefault": true },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"3456789012352000\"",
+      "id": "7kq3c1standup_20260925T150000Z",
+      "status": "cancelled",
+      "recurringEventId": "7kq3c1standup",
+      "originalStartTime": { "dateTime": "2026-09-25T08:00:00-07:00", "timeZone": "America/Los_Angeles" }
+    }
+  ]
+}
