@@ -4,7 +4,7 @@
   // note is the user's own writing; the AI never drafts it. The side column is
   // facts, the roll-up of the level below, and what to carry forward.
   //
-  // Keys: d w m q scope · l lens · [ ] or ←/→ period · t this period ·
+  // Keys: d w m q scope · [ ] or ←/→ period · t this period ·
   // e/↵ write · Esc leave the note · o open in Obsidian · j/k carry row ·
   // > tomorrow · < schedule · x let go · u undo · T where time went ·
   // D decided · a ask about today.
@@ -23,11 +23,6 @@
     { id: 'week', label: 'Week' },
     { id: 'month', label: 'Month' },
     { id: 'quarter', label: 'Quarter' },
-  ];
-  const LENSES: { id: Lens; label: string }[] = [
-    { id: 'both', label: 'Both' },
-    { id: 'work', label: 'Work' },
-    { id: 'life', label: 'Life' },
   ];
   const CHILD = {
     week: { label: 'Days', icon: 'calendar-dots', scope: 'day' },
@@ -76,10 +71,6 @@
     const p = dir < 0 ? d.prev : d.next;
     rs.period = p;
   }
-  function cycleLens() {
-    const i = LENSES.findIndex((l) => l.id === rs.lens);
-    rs.lens = LENSES[(i + 1) % LENSES.length].id;
-  }
   function openChild(row: ChildRow) {
     if (!d || d.scope === 'day') return;
     rs.scope = CHILD[d.scope].scope;
@@ -125,7 +116,6 @@
     if (plain(e, 'w')) return setScope('week'), true;
     if (plain(e, 'm')) return setScope('month'), true;
     if (plain(e, 'q')) return setScope('quarter'), true;
-    if (plain(e, 'l')) return cycleLens(), true;
     if (plain(e, '[') || plain(e, 'ArrowLeft')) return step(-1), true;
     if (plain(e, ']') || plain(e, 'ArrowRight')) return step(1), true;
     if (plain(e, 't')) return (rs.period = null), true;
@@ -164,11 +154,6 @@
         <button class="today nowrap" onclick={() => (rs.period = null)} title="t">back to {d.scope === 'day' ? 'today' : `this ${d.scope}`}</button>
       {/if}
     {/if}
-    <div class="seg lens" role="tablist" aria-label="Lens">
-      {#each LENSES as l}
-        <button class:on={rs.lens === l.id} onclick={() => (rs.lens = l.id)} title="{l.label} (l cycles)">{l.label}</button>
-      {/each}
-    </div>
   </div>
 
   {#if err}<div class="err"><i class="ph-bold ph-warning"></i>{err}</div>{/if}
@@ -265,9 +250,6 @@
   }
   .today:hover {
     text-decoration: underline;
-  }
-  .lens {
-    margin-left: auto;
   }
   .err {
     display: flex;

@@ -6,7 +6,8 @@ export const rs = $state({
   scope: 'day' as Scope,
   /** Any date inside the period (YYYY-MM-DD); null = the current one. */
   period: null as string | null,
-  lens: 'both' as Lens,
+  // Reflect is work-only for now (no Both/Life toggle).
+  lens: 'work' as Lens,
 });
 
 export function openToday() {

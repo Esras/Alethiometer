@@ -16,11 +16,22 @@ pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, ite
     if tag == "personal" && op != "marvin.add_task" {
         return Err(msg("writes to personal sources are limited to Phase 2 life lines"));
     }
+    if let Some(name) = read_only(conn, source_id)? {
+        return Err(msg(format!("'{name}' is read-only (read_only in settings.json)")));
+    }
     conn.execute(
         "INSERT INTO outbox (source_id, op, payload_json, item_id) VALUES (?1, ?2, ?3, ?4)",
         params![source_id, op, payload.to_string(), item_id],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Name of the source if its config sets `"read_only": true`.
+fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
+    let (name, config): (String, String) =
+        conn.query_row("SELECT name, config_json FROM sources WHERE id = ?1", [source_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
+    Ok(config.get("read_only").and_then(Value::as_bool).unwrap_or(false).then_some(name))
 }
 
 /// Apply the local side of a confirmed write.
@@ -66,7 +77,10 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         [id],
     )?;
     let source = load_source(&app.db(), source_id)?;
+    // Rows queued straight into the table (not via `enqueue`) still respect read-only.
+    let blocked = read_only(&app.db(), source_id)?;
     let result = match connectors::for_kind(&source.kind) {
+        _ if blocked.is_some() => Err(anyhow::anyhow!("'{}' is read-only (read_only in settings.json)", source.name)),
         None => Err(anyhow::anyhow!("no connector for '{}'", source.kind)),
         Some(c) => {
             let secret = |k: &str| app.platform.secret_get(k);
@@ -223,5 +237,25 @@ mod integration_tests {
             conn.query_row("SELECT url, summary FROM items WHERE id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(url, "https://x/browse/PLAT-9");
         assert_eq!(summary, "Jira · PLAT-9");
+    }
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use serde_json::json;
+
+    #[test]
+    fn read_only_sources_refuse_writes() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name, config_json) VALUES ('github', 'work', 'Work GitHub', ?1)",
+            [json!({ "read_only": true }).to_string()],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        let err = super::enqueue(&conn, id, "github.comment", &json!({}), None).unwrap_err().to_string();
+        assert!(err.contains("read-only"), "{err}");
+        conn.execute("UPDATE sources SET config_json = '{}' WHERE id = ?1", [id]).unwrap();
+        assert!(super::enqueue(&conn, id, "github.comment", &json!({}), None).is_ok());
     }
 }

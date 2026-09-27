@@ -30,6 +30,13 @@
   {/if}
 {:else if line.state === 'incoming' && t}
   <span class="main"><i class="ph ph-tray-arrow-down" style:color="var(--aqua)"></i><span class="ellipsis">Incoming · {short}</span></span>
+  {#if line.jira?.state === 'confirmed'}
+    <span class="sub jira"><AppIcon source="jira" size={12} /><span class="ellipsis">{line.jira.key ?? 'Jira task created'}</span></span>
+  {:else if line.jira?.state === 'failed'}
+    <span class="sub ellipsis" style:color="var(--orange)" title={line.jira.error ?? ''}>Jira task not created · <kbd>⌘R</kbd> retry</span>
+  {:else if line.jira}
+    <span class="sub ellipsis">creating Jira task…</span>
+  {/if}
 {:else if typing && line.stale}
   <span class="main"><span style:color="var(--tx-disabled)">…</span></span>
 {:else if empty}
@@ -57,6 +64,12 @@
 {/if}
 
 <style>
+  .sub.jira {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--tx-2);
+  }
   .main {
     display: flex;
     gap: 7px;

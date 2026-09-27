@@ -109,6 +109,8 @@ struct Line {
     receipt_at: Option<String>,
     error: Option<String>,
     locked: bool,
+    /// The Jira task this line asked for, once queued: {state, key?, url?, error?}.
+    jira: Option<Value>,
 }
 
 struct Row {
@@ -142,6 +144,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "retry" => {
             let date = page_date(app, args)?;
             retry(&app.db(), date, opt_i64(args, "id"))?;
+            // ⌘R also retries this page's failed Jira task creations.
+            app.db().execute(
+                "UPDATE outbox SET state = 'pending' WHERE state = 'failed' AND op = 'jira.create_issue'
+                   AND json_extract(payload_json, '$.notes_line_id') IN (SELECT id FROM notes_lines WHERE page_date = ?1)",
+                [date.format("%Y-%m-%d").to_string()],
+            )?;
             page(app, &app.db(), date, &HashMap::new())
         }
         _ => Err(unknown(name)),
@@ -198,6 +206,28 @@ fn effective(idx: &Index, r: &Row) -> Option<Target> {
     idx.suggest(&r.kind, &r.text)
 }
 
+/// Latest `jira.create_issue` write queued for a line, with the new key once
+/// Jira confirmed it.
+fn jira_create(conn: &Connection, line_id: i64) -> Option<Value> {
+    conn.query_row(
+        "SELECT state, error, receipt_json FROM outbox
+          WHERE op = 'jira.create_issue' AND json_extract(payload_json, '$.notes_line_id') = ?1
+          ORDER BY id DESC LIMIT 1",
+        [line_id],
+        |r| {
+            let receipt: Option<String> = r.get(2)?;
+            let receipt: Value = receipt.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
+            Ok(json!({
+                "state": r.get::<_, String>(0)?,
+                "error": r.get::<_, Option<String>>(1)?,
+                "key": receipt.get("key"),
+                "url": receipt.get("url"),
+            }))
+        },
+    )
+    .ok()
+}
+
 fn page(app: &App, conn: &Connection, date: NaiveDate, keys: &HashMap<i64, String>) -> Result<Value> {
     let today = app.clock.now().date();
     let idx = Index::load(conn, &app.vault)?;
@@ -215,6 +245,7 @@ fn page(app: &App, conn: &Connection, date: NaiveDate, keys: &HashMap<i64, Strin
             receipt_at: r.meta.receipt_at.clone(),
             error: r.meta.error.clone(),
             locked: !EDITABLE.contains(&r.state.as_str()),
+            jira: jira_create(conn, r.id),
         })
         .collect();
     let label = match (date - today).num_days() {
@@ -1055,5 +1086,37 @@ mod tests {
         assert_eq!(sam["state"], "pending");
         assert!(sam["error"].is_null());
         assert_eq!(by_text(&p, "renew parking")["state"], "confirmed");
+    }
+}
+
+#[cfg(test)]
+mod jira_link_tests {
+    use crate::settings::Settings;
+    use crate::state::App;
+    use serde_json::json;
+
+    #[test]
+    fn line_shows_the_created_issue_key_once_confirmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
+        let (line, date): (i64, String) =
+            app.db().query_row("SELECT id, page_date FROM notes_lines LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let jira: i64 = app.db().query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).unwrap();
+        app.db()
+            .execute(
+                "INSERT INTO outbox (source_id, op, payload_json, state, error) VALUES (?1, 'jira.create_issue', ?2, 'failed', 'boom')",
+                rusqlite::params![jira, json!({ "notes_line_id": line }).to_string()],
+            )
+            .unwrap();
+        let find = |p: &serde_json::Value| p["lines"].as_array().unwrap().iter().find(|l| l["id"] == line).unwrap().clone();
+        let p = super::call(&app, "page", &json!({ "date": date })).unwrap();
+        assert_eq!(find(&p)["jira"]["state"], "failed");
+        let p = super::call(&app, "retry", &json!({ "date": date })).unwrap();
+        assert_eq!(find(&p)["jira"]["state"], "pending");
+        app.db()
+            .execute("UPDATE outbox SET state = 'confirmed', receipt_json = ?1", [json!({ "key": "PLAT-77", "url": "u" }).to_string()])
+            .unwrap();
+        let p = super::call(&app, "page", &json!({ "date": date })).unwrap();
+        assert_eq!(find(&p)["jira"]["key"], "PLAT-77");
     }
 }

@@ -148,9 +148,9 @@ fn note_path(scope: Scope, s: NaiveDate, lens: &str) -> String {
         Scope::Month => s.format("%Y-%m").to_string(),
         Scope::Quarter => format!("{}-Q{}", s.year(), quarter(s)),
     };
-    // Day notes always carry the lens (9b). Higher levels: the default lens
-    // (both) sits directly under Reflections/<Level>/ as in 9c.
-    if scope == Scope::Day || lens != "both" {
+    // Reflect is work-only for now: work notes sit directly under
+    // Reflections/<Level>/. Other lenses (kept for later) get their own folder.
+    if lens != "work" {
         format!("Reflections/{}/{}/{file}.md", lens_label(lens), scope.folder())
     } else {
         format!("Reflections/{}/{file}.md", scope.folder())
@@ -401,7 +401,7 @@ struct Child {
 fn get(app: &App, args: &Value) -> Result<Value> {
     let today = app.clock.now().date();
     let scope = Scope::parse(args.get("scope").and_then(Value::as_str).unwrap_or("day"))?;
-    let lens = check_lens(args.get("lens").and_then(Value::as_str).unwrap_or("both"))?.to_string();
+    let lens = check_lens(args.get("lens").and_then(Value::as_str).unwrap_or("work"))?.to_string();
     let d = match args.get("period").and_then(Value::as_str) {
         Some(p) if !p.is_empty() => parse_date(p)?,
         _ => today,
@@ -1003,7 +1003,7 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
 }
 
 fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: NaiveDate, text: &str) -> anyhow::Result<()> {
-    let path = note_path(scope, s, "both");
+    let path = note_path(scope, s, "work");
     let abs = vault.join(&path);
     if !abs.exists() {
         if let Some(dir) = abs.parent() {
@@ -1012,7 +1012,7 @@ fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: NaiveDate, tex
         std::fs::write(&abs, text)?;
     }
     c.execute(
-        "INSERT OR REPLACE INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, 'both', ?3, ?4)",
+        "INSERT OR REPLACE INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, 'work', ?3, ?4)",
         params![scope.key(), s.format("%Y-%m-%d").to_string(), path, summarize(text)],
     )?;
     Ok(())
@@ -1049,10 +1049,10 @@ mod tests {
         let d = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
         let w = period_start(Scope::Week, d);
         assert_eq!(w, NaiveDate::from_ymd_opt(2026, 9, 28).unwrap());
-        assert_eq!(note_path(Scope::Week, w, "both"), "Reflections/Weekly/2026-W40.md");
+        assert_eq!(note_path(Scope::Week, w, "work"), "Reflections/Weekly/2026-W40.md");
         assert_eq!(note_path(Scope::Day, w, "life"), "Reflections/Life/Daily/2026-09-28.md");
         let q = period_start(Scope::Quarter, d);
-        assert_eq!(note_path(Scope::Quarter, q, "work"), "Reflections/Work/Quarterly/2026-Q3.md");
+        assert_eq!(note_path(Scope::Quarter, q, "work"), "Reflections/Quarterly/2026-Q3.md");
         assert_eq!(period_end(Scope::Quarter, q), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
         assert_eq!(titles(Scope::Day, w).0, "Monday 28 September");
         assert_eq!(titles(Scope::Week, w).0, "Week 40 · 28 Sep – 2 Oct");
@@ -1062,21 +1062,21 @@ mod tests {
     fn save_never_clobbers() {
         let (app, _d) = app();
         let t = today(&app);
-        let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "work" })).unwrap();
+        let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "both" })).unwrap();
         assert!(got["note"]["base"].is_null());
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "Good day.\n", "base": null })).unwrap();
+        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "Good day.\n", "base": null })).unwrap();
         assert_eq!(r["ok"], true);
         // Saving again from a stale "absent" base is refused.
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "x", "base": null })).unwrap();
+        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "x", "base": null })).unwrap();
         assert_eq!(r["conflict"], true);
         // Someone edits the file in Obsidian: our save with the old base is refused.
-        let abs = app.vault.join(note_path(Scope::Day, parse_date(&t).unwrap(), "work"));
+        let abs = app.vault.join(note_path(Scope::Day, parse_date(&t).unwrap(), "both"));
         std::fs::write(&abs, "Edited in Obsidian\n").unwrap();
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "mine", "base": "Good day.\n" })).unwrap();
+        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "mine", "base": "Good day.\n" })).unwrap();
         assert_eq!(r["conflict"], true);
         assert_eq!(std::fs::read_to_string(&abs).unwrap(), "Edited in Obsidian\n");
         // With the current base it lands and the summary rolls up.
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "Calm.\nmore", "base": "Edited in Obsidian\n" })).unwrap();
+        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "Calm.\nmore", "base": "Edited in Obsidian\n" })).unwrap();
         assert_eq!(r["summary"], "Calm.");
     }
 
@@ -1084,7 +1084,7 @@ mod tests {
     fn carry_actions() {
         let (app, _d) = app();
         let t = today(&app);
-        let got = get(&app, &json!({ "scope": "day", "lens": "both" })).unwrap();
+        let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         let rows = got["carry"].as_array().unwrap();
         assert_eq!(rows.len(), 4);
         let id = |i: usize| rows[i]["item_id"].as_i64().unwrap();
@@ -1101,14 +1101,14 @@ mod tests {
         carry(&app, id(1), &t, "schedule").unwrap();
         let state: String = app.db().query_row("SELECT state FROM outbox WHERE op = 'gcal.hold'", [], |r| r.get(0)).unwrap();
         assert_eq!(state, "pending");
-        let got = get(&app, &json!({ "scope": "day", "lens": "both" })).unwrap();
+        let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         assert_eq!(got["carry"][1]["outbox"], "pending");
 
         // Let go never deletes the item.
         carry(&app, id(2), &t, "let_go").unwrap();
         let n: i64 = app.db().query_row("SELECT count(*) FROM items WHERE id = ?1", [id(2)], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
-        let week = get(&app, &json!({ "scope": "week", "lens": "both" })).unwrap();
+        let week = get(&app, &json!({ "scope": "week", "lens": "work" })).unwrap();
         assert!(week["carry"].as_array().unwrap().iter().all(|r| r["item_id"].as_i64() != Some(id(2))));
     }
 
@@ -1128,7 +1128,7 @@ mod tests {
     #[test]
     fn week_rolls_up_days() {
         let (app, _d) = app();
-        let got = get(&app, &json!({ "scope": "week", "lens": "both" })).unwrap();
+        let got = get(&app, &json!({ "scope": "week", "lens": "work" })).unwrap();
         let kids = got["children"].as_array().unwrap();
         assert!(kids.len() >= 5);
         let today_row = kids.iter().find(|k| k["period"] == today(&app)).unwrap();
