@@ -53,15 +53,13 @@ pub fn check(ai: &AiSettings, tier: Tier) -> Result<&AiTier> {
     if t.provider == "bedrock" {
         bedrock::check_route(&ai.region, &t.model).map_err(|e| msg(e.to_string()))?;
     }
+    bedrock::Effort::parse(&t.effort).map_err(|e| msg(format!("{:?} tier: {e}", tier)))?;
     Ok(t)
 }
 
-/// Reasoning effort for a tier. The wire mapping per model family is in place
-/// and tested (`bedrock::Effort`), but `AiTier` (settings.rs) has no `effort`
-/// field yet, so every model runs at its own default (medium for Opus 5.5 and
-/// GPT-6 Luna). Once the field exists: `bedrock::Effort::parse(&t.effort)`.
-fn tier_effort(_t: &AiTier) -> Option<bedrock::Effort> {
-    None
+/// Reasoning effort for a tier (validated in `check`).
+fn tier_effort(t: &AiTier) -> Option<bedrock::Effort> {
+    bedrock::Effort::parse(&t.effort).ok().flatten()
 }
 
 /// Short label for the assistant pane header, e.g. "Bedrock · <model>".
@@ -215,9 +213,17 @@ pub mod tests {
     #[test]
     fn provider_off_allow_list_fails_closed() {
         let mut ai = Settings::default().ai;
-        ai.large = AiTier { provider: "openai".into(), model: "x".into() };
+        ai.large = AiTier { provider: "openai".into(), model: "x".into(), effort: String::new() };
         let err = check(&ai, Tier::Large).unwrap_err().to_string();
         assert!(err.contains("not on the allow-list"), "{err}");
+    }
+
+    #[test]
+    fn bad_effort_fails_closed() {
+        let mut ai = Settings::default().ai;
+        ai.small.effort = "max".into();
+        assert!(check(&ai, Tier::Small).unwrap_err().to_string().contains("effort 'max'"));
+        assert_eq!(tier_effort(&Settings::default().ai.small), Some(bedrock::Effort::Low));
     }
 
     #[test]
@@ -296,13 +302,14 @@ pub mod tests {
         let v: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(v["system"][0]["text"], "S");
         assert_eq!(v["inferenceConfig"], json!({ "maxTokens": 1024 }));
-        assert!(v.get("additionalModelRequestFields").is_none(), "no effort setting yet");
+        // The small tier defaults to low effort, sent in OpenAI's shape.
+        assert_eq!(v["additionalModelRequestFields"], json!({ "reasoning": { "effort": "low" } }));
     }
 
     #[test]
     fn ask_off_allow_list_sends_nothing() {
         let (mut app, _dir) = app();
-        app.settings.ai.large = AiTier { provider: "openai".into(), model: "gpt".into() };
+        app.settings.ai.large = AiTier { provider: "openai".into(), model: "gpt".into(), effort: String::new() };
         let http = ok_http();
         let creds_called = std::cell::Cell::new(false);
         let creds = || {
@@ -319,7 +326,7 @@ pub mod tests {
     fn allowed_but_clientless_provider_fails_closed() {
         let (mut app, _dir) = app();
         app.settings.ai.allowed_providers.push("ollama".into());
-        app.settings.ai.large = AiTier { provider: "ollama".into(), model: "llama".into() };
+        app.settings.ai.large = AiTier { provider: "ollama".into(), model: "llama".into(), effort: String::new() };
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("No client for provider 'ollama'"), "{err}");

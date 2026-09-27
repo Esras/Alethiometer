@@ -33,7 +33,7 @@ The models are now set in `settings.rs`, so the AI is on as soon as credentials 
 **Output caps and reasoning.** Both models reason before they answer, and reasoning tokens count toward the cap.
 
 - Opus 5.5 always thinks: thinking can't be turned off, and it defaults to effort `medium`. Questions pull context from several places, so the large tier allows 16,000 tokens. That follows Anthropic's guidance for non-streaming calls (about 16k, below HTTP timeouts). The earlier 4,096 could run out on a long reasoning pass. The HTTP timeout is 300 s to match. Bedrock reserves `maxTokens` against your output-token quota while a call runs. That doesn't matter for one user, but on a brand-new account with a small Opus quota you may see a 429.
-- GPT-6 Luna also defaults to effort `medium`. A topic suggestion is a small classification, so 1,024 tokens is plenty (the cap is in `ai/suggest.rs`).
+- GPT-6 Luna runs at effort `low` by default here (the model's own default is `medium`). A topic suggestion is a small classification, so 1,024 tokens is plenty (the cap is in `ai/suggest.rs`).
 
 If a model uses its whole cap on reasoning, you get "Bedrock returned no text (stop reason: max_tokens…)" rather than a blank answer.
 
@@ -151,9 +151,14 @@ The family comes from an explicit prefix map (`bedrock::family`): `us.anthropic.
 
 The answer is the concatenation of the `text` blocks only. Reasoning blocks are ignored, and a reply with no text is an error. Calls are single-turn, so reasoning is never sent back.
 
-### Effort setting: status
+### Effort setting
 
-The per-family wire mapping is implemented and tested (`bedrock::Effort`, `effort_fields`) for `low`, `medium` and `high`. **It isn't exposed in settings.json yet.** `AiTier` lives in `settings.rs`, which this change didn't touch. Until a `tier.effort` field is added, both tiers run at the model's default (`medium`), and no `additionalModelRequestFields` are sent. Wiring it is a small change: add `#[serde(default)] pub effort: String` to `AiTier`, then make `ai::tier_effort` return `bedrock::Effort::parse(&t.effort)`. When it lands, the settings will look like `"small": { "provider": "bedrock", "model": "us.openai.gpt-6-luna", "effort": "low" }`.
+Each tier takes an optional `effort`: `"low"`, `"medium"`, `"high"`, or `""` for the model's default. Anything else fails closed. Defaults: small (GPT-6 Luna) `low`, large (Opus 5.5) the model's default (`medium`).
+
+```json
+"small": { "provider": "bedrock", "model": "us.openai.gpt-6-luna", "effort": "low" },
+"large": { "provider": "bedrock", "model": "us.anthropic.claude-opus-5-5", "effort": "" }
+```
 
 ## What each feature sends
 

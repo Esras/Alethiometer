@@ -41,6 +41,9 @@ fn default_poll() -> u64 {
 pub struct AiTier {
     pub provider: String,
     pub model: String,
+    /// Reasoning effort: "low", "medium", "high", or "" for the model's default.
+    #[serde(default)]
+    pub effort: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,8 +106,9 @@ impl Default for Settings {
                 region: "us-east-1".into(),
                 aws_profile: String::new(),
                 // US inference profiles only; the org's BAA covers Bedrock in US regions.
-                small: AiTier { provider: "bedrock".into(), model: "us.openai.gpt-6-luna".into() },
-                large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into() },
+                // Suggestions are simple picks: low effort keeps them fast and cheap.
+                small: AiTier { provider: "bedrock".into(), model: "us.openai.gpt-6-luna".into(), effort: "low".into() },
+                large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
             },
             fake_now: String::new(),
             sources: vec![],
