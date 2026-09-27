@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "channel": {
+    "id": "C0INC", "name": "inc-2291", "name_normalized": "inc-2291", "is_channel": true, "is_group": false, "is_im": false, "is_mpim": false,
+    "is_private": false, "is_archived": false, "is_general": false, "is_shared": false, "is_org_shared": false, "is_member": true,
+    "created": 1789900000, "creator": "U0JORDAN", "last_read": "1789991000.000250", "unlinked": 0,
+    "topic": {"value": "Sev 2 · Acme webhook deliveries delayed", "creator": "U0JORDAN", "last_set": 1789900100},
+    "purpose": {"value": "", "creator": "", "last_set": 0},
+    "previous_names": []
+  }
+}

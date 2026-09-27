@@ -1,24 +1,45 @@
-//! Polling: turn Slack conversations into windows.
+//! Turning Slack into signals, following Slack's own read marker.
 //!
-//! A *window* is a run of messages in one channel, DM or thread with no gap
-//! longer than `gap_min` between consecutive messages. Each window is one item
-//! ("#inc-2291 · 42 new · 09:05–10:40"); its stored messages are the window's
-//! messages, so expanding it in Incoming shows what happened since the channel
-//! last went quiet. When new messages continue an open window, the same item is
-//! updated and bumped back to unseen. After a quiet gap a new window (a new
-//! item) starts.
+//! **Units.** A conversation (channel, DM, group DM) and each thread in it are
+//! separate *streams*, each with its own read marker (`last_read`: from
+//! `conversations.info` for a conversation, from the parent message returned by
+//! `conversations.replies` for a thread). A stream's *unread run* is its
+//! messages after the marker. One item holds one stream's unread run:
 //!
-//! The item's external id is `<channel>/<window start ts>` for channel and DM
-//! windows and `<channel>/<thread ts>/<window start ts>` for thread windows, so
-//! it is stable while the window grows.
+//! - top level: `<channel>/<first unread ts>`, a new item per run (a DM can
+//!   jump between topics, so runs are not merged across reads);
+//! - thread: `<channel>/thread/<thread ts>`, one item per thread for good,
+//!   resurfaced when new replies arrive after you read it;
+//! - a top-level mention in a channel you don't follow: `<channel>/mention/<ts>`.
 //!
-//! The source cursor is a JSON `State`: per-conversation and per-thread last
-//! seen ts plus the open window's start. No message text is kept there.
+//! While a run is unread the same item is updated: new messages from others
+//! bump it back to new; if you read part of it in Slack its messages shrink to
+//! what's still unread (no bump). When the marker passes the whole run (you
+//! read it in Slack, or Helm marked it read) the item is marked seen through
+//! `Batch::seen` and the run closes; the next message starts a new one.
 //!
-//! Save only what's needed: the first sync reads `lookback_hours` back, never
-//! the full archive, and each item keeps at most `MAX_MSGS` messages.
+//! **Per-message ids.** `raw_json.msgs` lists each stored message's ts in the
+//! same order as the item's messages, so a later "split by topic" can move a
+//! subset of them to another item without re-reading Slack.
+//!
+//! **What is fetched** depends on `socket::plan` (see `socket`): a live sync
+//! reads only what events flagged, plus followed channels you haven't joined
+//! (no events for those) and, every `READ_CHECK_SECS`, the read markers of open
+//! items. A catch-up (startup, reconnect, or every poll without the socket)
+//! checks followed channels, DMs (capped to `max_dms` without the socket),
+//! tracked threads and two searches. DMs are only read (`conversations.history`)
+//! when `conversations.info` says there is something unread or new.
+//!
+//! **Threads you're in** are tracked in the cursor for `thread_days` after
+//! their last activity (at most `max_threads`), so replies to an old thread are
+//! caught however old the parent: live by events, on catch-up by
+//! `conversations.replies` from the tracked list, and newly discovered through
+//! `search.messages` (mentions of you and your own replies).
+//!
+//! The cursor (`State`) holds timestamps and titles, never message text.
 
 use super::api::{ts_after, ts_secs, Client};
+use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
 use crate::sync::{local_from_unix, Batch, Ctx, Handle, ItemUpsert, Message};
 use chrono::TimeZone;
@@ -26,15 +47,25 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// Messages kept per window item; `msg_count` still counts all of them.
+/// Messages kept per item; `msg_count` still counts the whole unread run.
 pub const MAX_MSGS: usize = 50;
 /// Pages of 200 read per conversation per poll.
 const HISTORY_PAGES: usize = 10;
 const REPLIES_PAGES: usize = 5;
+/// Live mode: how often open items are checked against Slack's read markers
+/// (there is no read-state event for user tokens).
+const READ_CHECK_SECS: f64 = 120.0;
+/// Without the socket, threads active within a day are checked every poll,
+/// older ones at most hourly.
+const HOT_THREAD_SECS: f64 = 86_400.0;
+const COLD_THREAD_CHECK_SECS: f64 = 3_600.0;
+/// Followed channels are read at least this far back, so that a new thread
+/// on a recent parent you already read is found.
+const RECENT_PARENTS_SECS: f64 = 86_400.0;
 
 /// Subtypes that are real content. Everything else (joins, topic changes,
 /// pins…) is noise. `thread_broadcast` is left out on purpose: the reply shows
-/// up in its thread window.
+/// up in its thread.
 const CONTENT_SUBTYPES: &[&str] = &["bot_message", "file_share", "me_message"];
 
 /// Stored as the source cursor.
@@ -51,24 +82,57 @@ pub struct State {
     /// Resolved ids of followed channels (the live socket filters on these).
     #[serde(default)]
     pub follow: Vec<String>,
-    /// Key: channel id, or "<channel>/<thread ts>" for a watched thread.
+    /// Followed channels you aren't a member of: no events, no read marker.
     #[serde(default)]
-    pub streams: BTreeMap<String, Stream>,
-    /// Newest mention already turned into an item.
+    pub unjoined: Vec<String>,
+    /// Per conversation id.
+    #[serde(default)]
+    pub convs: BTreeMap<String, ConvState>,
+    /// Tracked threads, key "<channel>/<thread ts>".
+    #[serde(default)]
+    pub threads: BTreeMap<String, ThreadState>,
+    /// Items whose run is still unread in Slack. Key: the stream ("<channel>",
+    /// "<channel>/<thread ts>") or, for mentions, the item's external id.
+    #[serde(default)]
+    pub open: BTreeMap<String, Open>,
+    /// Newest mention / own thread reply already handled from search.
     #[serde(default)]
     pub mention_ts: Option<String>,
+    #[serde(default)]
+    pub reply_ts: Option<String>,
+    /// When open items' read markers were last checked (Unix seconds).
+    #[serde(default)]
+    pub read_checked: f64,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Stream {
-    /// Newest message ts seen.
-    pub ts: String,
-    /// Start ts of the newest window; it grows while messages keep coming.
+pub struct ConvState {
+    /// Newest top-level message ts read from the API.
+    pub seen: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ThreadState {
+    /// Newest reply ts read from the API.
+    pub seen: String,
+    /// Title of the thread item ("#inc-2291 · thread: first words…").
+    #[serde(default)]
+    pub title: String,
+    /// Last `conversations.replies` check (Unix seconds).
+    #[serde(default)]
+    pub checked: f64,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Open {
+    /// The item's external id.
+    pub id: String,
+    /// First and last ts of the stored unread run.
+    pub first: String,
+    pub last: String,
+    /// The read marker when the item was last written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run: Option<String>,
-    /// Threads only: first words of the parent message, for the title.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    pub read: Option<String>,
 }
 
 impl State {
@@ -84,10 +148,51 @@ enum ConvKind {
     Mpim { name: String },
 }
 
+/// A conversation as `users.conversations` / `conversations.info` describe it.
 #[derive(Debug, Clone)]
 struct Conv {
     id: String,
     kind: ConvKind,
+    member: bool,
+    /// Your read marker (members only).
+    last_read: Option<String>,
+    /// Newest message ts, when Slack says (DMs do).
+    latest: Option<String>,
+    created: i64,
+}
+
+impl Conv {
+    fn parse(c: &Value) -> Option<Conv> {
+        let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let b = |k: &str| c.get(k).and_then(Value::as_bool);
+        let kind = if b("is_im") == Some(true) {
+            if b("is_user_deleted") == Some(true) {
+                return None;
+            }
+            ConvKind::Im { user: s("user") }
+        } else if b("is_mpim") == Some(true) {
+            ConvKind::Mpim { name: s("name") }
+        } else {
+            ConvKind::Channel { name: s("name") }
+        };
+        let latest = match c.get("latest") {
+            Some(Value::Object(m)) => m.get("ts").and_then(Value::as_str).map(str::to_owned),
+            Some(Value::String(t)) => Some(t.clone()),
+            _ => None,
+        };
+        Some(Conv {
+            id: s("id"),
+            member: !matches!(kind, ConvKind::Channel { .. }) || b("is_member").unwrap_or(true),
+            kind,
+            last_read: c.get("last_read").and_then(Value::as_str).map(str::to_owned),
+            latest,
+            created: c.get("created").and_then(Value::as_i64).unwrap_or(0),
+        })
+    }
+
+    fn is_dm(&self) -> bool {
+        !matches!(self.kind, ConvKind::Channel { .. })
+    }
 }
 
 /// One message as read from the API.
@@ -133,14 +238,49 @@ impl Msg {
     }
 }
 
+/// Which messages of a stream are unread: after Slack's marker when there is
+/// one; otherwise from the open run's start, else after what we last read,
+/// else after the lookback floor.
+struct Marker {
+    last_read: Option<String>,
+    from: Option<String>,
+    after: Option<String>,
+    floor: f64,
+}
+
+impl Marker {
+    fn unread(&self, ts: &str) -> bool {
+        if ts_secs(ts) <= self.floor {
+            return false;
+        }
+        match (&self.last_read, &self.from, &self.after) {
+            (Some(lr), _, _) => ts_after(ts, lr),
+            (None, Some(from), _) => !ts_after(from, ts),
+            (None, None, Some(after)) => ts_after(ts, after),
+            _ => true,
+        }
+    }
+
+    /// Lower bound for `oldest` when reading history.
+    fn oldest(&self) -> f64 {
+        let t = self.last_read.as_ref().or(self.from.as_ref()).or(self.after.as_ref()).map(|t| ts_secs(t)).unwrap_or(0.0);
+        t.max(self.floor)
+    }
+}
+
 pub struct Poller<'a> {
     client: Client<'a>,
     cfg: &'a Config,
     state: State,
     now: f64,
+    plan: Plan,
     users: HashMap<String, String>,
     channel_names: HashMap<String, String>,
+    infos: HashMap<String, Option<Conv>>,
+    done_convs: BTreeSet<String>,
+    done_threads: BTreeSet<String>,
     items: Vec<ItemUpsert>,
+    seen: Vec<String>,
 }
 
 pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
@@ -152,17 +292,25 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         .earliest()
         .map(|t| t.timestamp() as f64)
         .unwrap_or_else(|| ctx.now.and_utc().timestamp() as f64);
+    let plan = socket::plan(ctx.source.id);
     let mut p = Poller {
         client,
         cfg,
         state: State::parse(ctx.source.cursor.as_deref()),
         now,
+        plan: plan.clone(),
         users: HashMap::new(),
         channel_names: HashMap::new(),
+        infos: HashMap::new(),
+        done_convs: BTreeSet::new(),
+        done_threads: BTreeSet::new(),
         items: vec![],
+        seen: vec![],
     };
-    p.run()?;
-    Ok(Batch { items: p.items, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
+    let result = p.run();
+    socket::finish(ctx.source.id, &plan, result.is_ok());
+    result?;
+    Ok(Batch { items: p.items, seen: p.seen, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
 }
 
 impl Poller<'_> {
@@ -174,24 +322,114 @@ impl Poller<'_> {
             self.state.me_name = s("user");
             self.state.team_url = s("url");
         }
-        let convs = self.conversations()?;
-        let follow = self.resolve_follow(&convs)?;
-        self.state.follow = follow.iter().map(|c| c.id.clone()).collect();
+        match self.plan.mode {
+            Mode::Live => self.live()?,
+            Mode::CatchUp | Mode::Poll => self.catch_up()?,
+        }
+        self.prune();
+        Ok(())
+    }
 
-        let mut targets = follow;
-        if self.cfg.dms {
-            targets.extend(convs.iter().filter(|c| !matches!(c.kind, ConvKind::Channel { .. })).cloned());
+    fn floor(&self) -> f64 {
+        self.now - self.cfg.lookback_hours as f64 * 3600.0
+    }
+
+    /// Only what events flagged, unjoined followed channels, and now and
+    /// then the read markers of open items.
+    fn live(&mut self) -> anyhow::Result<()> {
+        let mut convs: Vec<String> = self.state.unjoined.clone();
+        let mut threads: Vec<(String, String)> = vec![];
+        let mut mentions = vec![];
+        for f in self.plan.flags.clone() {
+            match f {
+                Flag::Conv(c) => convs.push(c),
+                Flag::Thread(c, t) => threads.push((c, t)),
+                Flag::Mention(c, ts) => mentions.push((c, ts)),
+            }
         }
-        let covered: BTreeSet<String> = targets.iter().map(|c| c.id.clone()).collect();
-        for c in &targets {
-            self.poll_conv(c)?;
+        if self.now - self.state.read_checked >= READ_CHECK_SECS {
+            self.state.read_checked = self.now;
+            let (c, t) = self.open_streams();
+            convs.extend(c);
+            threads.extend(t);
+            self.check_mention_reads()?;
         }
-        // Forget watched threads of conversations we no longer follow.
-        self.state.streams.retain(|k, _| covered.contains(k.split('/').next().unwrap_or_default()));
-        if self.cfg.mentions {
-            self.mentions(&covered)?;
+        for c in convs {
+            self.check_conv(&c)?;
+        }
+        for (c, t) in threads {
+            self.check_thread(&c, &t)?;
+        }
+        for (c, ts) in mentions {
+            self.fetch_mention(&c, &ts)?;
         }
         Ok(())
+    }
+
+    /// Full pass: followed channels, DMs, open items, flagged ones, tracked
+    /// threads and the searches.
+    fn catch_up(&mut self) -> anyhow::Result<()> {
+        let listing = self.conversations()?;
+        let follow = self.resolve_follow(&listing)?;
+        self.state.follow = follow.iter().map(|c| c.id.clone()).collect();
+        self.state.unjoined = follow.iter().filter(|c| !c.member).map(|c| c.id.clone()).collect();
+
+        let mut convs: Vec<String> = self.state.follow.clone();
+        if self.cfg.dms {
+            convs.extend(self.pick_dms(&listing));
+        }
+        let (open_convs, open_threads) = self.open_streams();
+        convs.extend(open_convs);
+        let mut threads: Vec<(String, String)> = open_threads;
+        let mut mentions = vec![];
+        for f in self.plan.flags.clone() {
+            match f {
+                Flag::Conv(c) => convs.push(c),
+                Flag::Thread(c, t) => threads.push((c, t)),
+                Flag::Mention(c, ts) => mentions.push((c, ts)),
+            }
+        }
+        for c in convs {
+            self.check_conv(&c)?;
+        }
+        if self.cfg.mentions {
+            threads.extend(self.search_mentions()?);
+            threads.extend(self.search_my_replies()?);
+        }
+        // Tracked threads: all of them on a socket catch-up (it's rare);
+        // without the socket, busy ones every poll and quiet ones hourly.
+        let all = self.plan.mode == Mode::CatchUp;
+        let tracked: Vec<(String, String)> = self
+            .state
+            .threads
+            .iter()
+            .filter(|(_, t)| all || self.now - ts_secs(&t.seen) < HOT_THREAD_SECS || self.now - t.checked >= COLD_THREAD_CHECK_SECS)
+            .filter_map(|(k, _)| k.split_once('/').map(|(c, t)| (c.to_owned(), t.to_owned())))
+            .collect();
+        threads.extend(tracked);
+        for (c, t) in threads {
+            self.check_thread(&c, &t)?;
+        }
+        for (c, ts) in mentions {
+            self.fetch_mention(&c, &ts)?;
+        }
+        self.check_mention_reads()?;
+        self.state.read_checked = self.now;
+        Ok(())
+    }
+
+    /// Conversations and threads that have an open (unread) item.
+    fn open_streams(&self) -> (Vec<String>, Vec<(String, String)>) {
+        let mut convs = vec![];
+        let mut threads = vec![];
+        for key in self.state.open.keys() {
+            match key.split('/').collect::<Vec<_>>()[..] {
+                [c] => convs.push(c.to_owned()),
+                [c, t] => threads.push((c.to_owned(), t.to_owned())),
+                _ => {} // mentions: `check_mention_reads`
+            }
+        }
+        (convs, threads)
     }
 
     /// Everything the user is a member of: channels always, DMs when enabled.
@@ -204,21 +442,15 @@ impl Poller<'_> {
             20,
         )?;
         let mut out = vec![];
-        for c in raw {
-            let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-            let b = |k: &str| c.get(k).and_then(Value::as_bool).unwrap_or(false);
-            let kind = if b("is_im") {
-                if b("is_user_deleted") {
-                    continue;
-                }
-                ConvKind::Im { user: s("user") }
-            } else if b("is_mpim") {
-                ConvKind::Mpim { name: s("name") }
-            } else {
-                self.channel_names.insert(s("id"), s("name"));
-                ConvKind::Channel { name: s("name") }
-            };
-            out.push(Conv { id: s("id"), kind });
+        for c in raw.iter().filter_map(Conv::parse) {
+            if let ConvKind::Channel { name } = &c.kind {
+                self.channel_names.insert(c.id.clone(), name.clone());
+            }
+            // The listing rarely carries read markers; when it does, save the info call.
+            if c.last_read.is_some() {
+                self.infos.insert(c.id.clone(), Some(c.clone()));
+            }
+            out.push(c);
         }
         Ok(out)
     }
@@ -234,13 +466,15 @@ impl Poller<'_> {
             });
             let conv = match found {
                 Some(c) => c.clone(),
-                None if looks_like_id(want) => {
-                    // A public channel you haven't joined: readable, but not listed.
-                    let v = self.client.get("conversations.info", &[("channel", want)])?;
-                    let name = v.pointer("/channel/name").and_then(Value::as_str).unwrap_or(want).to_owned();
-                    self.channel_names.insert(want.to_owned(), name.clone());
-                    Conv { id: want.to_owned(), kind: ConvKind::Channel { name } }
-                }
+                // A public channel you haven't joined: readable, but not listed.
+                None if looks_like_id(want) => match self.info(want)? {
+                    Some(mut c) => {
+                        c.member = false;
+                        self.infos.insert(c.id.clone(), Some(c.clone()));
+                        c
+                    }
+                    None => anyhow::bail!("Slack: followed channel '{entry}' not found"),
+                },
                 None => anyhow::bail!("Slack: followed channel '{entry}' not found among channels you're in; use its id or join it"),
             };
             if !out.iter().any(|c| c.id == conv.id) {
@@ -250,145 +484,211 @@ impl Poller<'_> {
         Ok(out)
     }
 
-    fn floor(&self) -> f64 {
-        self.now - self.cfg.lookback_hours as f64 * 3600.0
+    /// The `max_dms` most recently active DMs and group DMs: activity Helm has
+    /// seen first, then the conversation's creation time (Slack lists no
+    /// last-activity time for DMs).
+    fn pick_dms(&self, listing: &[Conv]) -> Vec<String> {
+        let mut dms: Vec<&Conv> = listing.iter().filter(|c| c.is_dm()).collect();
+        let active = |c: &Conv| self.state.convs.get(&c.id).map(|s| ts_secs(&s.seen)).unwrap_or(0.0);
+        dms.sort_by(|a, b| active(b).total_cmp(&active(a)).then(b.created.cmp(&a.created)));
+        dms.iter().take(self.cfg.max_dms).map(|c| c.id.clone()).collect()
     }
 
-    fn gap(&self) -> f64 {
-        self.cfg.gap_min as f64 * 60.0
-    }
-
-    /// Where to start reading a stream: early enough to rebuild its open
-    /// window (if it may still grow) and, for channels, to see thread activity
-    /// on recent parents; never before the lookback floor unless the open
-    /// window started earlier.
-    fn oldest(&self, stream: Option<&Stream>, watch_threads: bool) -> String {
-        let floor = self.floor();
-        let mut oldest = match stream {
-            None => floor,
-            Some(s) => ts_secs(&s.ts).max(floor),
-        };
-        if watch_threads {
-            oldest = oldest.min((self.now - self.cfg.thread_hours as f64 * 3600.0).max(floor));
+    /// `conversations.info`, once per conversation per poll. `None` for a DM
+    /// with a deleted user.
+    fn info(&mut self, id: &str) -> anyhow::Result<Option<Conv>> {
+        if let Some(c) = self.infos.get(id) {
+            return Ok(c.clone());
         }
-        if let Some(s) = stream {
-            if let Some(run) = &s.run {
-                if self.now - ts_secs(&s.ts) <= self.gap() {
-                    oldest = oldest.min(ts_secs(run));
+        let v = self.client.get("conversations.info", &[("channel", id)])?;
+        let c = v.get("channel").and_then(Conv::parse);
+        if let Some(Conv { kind: ConvKind::Channel { name }, .. }) = &c {
+            self.channel_names.insert(id.to_owned(), name.clone());
+        }
+        self.infos.insert(id.to_owned(), c.clone());
+        Ok(c)
+    }
+
+    /// Top-level messages of one conversation.
+    fn check_conv(&mut self, id: &str) -> anyhow::Result<()> {
+        if !self.done_convs.insert(id.to_owned()) {
+            return Ok(());
+        }
+        let Some(conv) = self.info(id)? else { return Ok(()) };
+        let followed = self.state.follow.iter().any(|c| c == id);
+        let prev = self.state.convs.get(id).cloned();
+        let open = self.state.open.get(id).cloned();
+        let last_read = conv.last_read.clone().filter(|_| conv.member);
+        let marker = Marker {
+            last_read: last_read.clone(),
+            from: open.as_ref().map(|o| o.first.clone()),
+            after: prev.as_ref().map(|p| p.seen.clone()),
+            floor: self.floor(),
+        };
+        // DMs: skip history when Slack's summary says nothing changed.
+        if !followed {
+            if let Some(latest) = &conv.latest {
+                if !marker.unread(latest) {
+                    if let Some(o) = self.state.open.remove(id) {
+                        self.seen.push(o.id);
+                    }
+                    return Ok(());
+                }
+                let nothing_new = prev.as_ref().is_some_and(|p| !ts_after(latest, &p.seen));
+                if nothing_new && open.as_ref().is_some_and(|o| o.read == last_read) {
+                    return Ok(());
                 }
             }
         }
-        // Slack ts format; `inclusive` makes the boundary message count.
-        format!("{oldest:.6}")
-    }
-
-    fn poll_conv(&mut self, conv: &Conv) -> anyhow::Result<()> {
-        let key = conv.id.clone();
-        let prev = self.state.streams.get(&key).cloned();
-        let oldest = self.oldest(prev.as_ref(), true);
+        let mut oldest = marker.oldest();
+        if followed {
+            oldest = oldest.min((self.now - RECENT_PARENTS_SECS).max(self.floor()));
+        }
+        let oldest = format!("{oldest:.6}");
         let raw = self.client.get_paged(
             "conversations.history",
-            &[("channel", &conv.id), ("oldest", &oldest), ("inclusive", "true"), ("limit", "200")],
+            &[("channel", id), ("oldest", &oldest), ("inclusive", "true"), ("limit", "200")],
             "messages",
             HISTORY_PAGES,
         )?;
         let mut msgs: Vec<Msg> = raw.iter().filter_map(Msg::parse).filter(|m| !m.is_reply()).collect();
         msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
-
-        if let Some((windows, next)) = group(&msgs, prev.as_ref(), self.gap(), self.floor()) {
-            for w in windows {
-                self.emit(conv, None, &w.msgs, w.has_new_from_others(&self.state.me))?;
+        let prev_seen = prev.map(|p| p.seen);
+        if let Some(newest) = msgs.last() {
+            if prev_seen.as_deref().is_none_or(|s| ts_after(&newest.ts, s)) {
+                self.state.convs.insert(id.to_owned(), ConvState { seen: newest.ts.clone() });
             }
-            self.state.streams.insert(key.clone(), next);
-        } else if prev.is_none() {
-            // Nothing recent: start watching from now.
-            self.state.streams.insert(key.clone(), Stream { ts: format!("{:.6}", self.now), run: None, title: None });
         }
-
-        // Threads: parents in view with new replies, plus watched threads whose
-        // parent is older than what we just read.
-        let mut seen_parents = BTreeSet::new();
+        // Parents with replies we haven't read yet.
+        let mut threads = vec![];
         for m in msgs.iter().filter(|m| m.reply_count > 0) {
-            seen_parents.insert(m.ts.clone());
-            let tkey = format!("{}/{}", conv.id, m.ts);
-            let tprev = self.state.streams.get(&tkey);
             let last = m.latest_reply.as_deref().unwrap_or(&m.ts);
-            let fresh = match tprev {
-                Some(t) => ts_after(last, &t.ts),
+            let fresh = match self.state.threads.get(&format!("{id}/{}", m.ts)) {
+                Some(t) => ts_after(last, &t.seen),
                 None => ts_secs(last) > self.floor(),
             };
             if fresh {
-                self.poll_thread(conv, &m.ts, Some(first_words(&clean_plain(&m.text), 6)))?;
+                threads.push(m.ts.clone());
             }
         }
-        let prefix = format!("{}/", conv.id);
-        let watched: Vec<(String, Stream)> = self
-            .state
-            .streams
-            .range(prefix.clone()..)
-            .take_while(|(k, _)| k.starts_with(&prefix))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        for (tkey, t) in watched {
-            let thread_ts = tkey[prefix.len()..].to_owned();
-            if seen_parents.contains(&thread_ts) {
-                continue;
-            }
-            if self.now - ts_secs(&t.ts) > self.cfg.thread_hours as f64 * 3600.0 {
-                self.state.streams.remove(&tkey);
-                continue;
-            }
-            self.poll_thread(conv, &thread_ts, None)?;
+        let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
+        self.emit(&conv, None, id, &unread, prev_seen.as_deref(), last_read)?;
+        for t in threads {
+            self.check_thread(id, &t)?;
         }
         Ok(())
     }
 
-    fn poll_thread(&mut self, conv: &Conv, thread_ts: &str, title: Option<String>) -> anyhow::Result<()> {
-        let tkey = format!("{}/{}", conv.id, thread_ts);
-        let prev = self.state.streams.get(&tkey).cloned();
-        let oldest = self.oldest(prev.as_ref(), false);
-        let raw = self.client.get_paged(
-            "conversations.replies",
-            &[("channel", &conv.id), ("ts", thread_ts), ("oldest", &oldest), ("inclusive", "true"), ("limit", "200")],
-            "messages",
-            REPLIES_PAGES,
-        )?;
-        // The parent comes back first; it belongs to the channel window.
-        let mut msgs: Vec<Msg> = raw.iter().filter_map(Msg::parse).filter(|m| m.ts != thread_ts).collect();
-        msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
-        let title = title.or_else(|| prev.as_ref().and_then(|p| p.title.clone())).unwrap_or_default();
-        if let Some((windows, mut next)) = group(&msgs, prev.as_ref(), self.gap(), self.floor()) {
-            next.title = Some(title.clone());
-            for w in windows {
-                self.emit(conv, Some((thread_ts, &title)), &w.msgs, w.has_new_from_others(&self.state.me))?;
-            }
-            self.state.streams.insert(tkey, next);
-        } else if prev.is_none() {
-            let ts = msgs.last().map(|m| m.ts.clone()).unwrap_or_else(|| thread_ts.to_owned());
-            self.state.streams.insert(tkey, Stream { ts, run: None, title: Some(title) });
-        }
-        Ok(())
-    }
-
-    fn emit(&mut self, conv: &Conv, thread: Option<(&str, &str)>, msgs: &[Msg], bump: bool) -> anyhow::Result<()> {
-        let me = self.state.me.clone();
-        // A window with only your own messages isn't a signal.
-        if msgs.iter().all(|m| m.user.as_deref() == Some(me.as_str())) {
+    /// One thread: its unread replies become the thread's item. Tracked while
+    /// you're in it (or it's in a DM or followed channel).
+    fn check_thread(&mut self, channel: &str, thread_ts: &str) -> anyhow::Result<()> {
+        let key = format!("{channel}/{thread_ts}");
+        if !self.done_threads.insert(key.clone()) {
             return Ok(());
         }
-        let (first, last) = (&msgs[0], &msgs[msgs.len() - 1]);
-        let base = match &conv.kind {
-            ConvKind::Channel { name } => format!("#{name}"),
-            ConvKind::Im { user } => format!("DM · {}", self.user_name(user)?),
-            ConvKind::Mpim { name } => format!("Group DM · {}", mpim_names(name, &self.state.me_name)),
+        let Some(conv) = self.info(channel)? else { return Ok(()) };
+        // No `oldest`: the parent (first in the answer) carries the thread's
+        // read marker and title, and threads are rarely longer than a page.
+        let raw = match self.client.get_paged(
+            "conversations.replies",
+            &[("channel", channel), ("ts", thread_ts), ("limit", "200")],
+            "messages",
+            REPLIES_PAGES,
+        ) {
+            Ok(r) => r,
+            // Parent deleted: stop tracking, keep the item as it was.
+            Err(e) if e.to_string().ends_with(": thread_not_found") => {
+                self.state.threads.remove(&key);
+                self.state.open.remove(&key);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+        let parent = raw.iter().find(|m| m.get("ts").and_then(Value::as_str) == Some(thread_ts));
+        let mut msgs: Vec<Msg> = raw.iter().filter_map(Msg::parse).filter(|m| m.ts != thread_ts).collect();
+        msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
+        let me = self.state.me.clone();
+        let pstr = |k: &str| parent.and_then(|p| p.get(k)).and_then(Value::as_str);
+        let in_it = pstr("user") == Some(me.as_str())
+            || parent.and_then(|p| p.get("subscribed")).and_then(Value::as_bool) == Some(true)
+            || parent
+                .and_then(|p| p.get("reply_users"))
+                .and_then(Value::as_array)
+                .is_some_and(|u| u.iter().any(|u| u.as_str() == Some(me.as_str())))
+            || msgs.iter().any(|m| m.user.as_deref() == Some(me.as_str()) || m.text.contains(&format!("<@{me}")));
+        let followed = self.state.follow.iter().any(|c| c == channel);
+        let prev = self.state.threads.get(&key).cloned();
+        if !(in_it || followed || conv.is_dm()) {
+            self.state.threads.remove(&key);
+            return Ok(());
+        }
+        let title = match prev.as_ref().map(|t| t.title.clone()).filter(|t| !t.is_empty()) {
+            Some(t) => t,
+            None => {
+                let words = first_words(&clean_plain(pstr("text").unwrap_or_default()), 6);
+                let base = self.base_title(&conv)?;
+                if words.is_empty() { format!("{base} · thread") } else { format!("{base} · thread: {words}") }
+            }
+        };
+        let last_read = pstr("last_read").map(str::to_owned);
+        let open = self.state.open.get(&key).cloned();
+        let prev_seen = prev.as_ref().map(|t| t.seen.clone());
+        let marker = Marker {
+            last_read: last_read.clone(),
+            from: open.map(|o| o.first),
+            after: prev_seen.clone(),
+            // The floor bounds the first read of a thread, not its age.
+            floor: if prev.is_some() { 0.0 } else { self.floor() },
+        };
+        let newest = msgs.last().map(|m| m.ts.clone()).unwrap_or_else(|| thread_ts.to_owned());
+        let seen = match &prev_seen {
+            Some(s) if !ts_after(&newest, s) => s.clone(),
+            _ => newest,
+        };
+        self.state.threads.insert(key.clone(), ThreadState { seen, title: title.clone(), checked: self.now });
+        let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
+        self.emit(&conv, Some((thread_ts, &title)), &key, &unread, prev_seen.as_deref(), last_read)
+    }
+
+    /// Write, update or close the item for one stream's unread run.
+    fn emit(
+        &mut self,
+        conv: &Conv,
+        thread: Option<(&str, &str)>,
+        key: &str,
+        unread: &[Msg],
+        prev_seen: Option<&str>,
+        last_read: Option<String>,
+    ) -> anyhow::Result<()> {
+        let me = self.state.me.clone();
+        let mine = |m: &Msg| m.user.as_deref() == Some(me.as_str());
+        let open = self.state.open.get(key).cloned();
+        // Nothing unread, or only your own messages: the run is read.
+        if unread.iter().all(mine) {
+            if let Some(o) = self.state.open.remove(key) {
+                self.seen.push(o.id);
+            }
+            return Ok(());
+        }
+        let (first, last) = (&unread[0], &unread[unread.len() - 1]);
+        let fresh = |m: &Msg| prev_seen.is_none_or(|s| ts_after(&m.ts, s));
+        let bump = unread.iter().any(|m| !mine(m) && fresh(m));
+        let unchanged = open.as_ref().is_some_and(|o| o.first == first.ts && o.last == last.ts && o.read == last_read);
+        if !bump && unchanged {
+            return Ok(());
+        }
+        let id = match (&open, thread) {
+            (Some(o), _) => o.id.clone(),
+            (None, Some((tts, _))) => format!("{}/thread/{tts}", conv.id),
+            (None, None) => format!("{}/{}", conv.id, first.ts),
         };
         let title = match thread {
-            Some((_, words)) if !words.is_empty() => format!("{base} · thread: {words}"),
-            Some(_) => format!("{base} · thread"),
-            None => base,
+            Some((_, t)) => t.to_owned(),
+            None => self.base_title(conv)?,
         };
+        let kept = &unread[unread.len().saturating_sub(MAX_MSGS)..];
         let mut messages = vec![];
-        for m in &msgs[msgs.len().saturating_sub(MAX_MSGS)..] {
+        for m in kept {
             messages.push(Message {
                 at: local_from_unix(ts_secs(&m.ts)).unwrap_or_default(),
                 author: self.author_name(m)?,
@@ -397,102 +697,204 @@ impl Poller<'_> {
         }
         let body = messages.iter().map(|m| format!("{}: {}", m.author, m.text)).collect::<Vec<_>>().join("\n");
         let summary = messages.last().map(|m| truncate(&m.text, 140));
-        let author = match msgs.iter().rev().find_map(|m| m.user.as_ref().filter(|u| **u != me)) {
+        let author = match unread.iter().rev().find_map(|m| m.user.as_ref().filter(|u| **u != me)) {
             Some(u) => Some(Handle { handle: u.clone(), display_name: self.user_name(u)? }),
             None => None,
         };
-        let (external_id, url, raw) = match thread {
-            Some((tts, _)) => (
-                format!("{}/{}/{}", conv.id, tts, first.ts),
-                self.permalink(&conv.id, &last.ts, Some(tts)),
-                json!({ "channel": conv.id, "thread_ts": tts, "first_ts": first.ts, "last_ts": last.ts }),
-            ),
-            None => (
-                format!("{}/{}", conv.id, first.ts),
-                self.permalink(&conv.id, &last.ts, None),
-                // `mark_ts` is what `slack.mark_read` should send for this window.
-                // Threads have none: Slack has no API for a thread's read state.
-                json!({ "channel": conv.id, "first_ts": first.ts, "last_ts": last.ts, "mark_ts": last.ts }),
-            ),
-        };
+        let mut raw = json!({
+            "channel": conv.id,
+            "first_ts": first.ts,
+            "last_ts": last.ts,
+            // One ts per stored message, in the same order.
+            "msgs": kept.iter().map(|m| m.ts.as_str()).collect::<Vec<_>>(),
+        });
+        match thread {
+            Some((tts, _)) => raw["thread_ts"] = json!(tts),
+            // What `slack.mark_read` sends: conversations.mark up to here. Only
+            // top-level runs in conversations you're in; Slack has no API to
+            // mark a thread read.
+            None if conv.member => raw["mark_ts"] = json!(last.ts),
+            None => {}
+        }
         self.items.push(ItemUpsert {
-            external_id,
-            kind: if msgs.len() == 1 { "message" } else { "thread" }.into(),
+            external_id: id.clone(),
+            kind: if thread.is_some() || unread.len() > 1 { "thread" } else { "message" }.into(),
             title,
             body,
             summary,
-            url,
+            url: self.permalink(&conv.id, &last.ts, thread.map(|t| t.0)),
             author,
             occurred_at: local_from_unix(ts_secs(&first.ts)).unwrap_or_default(),
             ended_at: local_from_unix(ts_secs(&last.ts)),
             status: "open".into(),
-            msg_count: Some(msgs.len() as i64),
+            msg_count: Some(unread.len() as i64),
             raw_json: raw,
             messages,
             bump,
             ..Default::default()
         });
+        self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone(), read: last_read });
         Ok(())
     }
 
-    /// Mentions in channels we don't follow, via search (needs `search:read`).
-    fn mentions(&mut self, covered: &BTreeSet<String>) -> anyhow::Result<()> {
-        let me = self.state.me.clone();
-        if me.is_empty() {
-            return Ok(());
-        }
-        let since = self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());
-        // `after:` is exclusive and by day: ask from the day before.
+    fn base_title(&mut self, conv: &Conv) -> anyhow::Result<String> {
+        Ok(match &conv.kind {
+            ConvKind::Channel { name } => format!("#{name}"),
+            ConvKind::Im { user } => format!("DM · {}", self.user_name(user)?),
+            ConvKind::Mpim { name } => format!("Group DM · {}", mpim_names(name, &self.state.me_name)),
+        })
+    }
+
+    /// `search.messages`, newest first. `after:` is by day and exclusive, so
+    /// ask from the day before `since`.
+    fn search(&mut self, query: &str, since: f64) -> anyhow::Result<Vec<Value>> {
         let day = chrono::DateTime::from_timestamp(since as i64 - 86_400, 0)
             .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
             .unwrap_or_default();
-        let query = format!("<@{me}> after:{day}");
-        let v = self.client.get(
-            "search.messages",
-            &[("query", &query), ("sort", "timestamp"), ("sort_dir", "desc"), ("count", "50")],
-        )?;
-        let matches = v.pointer("/messages/matches").and_then(Value::as_array).cloned().unwrap_or_default();
+        let q = format!("{query} after:{day}");
+        let v = self.client.get("search.messages", &[("query", &q), ("sort", "timestamp"), ("sort_dir", "desc"), ("count", "100")])?;
+        Ok(v.pointer("/messages/matches").and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    /// Mentions of you since the last search. In a thread: check the thread
+    /// (and so start tracking it). In a DM or followed channel: that
+    /// conversation's check covers it (this also reaches DMs beyond
+    /// `max_dms`). Elsewhere: a mention item.
+    fn search_mentions(&mut self) -> anyhow::Result<Vec<(String, String)>> {
+        let me = self.state.me.clone();
+        let since = self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());
         let tag = format!("<@{me}");
         let mut newest = self.state.mention_ts.clone();
-        for m in matches {
-            let s = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-            let (ts, user, text) = (s("ts"), s("user"), s("text"));
-            let ch = m.pointer("/channel/id").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let is_dm = m.pointer("/channel/is_im").and_then(Value::as_bool).unwrap_or(false)
-                || m.pointer("/channel/is_mpim").and_then(Value::as_bool).unwrap_or(false);
-            // Search is fuzzy; keep only real mentions, once, outside covered conversations.
-            if ts.is_empty() || ch.is_empty() || covered.contains(&ch) || is_dm || user == me || !text.contains(&tag) {
+        let mut threads = vec![];
+        for m in self.search(&format!("<@{me}>"), since)? {
+            let hit = Hit::parse(&m);
+            // Search is fuzzy; keep only real mentions by others, once.
+            if hit.ts.is_empty() || hit.channel.is_empty() || hit.user == me || !hit.text.contains(&tag) || ts_secs(&hit.ts) <= since {
                 continue;
             }
-            if ts_secs(&ts) <= since {
-                continue;
+            if newest.as_deref().is_none_or(|n| ts_after(&hit.ts, n)) {
+                newest = Some(hit.ts.clone());
             }
-            if newest.as_deref().is_none_or(|n| ts_after(&ts, n)) {
-                newest = Some(ts.clone());
+            if let Some(tts) = hit.thread_ts.filter(|t| *t != hit.ts) {
+                threads.push((hit.channel, tts));
+            } else if hit.dm || self.state.follow.contains(&hit.channel) {
+                self.check_conv(&hit.channel)?;
+            } else {
+                let msg = Msg { ts: hit.ts, user: Some(hit.user).filter(|u| !u.is_empty()), bot_name: Some(hit.username), text: hit.text, thread_ts: None, reply_count: 0, latest_reply: None };
+                self.mention_item(&hit.channel, hit.channel_name, &msg, hit.permalink)?;
             }
-            let chan = m.pointer("/channel/name").and_then(Value::as_str).unwrap_or(&ch).to_owned();
-            let name = if user.is_empty() { s("username") } else { self.user_name(&user)? };
-            let clean = self.clean(&text)?;
-            let at = local_from_unix(ts_secs(&ts)).unwrap_or_default();
-            self.items.push(ItemUpsert {
-                external_id: format!("{ch}/mention/{ts}"),
-                kind: "message".into(),
-                title: format!("#{chan} · mention"),
-                body: format!("{name}: {clean}"),
-                summary: Some(truncate(&clean, 140)),
-                url: Some(s("permalink")).filter(|u| !u.is_empty()),
-                author: (!user.is_empty()).then(|| Handle { handle: user.clone(), display_name: name.clone() }),
-                occurred_at: at.clone(),
-                status: "open".into(),
-                msg_count: Some(1),
-                raw_json: json!({ "channel": ch, "first_ts": ts, "last_ts": ts }),
-                messages: vec![Message { at, author: name, text: clean }],
-                bump: true,
-                ..Default::default()
-            });
         }
         self.state.mention_ts = newest;
+        Ok(threads)
+    }
+
+    /// Your own thread replies since the last search: threads you're in that
+    /// Helm may not know yet (you replied from your phone while it was off).
+    fn search_my_replies(&mut self) -> anyhow::Result<Vec<(String, String)>> {
+        let me = self.state.me.clone();
+        let since = self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());
+        let mut newest = self.state.reply_ts.clone();
+        let mut threads = vec![];
+        for m in self.search(&format!("from:<@{me}>"), since)? {
+            let hit = Hit::parse(&m);
+            if hit.user != me || ts_secs(&hit.ts) <= since {
+                continue;
+            }
+            if newest.as_deref().is_none_or(|n| ts_after(&hit.ts, n)) {
+                newest = Some(hit.ts.clone());
+            }
+            if let Some(tts) = hit.thread_ts.filter(|t| *t != hit.ts) {
+                threads.push((hit.channel, tts));
+            }
+        }
+        self.state.reply_ts = newest;
+        Ok(threads)
+    }
+
+    /// A live mention event: read that one message.
+    fn fetch_mention(&mut self, channel: &str, ts: &str) -> anyhow::Result<()> {
+        if self.state.mention_ts.as_deref().is_some_and(|n| !ts_after(ts, n)) {
+            return Ok(());
+        }
+        let v = self.client.get(
+            "conversations.history",
+            &[("channel", channel), ("oldest", ts), ("latest", ts), ("inclusive", "true"), ("limit", "1")],
+        )?;
+        let Some(msg) = v.get("messages").and_then(Value::as_array).and_then(|a| a.first()).and_then(Msg::parse) else {
+            return Ok(());
+        };
+        let name = match self.info(channel)? {
+            Some(Conv { kind: ConvKind::Channel { name }, .. }) => name,
+            _ => channel.to_owned(),
+        };
+        self.mention_item(channel, name, &msg, None)?;
+        self.state.mention_ts = Some(ts.to_owned());
         Ok(())
+    }
+
+    /// One mention in a channel you don't follow. No `mark_ts`: marking the
+    /// channel read up to the mention would also mark everything before it.
+    fn mention_item(&mut self, channel: &str, channel_name: String, m: &Msg, permalink: Option<String>) -> anyhow::Result<()> {
+        let name = self.author_name(m)?;
+        let clean = self.clean(&m.text)?;
+        let at = local_from_unix(ts_secs(&m.ts)).unwrap_or_default();
+        let id = format!("{channel}/mention/{}", m.ts);
+        self.items.push(ItemUpsert {
+            external_id: id.clone(),
+            kind: "message".into(),
+            title: format!("#{channel_name} · mention"),
+            body: format!("{name}: {clean}"),
+            summary: Some(truncate(&clean, 140)),
+            url: permalink.or_else(|| self.permalink(channel, &m.ts, None)),
+            author: m.user.as_ref().map(|u| Handle { handle: u.clone(), display_name: name.clone() }),
+            occurred_at: at.clone(),
+            status: "open".into(),
+            msg_count: Some(1),
+            raw_json: json!({ "channel": channel, "first_ts": m.ts, "last_ts": m.ts, "msgs": [m.ts] }),
+            messages: vec![Message { at, author: name, text: clean }],
+            bump: true,
+            ..Default::default()
+        });
+        self.state.open.insert(id.clone(), Open { id, first: m.ts.clone(), last: m.ts.clone(), read: None });
+        Ok(())
+    }
+
+    /// Open mentions whose channel you have read past them in Slack.
+    fn check_mention_reads(&mut self) -> anyhow::Result<()> {
+        let keys: Vec<(String, Open)> =
+            self.state.open.iter().filter(|(k, _)| k.contains("/mention/")).map(|(k, o)| (k.clone(), o.clone())).collect();
+        for (key, o) in keys {
+            let channel = key.split('/').next().unwrap_or_default().to_owned();
+            let read = match self.info(&channel) {
+                Ok(Some(c)) => c.member && c.last_read.as_deref().is_some_and(|lr| !ts_after(&o.last, lr)),
+                // Channel gone or no access: nothing to learn; it ages out.
+                Ok(None) | Err(_) => false,
+            };
+            if read {
+                self.state.open.remove(&key);
+                self.seen.push(o.id);
+            }
+        }
+        Ok(())
+    }
+
+    /// Keep the cursor bounded: threads and open runs quiet for `thread_days`
+    /// are forgotten (their items stay as they are), at most `max_threads`.
+    fn prune(&mut self) {
+        let cutoff = self.now - self.cfg.thread_days as f64 * 86_400.0;
+        self.state.open.retain(|_, o| ts_secs(&o.last) >= cutoff);
+        let open = &self.state.open;
+        self.state.threads.retain(|k, t| ts_secs(&t.seen) >= cutoff || open.contains_key(k));
+        if self.state.threads.len() > self.cfg.max_threads {
+            let mut by_age: Vec<(f64, String)> = self.state.threads.iter().map(|(k, t)| (ts_secs(&t.seen), k.clone())).collect();
+            by_age.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let extra = self.state.threads.len() - self.cfg.max_threads;
+            for (_, k) in by_age.into_iter().filter(|(_, k)| !open.contains_key(k)).take(extra) {
+                self.state.threads.remove(&k);
+            }
+        }
+        let follow = &self.state.follow;
+        self.state.convs.retain(|k, c| ts_secs(&c.seen) >= cutoff || follow.contains(k));
     }
 
     /// Display name for a user id, one `users.info` call per user per poll.
@@ -520,8 +922,8 @@ impl Poller<'_> {
     fn author_name(&mut self, m: &Msg) -> anyhow::Result<String> {
         match (&m.user, &m.bot_name) {
             (Some(u), _) => self.user_name(u),
-            (None, Some(b)) => Ok(b.clone()),
-            (None, None) => Ok("bot".into()),
+            (None, Some(b)) if !b.is_empty() => Ok(b.clone()),
+            _ => Ok("bot".into()),
         }
     }
 
@@ -573,54 +975,43 @@ impl Poller<'_> {
     }
 }
 
-struct Window {
-    msgs: Vec<Msg>,
-    new_from: usize,
+/// One `search.messages` match.
+struct Hit {
+    ts: String,
+    user: String,
+    username: String,
+    text: String,
+    channel: String,
+    channel_name: String,
+    dm: bool,
+    /// Search matches don't carry `thread_ts`; a reply's permalink does.
+    thread_ts: Option<String>,
+    permalink: Option<String>,
 }
 
-impl Window {
-    fn has_new_from_others(&self, me: &str) -> bool {
-        self.msgs[self.new_from..].iter().any(|m| m.user.as_deref() != Some(me))
-    }
-}
-
-/// Split a stream's messages (oldest first) into windows that contain new
-/// messages, and compute the stream's next state. `None` when nothing is new.
-fn group(msgs: &[Msg], prev: Option<&Stream>, gap: f64, floor: f64) -> Option<(Vec<Window>, Stream)> {
-    let is_new = |m: &Msg| match prev {
-        Some(p) => ts_after(&m.ts, &p.ts),
-        None => ts_secs(&m.ts) > floor,
-    };
-    let first_new = msgs.iter().position(is_new)?;
-    // Continue the open window if the first new message is close enough to the last seen one.
-    let start = match prev {
-        Some(Stream { ts, run: Some(run), .. }) if ts_secs(&msgs[first_new].ts) - ts_secs(ts) <= gap => {
-            msgs.iter().position(|m| !ts_after(run, &m.ts)).unwrap_or(first_new).min(first_new)
+impl Hit {
+    fn parse(m: &Value) -> Hit {
+        let s = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let permalink = s("permalink");
+        let channel = m.pointer("/channel/id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let thread_ts = m
+            .get("thread_ts")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| permalink.split("thread_ts=").nth(1).map(|t| t.split('&').next().unwrap_or(t).to_owned()));
+        let b = |k: &str| m.pointer(&format!("/channel/{k}")).and_then(Value::as_bool).unwrap_or(false);
+        Hit {
+            ts: s("ts"),
+            user: s("user"),
+            username: s("username"),
+            text: s("text"),
+            channel_name: m.pointer("/channel/name").and_then(Value::as_str).unwrap_or(&channel).to_owned(),
+            dm: b("is_im") || b("is_mpim"),
+            channel,
+            thread_ts,
+            permalink: Some(permalink).filter(|p| !p.is_empty()),
         }
-        _ => first_new,
-    };
-    let mut windows: Vec<Window> = vec![];
-    let mut cur: Vec<Msg> = vec![];
-    for m in &msgs[start..] {
-        if let Some(prev_m) = cur.last() {
-            if ts_secs(&m.ts) - ts_secs(&prev_m.ts) > gap {
-                windows.push(Window { msgs: std::mem::take(&mut cur), new_from: 0 });
-            }
-        }
-        cur.push(m.clone());
     }
-    windows.push(Window { msgs: cur, new_from: 0 });
-    for w in &mut windows {
-        w.new_from = w.msgs.iter().position(is_new).unwrap_or(w.msgs.len());
-    }
-    windows.retain(|w| w.new_from < w.msgs.len());
-    let last_w = windows.last()?;
-    let next = Stream {
-        ts: last_w.msgs.last()?.ts.clone(),
-        run: Some(last_w.msgs[0].ts.clone()),
-        title: prev.and_then(|p| p.title.clone()),
-    };
-    Some((windows, next))
 }
 
 fn looks_like_id(s: &str) -> bool {
@@ -666,39 +1057,20 @@ fn truncate(s: &str, n: usize) -> String {
 mod tests {
     use super::*;
 
-    fn m(ts: &str, user: &str) -> Msg {
-        Msg {
-            ts: ts.into(),
-            user: Some(user.into()),
-            bot_name: None,
-            text: "x".into(),
-            thread_ts: None,
-            reply_count: 0,
-            latest_reply: None,
-        }
-    }
-
     #[test]
-    fn groups_by_gap_and_continues_open_window() {
-        let gap = 7200.0;
-        let msgs = vec![m("1000.000100", "U1"), m("2000.000100", "U2"), m("20000.000100", "U1")];
-        let (w, next) = group(&msgs, None, gap, 0.0).unwrap();
-        assert_eq!(w.len(), 2);
-        assert_eq!(w[0].msgs.len(), 2);
-        assert_eq!(next, Stream { ts: "20000.000100".into(), run: Some("20000.000100".into()), title: None });
-
-        // A new message within the gap continues the window from its start.
-        let mut more = msgs.clone();
-        more.push(m("21000.000100", "U2"));
-        let (w, next) = group(&more, Some(&next), gap, 0.0).unwrap();
-        assert_eq!(w.len(), 1);
-        assert_eq!(w[0].msgs[0].ts, "20000.000100");
-        assert_eq!(w[0].msgs.len(), 2);
-        assert_eq!(w[0].new_from, 1);
-        assert_eq!(next.run.as_deref(), Some("20000.000100"));
-
-        // Nothing new: nothing to do.
-        assert!(group(&more, Some(&next), gap, 0.0).is_none());
+    fn marker_prefers_slacks_read_state() {
+        let m = Marker { last_read: Some("100.000200".into()), from: Some("50.0".into()), after: Some("90.0".into()), floor: 10.0 };
+        assert!(!m.unread("100.000200") && m.unread("100.000300"));
+        assert_eq!(m.oldest(), 100.0002);
+        // No marker (not a member): keep the open run from its start.
+        let m = Marker { last_read: None, from: Some("50.000000".into()), after: Some("90.0".into()), floor: 10.0 };
+        assert!(m.unread("50.000000") && !m.unread("49.9"));
+        let m = Marker { last_read: None, from: None, after: Some("90.0".into()), floor: 10.0 };
+        assert!(!m.unread("90.0") && m.unread("91.0"));
+        // Never read ("0000000000.000000"): the lookback floor bounds it.
+        let m = Marker { last_read: Some("0000000000.000000".into()), from: None, after: None, floor: 10.0 };
+        assert!(!m.unread("9.0") && m.unread("11.0"));
+        assert_eq!(m.oldest(), 10.0);
     }
 
     #[test]
@@ -708,5 +1080,13 @@ mod tests {
         assert_eq!(first_words("one two three", 2), "one two…");
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert!(looks_like_id("C0123ABCD") && !looks_like_id("inc-2291"));
+    }
+
+    #[test]
+    fn search_hits_find_their_thread_in_the_permalink() {
+        let h = Hit::parse(&json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000?thread_ts=1.000100&cid=C1", "channel": { "id": "C1", "name": "ops" } }));
+        assert_eq!((h.channel.as_str(), h.thread_ts.as_deref()), ("C1", Some("1.000100")));
+        let h = Hit::parse(&json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000", "channel": { "id": "C1" } }));
+        assert_eq!(h.thread_ts, None);
     }
 }

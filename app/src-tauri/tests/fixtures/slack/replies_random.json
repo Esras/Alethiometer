@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "messages": [
+    {"type": "message", "user": "U0ALICE", "text": "Dashboard migration plan: who owns what?", "ts": "1789000000.000100", "thread_ts": "1789000000.000100", "reply_count": 3, "reply_users_count": 2, "latest_reply": "1789999800.001200", "reply_users": ["U0ALICE", "U0ME"], "is_locked": false, "subscribed": true, "last_read": "1789999500.001100"},
+    {"type": "message", "user": "U0ALICE", "text": "Starting with the billing boards.", "ts": "1789000100.000200", "thread_ts": "1789000000.000100", "parent_user_id": "U0ALICE"},
+    {"type": "message", "user": "U0ME", "text": "I think Alice's team owns it now", "ts": "1789999500.001100", "thread_ts": "1789000000.000100", "parent_user_id": "U0ALICE"},
+    {"type": "message", "user": "U0ALICE", "text": "Not anymore, <@U0ME>: it moved to platform in June.", "ts": "1789999800.001200", "thread_ts": "1789000000.000100", "parent_user_id": "U0ALICE"}
+  ],
+  "has_more": false,
+  "response_metadata": {"next_cursor": ""}
+}

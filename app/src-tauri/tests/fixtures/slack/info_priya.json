@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "channel": {
+    "id": "D0PRIYA", "created": 1700000000, "is_im": true, "is_org_shared": false, "user": "U0PRIYA", "is_user_deleted": false,
+    "last_read": "1789990000.000000",
+    "latest": {"type": "message", "user": "U0PRIYA", "text": "Can you look at the offsite agenda before Thursday?", "ts": "1789997000.000800"},
+    "unread_count": 1, "unread_count_display": 1, "is_open": true, "priority": 0.12
+  }
+}

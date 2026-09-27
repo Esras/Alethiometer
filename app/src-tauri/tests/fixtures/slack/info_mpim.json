@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "channel": {
+    "id": "G0MPIM", "name": "mpdm-alice--bob--me-1", "is_channel": false, "is_group": true, "is_im": false, "is_mpim": true, "is_private": true,
+    "is_archived": false, "is_member": true, "created": 1780000000, "creator": "U0ALICE",
+    "last_read": "1789000000.000000",
+    "latest": {"type": "message", "user": "U0ALICE", "text": "lunch friday?", "ts": "1788000000.000000"},
+    "unread_count": 0, "unread_count_display": 0,
+    "topic": {"value": "Group messaging", "creator": "U0ALICE", "last_set": 1780000000},
+    "purpose": {"value": "Group messaging with: @alice @bob @me", "creator": "U0ALICE", "last_set": 1780000000}
+  }
+}

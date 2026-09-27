@@ -68,6 +68,10 @@ pub struct Batch {
     /// signal; only its calendar block, a cache of remote times, is dropped.
     /// Unknown ids are ignored.
     pub cancelled: Vec<String>,
+    /// External ids the user has read in the remote app (e.g. Slack's read
+    /// marker moved past them): marked seen, nothing else changes. Never new
+    /// signal. Unknown ids are ignored.
+    pub seen: Vec<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -183,7 +187,7 @@ pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
 
 /// Write a batch. Returns the number of items that became new signal.
 pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
-    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty()) {
+    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty()) {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
             source.name
@@ -268,6 +272,9 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0 WHERE id = ?1 AND status != 'done'", [id])?;
             tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
+    }
+    for ext in &batch.seen {
+        tx.execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext])?;
     }
     if let Some(busy) = &batch.busy {
         // Keep per-block buffer overrides across refreshes, keyed by start time.
