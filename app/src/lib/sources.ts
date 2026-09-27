@@ -12,6 +12,7 @@ export const SOURCES: Record<string, { label: string; dot: string }> = {
   marvin: { label: 'Marvin', dot: '#c0645a' },
   protoncal: { label: 'Proton Cal', dot: '#6d5bb8' },
   protonmail: { label: 'Proton Mail', dot: '#6d5bb8' },
+  helm: { label: 'Notes', dot: '#6f9a7c' },
 };
 
 export function sourceLabel(kind: string): string {
