@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "query": "from:<@U0ME> after:2026-09-17",
+  "messages": {
+    "total": 2,
+    "matches": [
+      {"iid": "m1", "team": "T0ACME", "type": "message", "user": "U0ME", "username": "me", "text": "I think Alice's team owns it now", "ts": "1789999500.001100", "channel": {"id": "C0RANDOM", "is_channel": true, "is_im": false, "is_mpim": false, "is_private": false, "name": "random"}, "permalink": "https://acme.slack.com/archives/C0RANDOM/p1789999500001100?thread_ts=1789000000.000100&cid=C0RANDOM"},
+      {"iid": "m2", "team": "T0ACME", "type": "message", "user": "U0ME", "username": "me", "text": "thanks, on it", "ts": "1789994000.000400", "channel": {"id": "C0INC", "is_channel": true, "is_im": false, "is_mpim": false, "is_private": false, "name": "inc-2291"}, "permalink": "https://acme.slack.com/archives/C0INC/p1789994000000400"}
+    ],
+    "pagination": {"first": 1, "last": 2, "page": 1, "page_count": 1, "per_page": 100, "total_count": 2},
+    "paging": {"count": 100, "page": 1, "pages": 1, "total": 2}
+  }
+}
