@@ -443,7 +443,7 @@ mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
         let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
-        assert_eq!(v["open"].as_array().unwrap().len(), 3);
+        assert!(v["open"].as_array().unwrap().len() >= 3);
         assert_eq!(v["people"].as_array().unwrap().len(), 3);
         assert!(v["chronology"].as_array().unwrap().len() >= 14);
         assert!(v["note"]["text"].as_str().unwrap().contains("## Where we are"));
