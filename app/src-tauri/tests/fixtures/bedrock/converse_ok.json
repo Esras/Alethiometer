@@ -1,0 +1,20 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        { "text": "The renewal is due Friday; " },
+        { "text": "Kim owns the quote." }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 812,
+    "outputTokens": 14,
+    "totalTokens": 826
+  },
+  "metrics": {
+    "latencyMs": 1043
+  }
+}

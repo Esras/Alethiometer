@@ -49,6 +49,10 @@ pub struct AiSettings {
     pub allowed_providers: Vec<String>,
     /// AWS region for Bedrock.
     pub region: String,
+    /// Named profile in `~/.aws/credentials` / `~/.aws/config`. Empty = `AWS_PROFILE`, then "default".
+    /// A setting because apps started from the Dock don't see shell env vars.
+    #[serde(default)]
+    pub aws_profile: String,
     pub small: AiTier,
     pub large: AiTier,
 }
@@ -97,6 +101,7 @@ impl Default for Settings {
             ai: AiSettings {
                 allowed_providers: vec!["bedrock".into()],
                 region: "us-east-1".into(),
+                aws_profile: String::new(),
                 small: AiTier { provider: "bedrock".into(), model: String::new() },
                 large: AiTier { provider: "bedrock".into(), model: String::new() },
             },

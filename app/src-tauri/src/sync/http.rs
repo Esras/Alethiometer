@@ -53,9 +53,16 @@ pub struct UreqHttp {
 
 impl Default for UreqHttp {
     fn default() -> Self {
+        UreqHttp::with_timeout(30)
+    }
+}
+
+impl UreqHttp {
+    /// Whole-request timeout. LLM calls need longer than the 30 s default.
+    pub fn with_timeout(secs: u64) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
-            .timeout_global(Some(std::time::Duration::from_secs(30)))
+            .timeout_global(Some(std::time::Duration::from_secs(secs)))
             .build()
             .new_agent();
         UreqHttp { agent }

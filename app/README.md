@@ -13,7 +13,7 @@ This is the UI-shell pass. All five views run against the real SQLite schema, fi
 | Day strip, countdown, Life blocks, leave-by, buffer override | done |
 | Topics (7a/7b) | done |
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
-| Work AI gate (fail closed, Bedrock only) | done; the Bedrock client itself isn't built, so asking returns an error |
+| Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
 | Connectors: Google Calendar, Slack, Jira, GitHub, Obsidian watcher, Proton ICS | not started |
 | Outbox sender (writeback) | table only |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
@@ -66,7 +66,8 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.h
 | `obsidian_vault` | Absolute path to the work vault. |
 | `life_calendars` | Proton Calendar "Limited view" links. Busy times only. |
 | `ai.allowed_providers` | Providers covered by a BAA. Anything else fails closed. |
-| `ai.region`, `ai.small`, `ai.large` | Bedrock region and model per tier. Empty model = AI off. |
+| `ai.region`, `ai.small`, `ai.large` | Bedrock region and model per tier. Empty model = AI off. See `docs/ai.md`. |
+| `ai.aws_profile` | AWS profile for Bedrock credentials (empty = `AWS_PROFILE`, then `default`). |
 | `fake_now` | Dev only: pin the clock to `HH:MM`. |
 | `demo_data` | Fill an empty database with the sample data. Turn off before connecting real sources. |
 
@@ -74,7 +75,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.h
 
 - `src-tauri/src/api.rs`: one entry point, `call("<area>.<name>", args)`, used by the Tauri command and by `bin/devserver.rs`.
 - `src-tauri/src/queries/<area>.rs`: read model, actions and sample data for each view.
-- `src-tauri/src/ai.rs`: the only path to an LLM. Checks the allow-list before anything leaves the machine.
+- `src-tauri/src/ai/`: the only path to an LLM. Checks the allow-list before anything leaves the machine; builds prompts from work sources only.
 - `src-tauri/src/platform.rs`: Mac-only integrations behind a trait.
 - `src/shell/`: title bar, tabs, day strip, search, assistant pane.
 - `src/views/`: one component per tab.
