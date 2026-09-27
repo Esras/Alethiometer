@@ -76,13 +76,13 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
     let mut ev = json!({
         "id": id,
         "summary": title,
-        "description": format!("Hold from Helm (carried forward from {carried_from})."),
+        "description": format!("Hold from Alethiometer (carried forward from {carried_from})."),
         "start": { "dateTime": rfc3339_local(start) },
         "end": { "dateTime": rfc3339_local(end) },
         "visibility": "private",
         "transparency": "opaque",
         "reminders": { "useDefault": true },
-        "extendedProperties": { "private": { "helm_item_id": item_id, "helm_carried_from": carried_from } },
+        "extendedProperties": { "private": { "alethiometer_item_id": item_id, "alethiometer_carried_from": carried_from } },
     });
     if let Some(c) = &cfg.hold_color {
         ev["colorId"] = json!(c);
@@ -110,7 +110,7 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
 fn hold_id(calendar: &str, item_id: &str, carried_from: &str) -> String {
     let d = ring::digest::digest(&ring::digest::SHA256, format!("{calendar}|{item_id}|{carried_from}").as_bytes());
     let hex: String = d.as_ref()[..12].iter().map(|b| format!("{b:02x}")).collect();
-    format!("helm{hex}")
+    format!("alethiometer{hex}")
 }
 
 /// Next workdays after `after`, as many as the config searches.
@@ -300,10 +300,10 @@ mod tests {
         assert_eq!(ev["visibility"], "private");
         assert_eq!(ev["transparency"], "opaque");
         assert_eq!(ev["colorId"], "3");
-        assert_eq!(ev["extendedProperties"]["private"]["helm_item_id"], "42");
+        assert_eq!(ev["extendedProperties"]["private"]["alethiometer_item_id"], "42");
         let id = ev["id"].as_str().unwrap();
         assert!(id.len() >= 5 && id.chars().all(|c| c.is_ascii_digit() || ('a'..='v').contains(&c)));
-        assert_eq!(receipt["event_id"], "helm0c2d9a8b7e6f5a4b3c2d1e0f");
+        assert_eq!(receipt["event_id"], "alethiometer0c2d9a8b7e6f5a4b3c2d1e0f");
         assert_eq!(receipt["start"], "2026-09-29T11:00:00");
         // Same payload, same id: a retry can't create a duplicate.
         assert_eq!(id, hold_id("primary", "42", "2026-09-28"));
@@ -314,9 +314,9 @@ mod tests {
         let http = http();
         http.on("GET", "orderBy=startTime", 200, r#"{"kind":"calendar#events","items":[]}"#);
         http.on("POST", "/calendars/primary/events", 409, r#"{"error":{"code":409,"message":"The requested identifier already exists."}}"#);
-        http.on("GET", "/events/helm", 200, fixture!("hold_created.json"));
+        http.on("GET", "/events/alethiometer", 200, fixture!("hold_created.json"));
         let r = send(&http, json!({}), "hold", json!({ "item_id": 42, "title": "Draft Q4 hiring plan", "carried_from": "2026-09-28" })).unwrap();
-        assert_eq!(r["event_id"], "helm0c2d9a8b7e6f5a4b3c2d1e0f");
+        assert_eq!(r["event_id"], "alethiometer0c2d9a8b7e6f5a4b3c2d1e0f");
         // Empty day: first slot at the start of hold hours.
         assert_eq!(r["start"], "2026-09-29T09:00:00");
     }

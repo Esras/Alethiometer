@@ -83,7 +83,7 @@ pub fn converse(http: &dyn Http, creds: &AwsCreds, req: &Request, time: SystemTi
 }
 
 pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
-    let v: Value = serde_json::from_str(body).map_err(|_| anyhow::anyhow!("Bedrock returned a response Helm couldn't read"))?;
+    let v: Value = serde_json::from_str(body).map_err(|_| anyhow::anyhow!("Bedrock returned a response Alethiometer couldn't read"))?;
     let stop_reason = v.get("stopReason").and_then(Value::as_str).unwrap_or("").to_string();
     let text = v
         .pointer("/output/message/content")
@@ -130,7 +130,7 @@ pub fn map_error(status: u16, body: &str, req: &Request) -> anyhow::Error {
         // don't exist on bedrock-runtime at all, so AWS answers "invalid" instead
         // of the on-demand hint above.
         400 if model.starts_with("anthropic.") && lower.contains("identifier") => anyhow::anyhow!(
-            "Bedrock doesn't know '{model}' on bedrock-runtime (400). Helm needs the inference-profile id, \
+            "Bedrock doesn't know '{model}' on bedrock-runtime (400). Alethiometer needs the inference-profile id, \
              e.g. us.anthropic.claude-opus-5-5 or us.anthropic.claude-haiku-4-5-20251001-v1:0 (see docs/ai.md). \
              AWS said: {aws}"
         ),
@@ -160,7 +160,7 @@ pub fn sign_headers(
         &creds.secret_access_key,
         creds.session_token.clone(),
         None,
-        "helm",
+        "alethiometer",
     )
     .into();
     let params = v4::SigningParams::builder()

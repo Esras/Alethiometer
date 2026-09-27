@@ -356,7 +356,7 @@ fn without_the_socket_dms_are_capped_to_the_most_recently_active() {
     run_poll(&http, &source_with(1, config.clone(), None)).unwrap();
     assert_eq!((count(&http, "conversations.info?channel=G0MPIM"), count(&http, "conversations.info?channel=D0PRIYA")), (1, 0));
 
-    // Activity Helm has seen wins.
+    // Activity Alethiometer has seen wins.
     let mut state = State { me: "U0ME".into(), team_url: "https://acme.slack.com/".into(), ..Default::default() };
     state.convs.insert("D0PRIYA".into(), poll::ConvState { seen: "1789997000.000800".into() });
     let http = workspace(HISTORY_INC_1);

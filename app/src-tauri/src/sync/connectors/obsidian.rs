@@ -26,7 +26,7 @@ use std::time::SystemTime;
 
 pub struct Obsidian;
 
-/// Always skipped: Obsidian's own config, its trash, Helm's reflections (they
+/// Always skipped: Obsidian's own config, its trash, Alethiometer's reflections (they
 /// can hold the Life lens, which must never become work items) and templates.
 const DEFAULT_IGNORE: &[&str] = &[".obsidian/", ".trash/", "Reflections/", "Templates/", "templates/"];
 
@@ -97,7 +97,7 @@ fn receipt(rel: &str, changed: bool, line: usize, mtime: SystemTime) -> Value {
 /// Fill `config.vault` for obsidian sources that don't name one:
 /// `settings.obsidian_vault`, else the stand-in `<data dir>/vault` (both already
 /// resolved into `App.vault`). No source is added automatically: reading the
-/// whole vault into Helm is a choice the user should make in `sources`.
+/// whole vault into Alethiometer is a choice the user should make in `sources`.
 pub fn resolve_config(sources: &mut [crate::settings::SourceConfig], vault: &Path) {
     for s in sources.iter_mut().filter(|s| s.kind == "obsidian") {
         if !s.config.is_object() {
@@ -581,7 +581,7 @@ fn write_checked(abs: &Path, before: Option<&str>, after: &str) -> anyhow::Resul
     use std::io::Write;
     let name = abs.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     // Hidden name: the scanner and the watcher filter skip it.
-    let tmp = abs.with_file_name(format!(".{name}.helm-tmp"));
+    let tmp = abs.with_file_name(format!(".{name}.alethiometer-tmp"));
     {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(after.as_bytes())?;
@@ -1048,7 +1048,7 @@ mod tests {
         let e = write_checked(&abs, Some("stale"), "new").unwrap_err();
         assert!(e.to_string().contains("changed"), "{e}");
         assert_eq!(v.read("t.md"), "- [ ] Same\n- [ ] Same\n- [ ] Other\n");
-        assert!(!v.root().join(".t.md.helm-tmp").exists());
+        assert!(!v.root().join(".t.md.alethiometer-tmp").exists());
     }
 
     #[test]
@@ -1123,7 +1123,7 @@ mod tests {
         let ig = Ignore::from_config(&json!({}));
         assert!(!wanted(&ig, "Reflections/Work/Day/2026-09-28.md"));
         assert!(!wanted(&ig, ".obsidian/workspace.json"));
-        assert!(!wanted(&ig, "Topics/.T.md.helm-tmp"));
+        assert!(!wanted(&ig, "Topics/.T.md.alethiometer-tmp"));
         assert!(wanted(&ig, "Topics/T.md"));
     }
 }

@@ -23,14 +23,14 @@ mod desktop {
     }
 
     pub fn run() {
-        let app = Arc::new(App::open(&App::default_data_dir()).expect("failed to open Helm data directory"));
+        let app = Arc::new(App::open(&App::default_data_dir()).expect("failed to open Alethiometer data directory"));
         crate::sync::start(app.clone());
         crate::outbox::start(app.clone());
         tauri::Builder::default()
             .manage(app)
             .invoke_handler(tauri::generate_handler![call])
             .run(tauri::generate_context!())
-            .expect("error while running Helm");
+            .expect("error while running Alethiometer");
     }
 }
 

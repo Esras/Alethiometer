@@ -5,7 +5,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-const DEV_SERVER = import.meta.env.VITE_HELM_DEVSERVER ?? 'http://127.0.0.1:1421';
+const DEV_SERVER = import.meta.env.VITE_ALETHIOMETER_DEVSERVER ?? 'http://127.0.0.1:1421';
 
 export async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   if (inTauri) return invoke<T>('call', { cmd, args });

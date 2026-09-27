@@ -50,7 +50,7 @@
   {#if !(inTauri && ui.info?.platform === 'linux')}<TitleBar />{/if}
   <TabBar />
   {#if ui.error}
-    <div class="fatal">Couldn't reach the Helm core: {ui.error}</div>
+    <div class="fatal">Couldn't reach the Alethiometer core: {ui.error}</div>
   {:else if ready}
     {#if ui.tab !== 'reflect'}<DayStrip />{/if}
     <main>

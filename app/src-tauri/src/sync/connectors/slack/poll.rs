@@ -15,7 +15,7 @@
 //! While a run is unread the same item is updated: new messages from others
 //! bump it back to new; if you read part of it in Slack its messages shrink to
 //! what's still unread (no bump). When the marker passes the whole run (you
-//! read it in Slack, or Helm marked it read) the item is marked seen through
+//! read it in Slack, or Alethiometer marked it read) the item is marked seen through
 //! `Batch::seen` and the run closes; the next message starts a new one.
 //!
 //! **Per-message ids.** `raw_json.msgs` lists each stored message's ts in the
@@ -484,7 +484,7 @@ impl Poller<'_> {
         Ok(out)
     }
 
-    /// The `max_dms` most recently active DMs and group DMs: activity Helm has
+    /// The `max_dms` most recently active DMs and group DMs: activity Alethiometer has
     /// seen first, then the conversation's creation time (Slack lists no
     /// last-activity time for DMs).
     fn pick_dms(&self, listing: &[Conv]) -> Vec<String> {
@@ -789,7 +789,7 @@ impl Poller<'_> {
     }
 
     /// Your own thread replies since the last search: threads you're in that
-    /// Helm may not know yet (you replied from your phone while it was off).
+    /// Alethiometer may not know yet (you replied from your phone while it was off).
     fn search_my_replies(&mut self) -> anyhow::Result<Vec<(String, String)>> {
         let me = self.state.me.clone();
         let since = self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());

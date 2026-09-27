@@ -225,8 +225,8 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             continue;
         }
         cur.seen.insert(id.to_string(), seen);
-        // Holds Helm created itself (Reflect "< schedule") aren't news.
-        if ev.pointer("/extendedProperties/private/helm_item_id").is_some() {
+        // Holds Alethiometer created itself (Reflect "< schedule") aren't news.
+        if ev.pointer("/extendedProperties/private/alethiometer_item_id").is_some() {
             batch.seen.push(id.to_string());
         }
         batch.items.push(item);
@@ -572,11 +572,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn helm_made_holds_arrive_already_seen() {
+    fn alethiometer_made_holds_arrive_already_seen() {
         let (_, first) = first_sync();
         let http = http();
         let mut page: Value = serde_json::from_str(fixture!("incremental.json")).unwrap();
-        page["items"][2]["extendedProperties"] = json!({ "private": { "helm_item_id": "42" } });
+        page["items"][2]["extendedProperties"] = json!({ "private": { "alethiometer_item_id": "42" } });
         http.on("GET", "syncToken=CPDAlvWDx70CEPDAlvWDx70CGAU%3D", 200, page.to_string());
         let b = poll(&http, json!({}), first.cursor.clone());
         assert_eq!(b.seen, ["8nw1newinvite"]);

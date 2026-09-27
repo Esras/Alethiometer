@@ -1,4 +1,4 @@
-# Helm
+# Alethiometer
 
 Personal, local-first work assistant. Tauri 2 (Rust core, system WebKit) with a Svelte 5 UI. The design reference and spec live in `../project/design_handoff_helm/`.
 
@@ -28,11 +28,11 @@ No WebKitGTK needed. The dev server exposes the same `call(cmd, args)` API over 
 
 ```sh
 npm ci
-HELM_FAKE_NOW=10:52 npm run devserver   # Rust core on 127.0.0.1:1421, data in ./.helm-dev
+ALETHIOMETER_FAKE_NOW=10:52 npm run devserver   # Rust core on 127.0.0.1:1421, data in ./.alethiometer-dev
 npm run dev                              # UI on http://localhost:1420
 ```
 
-`HELM_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.helm-dev/` to re-seed.
+`ALETHIOMETER_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.alethiometer-dev/` to re-seed.
 
 Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses).
 
@@ -50,9 +50,9 @@ Build the `.app` on the Mac with `npx tauri build`. Set `bundle.macOS.signingIde
 
 ## Data and config
 
-Everything lives in the app data directory (`~/Library/Application Support/dev.helm.assistant` on macOS, `~/.local/share/dev.helm.assistant` on Linux; override with `HELM_DATA_DIR`):
+Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux; override with `ALETHIOMETER_DATA_DIR`):
 
-- `helm.sqlite`: the database.
+- `alethiometer.sqlite`: the database.
 - `settings.json`: written with defaults on first run. Edit by hand.
 - `secrets.json`: API tokens on Linux (mode 0600). On the Mac these move to the Keychain.
 - `vault/`: stand-in work Obsidian vault until `obsidian_vault` is set.

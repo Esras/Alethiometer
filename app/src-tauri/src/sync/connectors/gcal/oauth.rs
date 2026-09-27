@@ -184,7 +184,7 @@ pub fn exchange_code(
         anyhow::bail!("Google code exchange failed: HTTP {} {err}", resp.status);
     }
     v.get("refresh_token").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
-        anyhow::anyhow!("Google returned no refresh token; remove Helm's access at myaccount.google.com/permissions and try again")
+        anyhow::anyhow!("Google returned no refresh token; remove Alethiometer's access at myaccount.google.com/permissions and try again")
     })
 }
 
@@ -305,7 +305,7 @@ fn read_request_line(stream: &mut TcpStream) -> String {
 
 fn respond(stream: &mut TcpStream, status: &str, text: &str) {
     let body = format!(
-        "<!doctype html><meta charset=utf-8><title>Helm</title><body style=\"font:15px system-ui;background:#1d2021;color:#ebdbb2;padding:3em\"><p>{text}</p>"
+        "<!doctype html><meta charset=utf-8><title>Alethiometer</title><body style=\"font:15px system-ui;background:#1d2021;color:#ebdbb2;padding:3em\"><p>{text}</p>"
     );
     let _ = write!(
         stream,
@@ -338,11 +338,11 @@ pub fn serve_callback(
                     Callback::Code(code) => {
                         return match exchange(&code) {
                             Ok(refresh) => {
-                                respond(&mut stream, "200 OK", "Helm is connected to Google Calendar. You can close this tab.");
+                                respond(&mut stream, "200 OK", "Alethiometer is connected to Google Calendar. You can close this tab.");
                                 Flow::Exchanged(refresh)
                             }
                             Err(e) => {
-                                respond(&mut stream, "200 OK", "Helm couldn't finish connecting. Check gcal.auth_status.");
+                                respond(&mut stream, "200 OK", "Alethiometer couldn't finish connecting. Check gcal.auth_status.");
                                 Flow::Failed(e.to_string())
                             }
                         };
@@ -424,7 +424,7 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
             let outcome = serve_callback(listener, Instant::now() + CONSENT_TIMEOUT, &state, |code| {
                 exchange_code(&http, &client_id, &client_secret, code, &verifier, &redirect)
             });
-            // Save the refresh token right away, so closing Helm can't lose it.
+            // Save the refresh token right away, so closing Alethiometer can't lose it.
             let outcome = match outcome {
                 Flow::Exchanged(refresh) => match platform.secret_set(&refresh_name, &refresh) {
                     Ok(()) => {

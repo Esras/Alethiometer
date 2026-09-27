@@ -2,7 +2,7 @@
 //!
 //! Order (first hit wins):
 //! 1. env: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`);
-//! 2. Helm's secret store (Keychain on the Mac): `aws_access_key_id`,
+//! 2. Alethiometer's secret store (Keychain on the Mac): `aws_access_key_id`,
 //!    `aws_secret_access_key`, optional `aws_session_token`;
 //! 3. the profile (`settings.ai.aws_profile`, else `AWS_PROFILE`, else "default"):
 //!    static keys in `~/.aws/credentials`, then static keys or `credential_process`
@@ -74,14 +74,14 @@ pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
         }
         if sect.contains_key("sso_session") || sect.contains_key("sso_start_url") {
             anyhow::bail!(
-                "AWS profile '{profile}' uses SSO, which Helm can't read directly. Add \
+                "AWS profile '{profile}' uses SSO, which Alethiometer can't read directly. Add \
                  credential_process = aws configure export-credentials --profile {profile} --format process \
                  to a profile and point ai.aws_profile at it (see docs/ai.md)"
             );
         }
     }
     anyhow::bail!(
-        "No AWS credentials found for Bedrock (looked in env vars, Helm secrets aws_access_key_id/aws_secret_access_key, \
+        "No AWS credentials found for Bedrock (looked in env vars, Alethiometer secrets aws_access_key_id/aws_secret_access_key, \
          and profile '{profile}' in ~/.aws). See docs/ai.md"
     )
 }
@@ -212,9 +212,9 @@ mod tests {
     fn config_file_uses_profile_prefix_and_credential_process() {
         let home = home_with(&[(
             "config",
-            "[profile helm]\nregion = us-east-1\ncredential_process = echo '{\"Version\":1,\"AccessKeyId\":\"AKIDPROC\",\"SecretAccessKey\":\"s\",\"SessionToken\":\"t\"}'\n",
+            "[profile alethiometer]\nregion = us-east-1\ncredential_process = echo '{\"Version\":1,\"AccessKeyId\":\"AKIDPROC\",\"SecretAccessKey\":\"s\",\"SessionToken\":\"t\"}'\n",
         )]);
-        let c = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "helm" }).unwrap();
+        let c = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "alethiometer" }).unwrap();
         assert_eq!((c.access_key_id.as_str(), c.session_token.as_deref()), ("AKIDPROC", Some("t")));
     }
 

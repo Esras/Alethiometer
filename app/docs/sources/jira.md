@@ -34,7 +34,7 @@ Kind `jira`, tag `work`. Connector: `src-tauri/src/sync/connectors/jira.rs`.
 | `email` | yes | The Atlassian account email that owns the API token |
 | `create_project` | for Notes → Jira | Project key new issues from Notes go into |
 | `create_issue_type` | no (`Task`) | Issue type name for those issues |
-| `jql` | no | Which issues to follow. Default shown above. Helm adds `AND updated >= "…" ORDER BY updated ASC` |
+| `jql` | no | Which issues to follow. Default shown above. Alethiometer adds `AND updated >= "…" ORDER BY updated ASC` |
 | `lookback_days` | no (14) | How far back the first sync reaches |
 | `due_field` | no | Id of a custom **date-time** field that holds the real deadline (e.g. `customfield_10050`). See [Due dates](#due-dates) |
 | `create_dedupe_hours` | no (24) | How far back `jira.create_issue` looks for an issue an earlier attempt already created. `0` turns the check off. See [No duplicate issues on retry](#no-duplicate-issues-on-retry) |
@@ -76,12 +76,12 @@ Each issue becomes an item:
 
 ### Due dates
 
-Jira's built-in **Due date** (`duedate`) is a day with no time. Helm stores it as
+Jira's built-in **Due date** (`duedate`) is a day with no time. Alethiometer stores it as
 23:59 on that day, so it sorts after that day's timed work. Views show a due date as a
 day only ("due Fri", "due Oct 2"), never with a time.
 
 If your team keeps the real deadline in a custom **Date Time Picker** field, set
-`due_field` to that field's id. Helm then asks for that field too, and when an issue has
+`due_field` to that field's id. Alethiometer then asks for that field too, and when an issue has
 it set, uses its date and time, converted from the value's offset to your local time.
 Issues where the field is empty fall back to `duedate`. A custom field that holds only a
 date (a *Date Picker*) is also pinned to 23:59.
@@ -99,11 +99,11 @@ To find the field id (`customfield_` + a number), use one of these:
 minute-precision and read in your Jira profile's time zone, so the query reaches one
 day before the cursor; re-seen issues are simply updated.
 
-**New signal (`bump`)** on an issue Helm already has, when after the cursor:
+**New signal (`bump`)** on an issue Alethiometer already has, when after the cursor:
 - someone else changed its **status or assignee** (from the changelog), or
 - someone else **@mentioned you** in a new comment.
 
-Your own changes (including writes sent from Helm) never resurface an item.
+Your own changes (including writes sent from Alethiometer) never resurface an item.
 
 **Mentions:** JQL can't reliably find issues that mention you (`comment ~ currentUser()`
 is unsupported in Jira Cloud and gives inconsistent results), so the default JQL
@@ -127,7 +127,7 @@ the unresolved delegate. The summary is always your own line, verbatim.
 
 ### No duplicate issues on retry
 
-A create can go through on Jira's side while Helm never gets the answer: a timeout, a
+A create can go through on Jira's side while Alethiometer never gets the answer: a timeout, a
 crash, or ⌘R on a row that had in fact worked. Retrying it blindly would file the
 issue twice. So before creating, `jira.create_issue` searches:
 
@@ -143,16 +143,16 @@ there is one, that issue is the receipt (`"existing": true`) and nothing is crea
   connector, so the lower bound is "now minus `create_dedupe_hours`" (24 by default).
   It's a relative JQL date (`-24h`), so your Jira profile's time zone doesn't matter.
 - **The trade-off.** If you file the same summary twice on purpose within the window
-  (in Helm or in Jira, reported by you, same project), the second one returns the first
+  (in Alethiometer or in Jira, reported by you, same project), the second one returns the first
   issue instead of creating a new one. A retry more than 24 h after the first attempt
   can still duplicate. Raise `create_dedupe_hours` if you often retry failed rows days
   later, or set it to `0` to turn the check off.
 - **Why `~` plus an exact compare.** `summary ~` is Jira's word search. It ignores
   punctuation, stems words ("drafting" finds "draft") and can't match exactly, so it
-  only narrows the search. Helm sends the summary's words only, lowercased: this keeps
+  only narrows the search. Alethiometer sends the summary's words only, lowercased: this keeps
   `AND`/`OR`/`NOT` from acting as operators, and drops the characters Jira's text search
   reserves. The JQL string itself is quoted with `"` and `\` escaped. If Jira still
-  rejects the text query (e.g. a summary made only of stop words), Helm searches
+  rejects the text query (e.g. a summary made only of stop words), Alethiometer searches
   without it. Any other search error fails the write, so an issue is never created
   without the check.
 - **Search freshness.** Jira's search index can trail a create by a few seconds. Retries

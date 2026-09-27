@@ -46,7 +46,7 @@
     refresh();
   }
 
-  // Google needs a one-time consent in the browser; Helm saves the token itself.
+  // Google needs a one-time consent in the browser; Alethiometer saves the token itself.
   let connectMsg = $state<string | null>(null);
   async function connect(id: number) {
     try {

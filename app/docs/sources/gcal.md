@@ -4,17 +4,17 @@ Kind `gcal`, tag `work`. Reads events from one calendar (default: your primary w
 
 ## 1. Create your own Google OAuth client (one time)
 
-Helm doesn't ship an OAuth client. You create one in a Google Cloud project, ideally under your work account.
+Alethiometer doesn't ship an OAuth client. You create one in a Google Cloud project, ideally under your work account.
 
-1. Open <https://console.cloud.google.com/> signed in with your **work** Google account. Create a project (e.g. `helm-personal`).
+1. Open <https://console.cloud.google.com/> signed in with your **work** Google account. Create a project (e.g. `alethiometer-personal`).
 2. **Enable the API:** APIs & Services → Library → search "Google Calendar API" → Enable.
 3. **Consent screen:** APIs & Services → OAuth consent screen (in newer consoles: Google Auth Platform → Branding / Audience / Data access).
-   - App name `Helm`, your email as support and developer contact.
+   - App name `Alethiometer`, your email as support and developer contact.
    - **Audience / user type:**
      - **Internal**, if your Workspace allows it. Only people in your organization can use it, there's no test-user list, and refresh tokens don't expire after 7 days. This is the best choice.
      - Otherwise **External** in **Testing** mode, with yourself added under *Test users*. In Testing mode Google expires refresh tokens after **7 days**, so you'd reconnect weekly (see below). Switching the app to *In production* without verification removes the 7-day limit, but Google then shows an "unverified app" warning during consent. That's acceptable for a personal tool.
    - **Data access / scopes:** add `https://www.googleapis.com/auth/calendar.events.owned`.
-4. **Client:** APIs & Services → Credentials (or Google Auth Platform → Clients) → Create credentials → OAuth client ID → Application type **Desktop app** → name it `Helm`. Copy the client ID and client secret. Desktop clients need no redirect URI; Google allows any `http://127.0.0.1:<port>` loopback redirect for them.
+4. **Client:** APIs & Services → Credentials (or Google Auth Platform → Clients) → Create credentials → OAuth client ID → Application type **Desktop app** → name it `Alethiometer`. Copy the client ID and client secret. Desktop clients need no redirect URI; Google allows any `http://127.0.0.1:<port>` loopback redirect for them.
 
 > **Workspace admins may block this.** Many organizations restrict which third-party apps can access Google data (Admin console → Security → API controls → App access control). If consent fails with "Access blocked: … admin_policy_enforced" or "This app is blocked", ask your admin to trust your OAuth client ID, or use an Internal app in a project that belongs to the organization.
 
@@ -26,7 +26,7 @@ Secrets never go in `settings.json`. On Linux dev they live in `<data dir>/secre
 |---|---|
 | `gcal.client_id` | OAuth client ID (`…apps.googleusercontent.com`) |
 | `gcal.client_secret` | OAuth client secret (`GOCSPX-…`) |
-| `gcal.refresh_token` | Written by Helm after consent. Don't set it by hand. |
+| `gcal.refresh_token` | Written by Alethiometer after consent. Don't set it by hand. |
 
 The `gcal` prefix comes from `config.secret_prefix`. Change it (e.g. to `gcal.work2`) if you ever add a second Google account as a second source.
 
@@ -82,23 +82,23 @@ All `config` fields are optional:
 
 ## 4. Connect (consent)
 
-Restart Helm after editing `settings.json`, then call the API. With the browser dev server:
+Restart Alethiometer after editing `settings.json`, then call the API. With the browser dev server:
 
 ```sh
 curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_start -d '{}'
 # → {"url": "https://accounts.google.com/o/oauth2/v2/auth?…", "redirect_uri": "http://127.0.0.1:53817", …}
 ```
 
-Open `url` in your browser, pick your work account and approve. The tab should say "Helm is connected". Then:
+Open `url` in your browser, pick your work account and approve. The tab should say "Alethiometer is connected". Then:
 
 ```sh
 curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_status -d '{}'
 # → {"state": "connected", "has_refresh_token": true, …}
 ```
 
-Easiest: open the sync status in the tab bar and press **Connect** next to the calendar source. Helm opens the consent screen in your browser and saves the refresh token as soon as you approve; `auth_status` only reports progress. The listener waits 10 minutes. Both calls take an optional `source_id` if you have more than one `gcal` source.
+Easiest: open the sync status in the tab bar and press **Connect** next to the calendar source. Alethiometer opens the consent screen in your browser and saves the refresh token as soon as you approve; `auth_status` only reports progress. The listener waits 10 minutes. Both calls take an optional `source_id` if you have more than one `gcal` source.
 
-How it works: authorization code flow with PKCE (S256) and a loopback redirect on `127.0.0.1` at a random port. A random `state` guards the redirect, and the listener accepts only that. Helm asks for offline access with `prompt=consent`, so Google always returns a refresh token. Access tokens live in memory only. They're refreshed a minute before expiry, or after a 401.
+How it works: authorization code flow with PKCE (S256) and a loopback redirect on `127.0.0.1` at a random port. A random `state` guards the redirect, and the listener accepts only that. Alethiometer asks for offline access with `prompt=consent`, so Google always returns a refresh token. Access tokens live in memory only. They're refreshed a minute before expiry, or after a 401.
 
 **Reconnecting.** If the sync error says "Google refused the refresh token", the token expired (Testing mode: 7 days) or you revoked access. Press **Connect** again (or run `gcal.auth_start`).
 
@@ -126,7 +126,7 @@ Each event becomes an item of kind `event`:
 - **Declined** events stay as items with status `done` and no strip block. Re-accepting brings the block back.
 - **Working-location** entries ("Home", "Office") are skipped; they aren't meetings.
 - **New signal (Incoming):** new events, invitations still awaiting your answer, and changes to an event's time or guest list. Description or title edits and other guests' RSVPs don't resurface an event. Neither does your own decline.
-- **Cancelled or deleted events are never deleted locally.** The item stays (title, history, topic links, notes), its status becomes `done`, and it shows once more in Incoming so you notice the cancellation. Only its row in `events`, the cached block on the strip, is removed. That row is a copy of remote times, not your content. Leaving it would show a meeting that no longer exists. Cancellations of events Helm never stored are ignored.
+- **Cancelled or deleted events are never deleted locally.** The item stays (title, history, topic links, notes), its status becomes `done`, and it shows once more in Incoming so you notice the cancellation. Only its row in `events`, the cached block on the strip, is removed. That row is a copy of remote times, not your content. Leaving it would show a meeting that no longer exists. Cancellations of events Alethiometer never stored are ignored.
 
 ## What is written (outbox ops)
 
@@ -136,13 +136,13 @@ Every write goes through the outbox and is confirmed only after Google answers.
 
 Payload: `{"event_id": "<Google event id = item external_id>", "response": "accepted" | "declined" | "tentative"}`
 
-Helm fetches the event to find your own attendee entry (`self: true`). It then sends a `PATCH` with `attendeesOmitted: true` and just that one entry, so no other guest can be touched. It uses `If-Match` on the event's etag, so an event that changed in the meantime fails visibly (retry with ⌘R). Receipt: `{event_id, response, etag}`. The next poll updates the strip (the dashed border goes away).
+Alethiometer fetches the event to find your own attendee entry (`self: true`). It then sends a `PATCH` with `attendeesOmitted: true` and just that one entry, so no other guest can be touched. It uses `If-Match` on the event's etag, so an event that changed in the meantime fails visibly (retry with ⌘R). Receipt: `{event_id, response, etag}`. The next poll updates the strip (the dashed border goes away).
 
 ### `gcal.hold`
 
 Enqueued by Reflect's `<` schedule with payload `{item_id, title, carried_from}` (optionally `start`/`end` as local `YYYY-MM-DDTHH:MM:SS` to place it exactly).
 
-Without times, Helm finds the first free `hold_minutes` slot within `hold_hours`. It looks on the workdays after the later of `carried_from` and today, skipping weekends. It reads busy time from the calendar itself, ignoring free (transparent), cancelled and declined events, and rounds to the quarter hour. It then inserts an event titled with the item's title: `visibility: private`, `transparency: opaque` (busy), default reminders, and private extended properties `helm_item_id` / `helm_carried_from`.
+Without times, Alethiometer finds the first free `hold_minutes` slot within `hold_hours`. It looks on the workdays after the later of `carried_from` and today, skipping weekends. It reads busy time from the calendar itself, ignoring free (transparent), cancelled and declined events, and rounds to the quarter hour. It then inserts an event titled with the item's title: `visibility: private`, `transparency: opaque` (busy), default reminders, and private extended properties `alethiometer_item_id` / `alethiometer_carried_from`.
 
 The event id is derived from the calendar, item and carry date. If Google created the event but the response was lost, a retry gets a `409` and adopts the existing event instead of creating a duplicate. Receipt: `{event_id, start, end, html_link}`.
 
@@ -150,7 +150,7 @@ Note: your Proton "Life" blocks aren't visible to this search, because the conne
 
 ## Scopes and access
 
-- `https://www.googleapis.com/auth/calendar.events.owned`: "See, create, change, and delete events on Google calendars you own". This is the narrowest scope that covers `events.list`, `events.get`, `events.patch` (RSVP) and `events.insert` (holds) on your own calendar. Helm never deletes events.
+- `https://www.googleapis.com/auth/calendar.events.owned`: "See, create, change, and delete events on Google calendars you own". This is the narrowest scope that covers `events.list`, `events.get`, `events.patch` (RSVP) and `events.insert` (holds) on your own calendar. Alethiometer never deletes events.
 - For a calendar you don't own (e.g. a shared team calendar), set `"scopes": ["https://www.googleapis.com/auth/calendar.events"]` and reconnect.
 
 ## Not verified without real credentials

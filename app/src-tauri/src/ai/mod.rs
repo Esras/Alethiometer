@@ -1,4 +1,4 @@
-//! Work AI. The only path from Helm to an LLM.
+//! Work AI. The only path from Alethiometer to an LLM.
 //!
 //! Boundary rules enforced here:
 //! - Rule 2: work data may only go to providers on `settings.ai.allowed_providers`
@@ -204,7 +204,8 @@ pub mod tests {
 
     #[test]
     fn missing_model_fails() {
-        let ai = Settings::default().ai;
+        let mut ai = Settings::default().ai;
+        ai.small.model.clear();
         assert!(check(&ai, Tier::Small).is_err());
     }
 

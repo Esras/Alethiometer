@@ -265,7 +265,7 @@ pub fn handle(text: &str, state: &State) -> Action {
 
 /// What a message event means for us, if anything.
 ///
-/// - A thread reply matters in a DM or followed channel, in a thread Helm
+/// - A thread reply matters in a DM or followed channel, in a thread Alethiometer
 ///   already tracks, when it mentions you, when you wrote it, or when it
 ///   answers a thread you started (`parent_user_id`). This is what catches
 ///   replies to old threads live, however old the parent.

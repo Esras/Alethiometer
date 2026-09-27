@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.helm-dev/
+.alethiometer-dev/
 src-tauri/target/
 src-tauri/gen/

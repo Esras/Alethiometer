@@ -343,12 +343,12 @@ fn save(app: &App, args: &Value) -> Result<Value> {
 }
 
 /// Local work source that Notes signals come from.
-fn helm_source(conn: &Connection) -> Result<i64> {
-    let id: Option<i64> = conn.query_row("SELECT id FROM sources WHERE kind = 'helm'", [], |r| r.get(0)).optional()?;
+fn alethiometer_source(conn: &Connection) -> Result<i64> {
+    let id: Option<i64> = conn.query_row("SELECT id FROM sources WHERE kind = 'notes'", [], |r| r.get(0)).optional()?;
     match id {
         Some(id) => Ok(id),
         None => {
-            conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('helm', 'work', 'Helm Notes')", [])?;
+            conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('notes', 'work', 'Alethiometer Notes')", [])?;
             Ok(conn.last_insert_rowid())
         }
     }
@@ -363,7 +363,7 @@ fn send(app: &App, date: NaiveDate) -> Result<()> {
     let tx = conn.transaction()?;
     let idx = Index::load(&tx, &app.vault)?;
     let rows = load_rows(&tx, date)?;
-    let src = helm_source(&tx)?;
+    let src = alethiometer_source(&tx)?;
     for r in rows {
         if r.kind == "life" || !EDITABLE.contains(&r.state.as_str()) || r.text.trim().is_empty() {
             continue;

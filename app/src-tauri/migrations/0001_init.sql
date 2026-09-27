@@ -1,4 +1,4 @@
--- Helm schema v1. Plain SQL; applied in order by db::migrate using PRAGMA user_version.
+-- Alethiometer schema v1. Plain SQL; applied in order by db::migrate using PRAGMA user_version.
 -- Every source is tagged work|personal (boundary rule 1). Personal sources only ever
 -- produce untitled busy blocks (rule 3).
 

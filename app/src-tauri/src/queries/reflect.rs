@@ -2,7 +2,7 @@
 //! takes the page, beside it a short factual brief and what to carry forward.
 //!
 //! Each scope (day/week/month/quarter) and lens (both/work/life) has its own
-//! Obsidian note in the work vault. Helm owns these files but still never
+//! Obsidian note in the work vault. Alethiometer owns these files but still never
 //! clobbers them: a save only lands if the file on disk still matches what the
 //! UI loaded; otherwise it reports a conflict and writes nothing.
 //!
@@ -682,7 +682,7 @@ fn write_atomic(abs: &Path, text: &str) -> Result<()> {
     if let Some(dir) = abs.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = abs.with_extension("md.helm-tmp");
+    let tmp = abs.with_extension("md.alethiometer-tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, abs)?;
     Ok(())

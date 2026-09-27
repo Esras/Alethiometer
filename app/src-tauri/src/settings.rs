@@ -102,8 +102,9 @@ impl Default for Settings {
                 allowed_providers: vec!["bedrock".into()],
                 region: "us-east-1".into(),
                 aws_profile: String::new(),
-                small: AiTier { provider: "bedrock".into(), model: String::new() },
-                large: AiTier { provider: "bedrock".into(), model: String::new() },
+                // US inference profiles only; the org's BAA covers Bedrock in US regions.
+                small: AiTier { provider: "bedrock".into(), model: "us.openai.gpt-6-luna".into() },
+                large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into() },
             },
             fake_now: String::new(),
             sources: vec![],

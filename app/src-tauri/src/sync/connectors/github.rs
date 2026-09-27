@@ -42,6 +42,34 @@ pub struct GhOutput {
     pub stderr: String,
 }
 
+/// Where `gh` usually lives: PATH, Homebrew, Nix (user profile, nix-darwin
+/// per-user and system profiles), then whatever the login shell resolves.
+fn gh_candidates() -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let user = std::env::var("USER").unwrap_or_default();
+    let mut c: Vec<String> = vec![
+        "gh".into(),
+        "/opt/homebrew/bin/gh".into(),
+        "/usr/local/bin/gh".into(),
+        format!("{home}/.nix-profile/bin/gh"),
+        format!("/etc/profiles/per-user/{user}/bin/gh"),
+        "/run/current-system/sw/bin/gh".into(),
+        "/nix/var/nix/profiles/default/bin/gh".into(),
+        "/home/linuxbrew/.linuxbrew/bin/gh".into(),
+        "/usr/bin/gh".into(),
+    ];
+    // Last resort: ask the login shell, which sees the user's full PATH.
+    if let Ok(shell) = std::env::var("SHELL") {
+        if let Ok(o) = std::process::Command::new(shell).args(["-lc", "command -v gh"]).stdin(std::process::Stdio::null()).output() {
+            let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if o.status.success() && p.starts_with('/') {
+                c.push(p);
+            }
+        }
+    }
+    c
+}
+
 /// Runs `gh` with these arguments. Swapped out in tests; no real process there.
 pub type GhRunner<'r> = dyn Fn(&[&str]) -> std::io::Result<GhOutput> + 'r;
 
@@ -50,13 +78,13 @@ pub type GhRunner<'r> = dyn Fn(&[&str]) -> std::io::Result<GhOutput> + 'r;
 /// `config.gh_path` names the binary outright.
 fn run_gh(path: Option<&str>) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> + '_ {
     move |args: &[&str]| {
-        let candidates: Vec<&str> = match path {
-            Some(p) => vec![p],
-            None => vec!["gh", "/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/home/linuxbrew/.linuxbrew/bin/gh", "/usr/bin/gh"],
+        let candidates: Vec<String> = match path {
+            Some(p) => vec![p.to_string()],
+            None => gh_candidates(),
         };
         let mut last = std::io::Error::from(std::io::ErrorKind::NotFound);
         for c in candidates {
-            match std::process::Command::new(c).args(args).stdin(std::process::Stdio::null()).output() {
+            match std::process::Command::new(&c).args(args).stdin(std::process::Stdio::null()).output() {
                 Ok(o) => {
                     return Ok(GhOutput {
                         success: o.status.success(),
@@ -138,7 +166,7 @@ impl<'a> Api<'a> {
             ("authorization", self.auth.as_str()),
             ("accept", "application/vnd.github+json"),
             ("x-github-api-version", API_VERSION),
-            ("user-agent", "helm"),
+            ("user-agent", "alethiometer"),
         ];
         let body = body.map(Value::to_string);
         if body.is_some() {
@@ -275,7 +303,7 @@ impl GitHub {
             }
             "github.review_comment" => {
                 // A review with a body only. Approving or requesting changes is
-                // deliberately not offered from Helm.
+                // deliberately not offered from Alethiometer.
                 let event = payload.get("event").and_then(Value::as_str).unwrap_or("COMMENT");
                 if event != "COMMENT" {
                     anyhow::bail!("github.review_comment only sends COMMENT reviews, not {event}");

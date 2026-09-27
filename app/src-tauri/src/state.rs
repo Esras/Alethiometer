@@ -18,17 +18,17 @@ pub struct App {
 }
 
 impl App {
-    /// `HELM_DATA_DIR` overrides the platform data directory.
+    /// `ALETHIOMETER_DATA_DIR` overrides the platform data directory.
     pub fn default_data_dir() -> PathBuf {
-        std::env::var_os("HELM_DATA_DIR")
+        std::env::var_os("ALETHIOMETER_DATA_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| dirs::data_dir().unwrap_or_else(|| ".".into()).join("dev.helm.assistant"))
+            .unwrap_or_else(|| dirs::data_dir().unwrap_or_else(|| ".".into()).join("dev.alethiometer.app"))
     }
 
     pub fn open(data_dir: &Path) -> anyhow::Result<App> {
         std::fs::create_dir_all(data_dir)?;
         let settings = Settings::load_or_init(&data_dir.join("settings.json"))?;
-        let conn = crate::db::open(&data_dir.join("helm.sqlite"))?;
+        let conn = crate::db::open(&data_dir.join("alethiometer.sqlite"))?;
         Self::from_parts(conn, settings, data_dir)
     }
 
@@ -41,8 +41,8 @@ impl App {
         // Sources that take their config from top-level settings (vault path, Life links).
         crate::sync::connectors::obsidian::resolve_config(&mut settings.sources, &vault);
         crate::sync::connectors::protoncal::resolve_config(&mut settings);
-        // HELM_FAKE_NOW (e.g. "10:52") overrides settings.fake_now for dev and screenshots.
-        let fake = std::env::var("HELM_FAKE_NOW").unwrap_or_else(|_| settings.fake_now.clone());
+        // ALETHIOMETER_FAKE_NOW (e.g. "10:52") overrides settings.fake_now for dev and screenshots.
+        let fake = std::env::var("ALETHIOMETER_FAKE_NOW").unwrap_or_else(|_| settings.fake_now.clone());
         let clock = Clock::new(&fake);
         let app = App {
             db: Mutex::new(conn),

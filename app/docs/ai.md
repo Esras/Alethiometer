@@ -1,6 +1,6 @@
 # Work AI (Amazon Bedrock)
 
-Helm's AI answers questions in the assistant pane and in Reflect ("Ask about today"), and suggests topics for Unsorted items. It runs on Amazon Bedrock through the **Converse API** (`POST https://bedrock-runtime.<region>.amazonaws.com/model/<modelId>/converse`), signed with AWS SigV4. Code: `src-tauri/src/ai/`.
+Alethiometer's AI answers questions in the assistant pane and in Reflect ("Ask about today"), and suggests topics for Unsorted items. It runs on Amazon Bedrock through the **Converse API** (`POST https://bedrock-runtime.<region>.amazonaws.com/model/<modelId>/converse`), signed with AWS SigV4. Code: `src-tauri/src/ai/`.
 
 It follows three boundary rules:
 
@@ -10,7 +10,7 @@ It follows three boundary rules:
 
 ## Before you turn it on: BAA
 
-Work data may contain PHI. Your organization must confirm that **Amazon Bedrock, in the region and account you use, is covered by its AWS Business Associate Addendum**, and that the models you pick are HIPAA-eligible under that agreement. Helm can't check this. `allowed_providers: ["bedrock"]` records your decision; it doesn't prove coverage.
+Work data may contain PHI. Your organization must confirm that **Amazon Bedrock, in the region and account you use, is covered by its AWS Business Associate Addendum**, and that the models you pick are HIPAA-eligible under that agreement. Alethiometer can't check this. `allowed_providers: ["bedrock"]` records your decision; it doesn't prove coverage.
 
 Also decide on routing. A `global.` inference profile can run the request in any commercial AWS region. A `us.` profile stays in US regions. If your compliance rules require a geography, use the regional prefix.
 
@@ -18,11 +18,11 @@ Also decide on routing. A `global.` inference profile can run the request in any
 
 ### 1. Enable model access
 
-In the AWS console, open **Amazon Bedrock → Model access** in the region you'll use (for example `us-east-1`) and request access to the Anthropic models you'll use. Access is per account and per region. Without it, Bedrock returns 403 and Helm shows "model access not enabled in Bedrock console for <region>".
+In the AWS console, open **Amazon Bedrock → Model access** in the region you'll use (for example `us-east-1`) and request access to the Anthropic models you'll use. Access is per account and per region. Without it, Bedrock returns 403 and Alethiometer shows "model access not enabled in Bedrock console for <region>".
 
 ### 2. Pick model IDs
 
-Every current Claude model, including Opus 4.7 and later, Sonnet 5 and Opus 5.x, is served by `bedrock-runtime`, the endpoint Helm uses. You pick a model by giving its **inference-profile ID**: the model ID with a `us.` (or `global.`, `eu.`, …) prefix. A `us.` profile keeps the request in US regions.
+Every current Claude model, including Opus 4.7 and later, Sonnet 5 and Opus 5.x, is served by `bedrock-runtime`, the endpoint Alethiometer uses. You pick a model by giving its **inference-profile ID**: the model ID with a `us.` (or `global.`, `eu.`, …) prefix. A `us.` profile keeps the request in US regions.
 
 Suggested values:
 
@@ -35,15 +35,15 @@ Where these IDs come from (Sept 2026):
 
 - Haiku 4.5: Anthropic's Bedrock model table lists base ID `anthropic.claude-haiku-4-5-20251001-v1:0` with a `us` profile, and Claude Code's Bedrock guide uses `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
 - Opus 5.5 and Opus 4.8: Claude Code's Bedrock guide uses `us.anthropic.claude-opus-5-5` (its default in `us-*` regions) and `us.anthropic.claude-opus-4-8` on the same endpoint. A public bug report shows `us.anthropic.claude-opus-5-5` answering through Converse in `us-east-1`.
-- Sonnet 5 (`us.anthropic.claude-sonnet-5`) appears on AWS's model card, but Helm's build environment couldn't open AWS's docs to check it, so it isn't in the table.
+- Sonnet 5 (`us.anthropic.claude-sonnet-5`) appears on AWS's model card, but Alethiometer's build environment couldn't open AWS's docs to check it, so it isn't in the table.
 
-None of these has been called from Helm itself (no AWS account here). Before you rely on one, confirm it's listed under **Bedrock → Cross-region inference** in your region.
+None of these has been called from Alethiometer itself (no AWS account here). Before you rely on one, confirm it's listed under **Bedrock → Cross-region inference** in your region.
 
 Notes:
 
 - **Newer IDs have no date or version suffix.** `us.anthropic.claude-opus-5-5` is the whole ID. Older models keep theirs (`…-20251001-v1:0`).
-- **Don't copy the `anthropic.claude-…` IDs** from Anthropic's model overview or its "Claude in Amazon Bedrock" page. Those belong to Bedrock's separate Messages-API endpoint (`bedrock-mantle`), which Helm doesn't use. Sent to `bedrock-runtime` they fail with a 400. Helm's error message names the `us.` ID to use instead.
-- **Opus 5.5 always thinks, and Sonnet 5 and Opus 5 think by default.** Thinking tokens are billed and count toward the reply cap. Helm allows 4,096 output tokens per question and 1,024 per topic suggestion, so that thinking doesn't crowd out the answer. Haiku 4.5 doesn't think unless asked, so it stays the cheap choice for suggestions.
+- **Don't copy the `anthropic.claude-…` IDs** from Anthropic's model overview or its "Claude in Amazon Bedrock" page. Those belong to Bedrock's separate Messages-API endpoint (`bedrock-mantle`), which Alethiometer doesn't use. Sent to `bedrock-runtime` they fail with a 400. Alethiometer's error message names the `us.` ID to use instead.
+- **Opus 5.5 always thinks, and Sonnet 5 and Opus 5 think by default.** Thinking tokens are billed and count toward the reply cap. Alethiometer allows 4,096 output tokens per question and 1,024 per topic suggestion, so that thinking doesn't crowd out the answer. Haiku 4.5 doesn't think unless asked, so it stays the cheap choice for suggestions.
 - Swap `us.` for `global.` only if routing outside the US is acceptable (see the BAA section). You can also give a full inference-profile ARN (`arn:aws:bedrock:<region>:<account>:inference-profile/<id>`).
 
 **Why the shipped defaults stay empty.** `settings.rs` leaves both models empty, so the AI stays off until you confirm the BAA covers Bedrock and the model you pick. The IDs above also haven't been checked against a live account. Filling them in by default would send work data the first time someone opens the assistant pane.
@@ -57,7 +57,7 @@ Converse needs `bedrock:InvokeModel` on the model or inference profile named in 
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "HelmBedrockInvoke",
+      "Sid": "AlethiometerBedrockInvoke",
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
       "Resource": [
@@ -73,36 +73,36 @@ Converse needs `bedrock:InvokeModel` on the model or inference profile named in 
 
 Replace `us-east-1` with `ai.region`. The foundation-model name is the profile ID without its `us.` prefix. That matches AWS's naming for older models, but for Opus 5.5 it hasn't been checked against a live account. If you get a 403 that names a foundation-model ARN, copy that ARN into the policy. If your policy rules allow it, `arn:aws:bedrock:*::foundation-model/anthropic.claude-*` avoids this.
 
-Helm doesn't stream, so it doesn't need `bedrock:InvokeModelWithResponseStream`. Nothing else is needed: no list or describe calls, and no S3. Helm never calls the `bedrock-mantle` endpoint, so it needs no `bedrock-mantle:*` permissions (for example `bedrock-mantle:CreateInference`).
+Alethiometer doesn't stream, so it doesn't need `bedrock:InvokeModelWithResponseStream`. Nothing else is needed: no list or describe calls, and no S3. Alethiometer never calls the `bedrock-mantle` endpoint, so it needs no `bedrock-mantle:*` permissions (for example `bedrock-mantle:CreateInference`).
 
 ### 4. Credentials
 
-Helm reads the first match in this order:
+Alethiometer reads the first match in this order:
 
 | # | Where | What |
 |---|---|---|
 | 1 | environment | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` |
-| 2 | Helm secrets (Keychain on the Mac, `secrets.json` on Linux) | `aws_access_key_id`, `aws_secret_access_key`, optional `aws_session_token` |
+| 2 | Alethiometer secrets (Keychain on the Mac, `secrets.json` on Linux) | `aws_access_key_id`, `aws_secret_access_key`, optional `aws_session_token` |
 | 3 | `~/.aws/credentials` | static keys for the profile |
 | 4 | `~/.aws/config` | static keys, or `credential_process`, for the profile |
 
-The profile is `ai.aws_profile` in settings. If that's empty, Helm uses `AWS_PROFILE`, then `default`. `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` are honored. Apps started from the Dock don't see shell environment variables, so on the Mac use `ai.aws_profile` or the Keychain.
+The profile is `ai.aws_profile` in settings. If that's empty, Alethiometer uses `AWS_PROFILE`, then `default`. `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` are honored. Apps started from the Dock don't see shell environment variables, so on the Mac use `ai.aws_profile` or the Keychain.
 
-**SSO (IAM Identity Center).** Helm doesn't read the SSO token cache. Add a profile that asks the AWS CLI for credentials, and point Helm at it:
+**SSO (IAM Identity Center).** Alethiometer doesn't read the SSO token cache. Add a profile that asks the AWS CLI for credentials, and point Alethiometer at it:
 
 ```ini
 # ~/.aws/config
 [profile my-sso]
 sso_session = corp
 sso_account_id = 123456789012
-sso_role_name = HelmBedrock
+sso_role_name = AlethiometerBedrock
 region = us-east-1
 
-[profile helm]
+[profile alethiometer]
 credential_process = aws configure export-credentials --profile my-sso --format process
 ```
 
-Then set `"aws_profile": "helm"`. When the SSO session expires, the call fails with "credential_process … failed (expired SSO login? run `aws sso login`)". If Helm finds an SSO profile with no `credential_process`, it says so.
+Then set `"aws_profile": "alethiometer"`. When the SSO session expires, the call fails with "credential_process … failed (expired SSO login? run `aws sso login`)". If Alethiometer finds an SSO profile with no `credential_process`, it says so.
 
 Credentials are read for every call and are never logged or shown in errors.
 
@@ -112,17 +112,17 @@ Credentials are read for every call and are never logged or shown in errors.
 "ai": {
   "allowed_providers": ["bedrock"],
   "region": "us-east-1",
-  "aws_profile": "helm",
+  "aws_profile": "alethiometer",
   "small": { "provider": "bedrock", "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0" },
   "large": { "provider": "bedrock", "model": "us.anthropic.claude-opus-5-5" }
 }
 ```
 
-Restart Helm. The assistant pane header shows `bedrock · <large model>`. `ai.status` reports each tier's config check without calling AWS.
+Restart Alethiometer. The assistant pane header shows `bedrock · <large model>`. `ai.status` reports each tier's config check without calling AWS.
 
 ## What each feature sends
 
-Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime.<region>.amazonaws.com`. Helm stores nothing on the AWS side.
+Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime.<region>.amazonaws.com`. Alethiometer stores nothing on the AWS side.
 
 | Feature | Command | Tier | Sent to Bedrock |
 |---|---|---|---|

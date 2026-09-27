@@ -155,7 +155,7 @@
   {#if status === 'conflict'}
     <div class="conflict">
       <i class="ph-bold ph-warning"></i>
-      <span class="ellipsis">Changed outside Helm since you opened it. Nothing was overwritten.</span>
+      <span class="ellipsis">Changed outside Alethiometer since you opened it. Nothing was overwritten.</span>
       <span class="acts">
         <button class="btn" onclick={loadTheirs}>Load the file</button>
         <button class="btn" onclick={keepMine}>Keep mine</button>

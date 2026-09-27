@@ -12,9 +12,9 @@ Do this once for each calendar you want to count as busy:
 4. Choose **Limited view** ("shows when you're busy but doesn't show any event details"). Don't choose **Full view**.
 5. Copy the link.
 
-Proton offers Limited view only for links (**Share with anyone**), not when sharing with other Proton users. Proton notes that people using a link may see changes only after a delay (up to several hours), so a new event can take a while to appear in Helm.
+Proton offers Limited view only for links (**Share with anyone**), not when sharing with other Proton users. Proton notes that people using a link may see changes only after a delay (up to several hours), so a new event can take a while to appear in Alethiometer.
 
-The link carries the key that unlocks the calendar. Treat it like a password: Helm never logs it or puts it in error messages. To revoke access, delete the link in the same settings screen.
+The link carries the key that unlocks the calendar. Treat it like a password: Alethiometer never logs it or puts it in error messages. To revoke access, delete the link in the same settings screen.
 
 This wording matches Proton's support page ("How to share a calendar with anyone via a link") as of September 2026. The page couldn't be opened directly from the build environment, so the steps are based on its published text.
 
@@ -30,7 +30,7 @@ Put the links in `settings.json`:
 }
 ```
 
-That's all you need. On startup, if `life_calendars` has links and no `protoncal` source is configured, Helm adds one named **Life** (personal, polled every 15 min) and logs that it did so, without the links. It does this on purpose: listing a link in `life_calendars` already says "show this as Life", and the source can only ever produce untitled busy blocks.
+That's all you need. On startup, if `life_calendars` has links and no `protoncal` source is configured, Alethiometer adds one named **Life** (personal, polled every 15 min) and logs that it did so, without the links. It does this on purpose: listing a link in `life_calendars` already says "show this as Life", and the source can only ever produce untitled busy blocks.
 
 To change the defaults, add the source yourself. Its `urls` default to `life_calendars`:
 

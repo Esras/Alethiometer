@@ -28,11 +28,11 @@ Add a source to `settings.json`:
 | `vault` | `settings.obsidian_vault`, else `<data dir>/vault` | Absolute path to the vault folder. Only needed if this source should read a different folder than the one Topics and Reflect use. |
 | `ignore` | none | Extra patterns to skip, added to the built-in list below. `Folder/` matches a folder, a pattern containing `/` is anchored at the vault root, anything else matches the file name. `*`, `**` and `?` work as in `.gitignore`. |
 
-Always skipped, whatever `ignore` says: hidden files and folders (`.obsidian/`, `.trash/`, `.git/`…), `Reflections/` (Helm's own reflection notes; the Life lens must never become work items), `Templates/` and `templates/`, symlinks, and anything that isn't `.md`.
+Always skipped, whatever `ignore` says: hidden files and folders (`.obsidian/`, `.trash/`, `.git/`…), `Reflections/` (Alethiometer's own reflection notes; the Life lens must never become work items), `Templates/` and `templates/`, symlinks, and anything that isn't `.md`.
 
-Helm doesn't add an Obsidian source by itself when `obsidian_vault` is set. Reading the whole vault into Helm is your call, so add the source yourself.
+Alethiometer doesn't add an Obsidian source by itself when `obsidian_vault` is set. Reading the whole vault into Alethiometer is your call, so add the source yourself.
 
-The vault must only sync through BAA-covered storage (see the boundary rules). Helm doesn't check that.
+The vault must only sync through BAA-covered storage (see the boundary rules). Alethiometer doesn't check that.
 
 ## Sync
 
@@ -55,7 +55,7 @@ A task's id is its note's path plus a hash of its words, so adding a due date ke
 - **Notes** never show up in Incoming. They're your own writing, and every save would resurface them. They're searchable, and new ones can be filed from search.
 - **New tasks** show up in Incoming (Unsorted until they're filed), except…
 - **A topic's own note** (`topics.obsidian_path`) and every task in it are linked to that topic as confirmed and marked seen. You put them there, so there's nothing to triage. A link you've marked Wrong stays wrong.
-- **Removed tasks** (checked off, edited or deleted), and every item from a deleted or renamed file, are set to `done`. Nothing is ever deleted from Helm. After a rename the note comes back as a new item, and links you confirmed on the old one stay on the old one.
+- **Removed tasks** (checked off, edited or deleted), and every item from a deleted or renamed file, are set to `done`. Nothing is ever deleted from Alethiometer. After a rename the note comes back as a new item, and links you confirmed on the old one stay on the old one.
 
 ## What is written (outbox ops)
 

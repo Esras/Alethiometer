@@ -5,10 +5,10 @@ mentions of you. What you haven't read **in Slack** becomes a signal in
 Incoming: one per thread, and one per conversation for its unread top-level
 messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those
 messages. When you read them in Slack the signal stops being new; when you
-confirm it in Helm, Helm marks it read in Slack. Writes back (through the
+confirm it in Alethiometer, Alethiometer marks it read in Slack. Writes back (through the
 outbox) mark read, thread replies you type, and reactions.
 
-Helm talks to Slack as **you**, through a small Slack app you create for
+Alethiometer talks to Slack as **you**, through a small Slack app you create for
 yourself. Nothing is hosted; the app only exists to issue tokens.
 
 ## 1. Create the app
@@ -20,7 +20,7 @@ yourself. Nothing is hosted; the app only exists to issue tokens.
 _metadata:
   major_version: 1
 display_information:
-  name: Helm
+  name: Alethiometer
   description: Personal work assistant. Reads my DMs, mentions and followed channels.
 oauth_config:
   scopes:
@@ -65,7 +65,7 @@ If **Install** turns into **Request to Install**, an admin has to approve it fir
 
 Skip anything you don't want: without `search:read` set `"mentions": false`;
 without the write scopes the matching outbox ops fail visibly; without the
-`xapp-` token Helm falls back to polling (see below).
+`xapp-` token Alethiometer falls back to polling (see below).
 
 ## 2. Store the tokens
 
@@ -106,8 +106,8 @@ In `settings.json` → `sources`:
 |---|---|---|
 | `channels` | `[]` | Channels you follow: `#name` (a channel you're in) or channel id (also works for a public channel you haven't joined). An unknown name fails the sync with a clear error. |
 | `dms` | `true` | Read your DMs and group DMs. |
-| `mentions` | `true` | Use `search.messages` (needs `search:read`) on catch-up: mentions of you in channels you don't follow, and threads you replied in that Helm doesn't know yet. |
-| `lookback_hours` | `72` | The furthest back anything is read: bounds the first sync, a catch-up after Helm was off, and a channel you haven't read for weeks. |
+| `mentions` | `true` | Use `search.messages` (needs `search:read`) on catch-up: mentions of you in channels you don't follow, and threads you replied in that Alethiometer doesn't know yet. |
+| `lookback_hours` | `72` | The furthest back anything is read: bounds the first sync, a catch-up after Alethiometer was off, and a channel you haven't read for weeks. |
 | `max_dms` | `50` | DMs and group DMs checked per catch-up, most recently active first. Without the `xapp-` token that is every poll, and **DMs beyond it are not read** (except when a mention search finds them). |
 | `thread_days` | `90` | A thread you're in is tracked this long after its last reply. |
 | `max_threads` | `300` | At most this many tracked threads; the least recently active are dropped first. |
@@ -137,7 +137,7 @@ messages after it:
   Text is converted from Slack markup to plain text with names resolved.
   Up to 50 messages are kept per item; `msg_count` counts them all.
 
-**Threads you're in are never too old.** Helm tracks a thread (in its cursor,
+**Threads you're in are never too old.** Alethiometer tracks a thread (in its cursor,
 for `thread_days` after its last reply) when it's in a DM or followed channel,
 or when you started it, replied, were mentioned or follow it in Slack. Replies
 are caught however old the parent is:
@@ -147,17 +147,17 @@ are caught however old the parent is:
 - on catch-up, every tracked thread is checked with `conversations.replies`
   (without the socket: threads active in the last day every poll, quieter ones
   hourly), threads with new replies under recent parents are found in channel
-  history, and two searches discover threads Helm didn't know: mentions of you
+  history, and two searches discover threads Alethiometer didn't know: mentions of you
   and your own replies since the last catch-up.
 
 Limits: with the socket down *and* no search, a first reply to a thread
-Helm has never seen, in a channel you don't follow, under a parent older than a
+Alethiometer has never seen, in a channel you don't follow, under a parent older than a
 day, and neither by nor mentioning you, is missed. Search matches only arrive
 once Slack has indexed them (usually seconds).
 
 **How it's fetched: socket first, polling as catch-up.**
 
-- **With the `xapp-` token** Helm keeps a Socket Mode connection open. Each
+- **With the `xapp-` token** Alethiometer keeps a Socket Mode connection open. Each
   event is acknowledged; a DM, a message in a followed channel, a relevant
   thread reply or a mention flags that conversation/thread, and a sync a few
   seconds later (bursts coalesced) fetches only what was flagged. Followed
@@ -169,10 +169,10 @@ once Slack has indexed them (usually seconds).
   threads and the two searches. A DM costs one `conversations.info`; its
   history is read only when that reports something unread or new. Slack has no
   documented call that returns unread state for all conversations at once
-  (the Slack client uses undocumented ones, which Helm doesn't), so it's one
+  (the Slack client uses undocumented ones, which Alethiometer doesn't), so it's one
   small call per DM.
 - **Without the `xapp-` token** every poll (`poll_secs`) is a catch-up, capped
-  to the `max_dms` most recently active DMs (activity Helm has seen, then the
+  to the `max_dms` most recently active DMs (activity Alethiometer has seen, then the
   conversation's creation time; Slack lists no last-activity time for DMs).
 
 **Item fields.** External ids: `<channel>/<first unread ts>` (top level),
@@ -202,17 +202,17 @@ do not apply to internal, customer-built apps like this one.
 | `slack.reply` | `{channel, thread_ts, text}` | `chat.postMessage` as you. `text` is exactly what you typed. |
 | `slack.react` | `{channel, ts, name}` (`eyes` or `:eyes:`) | `reactions.add`. An existing identical reaction counts as done. |
 
-**Threads can't be marked read from Helm.** Slack's public Web API has no
+**Threads can't be marked read from Alethiometer.** Slack's public Web API has no
 method to set a thread's read state (`conversations.mark` covers only the
-top level; the Slack client uses an undocumented internal method, which Helm
+top level; the Slack client uses an undocumented internal method, which Alethiometer
 deliberately doesn't call). Thread items therefore carry no `mark_ts` and
-confirming one only marks it seen in Helm; the thread stays unread in Slack
+confirming one only marks it seen in Alethiometer; the thread stays unread in Slack
 until you open it there. A `slack.mark_read` payload with a `thread_ts` fails
 with "Slack has no API to mark a thread read". Mentions in channels you don't
 follow aren't marked either: marking the channel up to the mention would also
 mark everything before it.
 
-Slack answers most errors with HTTP 200 and `ok: false`. Helm treats those as
+Slack answers most errors with HTTP 200 and `ok: false`. Alethiometer treats those as
 failures and shows Slack's error code (e.g. `channel_not_found`,
 `missing_scope (needs scope im:write)`) on the outbox row, which you can retry
 with ⌘R.

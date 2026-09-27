@@ -8,7 +8,7 @@
   <span class="lights" data-tauri-drag-region>
     {#if !inTauri}<span style:background="var(--red)"></span><span style:background="var(--yellow)"></span><span style:background="var(--green)"></span>{/if}
   </span>
-  <span class="title" data-tauri-drag-region><i class="ph ph-compass"></i>Helm</span>
+  <span class="title" data-tauri-drag-region><i class="ph ph-compass"></i>Alethiometer</span>
   <span class="spacer"></span>
 </div>
 

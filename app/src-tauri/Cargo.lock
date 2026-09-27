@@ -18,6 +18,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "alethiometer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-credential-types",
+ "aws-sigv4",
+ "base64 0.23.1",
+ "chrono",
+ "chrono-tz",
+ "dirs",
+ "notify",
+ "regex",
+ "ring",
+ "rrule",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tiny_http",
+ "tungstenite",
+ "ureq",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1528,33 +1555,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "helm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "aws-credential-types",
- "aws-sigv4",
- "base64 0.23.1",
- "chrono",
- "chrono-tz",
- "dirs",
- "notify",
- "regex",
- "ring",
- "rrule",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tempfile",
- "thiserror 2.0.21",
- "tiny_http",
- "tungstenite",
- "ureq",
-]
 
 [[package]]
 name = "hex"

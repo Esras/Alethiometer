@@ -251,10 +251,14 @@ pub mod tests {
     use crate::settings::Settings;
     use crate::state::App;
 
+    /// Test app with AI *unconfigured* (no models), so each test opts in.
     pub fn app() -> (App, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open_in_memory().unwrap();
-        let app = App::from_parts(conn, Settings::default(), dir.path()).unwrap();
+        let mut settings = Settings::default();
+        settings.ai.small.model.clear();
+        settings.ai.large.model.clear();
+        let app = App::from_parts(conn, settings, dir.path()).unwrap();
         (app, dir)
     }
 

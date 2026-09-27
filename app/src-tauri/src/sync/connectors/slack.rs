@@ -5,7 +5,7 @@
 //! Auth is a Slack app the user creates for themselves (see
 //! `docs/sources/slack.md`): a user token (`xoxp-`) for the Web API and an
 //! app-level token (`xapp-`) for the live Socket Mode connection (`socket`),
-//! which is the primary feed. Without it Helm falls back to polling.
+//! which is the primary feed. Without it Alethiometer falls back to polling.
 
 pub mod api;
 mod poll;

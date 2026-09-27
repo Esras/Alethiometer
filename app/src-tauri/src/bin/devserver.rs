@@ -1,18 +1,18 @@
 //! Browser-mode bridge for UI development without WebKitGTK:
 //! `POST http://127.0.0.1:1421/call/<cmd>` with a JSON body of args.
-//! Uses `HELM_DATA_DIR` (default `./.helm-dev`).
+//! Uses `ALETHIOMETER_DATA_DIR` (default `./.alethiometer-dev`).
 
-use helm_lib::state::App;
+use alethiometer_lib::state::App;
 use tiny_http::{Header, Response, Server};
 
 fn main() -> anyhow::Result<()> {
-    let dir: std::path::PathBuf = std::env::var_os("HELM_DATA_DIR").map(Into::into).unwrap_or_else(|| ".helm-dev".into());
+    let dir: std::path::PathBuf = std::env::var_os("ALETHIOMETER_DATA_DIR").map(Into::into).unwrap_or_else(|| ".alethiometer-dev".into());
     let app = std::sync::Arc::new(App::open(&dir)?);
-    helm_lib::sync::start(app.clone());
-    helm_lib::outbox::start(app.clone());
-    let addr = std::env::var("HELM_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
+    alethiometer_lib::sync::start(app.clone());
+    alethiometer_lib::outbox::start(app.clone());
+    let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;
-    eprintln!("helm devserver on http://{addr} (data: {})", app.data_dir.display());
+    eprintln!("alethiometer devserver on http://{addr} (data: {})", app.data_dir.display());
     let cors = Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap();
     let cors_h = Header::from_bytes("Access-Control-Allow-Headers", "content-type").unwrap();
     let json_h = Header::from_bytes("Content-Type", "application/json").unwrap();
@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
         let args: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-        let (status, out) = match helm_lib::api::call(&app, &cmd, &args) {
+        let (status, out) = match alethiometer_lib::api::call(&app, &cmd, &args) {
             Ok(v) => (200, v),
             Err(e) => (400, serde_json::json!({ "error": e.to_string() })),
         };

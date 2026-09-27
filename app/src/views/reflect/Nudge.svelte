@@ -61,7 +61,7 @@
 {#if data?.show}
   <div class="nudge" role="alertdialog" aria-labelledby="nudge-title">
     <div class="top">
-      <i class="ph ph-compass app"></i>Helm
+      <i class="ph ph-compass app"></i>Alethiometer
       <span class="pin"><i class="ph-fill ph-push-pin"></i>stays until answered</span>
       <span class="at tnum">{data.at}</span>
       <button class="x" onclick={() => answer('dismissed')} title="Close (Alt+X)" aria-label="Close"><i class="ph ph-x"></i></button>
