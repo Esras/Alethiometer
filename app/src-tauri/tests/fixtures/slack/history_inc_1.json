@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "messages": [
+    {"type": "message", "user": "U0JORDAN", "text": "Fix ETA 14:00. Backlog is draining.", "ts": "1789995600.000500", "team": "T0ACME"},
+    {"type": "message", "user": "U0ME", "text": "thanks, on it", "ts": "1789994000.000400", "team": "T0ACME"},
+    {"type": "message", "subtype": "bot_message", "text": "Incident acknowledged by <@U0JORDAN>", "ts": "1789992000.000300", "bot_id": "B0PD", "username": "PagerDuty", "bot_profile": {"id": "B0PD", "name": "PagerDuty", "app_id": "A0PD", "deleted": false, "team_id": "T0ACME"}}
+  ],
+  "has_more": true,
+  "pin_count": 0,
+  "response_metadata": {"next_cursor": "bmV4dF90czoxNzg5OTkyMDAwMDAwMzAw"}
+}

@@ -327,6 +327,10 @@ pub fn start(app: std::sync::Arc<App>) {
         }
     };
     for (id, name) in ids {
+        // Slack: live Socket Mode nudges on top of polling (no-op without an app-level token).
+        if app.settings.sources.iter().any(|s| s.name == name && s.kind == "slack") {
+            connectors::slack::socket::start(app.clone(), id);
+        }
         let poll = app.settings.sources.iter().find(|s| s.name == name).map(|s| s.poll_secs).unwrap_or(300).max(30);
         let app = app.clone();
         std::thread::Builder::new()
