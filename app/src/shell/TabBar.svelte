@@ -1,6 +1,7 @@
 <script lang="ts">
   import { setTab, TABS, ui } from '../lib/app.svelte';
   import CountdownPill from './CountdownPill.svelte';
+  import SyncStatus from './SyncStatus.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
 </script>
@@ -15,6 +16,7 @@
     </button>
   {/each}
   <span class="right">
+    {#if ui.tab !== 'reflect'}<SyncStatus />{/if}
     {#if ui.tab === 'reflect'}
       <CountdownPill />
     {:else}
