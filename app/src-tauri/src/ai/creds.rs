@@ -1,5 +1,9 @@
 //! AWS credentials for Bedrock: a small subset of the standard provider chain.
 //!
+//! The supported setup (for now) is a long-lived IAM user access key stored in
+//! Alethiometer's secret store under `aws_access_key_id` / `aws_secret_access_key`.
+//! The rest of the chain stays for development and for a later move to SSO.
+//!
 //! Order (first hit wins):
 //! 1. env: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`);
 //! 2. Alethiometer's secret store (Keychain on the Mac): `aws_access_key_id`,
@@ -80,9 +84,16 @@ pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
             );
         }
     }
-    anyhow::bail!(
-        "No AWS credentials found for Bedrock (looked in env vars, Alethiometer secrets aws_access_key_id/aws_secret_access_key, \
-         and profile '{profile}' in ~/.aws). See docs/ai.md"
+    anyhow::bail!("{}", missing_message(&profile))
+}
+
+/// The supported setup is long-lived IAM access keys in the secret store, so
+/// the error says exactly that first; the other places are mentioned after.
+pub fn missing_message(profile: &str) -> String {
+    format!(
+        "No AWS credentials found for Bedrock. Store your IAM access key in Alethiometer's secret store \
+         (Keychain on the Mac, secrets.json on Linux dev) as aws_access_key_id and aws_secret_access_key. \
+         (Also looked in AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY and AWS profile '{profile}' in ~/.aws.) See docs/ai.md"
     )
 }
 
@@ -229,7 +240,14 @@ mod tests {
     fn missing_everywhere_is_a_clear_error() {
         let home = home_with(&[]);
         let err = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
-        assert!(err.contains("No AWS credentials"), "{err}");
+        assert!(err.starts_with("No AWS credentials found for Bedrock. Store your IAM access key in Alethiometer's secret store"), "{err}");
+        assert!(err.contains("Keychain on the Mac, secrets.json on Linux dev"), "{err}");
+        assert!(err.contains("as aws_access_key_id and aws_secret_access_key"), "{err}");
+        assert!(err.contains("profile 'default'"), "{err}");
+        // Only the id half stored is still "missing", and nothing stored is echoed.
+        let sec = |k: &str| (k == "aws_access_key_id").then(|| "AKIDHALF".to_string());
+        let err = resolve(&Lookup { env: &none, secret: &sec, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
+        assert!(err.contains("No AWS credentials") && !err.contains("AKIDHALF"), "{err}");
     }
 
     #[test]
