@@ -44,6 +44,10 @@ pub struct Config {
     pub thread_days: i64,
     /// At most this many tracked threads (most recently active kept).
     pub max_threads: usize,
+    /// While the socket stays connected, run a full catch-up this often anyway:
+    /// Socket Mode delivery is best-effort (unacked events are retried a few
+    /// times, then dropped), so events can be lost without a disconnect.
+    pub catchup_hours: i64,
     pub user_token_secret: String,
     pub app_token_secret: String,
     /// Sleep used for Retry-After; replaced in tests.
@@ -67,6 +71,7 @@ impl Config {
             max_dms: i("max_dms", 50) as usize,
             thread_days: i("thread_days", 90),
             max_threads: i("max_threads", 300) as usize,
+            catchup_hours: i("catchup_hours", 3),
             user_token_secret: s("user_token_secret", USER_TOKEN),
             app_token_secret: s("app_token_secret", APP_TOKEN),
             sleep: std::thread::sleep,
@@ -86,10 +91,17 @@ impl Connector for Slack {
 
 /// Outbox ops. Each returns only after Slack answered `ok: true`.
 ///
-/// - `slack.mark_read` `{channel, ts}`: conversations.mark, for a top-level
-///   item's `raw_json.channel` / `raw_json.mark_ts`. With a `thread_ts` it
-///   fails: Slack's public API has no way to mark a thread read (thread items
-///   carry no `mark_ts`, so Incoming never queues one).
+/// - `slack.mark_read` `{channel, ts}`: conversations.mark, for an item's
+///   `raw_json.channel` / `raw_json.mark_ts` (top-level runs and mentions).
+///   Never moves the read marker backwards: `conversations.mark` sets the
+///   marker to exactly `ts`, earlier or not, so it first reads the current
+///   marker (`conversations.info`) and, when Slack is already read up to `ts`
+///   or later, confirms without marking. The check lives here rather than at
+///   enqueue time because only Slack knows the marker *now*: the cursor's copy
+///   is as old as the last poll, and you may have read on in Slack since, or
+///   the op may sit in the outbox for a while. With a `thread_ts` it fails:
+///   Slack's public API has no way to mark a thread read (thread items carry no
+///   `mark_ts`, so Incoming never queues one).
 /// - `slack.reply` `{channel, thread_ts, text}`: chat.postMessage as the user.
 ///   `text` is exactly what the user typed; nothing here writes words for them.
 /// - `slack.react` `{channel, ts, name}`: reactions.add (`name` without colons).
@@ -110,6 +122,13 @@ fn send(ctx: &Ctx, cfg: &Config, op: &str, payload: &Value) -> anyhow::Result<Va
                 anyhow::bail!("Slack has no API to mark a thread read");
             }
             let (channel, ts) = (field("channel")?, field("ts")?);
+            let info = client.get("conversations.info", &[("channel", &channel)])?;
+            if let Some(lr) = info.pointer("/channel/last_read").and_then(Value::as_str) {
+                if !api::ts_after(&ts, lr) {
+                    // Already read this far in Slack: done, and don't pull it back.
+                    return Ok(json!({ "channel": channel, "ts": ts, "already": lr }));
+                }
+            }
             client.post("conversations.mark", &[("channel", &channel), ("ts", &ts)])?;
             Ok(json!({ "channel": channel, "ts": ts }))
         }

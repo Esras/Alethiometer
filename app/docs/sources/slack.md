@@ -97,7 +97,8 @@ In `settings.json` → `sources`:
     "lookback_hours": 72,
     "max_dms": 50,
     "thread_days": 90,
-    "max_threads": 300
+    "max_threads": 300,
+    "catchup_hours": 3
   }
 }
 ```
@@ -111,6 +112,7 @@ In `settings.json` → `sources`:
 | `max_dms` | `50` | DMs and group DMs checked per catch-up, most recently active first. Without the `xapp-` token that is every poll, and **DMs beyond it are not read** (except when a mention search finds them). |
 | `thread_days` | `90` | A thread you're in is tracked this long after its last reply. |
 | `max_threads` | `300` | At most this many tracked threads; the least recently active are dropped first. |
+| `catchup_hours` | `3` | While the socket stays connected, run the full catch-up (as on reconnect) at least this often, as a safety net for events Slack didn't deliver. |
 | `user_token_secret`, `app_token_secret` | `slack.user_token`, `slack.app_token` | Secret names. |
 
 ## What is read
@@ -132,6 +134,8 @@ messages after it:
   after you've read it bring the same item back as new.
 - **Mentions** of you in channels you don't follow: one item each
   (`#random · mention`). A mention inside a thread goes to that thread's item.
+  Confirming one marks that channel read in Slack up to the mention (see
+  "What is written").
 - Your own messages are kept for context but never make an item new, and a run
   of only your messages isn't stored. Join/leave/topic messages are ignored.
   Text is converted from Slack markup to plain text with names resolved.
@@ -171,6 +175,16 @@ once Slack has indexed them (usually seconds).
   documented call that returns unread state for all conversations at once
   (the Slack client uses undocumented ones, which Alethiometer doesn't), so it's one
   small call per DM.
+- **Periodic catch-up** while the socket stays connected: every
+  `catchup_hours` (default 3) the next sync is the same catch-up as on
+  reconnect. Socket Mode delivery is best-effort: Slack retries an event that
+  wasn't acknowledged a few times and then drops it, and events can be lost in
+  a hiccup on Alethiometer's side without the connection dropping. The pass
+  stays as cheap as a reconnect: DMs are read only when `conversations.info`
+  reports something unread or new, followed channels from the last day, plus
+  one `conversations.replies` per tracked thread and the two searches. It
+  runs on the regular `poll_secs` schedule once due; when it last completed
+  is kept in the cursor (`caught_up`).
 - **Without the `xapp-` token** every poll (`poll_secs`) is a catch-up, capped
   to the `max_dms` most recently active DMs (activity Alethiometer has seen, then the
   conversation's creation time; Slack lists no last-activity time for DMs).
@@ -178,7 +192,8 @@ once Slack has indexed them (usually seconds).
 **Item fields.** External ids: `<channel>/<first unread ts>` (top level),
 `<channel>/thread/<thread ts>`, `<channel>/mention/<ts>`. `raw_json` holds
 `channel`, `first_ts`, `last_ts`, `thread_ts` (threads), `mark_ts` (top-level
-items in conversations you're in: what "mark read" sends), and `msgs`: each
+items and mentions in conversations you're in: what "mark read" sends; the
+newest message of the run, or the mention itself), and `msgs`: each
 stored message's ts, in the same order as the item's messages, so a later
 "split by topic" can move some of them to another item.
 
@@ -198,7 +213,7 @@ do not apply to internal, customer-built apps like this one.
 
 | Op | Payload | Slack method |
 |---|---|---|
-| `slack.mark_read` | `{channel, ts}`, from the item's `raw_json.channel` / `raw_json.mark_ts` | `conversations.mark`: the conversation is read up to `ts` in Slack too. Queued when you confirm a top-level item. When confirmed, the item is marked seen locally. |
+| `slack.mark_read` | `{channel, ts}`, from the item's `raw_json.channel` / `raw_json.mark_ts` | `conversations.info`, then `conversations.mark`: the conversation is read up to `ts` in Slack too. Queued when you confirm a top-level item or a mention. Never moves the read marker backwards (below). When confirmed, the item is marked seen locally. |
 | `slack.reply` | `{channel, thread_ts, text}` | `chat.postMessage` as you. `text` is exactly what you typed. |
 | `slack.react` | `{channel, ts, name}` (`eyes` or `:eyes:`) | `reactions.add`. An existing identical reaction counts as done. |
 
@@ -208,9 +223,23 @@ top level; the Slack client uses an undocumented internal method, which Alethiom
 deliberately doesn't call). Thread items therefore carry no `mark_ts` and
 confirming one only marks it seen in Alethiometer; the thread stays unread in Slack
 until you open it there. A `slack.mark_read` payload with a `thread_ts` fails
-with "Slack has no API to mark a thread read". Mentions in channels you don't
-follow aren't marked either: marking the channel up to the mention would also
-mark everything before it.
+with "Slack has no API to mark a thread read".
+
+**Mentions in channels you don't follow** are marked read: confirming one
+marks that channel read up to the mention, which also marks everything before
+it read. That's intended: in a channel you don't follow, the mention is the
+unread part that matters. Only channels you're a member of get a `mark_ts`
+(without membership Slack keeps no read marker for you).
+
+**The read marker only moves forward.** `conversations.mark` sets the marker
+to exactly the given `ts`, even if that is earlier than where you already are
+in Slack. So `slack.mark_read` first reads the current marker
+(`conversations.info`); if Slack is already read up to `ts` or later (you
+read on in Slack since the item was synced, or the op waited in the outbox),
+it marks nothing and confirms (receipt `already: <last_read>`). The check runs
+at send time, not when the op is queued, because only Slack knows the marker
+now: the cursor's copy is as old as the last poll. A read in Slack in the
+second between the two calls could still be pulled back to `ts`.
 
 Slack answers most errors with HTTP 200 and `ok: false`. Alethiometer treats those as
 failures and shows Slack's error code (e.g. `channel_not_found`,

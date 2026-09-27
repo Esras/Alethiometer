@@ -25,7 +25,8 @@
 //! **What is fetched** depends on `socket::plan` (see `socket`): a live sync
 //! reads only what events flagged, plus followed channels you haven't joined
 //! (no events for those) and, every `READ_CHECK_SECS`, the read markers of open
-//! items. A catch-up (startup, reconnect, or every poll without the socket)
+//! items. A catch-up (startup, reconnect, every `catchup_hours` while
+//! connected, or every poll without the socket)
 //! checks followed channels, DMs (capped to `max_dms` without the socket),
 //! tracked threads and two searches. DMs are only read (`conversations.history`)
 //! when `conversations.info` says there is something unread or new.
@@ -103,6 +104,9 @@ pub struct State {
     /// When open items' read markers were last checked (Unix seconds).
     #[serde(default)]
     pub read_checked: f64,
+    /// When the last full catch-up completed (Unix seconds).
+    #[serde(default)]
+    pub caught_up: f64,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -322,6 +326,11 @@ impl Poller<'_> {
             self.state.me_name = s("user");
             self.state.team_url = s("url");
         }
+        // Live, but the last full pass is `catchup_hours` old: do one now.
+        // Socket Mode is best-effort, so events can be lost while connected.
+        if self.plan.mode == Mode::Live && self.now - self.state.caught_up >= self.cfg.catchup_hours as f64 * 3600.0 {
+            self.plan.mode = Mode::CatchUp;
+        }
         match self.plan.mode {
             Mode::Live => self.live()?,
             Mode::CatchUp | Mode::Poll => self.catch_up()?,
@@ -367,7 +376,8 @@ impl Poller<'_> {
     }
 
     /// Full pass: followed channels, DMs, open items, flagged ones, tracked
-    /// threads and the searches.
+    /// threads and the searches. Runs on connect/reconnect, every poll without
+    /// the socket, and every `catchup_hours` while the socket stays up.
     fn catch_up(&mut self) -> anyhow::Result<()> {
         let listing = self.conversations()?;
         let follow = self.resolve_follow(&listing)?;
@@ -415,6 +425,7 @@ impl Poller<'_> {
         }
         self.check_mention_reads()?;
         self.state.read_checked = self.now;
+        self.state.caught_up = self.now;
         Ok(())
     }
 
@@ -832,9 +843,14 @@ impl Poller<'_> {
         Ok(())
     }
 
-    /// One mention in a channel you don't follow. No `mark_ts`: marking the
-    /// channel read up to the mention would also mark everything before it.
+    /// One mention in a channel you don't follow. When you're a member it
+    /// carries `mark_ts` = the mention, so confirming it marks the channel read
+    /// up to there in Slack. That also marks what came before it read: by the
+    /// user's choice, the mention is the unread part that matters there.
+    /// (`slack.mark_read` never moves the marker backwards.) The info call is
+    /// the one `check_mention_reads` makes anyway, cached per poll.
     fn mention_item(&mut self, channel: &str, channel_name: String, m: &Msg, permalink: Option<String>) -> anyhow::Result<()> {
+        let member = self.info(channel).ok().flatten().is_some_and(|c| c.member);
         let name = self.author_name(m)?;
         let clean = self.clean(&m.text)?;
         let at = local_from_unix(ts_secs(&m.ts)).unwrap_or_default();
@@ -850,7 +866,13 @@ impl Poller<'_> {
             occurred_at: at.clone(),
             status: "open".into(),
             msg_count: Some(1),
-            raw_json: json!({ "channel": channel, "first_ts": m.ts, "last_ts": m.ts, "msgs": [m.ts] }),
+            raw_json: {
+                let mut raw = json!({ "channel": channel, "first_ts": m.ts, "last_ts": m.ts, "msgs": [m.ts] });
+                if member {
+                    raw["mark_ts"] = json!(m.ts);
+                }
+                raw
+            },
             messages: vec![Message { at, author: name, text: clean }],
             bump: true,
             ..Default::default()

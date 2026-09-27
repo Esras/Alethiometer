@@ -7,7 +7,11 @@
 //! registry and schedules a sync (debounced, so a busy incident channel causes
 //! one sync per few seconds). The poller reads the registry (`plan`):
 //!
-//! - connected and caught up: `Mode::Live`, fetch only what was flagged;
+//! - connected and caught up: `Mode::Live`, fetch only what was flagged
+//!   (the poller still turns this into a full pass every `catchup_hours`,
+//!   because Socket Mode delivery is best-effort: Slack retries an unacked
+//!   event a few times and then drops it, so events can be lost without the
+//!   connection ever dropping);
 //! - connected, not yet caught up since this connection opened (startup, or a
 //!   reconnect after a drop): `Mode::CatchUp`, one full pass;
 //! - not connected (no app token, or the socket is down): `Mode::Poll`, the
