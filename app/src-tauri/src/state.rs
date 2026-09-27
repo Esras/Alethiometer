@@ -31,12 +31,15 @@ impl App {
         Self::from_parts(conn, settings, data_dir)
     }
 
-    pub fn from_parts(conn: Connection, settings: Settings, data_dir: &Path) -> anyhow::Result<App> {
+    pub fn from_parts(conn: Connection, mut settings: Settings, data_dir: &Path) -> anyhow::Result<App> {
         let vault = if settings.obsidian_vault.is_empty() {
             data_dir.join("vault")
         } else {
             PathBuf::from(&settings.obsidian_vault)
         };
+        // Sources that take their config from top-level settings (vault path, Life links).
+        crate::sync::connectors::obsidian::resolve_config(&mut settings.sources, &vault);
+        crate::sync::connectors::protoncal::resolve_config(&mut settings);
         // HELM_FAKE_NOW (e.g. "10:52") overrides settings.fake_now for dev and screenshots.
         let fake = std::env::var("HELM_FAKE_NOW").unwrap_or_else(|_| settings.fake_now.clone());
         let clock = Clock::new(&fake);
