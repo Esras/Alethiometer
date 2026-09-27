@@ -1,4 +1,5 @@
-//! GitHub connector (REST, fine-grained personal access token).
+//! GitHub connector (REST). Token: the `github_token` secret (a fine-grained
+//! personal access token), else `gh auth token` from the GitHub CLI.
 //!
 //! Poll uses the issue search API rather than notifications: search can be
 //! scoped to repos/orgs, filtered by `updated:>=cursor`, and answers "review
@@ -34,6 +35,90 @@ const PER_PAGE: usize = 100;
 const MAX_PAGES: usize = 10;
 const DEFAULT_LOOKBACK_DAYS: i64 = 14;
 
+/// What running `gh` returned. Only `stderr` may ever be shown: `stdout` is the token.
+pub struct GhOutput {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Runs `gh` with these arguments. Swapped out in tests; no real process there.
+pub type GhRunner<'r> = dyn Fn(&[&str]) -> std::io::Result<GhOutput> + 'r;
+
+/// The real `gh`. Apps started from the Dock or Finder get a bare PATH
+/// (`/usr/bin:/bin:…`), so the usual install locations are tried too.
+/// `config.gh_path` names the binary outright.
+fn run_gh(path: Option<&str>) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> + '_ {
+    move |args: &[&str]| {
+        let candidates: Vec<&str> = match path {
+            Some(p) => vec![p],
+            None => vec!["gh", "/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/home/linuxbrew/.linuxbrew/bin/gh", "/usr/bin/gh"],
+        };
+        let mut last = std::io::Error::from(std::io::ErrorKind::NotFound);
+        for c in candidates {
+            match std::process::Command::new(c).args(args).stdin(std::process::Stdio::null()).output() {
+                Ok(o) => {
+                    return Ok(GhOutput {
+                        success: o.status.success(),
+                        stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+                        stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+                    })
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => last = e,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last)
+    }
+}
+
+/// `github.com` for the public API, else the host of `api_url`
+/// (`https://ghe.acme.com/api/v3` → `ghe.acme.com`), as `gh` names hosts.
+fn gh_hostname(base: &str) -> String {
+    let host = base.split("://").nth(1).unwrap_or(base).split('/').next().unwrap_or("");
+    match host {
+        "api.github.com" | "" => "github.com".into(),
+        h => h.to_string(),
+    }
+}
+
+/// The token: the `github_token` secret (or `config.secret`), else whatever
+/// `gh auth token` prints for this host (and `config.gh_user`, when gh is
+/// logged in to several accounts). The token is never logged or put in an error.
+fn token(ctx: &Ctx, base: &str, gh: &GhRunner<'_>) -> anyhow::Result<String> {
+    let secret = ctx.source.config.get("secret").and_then(Value::as_str).unwrap_or(DEFAULT_SECRET);
+    if let Some(t) = (ctx.secret)(secret).filter(|t| !t.trim().is_empty()) {
+        return Ok(t);
+    }
+    let host = gh_hostname(base);
+    let mut args = vec!["auth", "token", "--hostname", host.as_str()];
+    let user = ctx.source.config.get("gh_user").and_then(Value::as_str).filter(|u| !u.is_empty());
+    if let Some(u) = user {
+        args.extend(["--user", u]);
+    }
+    let shown = args.join(" ");
+    let fail = |why: String| anyhow::anyhow!("GitHub: no '{secret}' secret for source '{}', and `gh {shown}` {why}", ctx.source.name);
+    let out = match gh(&args) {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(fail("didn't run: the GitHub CLI isn't installed (or set config.gh_path)".into()))
+        }
+        Err(e) => return Err(fail(format!("didn't run: {e}"))),
+    };
+    let t = out.stdout.trim();
+    if !out.success || t.is_empty() {
+        // gh's own reason ("no oauth token found for github.com", "not logged
+        // in to github.com account x"). Never stdout: that's where a token goes.
+        let why: String = out.stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("printed no token").chars().take(200).collect();
+        let login = match user {
+            Some(u) => format!("gh auth login --hostname {host} (as {u})"),
+            None => format!("gh auth login --hostname {host}"),
+        };
+        return Err(fail(format!("failed: {why}. Run `{login}`, or store a token")));
+    }
+    Ok(t.to_string())
+}
+
 struct Api<'a> {
     ctx: &'a Ctx<'a>,
     base: String,
@@ -41,10 +126,9 @@ struct Api<'a> {
 }
 
 impl<'a> Api<'a> {
-    fn new(ctx: &'a Ctx<'a>) -> anyhow::Result<Api<'a>> {
-        let secret = ctx.source.config.get("secret").and_then(Value::as_str).unwrap_or(DEFAULT_SECRET);
-        let token = ctx.require_secret(secret)?;
+    fn new(ctx: &'a Ctx<'a>, gh: &GhRunner<'_>) -> anyhow::Result<Api<'a>> {
         let base = ctx.source.config.get("api_url").and_then(Value::as_str).unwrap_or(API).trim_end_matches('/').to_string();
+        let token = token(ctx, &base, gh)?;
         Ok(Api { ctx, base, auth: format!("Bearer {token}") })
     }
 
@@ -124,7 +208,22 @@ pub fn urlencode(s: &str) -> String {
 
 impl Connector for GitHub {
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
-        let api = Api::new(ctx)?;
+        self.poll_with(ctx, &run_gh(gh_path(ctx)))
+    }
+
+    fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
+        self.send_with(ctx, op, payload, &run_gh(gh_path(ctx)))
+    }
+}
+
+fn gh_path<'c>(ctx: &'c Ctx) -> Option<&'c str> {
+    ctx.source.config.get("gh_path").and_then(Value::as_str).filter(|p| !p.is_empty())
+}
+
+impl GitHub {
+    /// `poll` with the `gh` runner passed in (tests pass a fake).
+    pub fn poll_with(&self, ctx: &Ctx, gh: &GhRunner<'_>) -> anyhow::Result<Batch> {
+        let api = Api::new(ctx, gh)?;
         let me = api.get("/user")?.get("login").and_then(Value::as_str).unwrap_or_default().to_string();
         let cursor = ctx.source.cursor.as_deref().and_then(parse_time);
         let since = cursor.unwrap_or_else(|| {
@@ -163,8 +262,9 @@ impl Connector for GitHub {
         Ok(batch)
     }
 
-    fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
-        let api = Api::new(ctx)?;
+    /// `send` with the `gh` runner passed in (tests pass a fake).
+    pub fn send_with(&self, ctx: &Ctx, op: &str, payload: &Value, gh: &GhRunner<'_>) -> anyhow::Result<Value> {
+        let api = Api::new(ctx, gh)?;
         let repo = repo_arg(payload)?;
         let number = payload.get("number").and_then(Value::as_u64).filter(|n| *n > 0).ok_or_else(|| anyhow::anyhow!("payload needs a 'number'"))?;
         match op {
@@ -409,6 +509,17 @@ mod tests {
         f(&Ctx { source: src, http, secret: &secret, now })
     }
 
+    /// With the secret stored, `gh` must never run.
+    fn no_gh(_: &[&str]) -> std::io::Result<GhOutput> {
+        panic!("gh must not run when the secret is set")
+    }
+
+    impl GitHub {
+        fn poll_t(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
+            self.poll_with(ctx, &no_gh)
+        }
+    }
+
     fn fake() -> FakeHttp {
         let http = FakeHttp::default();
         http.on("GET", "/user", 200, USER);
@@ -428,7 +539,7 @@ mod tests {
     fn poll(cursor: Option<&str>, config: Value) -> (Batch, Vec<String>) {
         let http = fake();
         let src = source(cursor, config);
-        let b = with_ctx(&src, &http, |ctx| GitHub.poll(ctx)).unwrap();
+        let b = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap();
         (b, http.requests().into_iter().map(|r| r.1).collect())
     }
 
@@ -509,12 +620,12 @@ mod tests {
         let http = FakeHttp::default();
         let src = source(None, json!({}));
         http.on("GET", "/user", 401, r#"{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}"#);
-        let err = with_ctx(&src, &http, |ctx| GitHub.poll(ctx)).unwrap_err().to_string();
+        let err = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap_err().to_string();
         assert_eq!(err, "GitHub 401: token rejected or expired: Bad credentials");
         assert!(!err.contains("github_pat_secret"));
         http.on("GET", "/user", 200, USER);
         http.on("GET", "/search/issues", 403, r#"{"message":"API rate limit exceeded for user ID 1."}"#);
-        let err = with_ctx(&src, &http, |ctx| GitHub.poll(ctx)).unwrap_err().to_string();
+        let err = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap_err().to_string();
         assert!(err.starts_with("GitHub 403: rate limited"), "{err}");
         http.on(
             "GET",
@@ -522,13 +633,88 @@ mod tests {
             403,
             r#"{"message":"Although you appear to have the correct authorization credentials, the `platform` organization has an IP allow list enabled."}"#,
         );
-        let err = with_ctx(&src, &http, |ctx| GitHub.poll(ctx)).unwrap_err().to_string();
+        let err = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap_err().to_string();
         assert!(err.starts_with("GitHub 403: token lacks permission"), "{err}");
     }
 
     fn send(op: &str, payload: Value, http: &FakeHttp) -> anyhow::Result<Value> {
         let src = source(None, json!({}));
-        with_ctx(&src, http, |ctx| GitHub.send(ctx, op, &payload))
+        with_ctx(&src, http, |ctx| GitHub.send_with(ctx, op, &payload, &no_gh))
+    }
+
+    type GhCalls = std::sync::Mutex<Vec<Vec<String>>>;
+
+    /// A fake `gh` that records its arguments and answers with `out`.
+    fn fake_gh<'a>(calls: &'a GhCalls, out: impl Fn() -> std::io::Result<GhOutput> + 'a) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> + 'a {
+        move |args: &[&str]| {
+            calls.lock().unwrap().push(args.iter().map(|a| a.to_string()).collect());
+            out()
+        }
+    }
+
+    fn gh_ok() -> std::io::Result<GhOutput> {
+        Ok(GhOutput { success: true, stdout: "gho_fromcli123\n".into(), stderr: String::new() })
+    }
+
+    fn poll_no_secret(config: Value, gh: &GhRunner<'_>) -> (anyhow::Result<Batch>, Vec<String>) {
+        let http = fake();
+        let src = source(None, config);
+        let secret = |_: &str| None;
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 27).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let r = GitHub.poll_with(&Ctx { source: &src, http: &http, secret: &secret, now }, gh);
+        (r, http.requests().into_iter().map(|r| r.1).collect())
+    }
+
+    #[test]
+    fn token_falls_back_to_the_gh_cli() {
+        let calls = GhCalls::default();
+        let (b, urls) = poll_no_secret(json!({}), &fake_gh(&calls, gh_ok));
+        assert_eq!(b.unwrap().items.len(), 4);
+        assert_eq!(urls[0], "https://api.github.com/user");
+        assert_eq!(calls.lock().unwrap().clone(), vec![vec!["auth", "token", "--hostname", "github.com"]]);
+
+        // Enterprise host from api_url; a specific account when gh has several.
+        let calls = GhCalls::default();
+        let cfg = json!({ "api_url": "https://ghe.acme.com/api/v3/", "gh_user": "sam-acme" });
+        let (_, urls) = poll_no_secret(cfg, &fake_gh(&calls, gh_ok));
+        assert_eq!(urls[0], "https://ghe.acme.com/api/v3/user");
+        assert_eq!(calls.lock().unwrap()[0], ["auth", "token", "--hostname", "ghe.acme.com", "--user", "sam-acme"]);
+    }
+
+    #[test]
+    fn gh_fallback_errors_are_clear_and_never_carry_the_token() {
+        let calls = GhCalls::default();
+        let missing = || Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+        let (r, urls) = poll_no_secret(json!({}), &fake_gh(&calls, missing));
+        let err = r.unwrap_err().to_string();
+        assert!(err.contains("no 'github_token' secret for source 'GitHub'"), "{err}");
+        assert!(err.contains("GitHub CLI isn't installed"), "{err}");
+        assert!(urls.is_empty(), "no request without a token");
+
+        let logged_out = || {
+            Ok(GhOutput {
+                success: false,
+                stdout: "gho_should_never_show".into(),
+                stderr: "no oauth token found for github.com\n".into(),
+            })
+        };
+        let (r, _) = poll_no_secret(json!({ "gh_user": "sam-acme" }), &fake_gh(&calls, logged_out));
+        let err = r.unwrap_err().to_string();
+        assert!(err.contains("`gh auth token --hostname github.com --user sam-acme` failed: no oauth token found for github.com"), "{err}");
+        assert!(err.contains("gh auth login --hostname github.com (as sam-acme)"), "{err}");
+        assert!(!err.contains("gho_should_never_show"));
+
+        // Exit 0 but nothing printed.
+        let empty = || Ok(GhOutput { success: true, stdout: "\n".into(), stderr: String::new() });
+        let (r, _) = poll_no_secret(json!({}), &fake_gh(&calls, empty));
+        assert!(r.unwrap_err().to_string().contains("printed no token"));
+    }
+
+    #[test]
+    fn gh_hostnames() {
+        assert_eq!(gh_hostname("https://api.github.com"), "github.com");
+        assert_eq!(gh_hostname("https://ghe.acme.com/api/v3"), "ghe.acme.com");
+        assert_eq!(gh_hostname("https://ghe.acme.com:8443/api/v3"), "ghe.acme.com:8443");
     }
 
     fn last_body(http: &FakeHttp) -> Value {

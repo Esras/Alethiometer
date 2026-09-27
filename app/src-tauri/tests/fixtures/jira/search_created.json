@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10502",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10502",
+      "key": "PLAT-1302",
+      "fields": {
+        "summary": "Draft retry budget RFC @Kim (v2)",
+        "assignee": null
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10500",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10500",
+      "key": "PLAT-1300",
+      "fields": {
+        "summary": "Draft retry budget RFC @Kim",
+        "assignee": { "accountId": "acc-kim", "displayName": "Kim Lee", "active": true }
+      }
+    }
+  ],
+  "isLast": true
+}

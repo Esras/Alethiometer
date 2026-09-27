@@ -74,6 +74,13 @@ Paths are relative to the vault (absolute paths inside the vault also work). `..
 - The heading appears more than once (outside code blocks): the op fails.
 - The note doesn't exist: the op fails, unless `"create": true` is passed (the folder must already exist).
 - Keeps the file's line endings (LF or CRLF).
+- **Idempotent.** The exact line may already be where it would go: the last non-blank
+  line of that heading's section, or of the file without `under_heading`. Then nothing
+  is written and the receipt says `"changed": false`, with that line's number. A retried
+  write (for example after a crash between writing and storing the receipt) never adds
+  the line twice. The flip side: appending the same line twice in a row on purpose does
+  nothing the second time. The same words elsewhere in the note don't count, and
+  "exact" includes whitespace.
 
 ### `obsidian.toggle_task`
 
@@ -83,7 +90,9 @@ Paths are relative to the vault (absolute paths inside the vault also work). `..
 
 - Finds the checkbox line whose words match `task_text` (due and done markers are ignored on both sides) and changes only the character between the brackets: `x` for done, a space for open.
 - No match, or more than one: the op fails.
-- Already in that state: nothing is written (`"changed": false`).
+- Already in that state: nothing is written (`"changed": false`). The op sets a state
+  rather than flipping it, so it's idempotent too: a retry of `done: true` on a task
+  that's already checked writes nothing.
 
 Receipt for both:
 
@@ -95,6 +104,6 @@ The next sync picks up the change right away through the watcher.
 
 ## Known limits
 
-- An `obsidian.append` that is retried after the file was written but before the receipt was stored appends the line again. That takes a crash in a window of a few milliseconds.
+- `obsidian.append`'s retry check only sees its own line at the end of the section. If you add more lines to that section before a failed append is retried, the retry appends the line again.
 - A small race remains between the final check and the rename. If Obsidian saves in that moment, its save wins over ours.
 - Only files are read. Frontmatter, links and tags go into the note body for search but aren't parsed.
