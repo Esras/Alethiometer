@@ -4,7 +4,7 @@ Personal, local-first work assistant. Tauri 2 (Rust core, system WebKit) with a 
 
 ## Status
 
-This is the UI-shell pass. All five views run against the real SQLite schema, filled with sample data from the design mocks. No source connectors are wired yet; that's the next pass.
+All five views run against the real SQLite schema. With `demo_data: true` (the default) they show sample data from the design mocks. Connectors, writeback and the work AI are built and tested against recorded API responses, but none has run against a live account yet.
 
 | Area | State |
 |---|---|
@@ -14,9 +14,10 @@ This is the UI-shell pass. All five views run against the real SQLite schema, fi
 | Topics (7a/7b) | done |
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
-| Connectors: Google Calendar, Slack, Jira, GitHub, Obsidian watcher, Proton ICS | not started |
-| Outbox sender (writeback) | table only |
+| Connectors: Google Calendar, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
+| Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
+| Sync status (freshness per source, write states) | tab bar |
 | sqlite-vec embeddings | not started |
 
 ## Run it

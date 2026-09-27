@@ -396,8 +396,8 @@ fn send(app: &App, date: NaiveDate) -> Result<()> {
             let jira: Option<i64> = tx.query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).optional()?;
             if let Some(jira) = jira {
                 tx.execute(
-                    "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'jira.create_issue', ?2)",
-                    params![jira, json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item }).to_string()],
+                    "INSERT INTO outbox (source_id, op, payload_json, item_id) VALUES (?1, 'jira.create_issue', ?2, ?3)",
+                    params![jira, json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item }).to_string(), item],
                 )?;
             }
         }

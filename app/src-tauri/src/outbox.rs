@@ -24,9 +24,20 @@ pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, ite
 }
 
 /// Apply the local side of a confirmed write.
-fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>) -> Result<()> {
+fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>, receipt: &Value) -> Result<()> {
     if let Some(id) = item_id {
         match op {
+            // The Notes line's Incoming item now points at the new Jira issue.
+            "jira.create_issue" => {
+                let key = receipt.get("key").and_then(Value::as_str);
+                let url = receipt.get("url").and_then(Value::as_str);
+                if let Some(key) = key {
+                    conn.execute(
+                        "UPDATE items SET url = COALESCE(?2, url), summary = ?3 WHERE id = ?1",
+                        params![id, url, format!("Jira · {key}")],
+                    )?;
+                }
+            }
             "slack.mark_read" => {
                 conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
             }
@@ -71,7 +82,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
                 "UPDATE outbox SET state = 'confirmed', confirmed_at = datetime('now', 'localtime'), receipt_json = ?2, error = NULL WHERE id = ?1",
                 params![id, receipt.to_string()],
             )?;
-            on_confirmed(&conn, &op, item_id)?;
+            on_confirmed(&conn, &op, item_id, &receipt)?;
         }
         Err(e) => {
             conn.execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, e.to_string()])?;
@@ -145,5 +156,72 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "retried": n }))
         }
         _ => Err(crate::api::unknown(name)),
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use crate::settings::Settings;
+    use crate::state::App;
+    use serde_json::json;
+
+    fn app() -> (App, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
+        (app, dir)
+    }
+
+    #[test]
+    fn confirming_a_slack_signal_queues_mark_read() {
+        let (app, _d) = app();
+        let conn = app.db();
+        let slack: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        let topic: i64 = conn.query_row("SELECT id FROM topics LIMIT 1", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO items (source_id, external_id, kind, title, occurred_at, raw_json)
+             VALUES (?1, 'C1/1', 'thread', '#x', '2026-09-28T09:00:00', ?2)",
+            rusqlite::params![slack, json!({ "channel": "C1", "mark_ts": "1727.1" }).to_string()],
+        )
+        .unwrap();
+        let item = conn.last_insert_rowid();
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
+        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        let (op, payload, item_id): (String, String, i64) = conn
+            .query_row("SELECT op, payload_json, item_id FROM outbox WHERE op = 'slack.mark_read'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(op, "slack.mark_read");
+        assert_eq!(item_id, item);
+        assert!(payload.contains("1727.1"));
+    }
+
+    #[test]
+    fn slack_items_without_a_read_marker_queue_nothing() {
+        let (app, _d) = app();
+        let conn = app.db();
+        let (item, topic): (i64, i64) = conn
+            .query_row(
+                "SELECT tl.item_id, tl.topic_id FROM topic_links tl JOIN items i ON i.id = tl.item_id
+                   JOIN sources s ON s.id = i.source_id WHERE s.kind = 'slack' AND tl.state = 'suggested' LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        let n: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn confirmed_jira_create_points_the_item_at_the_issue() {
+        let (app, _d) = app();
+        let conn = app.db();
+        let item: i64 = conn.query_row("SELECT id FROM items LIMIT 1", [], |r| r.get(0)).unwrap();
+        super::on_confirmed(&conn, "jira.create_issue", Some(item), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
+        let (url, summary): (String, String) =
+            conn.query_row("SELECT url, summary FROM items WHERE id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(url, "https://x/browse/PLAT-9");
+        assert_eq!(summary, "Jira · PLAT-9");
     }
 }

@@ -342,6 +342,14 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     result
 }
 
+/// New signals may land in Unsorted; ask the small model for topic suggestions.
+/// A no-op (with a status) when AI isn't configured; never fails the sync.
+pub fn suggest_after_sync(app: &App) {
+    if let Err(e) = crate::ai::call(app, "suggest_topics", &serde_json::json!({ "limit": 10 })) {
+        eprintln!("suggest_topics: {e}");
+    }
+}
+
 /// Background polling for every enabled source. One thread per source.
 pub fn start(app: std::sync::Arc<App>) {
     let ids: Vec<(i64, String)> = {
@@ -373,8 +381,10 @@ pub fn start(app: std::sync::Arc<App>) {
         std::thread::Builder::new()
             .name(format!("sync-{name}"))
             .spawn(move || loop {
-                if let Err(e) = sync_source(&app, id) {
-                    eprintln!("sync {name}: {e}");
+                match sync_source(&app, id) {
+                    Ok(n) if n > 0 => suggest_after_sync(&app),
+                    Ok(_) => {}
+                    Err(e) => eprintln!("sync {name}: {e}"),
                 }
                 std::thread::sleep(std::time::Duration::from_secs(poll));
             })
@@ -414,6 +424,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
             let n = sync_source(app, id)?;
+            if n > 0 {
+                suggest_after_sync(app);
+            }
             Ok(serde_json::json!({ "new_signals": n }))
         }
         _ => Err(crate::api::unknown(name)),

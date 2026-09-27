@@ -107,7 +107,7 @@
     asking = true;
     answer = null;
     try {
-      const r = await call<{ answer: string }>('ai.ask', { question: q });
+      const r = await call<{ answer: string }>('ai.ask', { question: q, scope: 'today' });
       answer = { ok: true, text: r.answer };
     } catch (e) {
       answer = { ok: false, text: String((e as Error).message ?? e) };

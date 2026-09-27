@@ -203,6 +203,29 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
         params![item_id, topic_id],
     )?;
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
+    mark_read_remote(conn, item_id)?;
+    Ok(())
+}
+
+/// Confirming a Slack signal also marks it read in Slack, through the outbox.
+/// Only items the Slack connector stored with a read marker qualify (threads
+/// have none; Slack has no API for a thread's read state).
+fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
+    let row: Option<(i64, String, String)> = conn
+        .query_row(
+            "SELECT s.id, s.kind, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    let Some((source_id, kind, raw)) = row else { return Ok(()) };
+    if kind != "slack" {
+        return Ok(());
+    }
+    let raw: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+    if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(|v| v.as_str()), raw.get("mark_ts").and_then(|v| v.as_str())) {
+        crate::outbox::enqueue(conn, source_id, "slack.mark_read", &serde_json::json!({ "channel": channel, "ts": ts }), Some(item_id))?;
+    }
     Ok(())
 }
 
