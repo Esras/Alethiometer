@@ -8,9 +8,12 @@
 //! - Rule 6: the AI suggests and answers. The system prompts forbid drafting
 //!   the user's replies, notes or reflections, and nothing here writes user text.
 //!
-//! Providers: `bedrock` (Converse API on bedrock-runtime, SigV4; serves every
-//! current Claude model via `us.`/`global.` inference profiles). Tiers: `small`
-//! for topic suggestions, `large` for questions.
+//! Also fail closed: a Bedrock tier must use a commercial `us-*` region and a
+//! `us.` inference profile (`bedrock::check_route`); the BAA covers US regions only.
+//!
+//! Providers: `bedrock` (Converse API on bedrock-runtime, SigV4). Tiers:
+//! `small` for topic suggestions (default `us.openai.gpt-6-luna`), `large` for
+//! questions (default `us.anthropic.claude-opus-5-5`).
 
 pub mod bedrock;
 pub mod context;
@@ -47,7 +50,18 @@ pub fn check(ai: &AiSettings, tier: Tier) -> Result<&AiTier> {
     if t.model.is_empty() {
         return Err(msg(format!("No model set for the {:?} tier in settings.json", tier)));
     }
+    if t.provider == "bedrock" {
+        bedrock::check_route(&ai.region, &t.model).map_err(|e| msg(e.to_string()))?;
+    }
     Ok(t)
+}
+
+/// Reasoning effort for a tier. The wire mapping per model family is in place
+/// and tested (`bedrock::Effort`), but `AiTier` (settings.rs) has no `effort`
+/// field yet, so every model runs at its own default (medium for Opus 5.5 and
+/// GPT-6 Luna). Once the field exists: `bedrock::Effort::parse(&t.effort)`.
+fn tier_effort(_t: &AiTier) -> Option<bedrock::Effort> {
+    None
 }
 
 /// Short label for the assistant pane header, e.g. "Bedrock · <model>".
@@ -66,10 +80,11 @@ pub struct Deps<'a> {
     pub time: SystemTime,
 }
 
-/// Run `f` with real HTTP (120 s timeout: non-streaming, and thinking models
-/// answer only once they're done) and the AWS credential chain.
+/// Run `f` with real HTTP and the AWS credential chain. 300 s timeout: calls
+/// don't stream, reasoning models answer only once they're done, and a large
+/// answer at `ASK_MAX_TOKENS` can take a few minutes in the worst case.
 pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
-    let http = UreqHttp::with_timeout(120);
+    let http = UreqHttp::with_timeout(300);
     let env = |k: &str| std::env::var(k).ok();
     let secret = |k: &str| app.platform.secret_get(k);
     let resolve = || {
@@ -85,7 +100,7 @@ pub fn complete(ai: &AiSettings, deps: &Deps, tier: Tier, system: &str, user: &s
     match t.provider.as_str() {
         "bedrock" => {
             let creds = (deps.creds)().map_err(|e| msg(e.to_string()))?;
-            let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens };
+            let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens, effort: tier_effort(t) };
             bedrock::converse(deps.http, &creds, &req, deps.time).map(|r| r.text).map_err(|e| msg(e.to_string()))
         }
         other => Err(msg(format!("No client for provider '{other}'"))),
@@ -101,10 +116,13 @@ Never draft messages, replies, notes or reflections for the user to send or past
 you may say which points they might cover, and they will write it in their own words. \
 When it helps the user find the source, mention it like [item 12].";
 
-/// Sonnet 5 and Opus 5.x think by default (Opus 5.5 can't turn it off), and
-/// thinking counts against this cap, so 1024 could end before any answer. Kept
-/// well below 16k because Bedrock reserves `max_tokens` against the output quota.
-const ASK_MAX_TOKENS: u32 = 4096;
+/// Opus 5.5 always thinks (adaptive, effort medium by default) and thinking
+/// counts against this cap. Questions pull context from several sources, so
+/// leave real room: Anthropic's guidance for non-streaming calls is ~16k, the
+/// most that stays clear of HTTP timeouts. The answer itself is short; the cap
+/// only matters when reasoning runs long. Bedrock reserves `max_tokens` against
+/// the output-token quota while the call runs, which is fine for one user.
+const ASK_MAX_TOKENS: u32 = 16_000;
 const QUESTION_CAP: usize = 2_000;
 
 #[derive(Debug, Serialize)]
@@ -181,7 +199,7 @@ pub mod tests {
     }
 
     pub fn no_creds() -> anyhow::Result<creds::AwsCreds> {
-        anyhow::bail!("No AWS credentials found for Bedrock (test)")
+        anyhow::bail!("{}", creds::missing_message("default"))
     }
 
     fn configured(app: &mut App) {
@@ -212,8 +230,73 @@ pub mod tests {
     #[test]
     fn allowed_provider_with_model_passes() {
         let mut ai = Settings::default().ai;
-        ai.small.model = "some-model".into();
+        ai.small.model = "us.openai.gpt-6-luna".into();
         assert!(check(&ai, Tier::Small).is_ok());
+    }
+
+    #[test]
+    fn shipped_defaults_are_us_profiles_that_pass() {
+        let ai = Settings::default().ai;
+        assert_eq!(check(&ai, Tier::Small).unwrap().model, "us.openai.gpt-6-luna");
+        assert_eq!(check(&ai, Tier::Large).unwrap().model, "us.anthropic.claude-opus-5-5");
+    }
+
+    #[test]
+    fn non_us_region_or_profile_fails_the_check() {
+        let mut ai = Settings::default().ai;
+        ai.region = "eu-central-1".into();
+        let err = check(&ai, Tier::Large).unwrap_err().to_string();
+        assert!(err.contains("not a US region"), "{err}");
+        let mut ai = Settings::default().ai;
+        ai.small.model = "global.openai.gpt-6-luna".into();
+        let err = check(&ai, Tier::Small).unwrap_err().to_string();
+        assert!(err.contains("not a US inference profile") && err.contains("us.openai.gpt-6-luna"), "{err}");
+    }
+
+    #[test]
+    fn ask_in_non_us_region_sends_nothing_and_reads_no_creds() {
+        let (mut app, _dir) = app();
+        configured(&mut app);
+        app.settings.ai.region = "eu-west-1".into();
+        let http = ok_http();
+        let creds_called = std::cell::Cell::new(false);
+        let creds = || {
+            creds_called.set(true);
+            fake_creds()
+        };
+        let err = ask(&app, &Deps { http: &http, creds: &creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        assert!(err.contains("ai.region 'eu-west-1' is not a US region") && err.contains("Nothing was sent"), "{err}");
+        assert!(http.requests().is_empty());
+        assert!(!creds_called.get());
+    }
+
+    #[test]
+    fn ask_with_non_us_profile_sends_nothing() {
+        let (mut app, _dir) = app();
+        app.settings.ai.large.model = "anthropic.claude-opus-5-5".into();
+        let http = ok_http();
+        let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        assert!(err.contains("Use us.anthropic.claude-opus-5-5"), "{err}");
+        assert!(http.requests().is_empty());
+    }
+
+    /// The small tier on GPT-6 Luna: same Converse body, reasoning ignored.
+    #[test]
+    fn small_tier_on_gpt6_luna_returns_only_text() {
+        let ai = Settings::default().ai;
+        let http = FakeHttp::default();
+        http.on(
+            "POST",
+            "/model/us.openai.gpt-6-luna/converse",
+            200,
+            r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"cnNu"}},{"text":"{\"topic_id\":null}"}]}},"stopReason":"end_turn","usage":{"inputTokens":90,"outputTokens":40,"totalTokens":130}}"#,
+        );
+        let out = complete(&ai, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
+        assert_eq!(out, r#"{"topic_id":null}"#);
+        let v: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
+        assert_eq!(v["system"][0]["text"], "S");
+        assert_eq!(v["inferenceConfig"], json!({ "maxTokens": 1024 }));
+        assert!(v.get("additionalModelRequestFields").is_none(), "no effort setting yet");
     }
 
     #[test]
@@ -258,7 +341,7 @@ pub mod tests {
         configured(&mut app);
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
-        assert!(err.contains("No AWS credentials"), "{err}");
+        assert!(err.contains("No AWS credentials") && err.contains("aws_access_key_id and aws_secret_access_key"), "{err}");
         assert!(http.requests().is_empty());
     }
 

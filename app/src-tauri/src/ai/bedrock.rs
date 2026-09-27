@@ -4,10 +4,20 @@
 //! (IAM action `bedrock:InvokeModel`). Request and response shapes follow the
 //! `bedrock-runtime` service model (botocore `bedrock-runtime/2023-09-30`).
 //!
-//! Every current Claude model is reachable here, including Opus 4.7+, Sonnet 5
-//! and Opus 5.x, through dateless inference-profile IDs such as
-//! `us.anthropic.claude-opus-5-5`. Bedrock's separate Messages-API endpoint
-//! (`bedrock-mantle`, IDs like `anthropic.claude-opus-5-5`) is not used.
+//! Routing is US-only, fail closed (`check_route`): the region must be a
+//! commercial `us-*` region and the model a `us.` inference profile, so Bedrock
+//! keeps the request inside US regions (the user's BAA covers Bedrock there).
+//! Bedrock's separate `bedrock-mantle` endpoint is not used.
+//!
+//! Two model families are called, told apart by id prefix (`family`):
+//! `us.anthropic.*` (e.g. Opus 5.5) and `us.openai.*` (e.g. GPT-6 Luna). Both
+//! take the same Converse body (`system`, one user message,
+//! `inferenceConfig.maxTokens`). They differ only in the optional reasoning
+//! effort, which goes in `additionalModelRequestFields` under a vendor-specific
+//! key. Both can put a `reasoningContent` block before the answer (Claude:
+//! `reasoningText`; GPT-6: `redactedContent`); only `text` blocks are the answer.
+//! We never send `temperature`, `topP` or `stopSequences`: GPT-6 models reject
+//! them on Converse, and Opus 5.5 rejects sampling parameters.
 //!
 //! Signing uses AWS's own `aws-sigv4` crate rather than the full AWS SDK: the
 //! SDK would pull in tokio, hyper and a second HTTP stack for one POST, while
@@ -22,11 +32,112 @@ use std::time::SystemTime;
 
 pub struct Request<'a> {
     pub region: &'a str,
-    /// Model id, inference-profile id, or ARN.
+    /// A `us.` inference-profile id (see `check_route`).
     pub model: &'a str,
     pub system: &'a str,
     pub user: &'a str,
+    /// Caps reasoning plus answer: both families count reasoning tokens here.
     pub max_tokens: u32,
+    /// None = the model's own default (medium for both Opus 5.5 and GPT-6 Luna).
+    pub effort: Option<Effort>,
+}
+
+/// Model families Alethiometer knows the request shape for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    Anthropic,
+    OpenAi,
+}
+
+/// The explicit id-prefix mapping. Anything else is unknown and fails closed.
+pub fn family(model: &str) -> Option<Family> {
+    if model.starts_with("us.anthropic.") {
+        Some(Family::Anthropic)
+    } else if model.starts_with("us.openai.") {
+        Some(Family::OpenAi)
+    } else {
+        None
+    }
+}
+
+/// Reasoning effort. Both families accept more levels (none/xhigh/max); these
+/// three are valid on both and cover what this app needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+
+impl Effort {
+    /// "" means "not set". Anything else unknown is an error, not a silent default.
+    pub fn parse(s: &str) -> anyhow::Result<Option<Effort>> {
+        match s.trim() {
+            "" => Ok(None),
+            "low" => Ok(Some(Effort::Low)),
+            "medium" => Ok(Some(Effort::Medium)),
+            "high" => Ok(Some(Effort::High)),
+            other => anyhow::bail!("effort '{other}' isn't supported (use low, medium or high)"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+        }
+    }
+}
+
+/// Where the effort goes in `additionalModelRequestFields`, per family:
+/// - Claude: `output_config.effort` (Anthropic's own field, passed through by
+///   Converse). Opus 5.5 always thinks adaptively, so no `thinking` field is sent.
+/// - OpenAI GPT-6 / GPT-5.6: `reasoning.effort`. Converse rejects the flat
+///   `reasoning_effort` with 400 unknown_parameter.
+fn effort_fields(family: Family, effort: Effort) -> Value {
+    match family {
+        Family::Anthropic => json!({ "output_config": { "effort": effort.as_str() } }),
+        Family::OpenAi => json!({ "reasoning": { "effort": effort.as_str() } }),
+    }
+}
+
+/// Fail closed unless the call stays in the US: a commercial `us-*` region and
+/// a `us.` inference-profile id of a known family. Runs before credentials are
+/// read or anything is sent.
+pub fn check_route(region: &str, model: &str) -> anyhow::Result<Family> {
+    if region.starts_with("us-gov-") {
+        anyhow::bail!(
+            "ai.region '{region}' is AWS GovCloud, a separate partition Alethiometer doesn't support. \
+             Use a commercial US region such as us-east-1. Nothing was sent"
+        );
+    }
+    if !region.starts_with("us-") {
+        anyhow::bail!(
+            "ai.region '{region}' is not a US region. Alethiometer only sends work data to Bedrock in US regions \
+             (e.g. us-east-1, us-west-2), which is what the BAA covers. Nothing was sent"
+        );
+    }
+    if !model.starts_with("us.") {
+        let hint = match model.split_once('.') {
+            Some(("anthropic" | "openai", _)) => format!(" Use us.{model}."),
+            Some((geo @ ("global" | "eu" | "apac" | "jp" | "au" | "ca"), rest)) => {
+                format!(" '{geo}.' profiles can route outside the US; use us.{rest}.")
+            }
+            _ => String::new(),
+        };
+        anyhow::bail!(
+            "Model '{model}' is not a US inference profile. Alethiometer only calls ids starting with 'us.' \
+             (e.g. us.anthropic.claude-opus-5-5, us.openai.gpt-6-luna), which keep requests in US regions.{hint} \
+             Nothing was sent"
+        );
+    }
+    family(model).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Model '{model}' is from a vendor Alethiometer doesn't know the request shape for; \
+             it calls us.anthropic.* and us.openai.* models. Nothing was sent"
+        )
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -58,15 +169,21 @@ fn encode_label(s: &str) -> String {
 }
 
 pub fn body(req: &Request) -> Value {
-    json!({
+    let mut b = json!({
         "system": [{ "text": req.system }],
         "messages": [{ "role": "user", "content": [{ "text": req.user }] }],
         "inferenceConfig": { "maxTokens": req.max_tokens },
-    })
+    });
+    if let (Some(effort), Some(fam)) = (req.effort, family(req.model)) {
+        b["additionalModelRequestFields"] = effort_fields(fam, effort);
+    }
+    b
 }
 
 /// One Converse call. Errors are user-facing and never contain credentials.
 pub fn converse(http: &dyn Http, creds: &AwsCreds, req: &Request, time: SystemTime) -> anyhow::Result<Reply> {
+    // `ai::check` runs this too; repeated here so no caller can skip it.
+    check_route(req.region, req.model)?;
     let url = endpoint(req.region, req.model)?;
     let body = body(req).to_string();
     let base = [("content-type", "application/json")];
@@ -85,6 +202,8 @@ pub fn converse(http: &dyn Http, creds: &AwsCreds, req: &Request, time: SystemTi
 pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
     let v: Value = serde_json::from_str(body).map_err(|_| anyhow::anyhow!("Bedrock returned a response Alethiometer couldn't read"))?;
     let stop_reason = v.get("stopReason").and_then(Value::as_str).unwrap_or("").to_string();
+    // Only `text` blocks are the answer. `reasoningContent` (Claude's
+    // `reasoningText`, GPT-6's opaque `redactedContent`) is skipped.
     let text = v
         .pointer("/output/message/content")
         .and_then(Value::as_array)
@@ -94,7 +213,7 @@ pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
     if text.is_empty() {
         let why = if stop_reason.is_empty() { "none" } else { &stop_reason };
         // Models that think by default can spend the whole budget before answering.
-        let hint = if stop_reason == "max_tokens" { "; the model used its whole token budget, often on thinking" } else { "" };
+        let hint = if stop_reason == "max_tokens" { "; the model used its whole token budget, often on reasoning" } else { "" };
         anyhow::bail!("Bedrock returned no text (stop reason: {why}{hint})");
     }
     Ok(Reply { text, stop_reason })
@@ -122,17 +241,8 @@ pub fn map_error(status: u16, body: &str, req: &Request) -> anyhow::Error {
         429 => anyhow::anyhow!("Bedrock is throttling requests or the model isn't ready (429). Try again in a minute. AWS said: {aws}"),
         404 => anyhow::anyhow!("Bedrock doesn't know model '{model}' in {region} (404). AWS said: {aws}"),
         400 if lower.contains("on-demand throughput") || lower.contains("inference profile") => anyhow::anyhow!(
-            "Bedrock needs an inference-profile id for this model (400); try a 'us.' or 'global.' prefix, \
-             e.g. us.{model}. AWS said: {aws}"
-        ),
-        // Anthropic's model tables list the IDs of Bedrock's separate Messages-API
-        // endpoint (bedrock-mantle), e.g. `anthropic.claude-haiku-4-5`. Some of them
-        // don't exist on bedrock-runtime at all, so AWS answers "invalid" instead
-        // of the on-demand hint above.
-        400 if model.starts_with("anthropic.") && lower.contains("identifier") => anyhow::anyhow!(
-            "Bedrock doesn't know '{model}' on bedrock-runtime (400). Alethiometer needs the inference-profile id, \
-             e.g. us.anthropic.claude-opus-5-5 or us.anthropic.claude-haiku-4-5-20251001-v1:0 (see docs/ai.md). \
-             AWS said: {aws}"
+            "Bedrock needs an inference-profile id for {model} in {region} (400); check the id under \
+             Bedrock → Cross-region inference. AWS said: {aws}"
         ),
         400 => anyhow::anyhow!("Bedrock rejected the request (400). AWS said: {aws}"),
         408 | 424 | 500..=599 => anyhow::anyhow!("Bedrock had a temporary problem (HTTP {status}). Try again. AWS said: {aws}"),
@@ -244,10 +354,11 @@ mod tests {
         assert_eq!(header(&h, "x-amz-security-token"), "SESSIONTOKENEXAMPLE");
     }
 
+    /// `endpoint` only builds the URL (`check_route` decides what may be called).
     #[test]
-    fn arn_model_ids_are_path_encoded() {
-        let url = endpoint("eu-west-1", "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/eu.anthropic.x-v1:0").unwrap();
-        assert!(url.contains("/model/arn%3Aaws%3Abedrock%3Aeu-west-1%3A123456789012%3Ainference-profile%2Feu.anthropic.x-v1%3A0/converse"), "{url}");
+    fn model_path_labels_are_encoded() {
+        let url = endpoint("us-east-1", "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x-v1:0").unwrap();
+        assert!(url.contains("/model/arn%3Aaws%3Abedrock%3Aus-east-1%3A123456789012%3Ainference-profile%2Fus.anthropic.x-v1%3A0/converse"), "{url}");
         assert!(endpoint("evil.com/x", "m").is_err());
     }
 
@@ -265,7 +376,7 @@ mod tests {
     }
 
     fn req<'a>() -> Request<'a> {
-        Request { region: "us-east-1", model: "us.anthropic.claude-sonnet-4-6", system: "SYS", user: "USER", max_tokens: 256 }
+        Request { region: "us-east-1", model: "us.anthropic.claude-sonnet-4-6", system: "SYS", user: "USER", max_tokens: 256, effort: None }
     }
 
     #[test]
@@ -284,6 +395,9 @@ mod tests {
         assert_eq!(sent["messages"][0]["role"], "user");
         assert_eq!(sent["messages"][0]["content"][0]["text"], "USER");
         assert_eq!(sent["inferenceConfig"]["maxTokens"], 256);
+        // Nothing either family rejects, and no effort unless one is set.
+        assert_eq!(sent["inferenceConfig"].as_object().unwrap().len(), 1);
+        assert!(sent.get("additionalModelRequestFields").is_none());
 
         let h = spy.headers.lock().unwrap().clone();
         assert!(header(&h, "authorization").starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
@@ -322,27 +436,89 @@ mod tests {
         converse(&http, &creds(None), &r, SystemTime::now()).unwrap_err().to_string()
     }
 
-    /// Bare `anthropic.` IDs (Anthropic's Messages-API table) point the user at
-    /// the inference-profile ID instead of a generic 400.
+    /// Non-`us.` ids fail closed before any request, with the `us.` id to use.
     #[test]
-    fn bare_anthropic_ids_get_an_inference_profile_hint() {
-        let e = err_for_model(
-            "anthropic.claude-opus-5-5",
-            400,
-            r#"{"message":"Invocation of model ID anthropic.claude-opus-5-5 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model."}"#,
-        );
-        assert!(e.contains("us.anthropic.claude-opus-5-5"), "{e}");
-        let e = err_for_model("anthropic.claude-haiku-4-5", 400, r#"{"message":"The provided model identifier is invalid."}"#);
-        assert!(e.contains("inference-profile id") && e.contains("us.anthropic.claude-haiku-4-5-20251001-v1:0"), "{e}");
+    fn non_us_model_ids_fail_closed() {
+        for (model, hint) in [
+            ("anthropic.claude-opus-5-5", "Use us.anthropic.claude-opus-5-5"),
+            ("openai.gpt-6-luna", "Use us.openai.gpt-6-luna"),
+            ("global.anthropic.claude-opus-5-5", "use us.anthropic.claude-opus-5-5"),
+            ("eu.anthropic.claude-opus-5-5", "route outside the US"),
+            ("arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x", "not a US inference profile"),
+        ] {
+            let e = err_for_model(model, 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
+            assert!(e.contains("not a US inference profile") && e.contains(hint) && e.contains("Nothing was sent"), "{model}: {e}");
+        }
+        // A US profile of a vendor we don't know the request shape for.
+        let e = err_for_model("us.meta.llama4-maverick-17b-instruct-v1:0", 200, "{}");
+        assert!(e.contains("us.anthropic.* and us.openai.*"), "{e}");
         let e = err_for(503, r#"{"message":"Service unavailable"}"#);
         assert!(e.contains("temporary"), "{e}");
     }
 
-    /// Opus 4.7+ / Sonnet 5 / Opus 5.x are served by bedrock-runtime too, with
-    /// dateless `us.` inference-profile IDs: same endpoint, same signing scope.
     #[test]
-    fn new_generation_us_profiles_use_converse_and_bedrock_scope() {
-        for model in ["us.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-5", "us.anthropic.claude-opus-4-8"] {
+    fn non_us_regions_fail_closed_before_any_request() {
+        for region in ["eu-west-1", "ca-central-1", "ap-northeast-1", "us-gov-west-1", ""] {
+            let http = FakeHttp::default();
+            http.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
+            let e = converse(&http, &creds(None), &Request { region, ..req() }, SystemTime::now()).unwrap_err().to_string();
+            assert!(e.contains("Nothing was sent") && e.contains(&format!("'{region}'")), "{region}: {e}");
+            assert!(http.requests().is_empty(), "{region}");
+        }
+        assert!(check_route("us-west-2", "us.openai.gpt-6-luna").is_ok());
+    }
+
+    #[test]
+    fn family_mapping_is_by_prefix() {
+        assert_eq!(family("us.anthropic.claude-opus-5-5"), Some(Family::Anthropic));
+        assert_eq!(family("us.openai.gpt-6-luna"), Some(Family::OpenAi));
+        assert_eq!(family("openai.gpt-6-luna"), None);
+        assert_eq!(family("us.amazon.nova-pro-v1:0"), None);
+    }
+
+    /// Effort lands under each vendor's own key in additionalModelRequestFields.
+    #[test]
+    fn effort_goes_where_each_family_expects_it() {
+        let claude = body(&Request { model: "us.anthropic.claude-opus-5-5", effort: Some(Effort::High), ..req() });
+        assert_eq!(claude["additionalModelRequestFields"], json!({ "output_config": { "effort": "high" } }));
+        let gpt = body(&Request { model: "us.openai.gpt-6-luna", effort: Some(Effort::Low), ..req() });
+        assert_eq!(gpt["additionalModelRequestFields"], json!({ "reasoning": { "effort": "low" } }));
+        assert!(gpt["additionalModelRequestFields"].get("reasoning_effort").is_none());
+        assert_eq!(Effort::parse("").unwrap(), None);
+        assert_eq!(Effort::parse(" medium ").unwrap(), Some(Effort::Medium));
+        assert!(Effort::parse("max").is_err());
+    }
+
+    /// GPT-6 on Converse returns its reasoning as an opaque `redactedContent`
+    /// block before the text (shape from a live us-east-1 call reported in
+    /// langfuse#17857). Only the text is the answer.
+    #[test]
+    fn openai_reply_with_redacted_reasoning_extracts_only_the_text() {
+        let body = r#"{
+          "output": {"message": {"role": "assistant", "content": [
+            {"reasoningContent": {"redactedContent": "cnNuX3J1dTZCZXhhbXBsZQ=="}},
+            {"text": "{\"topic_id\": 3, \"confidence\": 0.82, \"reason\": \"Same vendor renewal\"}"}
+          ]}},
+          "stopReason": "end_turn",
+          "usage": {"inputTokens": 310, "outputTokens": 96, "totalTokens": 406},
+          "metrics": {"latencyMs": 880}
+        }"#;
+        let http = FakeHttp::default();
+        http.on("POST", "/model/us.openai.gpt-6-luna/converse", 200, body);
+        let r = converse(&http, &creds(None), &Request { model: "us.openai.gpt-6-luna", ..req() }, SystemTime::now()).unwrap();
+        assert_eq!(r.text, r#"{"topic_id": 3, "confidence": 0.82, "reason": "Same vendor renewal"}"#);
+        assert_eq!(r.stop_reason, "end_turn");
+        // Reasoning that ate the whole budget is an error, not a blank answer.
+        let cut = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"eA=="}}]}},"stopReason":"max_tokens"}"#;
+        let e = parse_reply(cut).unwrap_err().to_string();
+        assert!(e.contains("max_tokens") && e.contains("reasoning"), "{e}");
+    }
+
+    /// Both families use bedrock-runtime Converse with dateless `us.` profile
+    /// ids: same endpoint, same signing scope.
+    #[test]
+    fn us_profiles_of_both_families_use_converse_and_bedrock_scope() {
+        for model in ["us.anthropic.claude-opus-5-5", "us.openai.gpt-6-luna", "us.anthropic.claude-opus-4-8"] {
             let spy = HeaderSpy { inner: FakeHttp::default(), headers: Mutex::new(vec![]) };
             spy.inner.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
             converse(&spy, &creds(None), &Request { model, ..req() }, at("2026-09-27T12:00:00Z")).unwrap();
@@ -368,6 +544,6 @@ mod tests {
         assert!(e.contains("content_filtered"), "{e}");
         let body = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"reasoningText":{"text":"","signature":"x"}}}]}},"stopReason":"max_tokens"}"#;
         let e = parse_reply(body).unwrap_err().to_string();
-        assert!(e.contains("max_tokens") && e.contains("thinking"), "{e}");
+        assert!(e.contains("max_tokens") && e.contains("reasoning"), "{e}");
     }
 }
