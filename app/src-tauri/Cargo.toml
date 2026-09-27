@@ -1,0 +1,42 @@
+[package]
+name = "helm"
+version = "0.1.0"
+edition = "2021"
+default-run = "helm"
+
+[lib]
+name = "helm_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "helm"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+# Browser-mode bridge: serves the same `call` API over HTTP so the UI can be
+# developed in a plain browser (no WebKitGTK needed).
+[[bin]]
+name = "devserver"
+path = "src/bin/devserver.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2.12", features = [], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+dirs = "7"
+tiny_http = "0.12"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"

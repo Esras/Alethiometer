@@ -1,0 +1,94 @@
+//! `settings.json`: sources, categories, buffers, AI allow-list. Hand-edited; no settings UI.
+
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Category {
+    pub label: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiTier {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiSettings {
+    /// Providers covered by a BAA (or local). Work data may only go to these.
+    pub allowed_providers: Vec<String>,
+    /// AWS region for Bedrock.
+    pub region: String,
+    pub small: AiTier,
+    pub large: AiTier,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// Category key -> label and color. Topics and calendar blocks reference keys.
+    /// Change colors here; the UI reads them at startup.
+    pub categories: BTreeMap<String, Category>,
+    /// Day strip range, whole hours.
+    pub day_start_hour: u32,
+    pub day_end_hour: u32,
+    /// Default travel buffer before a Life block.
+    pub life_buffer_min: i64,
+    /// Absolute path to the work Obsidian vault. Empty = `<data dir>/vault`.
+    pub obsidian_vault: String,
+    /// Proton Calendar "Limited view" share links, one per calendar. Busy times only.
+    pub life_calendars: Vec<String>,
+    pub ai: AiSettings,
+    /// Development only: pretend the local time is this ("10:52"). Empty = real clock.
+    pub fake_now: String,
+    /// Fill an empty database with the sample data from the design mocks.
+    /// Turn off once real sources are connected.
+    pub demo_data: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        let cat = |label: &str, color: &str| Category { label: label.into(), color: color.into() };
+        let mut categories = BTreeMap::new();
+        categories.insert("work".into(), cat("Important · Work", "#fabd2f"));
+        categories.insert("life".into(), cat("Personal · Life", "#83a598"));
+        categories.insert("jobs".into(), cat("Jobs", "#b8bb26"));
+        categories.insert("self".into(), cat("Self-hold", "#d3869b"));
+        categories.insert("alert".into(), cat("Alerts", "#fb4934"));
+        Settings {
+            categories,
+            day_start_hour: 8,
+            day_end_hour: 19,
+            life_buffer_min: 15,
+            obsidian_vault: String::new(),
+            life_calendars: vec![],
+            ai: AiSettings {
+                allowed_providers: vec!["bedrock".into()],
+                region: "us-east-1".into(),
+                small: AiTier { provider: "bedrock".into(), model: String::new() },
+                large: AiTier { provider: "bedrock".into(), model: String::new() },
+            },
+            fake_now: String::new(),
+            demo_data: true,
+        }
+    }
+}
+
+impl Settings {
+    /// Load from `path`, writing defaults there first if the file doesn't exist.
+    pub fn load_or_init(path: &Path) -> anyhow::Result<Settings> {
+        if !path.exists() {
+            let s = Settings::default();
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(path, serde_json::to_string_pretty(&s)?)?;
+            return Ok(s);
+        }
+        let text = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&text)?)
+    }
+}

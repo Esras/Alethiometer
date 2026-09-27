@@ -1,0 +1,404 @@
+<script lang="ts">
+  // Day strip (DayStripGruv, 7a/7b/10a/11a): countdown card + to-scale blocks.
+  // Every block is faded; meetings linked to the current topic return to full
+  // strength with an aqua ring. Life blocks are untitled blue hatching.
+  import { call } from '../lib/api';
+  import { catColor, hm, nowMinute, ui, urgencyColor } from '../lib/app.svelte';
+  import { useKeys } from '../lib/keys.svelte';
+  import type { Block, DayStripData } from '../lib/types';
+
+  let data = $state<DayStripData | null>(null);
+  let popover = $state<Block | null>(null);
+  let editingBuffer = $state(false);
+  let bufferInput = $state('');
+
+  $effect(() => {
+    const topicId = ui.topicId;
+    void ui.rev;
+    call<DayStripData>('daystrip.get', { topic_id: topicId }).then((d) => (data = d));
+  });
+
+  const span = $derived(data ? data.day_end_min - data.day_start_min : 660);
+  const pct = (min: number) => (data ? ((min - data.day_start_min) / span) * 100 : 0);
+  const now = $derived.by(() => {
+    void ui.nowMs;
+    return nowMinute();
+  });
+
+  // Next thing to count down to: the next block that starts after now. Self-holds
+  // (Lunch, Walk) don't count; Life blocks do.
+  const next = $derived(data?.blocks.find((b) => b.start_min > now && b.category !== 'self') ?? null);
+  const left = $derived(next ? Math.ceil(next.start_min - now) : null);
+  const color = $derived(left === null ? 'var(--tx-label)' : urgencyColor(left));
+
+  const hl = (b: Block) => ui.topicId !== null && b.topic_ids.includes(ui.topicId);
+
+  // Hatched gaps of 15 min or more between blocks.
+  const gaps = $derived.by(() => {
+    if (!data) return [];
+    const out: { start: number; end: number }[] = [];
+    const sorted = [...data.blocks].sort((a, b) => a.start_min - b.start_min);
+    let cursor = data.day_start_min;
+    for (const b of sorted) {
+      if (b.start_min - cursor >= 15) out.push({ start: cursor, end: b.start_min });
+      cursor = Math.max(cursor, b.end_min);
+    }
+    return out;
+  });
+
+  // Upcoming leave-by ticks get a label; hour labels they would cover are dropped.
+  const leaves = $derived(data ? data.blocks.filter((b) => b.life && b.buffer_min && b.start_min > now).map((b) => b.start_min - (b.buffer_min ?? 0)) : []);
+  const hours = $derived.by(() => {
+    if (!data) return [];
+    const out: number[] = [];
+    for (let m = data.day_start_min; m < data.day_end_min; m += 120) {
+      if (!leaves.some((l) => m >= l - 50 && m <= l + 25)) out.push(m);
+    }
+    return out;
+  });
+
+  const label = (b: Block) => b.end_min - b.start_min >= 30;
+
+  function tint(key: string, pctAlpha: number) {
+    return `color-mix(in srgb, ${catColor(key)} ${pctAlpha}%, transparent)`;
+  }
+
+  const focus = (el: HTMLInputElement) => el.focus();
+
+  function openLife(b: Block) {
+    popover = popover?.id === b.id ? null : b;
+    editingBuffer = false;
+  }
+
+  async function saveBuffer() {
+    const minutes = parseInt(bufferInput, 10);
+    if (!popover || isNaN(minutes)) return;
+    await call('daystrip.set_buffer', { event_id: popover.id, minutes });
+    popover = { ...popover, buffer_min: minutes };
+    editingBuffer = false;
+    ui.rev++;
+  }
+
+  useKeys((e) => {
+    if (!popover) return;
+    if (e.key === 'Escape') {
+      popover = null;
+      return true;
+    }
+    if (e.key === 'b' && !editingBuffer) {
+      editingBuffer = true;
+      bufferInput = String(popover.buffer_min ?? '');
+      return true;
+    }
+  });
+</script>
+
+<div class="strip">
+  <div class="countdown">
+    <span class="next nowrap">Next · {next ? (next.life ? 'Life' : next.title) : 'nothing left today'}</span>
+    <span class="left tnum" style:color>{left === null ? '—' : left <= 0 ? 'now' : `in ${left} min`}</span>
+    <div class="bar"><div style:width="{left === null ? 0 : Math.round(Math.max(0, 1 - left / 30) * 100)}%" style:background={color}></div></div>
+  </div>
+
+  <div class="track">
+    {#if data}
+      <div class="layer faded">
+        {#each gaps as g}
+          <div class="gap" style:left="{pct(g.start)}%" style:width="{pct(g.end) - pct(g.start)}%"></div>
+        {/each}
+        {#each data.blocks.filter((b) => !b.life && !hl(b)) as b (b.id)}
+          <div
+            class="block"
+            class:tentative={b.tentative}
+            style:left="{pct(b.start_min)}%"
+            style:width="{pct(b.end_min) - pct(b.start_min)}%"
+            style:background={b.tentative ? 'transparent' : tint(b.category, 17)}
+            style:box-shadow={b.tentative ? 'none' : `inset 0 2px 0 ${catColor(b.category)}`}
+            style:border-color={catColor(b.category)}
+            title="{b.title} · {hm(b.start_min)}–{hm(b.end_min)}"
+          >
+            {#if label(b)}{b.title}{/if}
+          </div>
+        {/each}
+      </div>
+      <div class="layer">
+        {#each data.blocks.filter((b) => !b.life && hl(b)) as b (b.id)}
+          <div
+            class="block lit"
+            class:tentative={b.tentative}
+            style:left="{pct(b.start_min)}%"
+            style:width="{pct(b.end_min) - pct(b.start_min)}%"
+            style:background="color-mix(in srgb, {catColor(b.category)} 12%, var(--bg-panel))"
+            style:box-shadow="{b.tentative ? '' : `inset 0 2px 0 ${catColor(b.category)},`} 0 0 0 1.5px var(--aqua)"
+            style:border-color={catColor(b.category)}
+            title="{b.title} · {hm(b.start_min)}–{hm(b.end_min)}"
+          >
+            {#if label(b)}{b.title}{/if}
+          </div>
+        {/each}
+        {#each data.blocks.filter((b) => b.life) as b (b.id)}
+          {@const leave = b.start_min - (b.buffer_min ?? 0)}
+          {#if b.buffer_min}
+            <div class="leave-tick" style:left="{pct(leave)}%"></div>
+          {/if}
+          <button
+            class="block life"
+            class:open={popover?.id === b.id}
+            style:left="{pct(b.start_min)}%"
+            style:width="{pct(b.end_min) - pct(b.start_min)}%"
+            onclick={() => openLife(b)}
+            aria-label="Life, busy {hm(b.start_min)}–{hm(b.end_min)}"
+          >
+            {#if label(b)}<i class="ph ph-house-simple"></i>Life{/if}
+          </button>
+        {/each}
+      </div>
+      {#if now >= data.day_start_min && now <= data.day_end_min}
+        <div class="now" style:left="{pct(now)}%" style:background={color}></div>
+      {/if}
+      <div class="axis tnum">
+        {#each hours as h}
+          <span style:left="{pct(h)}%">{String(h / 60).padStart(2, '0')}</span>
+        {/each}
+        {#each leaves as l}
+          <span class="leave" style:left="{pct(l) - 3.4}%">leave {hm(l)}</span>
+        {/each}
+      </div>
+    {/if}
+
+    {#if popover}
+      <div class="popover" style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
+        <div class="pop-head">
+          <i class="ph ph-house-simple"></i>
+          <span class="pop-title">Life · {hm(popover.start_min)}–{hm(popover.end_min)}</span>
+          <span class="busy">busy</span>
+        </div>
+        <div class="pop-body">
+          That's all this laptop knows. Travel buffer
+          {#if editingBuffer}
+            <input
+              class="buf tnum"
+              bind:value={bufferInput}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') saveBuffer();
+                if (e.key === 'Escape') editingBuffer = false;
+                e.stopPropagation();
+              }}
+              use:focus
+            /> min.
+          {:else}
+            <span class="em">{popover.buffer_min} min</span>, so you'll get a nudge at {hm(popover.start_min - (popover.buffer_min ?? 0))}.
+          {/if}
+        </div>
+        <div class="pop-foot">
+          <span><kbd>b</kbd> buffer</span><span><kbd>Esc</kbd></span>
+        </div>
+      </div>
+    {/if}
+  </div>
+
+  {#if data?.note}
+    <div class="note"><i class="ph ph-calendar-x"></i><span>{data.note}</span></div>
+  {/if}
+</div>
+
+<style>
+  .strip {
+    position: relative;
+    flex: none;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    padding: 8px 16px 6px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--bg-head);
+  }
+  .countdown {
+    width: 156px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 5px 10px 6px;
+    border-radius: var(--r-input);
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+  .next {
+    font-size: 10.5px;
+    color: var(--tx-muted-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .left {
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .bar {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .bar div {
+    height: 100%;
+  }
+  .track {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    height: 40px;
+  }
+  .layer {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 26px;
+  }
+  .layer.faded {
+    opacity: 0.5;
+  }
+  .block {
+    position: absolute;
+    top: 0;
+    height: 26px;
+    border-radius: var(--r-block);
+    font-size: 10.5px;
+    padding: 7px 5px 0;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--tx-body);
+    text-align: left;
+    line-height: normal;
+  }
+  .block.tentative {
+    border: 1px dashed;
+    padding: 6px 4px 0;
+  }
+  .block.lit {
+    font-weight: 500;
+  }
+  .gap {
+    position: absolute;
+    top: 0;
+    height: 26px;
+    border-radius: 3px;
+    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.1) 0 3px, transparent 3px 6px);
+  }
+  .block.life {
+    display: flex;
+    gap: 4px;
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cat-life) 26%, transparent) 0 3px,
+      color-mix(in srgb, var(--cat-life) 8%, transparent) 3px 6px
+    );
+    box-shadow: inset 0 2px 0 var(--cat-life);
+    cursor: pointer;
+  }
+  .block.life.open {
+    box-shadow: inset 0 2px 0 var(--cat-life), 0 0 0 1.5px var(--aqua);
+  }
+  .block.life i {
+    font-size: 11px;
+  }
+  .leave-tick {
+    position: absolute;
+    top: -4px;
+    height: 34px;
+    width: 0;
+    border-left: 1.5px dashed var(--cat-life);
+  }
+  .now {
+    position: absolute;
+    top: -4px;
+    height: 34px;
+    width: 2px;
+  }
+  .axis {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 11px;
+    font-size: 10px;
+    color: var(--tx-label);
+  }
+  .axis span {
+    position: absolute;
+  }
+  .axis .leave {
+    color: var(--cat-life);
+    background: var(--bg-app);
+    padding-right: 3px;
+  }
+  .note {
+    width: 150px;
+    flex: none;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: var(--r-input);
+    border: 1px dashed var(--border-strong);
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--tx-muted);
+  }
+  .note i {
+    font-size: 15px;
+    color: var(--aqua);
+  }
+  .popover {
+    position: absolute;
+    z-index: 10;
+    top: 38px;
+    width: 290px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 11px 13px;
+    border-radius: var(--r-panel);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12.5px;
+  }
+  .pop-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .pop-head i {
+    font-size: 14px;
+    color: var(--cat-life);
+  }
+  .pop-title {
+    color: var(--tx-title);
+    font-weight: 500;
+  }
+  .busy {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--tx-label);
+  }
+  .pop-body {
+    color: var(--tx-muted);
+    line-height: 1.5;
+  }
+  .em {
+    color: var(--tx-body);
+  }
+  .buf {
+    width: 44px;
+    background: var(--bg-app);
+    border: 1px solid var(--aqua);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .pop-foot {
+    display: flex;
+    gap: 14px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--tx-muted-2);
+  }
+</style>

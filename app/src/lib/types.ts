@@ -1,0 +1,94 @@
+// Shapes returned by the Rust core (see src-tauri/src/queries/*). snake_case on purpose.
+
+export type Weight = 'red' | 'yellow' | 'green';
+export interface Pill {
+  label: string;
+  weight: Weight;
+}
+
+export interface Category {
+  label: string;
+  color: string;
+}
+
+export interface AppInfo {
+  categories: Record<string, Category>;
+  day_start_hour: number;
+  day_end_hour: number;
+  life_buffer_min: number;
+  clock_offset_ms: number;
+  ai_label: string;
+  incoming_count: number;
+  platform: string;
+}
+
+export interface Block {
+  id: number;
+  start_min: number;
+  end_min: number;
+  title: string | null;
+  category: string;
+  tentative: boolean;
+  life: boolean;
+  buffer_min: number | null;
+  topic_ids: number[];
+  item_id: number | null;
+  attendees: string | null;
+}
+
+export interface DayStripData {
+  day_start_min: number;
+  day_end_min: number;
+  blocks: Block[];
+  note: string | null;
+}
+
+export interface TopicRef {
+  id: number;
+  name: string;
+  category: string;
+}
+
+export interface TopicRow extends TopicRef {
+  new_count: number;
+}
+
+/** Source kinds; each has an icon in public/icons/<kind>.png. */
+export type SourceKind =
+  | 'gcal'
+  | 'slack'
+  | 'jira'
+  | 'github'
+  | 'obsidian'
+  | 'gmail'
+  | 'sheets'
+  | 'notion'
+  | 'marvin'
+  | 'protoncal'
+  | 'protonmail';
+
+export interface TopicDetail {
+  topic: TopicRef & { score: number | null; pills: Pill[] };
+  upcoming: { item_id: number; when: string; today: boolean; source: SourceKind; title: string; sub: string | null }[];
+  open: { item_id: number; source: SourceKind; title: string; due: Pill | null; owner: string | null }[];
+  chronology: {
+    item_id: number;
+    when: string;
+    today: boolean;
+    source: SourceKind;
+    title: string;
+    range: string | null;
+    sub: string | null;
+    right: string;
+    open: boolean;
+  }[];
+  filters: { source: SourceKind; count: number }[];
+  people: { id: number; name: string; role: string | null; initials: string }[];
+  repos: string[];
+  note: { path: string; abs_path: string; text: string } | null;
+}
+
+export interface SearchResults {
+  topics: (TopicRef & { type: 'topic'; title: string })[];
+  items: { type: 'item'; id: number; title: string; source: SourceKind; at: string; topic_id: number | null }[];
+}

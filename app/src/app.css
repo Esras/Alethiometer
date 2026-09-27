@@ -1,0 +1,175 @@
+/* Gruvbox dark hard. Tokens from the design handoff README; category colors are
+   injected at startup from settings.json as --cat-<key>. */
+:root {
+  /* grounds */
+  --bg-app: #1d2021;
+  --bg-panel: #282828;
+  --bg-head: #32302f;
+  --border: #3c3836;
+  --border-strong: #504945;
+
+  /* text */
+  --tx-title: #fbf1c7;
+  --tx-body: #ebdbb2;
+  --tx-2: #d5c4a1;
+  --tx-muted: #bdae93;
+  --tx-muted-2: #a89984;
+  --tx-label: #928374;
+  --tx-disabled: #665c54;
+
+  /* interface state */
+  --aqua: #8ec07c;
+  --aqua-tint: rgba(142, 192, 124, 0.1);
+  --aqua-tint-soft: rgba(142, 192, 124, 0.06);
+
+  /* kitty palette (for glyphs, pills, countdown) */
+  --red: #fb4934;
+  --green: #b8bb26;
+  --yellow: #fabd2f;
+  --blue: #83a598;
+  --purple: #d3869b;
+  --orange: #fe8019;
+
+  --r-block: 4px;
+  --r-input: 6px;
+  --r-panel: 8px;
+
+  color-scheme: dark;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-feature-settings: 'cv11';
+  color: var(--tx-body);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--aqua);
+  outline-offset: 1px;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 10.5px uppercase section label */
+.label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tx-label);
+}
+
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Outlined buttons, never filled */
+.btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: var(--r-input);
+  border: 1px solid var(--border-strong);
+  color: var(--tx-muted);
+  white-space: nowrap;
+  transition: background 120ms;
+}
+.btn:hover {
+  background: rgba(235, 219, 178, 0.05);
+}
+.btn.primary {
+  border-color: var(--aqua);
+  color: var(--aqua);
+}
+.btn.primary:hover {
+  background: var(--aqua-tint);
+}
+
+/* Reason / weight pills */
+.pill {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.pill.red {
+  background: rgba(251, 73, 52, 0.16);
+  color: var(--red);
+}
+.pill.yellow {
+  background: rgba(250, 189, 47, 0.16);
+  color: var(--yellow);
+}
+.pill.green {
+  background: rgba(184, 187, 38, 0.16);
+  color: var(--green);
+}
+
+/* Segmented control (Day/Week…, Both/Work/Life) */
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  font-size: 12px;
+  background: var(--bg-panel);
+}
+.seg button {
+  padding: 4px 12px;
+  color: var(--tx-muted);
+  border-radius: 5px;
+}
+.seg button.on {
+  color: var(--bg-app);
+  background: var(--aqua);
+}
+
+/* Selected row: tinted fill + aqua right edge (Incoming, Priorities) */
+.sel {
+  background: var(--aqua-tint);
+  box-shadow: inset -2px 0 0 var(--aqua);
+}
+
+kbd {
+  font: inherit;
+  color: var(--tx-2);
+}
