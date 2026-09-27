@@ -1,0 +1,35 @@
+{
+  "total_count": 3,
+  "incomplete_results": false,
+  "items": [
+    {
+      "url": "https://api.github.com/repos/platform/ingest/issues/77",
+      "repository_url": "https://api.github.com/repos/platform/ingest",
+      "html_url": "https://github.com/platform/ingest/pull/77",
+      "id": 470077,
+      "number": 77,
+      "title": "Bump client library",
+      "user": { "login": "kimlee", "id": 5002, "type": "User" },
+      "labels": [],
+      "state": "closed",
+      "locked": false,
+      "assignee": null,
+      "assignees": [],
+      "comments": 0,
+      "created_at": "2026-09-24T10:00:00Z",
+      "updated_at": "2026-09-26T18:00:05Z",
+      "closed_at": "2026-09-26T18:00:00Z",
+      "author_association": "MEMBER",
+      "draft": false,
+      "pull_request": {
+        "url": "https://api.github.com/repos/platform/ingest/pulls/77",
+        "html_url": "https://github.com/platform/ingest/pull/77",
+        "diff_url": "https://github.com/platform/ingest/pull/77.diff",
+        "patch_url": "https://github.com/platform/ingest/pull/77.patch",
+        "merged_at": "2026-09-26T18:00:00Z"
+      },
+      "body": "Routine bump. @srivera FYI",
+      "score": 1.0
+    }
+  ]
+}
