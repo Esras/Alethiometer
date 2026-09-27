@@ -11,6 +11,7 @@
   import Priorities from './views/Priorities.svelte';
   import Reflect from './views/Reflect.svelte';
   import Topics from './views/Topics.svelte';
+  import Nudge from './views/reflect/Nudge.svelte';
 
   const inTauri = '__TAURI_INTERNALS__' in window;
   let ready = $state(false);
@@ -61,6 +62,7 @@
     </main>
   {/if}
   {#if ui.searchOpen}<SearchPalette />{/if}
+  {#if ready}<Nudge />{/if}
 </div>
 
 <style>
