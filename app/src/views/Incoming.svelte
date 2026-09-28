@@ -87,7 +87,8 @@
     };
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
-    dismissed = new Set();
+    const live = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted].map((s) => s.item_id));
+    dismissed = new Set([...dismissed].filter((id) => live.has(id)));
     const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted'];
     if (selKey === null || !keys.includes(selKey)) {
       selKey = keys[Math.min(topicIdx, keys.length - 1)];
