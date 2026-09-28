@@ -84,6 +84,48 @@ The window is about 1320×880 in the mocks. The top of every view except Reflect
 - The columns scroll independently. `z` or the fold button folds the left column.
 - Add: a linked-repos list (GitHub) in the topic header or People area.
 
+### Topics index (12c): picking a topic
+Reference: 12c (12b is the same layout before it was checked against the code; 12a is superseded). Checked against `claude/helm-ui-shell` on 2026-09-28.
+
+**What exists today:** there's no index yet. `Topics.svelte` opens `topics.list()[0]` when `ui.openTopicId` is null, and `[`/`]` step between topics.
+
+**Entry and exit**
+- Clicking the Topics tab with no topic open, or clicking the "Topics" crumb in a topic header, shows the index.
+- `openTopic(id)` from other tabs still jumps straight into the topic. Its crumb reads the origin tab, as it does now.
+- Esc inside a topic, when nothing is being edited, returns to the index.
+- Keep `[`/`]` inside a topic, stepping in the index's sort order.
+
+**Layout:** one panel (max 1060px), inside the existing shell with its tab bar, sync chip and day strip.
+- Header: a filter field, an **Active / Archived** `.seg` control, and a **New topic** `.btn.primary`.
+- If the filter matches nothing, show TopicPicker's "Create '…'" row.
+
+**Rows:** the grid is `4px minmax(0,1fr) 70px 120px 240px`.
+- **Bar:** `catColor(category)`.
+- **Name:** shown with `new_count` as an aqua badge when it's above 0 (same style as the Incoming tab badge). Below it goes `obsidian_path`, or "no note" in italic.
+- **Open:** a count, or — when there's nothing open.
+- **Last signal:** "HH:MM · Source" for today, otherwise a day or date. `when_label` already does this.
+- **Next meeting:** a pill in `.pill` style, followed by the meeting title in `--tx-muted`. Leave it blank when there's no meeting.
+  - `.pill.red` "in 8 min" when it's 30 min away or less
+  - `.pill.yellow` "in 3h 38m" later today
+  - `.pill.green` "Thu 11:00" on another day, within 7 days, matching the Upcoming panel
+  - Don't reuse `urgencyColor()`: its 15/5/2-minute thresholds belong to the countdown. Add a separate `meetingPillWeight()`, and ask the user whether the strip should follow it.
+- **Sections:** Active first, sorted by next meeting then last signal. Then **Quiet · no signal in 7 days**, with row content at 60% opacity. The 7 days is a `settings.json` value.
+- The selected row uses `.sel` and sets `ui.topicId`, which lights its meetings on the strip.
+
+**Keys**, following TopicPicker:
+- The filter has focus on arrival. ↑/↓ or ⌃j/⌃k move, ↵ opens.
+- Esc leaves the filter. Then j/k move, `a` archives, `n` starts a new topic, and `/` goes back to the filter. (Global `/` search stays as it is everywhere else.)
+- Archive is `a`, not `e`: `e` already means "edit note" inside a topic.
+
+**Archive:** hovering a row, active or quiet, swaps the Next meeting cell for an **Archive** button. There's no bulk archive (the user was explicit in chat1: never throw data away in bulk).
+
+**Backend**
+- `topics.list` gains `open_count`, `last_signal_at`, `last_signal_source`, `next_meeting {start, title}`, `obsidian_path` and an `archived` flag argument.
+- New commands: `topics.archive {id}` and `topics.unarchive {id}`, which set or clear `archived_at`.
+- Every other query already filters `archived_at IS NULL` (suggest, incoming, notes, search, github, obsidian), so archived topics drop out of AI suggestions and pickers with no further changes. This resolves the ISSUES.md "archive/cleanup story" item, though only manually for now.
+
+**Out of scope:** a periodic review of quiet topics (possibly in Reflect), and "Dismiss a signal" in Incoming, which is tracked separately in ISSUES.md.
+
 ### Incoming (8a)
 - The left column lists topics with counts; **Unsorted** is last. The right pane shows the selected topic's new signals, grouped by app.
 - Per item: **Confirm** or **Wrong topic** (goes to Unsorted). The selected row gets a tinted fill plus an aqua right edge.
@@ -132,7 +174,7 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `7a-topics.png`, `7b-daystrip-empty.png`
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
-- `10a-life-blocks.png`, `11a-notes-receipts.png`
+- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`
 
 Caveats:
 - **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
@@ -141,6 +183,6 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a**.
+- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
 - `design/DayStripGruv.dc.html`: the day strip component (props: `highlight`, `minutes`, `note`, `life`).
 - `design/support.js`, `design/_ds/…`: runtime needed to open the HTML references. Not for production.
