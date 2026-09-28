@@ -12,6 +12,11 @@
   let sources = $state<Source[]>([]);
   let writes = $state<Write[]>([]);
   let open = $state(false);
+  let wrap: HTMLElement;
+
+  function onWindowClick(e: MouseEvent) {
+    if (open && e.target instanceof Node && !wrap.contains(e.target)) open = false;
+  }
 
   async function load() {
     [sources, writes] = await Promise.all([call<Source[]>('sync.status'), call<Write[]>('outbox.list')]);
@@ -57,10 +62,13 @@
     }
   }
 
+  let syncing = $state<number | null>(null);
   async function syncNow(id: number) {
+    syncing = id;
     try {
       await call('sync.now', { source_id: id });
     } finally {
+      syncing = null;
       refresh();
     }
   }
@@ -77,7 +85,9 @@
   });
 </script>
 
-<span class="wrap">
+<svelte:window onclick={onWindowClick} />
+
+<span class="wrap" bind:this={wrap}>
   <button class="chip" onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
     <span class="dot" class:bad={problem}></span>
     {#if live.length}synced {ago(newest)}{:else}sample data{/if}
@@ -95,7 +105,7 @@
           {#if s.kind === 'gcal' && s.last_error}
             <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
           {:else}
-            <button class="btn" onclick={() => syncNow(s.id)}>Sync</button>
+            <button class="btn" onclick={() => syncNow(s.id)} disabled={syncing === s.id}>{syncing === s.id ? 'Syncing…' : 'Sync'}</button>
           {/if}
         </div>
         {#if s.last_error}<div class="err">{s.last_error}</div>{/if}

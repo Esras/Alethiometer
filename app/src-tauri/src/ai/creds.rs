@@ -1,59 +1,50 @@
-//! AWS credentials for Bedrock: a small subset of the standard provider chain.
-//!
-//! The supported setup (for now) is a long-lived IAM user access key stored in
-//! Alethiometer's secret store under `aws_access_key_id` / `aws_secret_access_key`.
-//! The rest of the chain stays for development and for a later move to SSO.
-//!
-//! Order (first hit wins):
-//! 1. env: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`);
-//! 2. Alethiometer's secret store (Keychain on the Mac): `aws_access_key_id`,
-//!    `aws_secret_access_key`, optional `aws_session_token`;
-//! 3. the profile (`settings.ai.aws_profile`, else `AWS_PROFILE`, else "default"):
-//!    static keys in `~/.aws/credentials`, then static keys or `credential_process`
-//!    in `~/.aws/config`.
-//!
-//! SSO profiles aren't read directly (that needs the SSO portal API). Point a
-//! profile's `credential_process` at `aws configure export-credentials --profile
-//! <sso-profile> --format process` instead; see docs/ai.md.
-//!
-//! Nothing here logs or formats a secret. Error messages name where we looked,
-//! never what we found.
+//! AWS credentials for Bedrock: Bedrock API key (bearer) or IAM access key (SigV4); see docs/ai.md.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
-pub struct AwsCreds {
-    pub access_key_id: String,
-    pub secret_access_key: String,
-    pub session_token: Option<String>,
-    /// Where they came from, for status messages ("env", "keychain", "profile work").
-    pub source: String,
+pub enum AwsCreds {
+    Keys { access_key_id: String, secret_access_key: String, session_token: Option<String>, source: String },
+    Bearer { token: String, source: String },
+}
+
+impl AwsCreds {
+    pub fn source(&self) -> &str {
+        match self {
+            AwsCreds::Keys { source, .. } => source,
+            AwsCreds::Bearer { source, .. } => source,
+        }
+    }
 }
 
 impl std::fmt::Debug for AwsCreds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AwsCreds").field("source", &self.source).finish_non_exhaustive()
+        f.debug_struct("AwsCreds").field("source", &self.source()).finish_non_exhaustive()
     }
 }
 
-/// Everything the chain reads, injectable for tests.
 pub struct Lookup<'a> {
     pub env: &'a dyn Fn(&str) -> Option<String>,
     pub secret: &'a dyn Fn(&str) -> Option<String>,
     pub home: Option<PathBuf>,
-    /// `settings.ai.aws_profile` (may be empty).
     pub profile: &'a str,
 }
 
 pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
     let env = |k: &str| (l.env)(k).filter(|v| !v.is_empty());
-    if let (Some(id), Some(key)) = (env("AWS_ACCESS_KEY_ID"), env("AWS_SECRET_ACCESS_KEY")) {
-        return Ok(AwsCreds { access_key_id: id, secret_access_key: key, session_token: env("AWS_SESSION_TOKEN"), source: "env".into() });
-    }
     let sec = |k: &str| (l.secret)(k).filter(|v| !v.is_empty());
+    if let Some(token) = env("AWS_BEARER_TOKEN_BEDROCK") {
+        return Ok(AwsCreds::Bearer { token, source: "env".into() });
+    }
+    if let Some(token) = sec("bedrock_api_key") {
+        return Ok(AwsCreds::Bearer { token, source: "keychain".into() });
+    }
+    if let (Some(id), Some(key)) = (env("AWS_ACCESS_KEY_ID"), env("AWS_SECRET_ACCESS_KEY")) {
+        return Ok(AwsCreds::Keys { access_key_id: id, secret_access_key: key, session_token: env("AWS_SESSION_TOKEN"), source: "env".into() });
+    }
     if let (Some(id), Some(key)) = (sec("aws_access_key_id"), sec("aws_secret_access_key")) {
-        return Ok(AwsCreds { access_key_id: id, secret_access_key: key, session_token: sec("aws_session_token"), source: "keychain".into() });
+        return Ok(AwsCreds::Keys { access_key_id: id, secret_access_key: key, session_token: sec("aws_session_token"), source: "keychain".into() });
     }
 
     let profile = if !l.profile.is_empty() { l.profile.to_string() } else { env("AWS_PROFILE").unwrap_or_else(|| "default".into()) };
@@ -61,13 +52,11 @@ pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
     let creds_file = env("AWS_SHARED_CREDENTIALS_FILE").map(PathBuf::from).or_else(|| aws_dir.as_ref().map(|d| d.join("credentials")));
     let config_file = env("AWS_CONFIG_FILE").map(PathBuf::from).or_else(|| aws_dir.as_ref().map(|d| d.join("config")));
 
-    // ~/.aws/credentials uses bare section names: [default], [work].
     if let Some(sect) = creds_file.as_deref().and_then(|p| section(p, &profile)) {
         if let Some(c) = static_keys(&sect, &profile) {
             return Ok(c);
         }
     }
-    // ~/.aws/config uses [default] and [profile work].
     let name = if profile == "default" { "default".to_string() } else { format!("profile {profile}") };
     if let Some(sect) = config_file.as_deref().and_then(|p| section(p, &name)) {
         if let Some(c) = static_keys(&sect, &profile) {
@@ -87,20 +76,19 @@ pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
     anyhow::bail!("{}", missing_message(&profile))
 }
 
-/// The supported setup is long-lived IAM access keys in the secret store, so
-/// the error says exactly that first; the other places are mentioned after.
 pub fn missing_message(profile: &str) -> String {
     format!(
-        "No AWS credentials found for Bedrock. Store your IAM access key in Alethiometer's secret store \
-         (Keychain on the Mac, secrets.json on Linux dev) as aws_access_key_id and aws_secret_access_key. \
-         (Also looked in AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY and AWS profile '{profile}' in ~/.aws.) See docs/ai.md"
+        "No AWS credentials found for Bedrock. Store a Bedrock API key as bedrock_api_key, or an IAM access key as \
+         aws_access_key_id and aws_secret_access_key, in Alethiometer's secret store (Keychain on the Mac, secrets.json \
+         on Linux dev). (Also looked in AWS_BEARER_TOKEN_BEDROCK, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY and AWS profile \
+         '{profile}' in ~/.aws.) See docs/ai.md"
     )
 }
 
 fn static_keys(sect: &BTreeMap<String, String>, profile: &str) -> Option<AwsCreds> {
     let id = sect.get("aws_access_key_id").filter(|v| !v.is_empty())?;
     let key = sect.get("aws_secret_access_key").filter(|v| !v.is_empty())?;
-    Some(AwsCreds {
+    Some(AwsCreds::Keys {
         access_key_id: id.clone(),
         secret_access_key: key.clone(),
         session_token: sect.get("aws_session_token").filter(|v| !v.is_empty()).cloned(),
@@ -108,7 +96,6 @@ fn static_keys(sect: &BTreeMap<String, String>, profile: &str) -> Option<AwsCred
     })
 }
 
-/// Keys of one `[name]` section of an INI file. None if the file or section is missing.
 fn section(path: &Path, name: &str) -> Option<BTreeMap<String, String>> {
     parse_section(&std::fs::read_to_string(path).ok()?, name)
 }
@@ -138,7 +125,6 @@ fn parse_section(text: &str, name: &str) -> Option<BTreeMap<String, String>> {
     found
 }
 
-/// Run a profile's `credential_process` and parse its JSON (Version 1 format).
 fn credential_process(cmd: &str, profile: &str) -> anyhow::Result<AwsCreds> {
     #[cfg(unix)]
     let out = std::process::Command::new("sh").arg("-c").arg(cmd).output();
@@ -156,7 +142,7 @@ fn parse_process_output(stdout: &str, profile: &str) -> anyhow::Result<AwsCreds>
     let bad = || anyhow::anyhow!("credential_process for AWS profile '{profile}' returned unexpected output");
     let v: serde_json::Value = serde_json::from_str(stdout).map_err(|_| bad())?;
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(str::to_owned);
-    Ok(AwsCreds {
+    Ok(AwsCreds::Keys {
         access_key_id: s("AccessKeyId").ok_or_else(bad)?,
         secret_access_key: s("SecretAccessKey").ok_or_else(bad)?,
         session_token: s("SessionToken"),
@@ -190,7 +176,34 @@ mod tests {
             _ => None,
         };
         let c = resolve(&Lookup { env: &env, secret: &none, home: None, profile: "" }).unwrap();
-        assert_eq!((c.access_key_id.as_str(), c.session_token.as_deref(), c.source.as_str()), ("AKIDENV", Some("t"), "env"));
+        let AwsCreds::Keys { access_key_id, session_token, source, .. } = c else { panic!("expected Keys") };
+        assert_eq!((access_key_id.as_str(), session_token.as_deref(), source.as_str()), ("AKIDENV", Some("t"), "env"));
+    }
+
+    #[test]
+    fn bearer_env_beats_keys_env() {
+        let env = |k: &str| match k {
+            "AWS_BEARER_TOKEN_BEDROCK" => Some("bt".to_string()),
+            "AWS_ACCESS_KEY_ID" => Some("AKIDENV".to_string()),
+            "AWS_SECRET_ACCESS_KEY" => Some("s".to_string()),
+            _ => None,
+        };
+        let c = resolve(&Lookup { env: &env, secret: &none, home: None, profile: "" }).unwrap();
+        let AwsCreds::Bearer { token, source } = c else { panic!("expected Bearer") };
+        assert_eq!((token.as_str(), source.as_str()), ("bt", "env"));
+    }
+
+    #[test]
+    fn bearer_secret_before_keys_env() {
+        let sec = |k: &str| (k == "bedrock_api_key").then(|| "bt".to_string());
+        let env = |k: &str| match k {
+            "AWS_ACCESS_KEY_ID" => Some("AKIDENV".to_string()),
+            "AWS_SECRET_ACCESS_KEY" => Some("s".to_string()),
+            _ => None,
+        };
+        let c = resolve(&Lookup { env: &env, secret: &sec, home: None, profile: "" }).unwrap();
+        let AwsCreds::Bearer { token, source } = c else { panic!("expected Bearer") };
+        assert_eq!((token.as_str(), source.as_str()), ("bt", "keychain"));
     }
 
     #[test]
@@ -202,7 +215,8 @@ mod tests {
         };
         let home = home_with(&[("credentials", "[default]\naws_access_key_id=AKIDFILE\naws_secret_access_key=x\n")]);
         let c = resolve(&Lookup { env: &none, secret: &sec, home: Some(home.path().into()), profile: "" }).unwrap();
-        assert_eq!(c.access_key_id, "AKIDKC");
+        let AwsCreds::Keys { access_key_id, .. } = c else { panic!("expected Keys") };
+        assert_eq!(access_key_id, "AKIDKC");
     }
 
     #[test]
@@ -213,10 +227,11 @@ mod tests {
         )]);
         let env = |k: &str| (k == "AWS_PROFILE").then(|| "work".to_string());
         let c = resolve(&Lookup { env: &env, secret: &none, home: Some(home.path().into()), profile: "" }).unwrap();
-        assert_eq!((c.access_key_id.as_str(), c.session_token.as_deref()), ("AKIDWORK", Some("tok")));
-        // The setting beats AWS_PROFILE.
+        let AwsCreds::Keys { access_key_id, session_token, .. } = c else { panic!("expected Keys") };
+        assert_eq!((access_key_id.as_str(), session_token.as_deref()), ("AKIDWORK", Some("tok")));
         let c = resolve(&Lookup { env: &env, secret: &none, home: Some(home.path().into()), profile: "default" }).unwrap();
-        assert_eq!(c.access_key_id, "AKIDDEF");
+        let AwsCreds::Keys { access_key_id, .. } = c else { panic!("expected Keys") };
+        assert_eq!(access_key_id, "AKIDDEF");
     }
 
     #[test]
@@ -226,7 +241,8 @@ mod tests {
             "[profile alethiometer]\nregion = us-east-1\ncredential_process = echo '{\"Version\":1,\"AccessKeyId\":\"AKIDPROC\",\"SecretAccessKey\":\"s\",\"SessionToken\":\"t\"}'\n",
         )]);
         let c = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "alethiometer" }).unwrap();
-        assert_eq!((c.access_key_id.as_str(), c.session_token.as_deref()), ("AKIDPROC", Some("t")));
+        let AwsCreds::Keys { access_key_id, session_token, .. } = c else { panic!("expected Keys") };
+        assert_eq!((access_key_id.as_str(), session_token.as_deref()), ("AKIDPROC", Some("t")));
     }
 
     #[test]
@@ -240,11 +256,10 @@ mod tests {
     fn missing_everywhere_is_a_clear_error() {
         let home = home_with(&[]);
         let err = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
-        assert!(err.starts_with("No AWS credentials found for Bedrock. Store your IAM access key in Alethiometer's secret store"), "{err}");
+        assert!(err.starts_with("No AWS credentials found for Bedrock. Store a Bedrock API key"), "{err}");
         assert!(err.contains("Keychain on the Mac, secrets.json on Linux dev"), "{err}");
-        assert!(err.contains("as aws_access_key_id and aws_secret_access_key"), "{err}");
+        assert!(err.contains("aws_access_key_id and aws_secret_access_key"), "{err}");
         assert!(err.contains("profile 'default'"), "{err}");
-        // Only the id half stored is still "missing", and nothing stored is echoed.
         let sec = |k: &str| (k == "aws_access_key_id").then(|| "AKIDHALF".to_string());
         let err = resolve(&Lookup { env: &none, secret: &sec, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
         assert!(err.contains("No AWS credentials") && !err.contains("AKIDHALF"), "{err}");
@@ -252,8 +267,11 @@ mod tests {
 
     #[test]
     fn debug_never_shows_keys() {
-        let c = AwsCreds { access_key_id: "AKIDX".into(), secret_access_key: "SECRETX".into(), session_token: Some("TOKX".into()), source: "env".into() };
+        let c = AwsCreds::Keys { access_key_id: "AKIDX".into(), secret_access_key: "SECRETX".into(), session_token: Some("TOKX".into()), source: "env".into() };
         let d = format!("{c:?}");
         assert!(!d.contains("AKIDX") && !d.contains("SECRETX") && !d.contains("TOKX"), "{d}");
+        let c = AwsCreds::Bearer { token: "BEARERTOK".into(), source: "env".into() };
+        let d = format!("{c:?}");
+        assert!(!d.contains("BEARERTOK"), "{d}");
     }
 }

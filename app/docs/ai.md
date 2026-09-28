@@ -51,9 +51,19 @@ The check lives in `bedrock::check_route`. It runs in `ai::check` (so `ai.status
 
 In the AWS console, open **Amazon Bedrock → Model access** in your region (for example `us-east-1`) and enable **Claude Opus 5.5** and **OpenAI GPT-6 Luna**. Access is per account. Without it, Bedrock returns 403 and Alethiometer shows "model access not enabled in Bedrock console for <region>". Then check **Bedrock → Cross-region inference** and confirm both `us.anthropic.claude-opus-5-5` and `us.openai.gpt-6-luna` are listed there.
 
-### 2. Credentials: long-lived IAM access keys
+### 2. Credentials: a Bedrock API key (recommended) or a long-lived IAM access key
 
-For now the supported setup is an **IAM user with a long-lived access key**, stored in Alethiometer's secret store:
+The simplest setup is a **Bedrock API key**: a bearer token, no request signing needed. In the AWS console: **Bedrock → API keys → Long-term API keys → Generate**. Store it as:
+
+| Secret name | Value |
+|---|---|
+| `bedrock_api_key` | the API key |
+
+Or set it as `AWS_BEARER_TOKEN_BEDROCK` in the environment (matches AWS's own SDK examples). Either way, Alethiometer sends it as `Authorization: Bearer <token>` and never signs the request.
+
+A long-term key is backed by an IAM user AWS creates for you; change its permissions from **API keys → Long-term API keys → select key → Manage in IAM Console**, or attach the policy in step 3 directly to that user.
+
+**Alternative: an IAM user with a long-lived access key**, signed with SigV4, stored as:
 
 | Secret name | Value |
 |---|---|
@@ -62,20 +72,20 @@ For now the supported setup is an **IAM user with a long-lived access key**, sto
 
 The secret store is the **Keychain on the Mac** and `<data dir>/secrets.json` (mode 0600) on Linux dev. Note that the Keychain backend is still a TODO in `platform.rs`, so today the Mac uses the same file. Don't set `aws_session_token` for long-lived keys.
 
-If neither is found, every call fails with:
+If nothing is found, every call fails with a message naming everywhere Alethiometer looked (bearer env, bearer secret, key env, key secret, then the `~/.aws` profile chain). See `docs/ai.md`.
 
-> No AWS credentials found for Bedrock. Store your IAM access key in Alethiometer's secret store (Keychain on the Mac, secrets.json on Linux dev) as aws_access_key_id and aws_secret_access_key. (Also looked in AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY and AWS profile '…' in ~/.aws.) See docs/ai.md
-
-Keys are read for every call. They are never logged, never put in settings.json, and never shown in errors. Rotate the key in IAM from time to time and update both secrets.
+Keys are read for every call. They are never logged, never put in settings.json, and never shown in errors. Rotate them from time to time.
 
 **Other sources (kept, not the recommended path).** The resolver still walks a small credential chain, and the first match wins:
 
 | # | Where | What |
 |---|---|---|
-| 1 | environment | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` |
-| 2 | Alethiometer secrets | `aws_access_key_id`, `aws_secret_access_key`, optional `aws_session_token` |
-| 3 | `~/.aws/credentials` | static keys for the profile |
-| 4 | `~/.aws/config` | static keys, or `credential_process`, for the profile |
+| 1 | environment | `AWS_BEARER_TOKEN_BEDROCK` |
+| 2 | Alethiometer secrets | `bedrock_api_key` |
+| 3 | environment | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` |
+| 4 | Alethiometer secrets | `aws_access_key_id`, `aws_secret_access_key`, optional `aws_session_token` |
+| 5 | `~/.aws/credentials` | static keys for the profile |
+| 6 | `~/.aws/config` | static keys, or `credential_process`, for the profile |
 
 The profile is `ai.aws_profile`. If that's empty, Alethiometer uses `AWS_PROFILE`, then `default`. Environment variables win over the secret store, so a stray `AWS_ACCESS_KEY_ID` in a dev shell overrides your stored key. Apps started from the Dock don't see shell variables. SSO isn't read directly: a profile can use `credential_process = aws configure export-credentials --profile <sso-profile> --format process`, and an SSO profile without one gets an error saying so.
 
@@ -168,7 +178,7 @@ Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime
 |---|---|---|---|
 | Ask about a topic (assistant pane with a topic open) | `ai.ask {question, topic_id}` | large / Opus 5.5 | The system prompt. The question. The topic name. The topic's Obsidian note (first 6,000 chars). For confirmed, work-tagged items linked to the topic (open tasks first, then newest first): source, kind, time, status, due date, owner, title, summary, first 600 chars of the body, and the last 6 messages (300 chars each). |
 | Ask about today (Reflect, or the assistant pane with no topic) | `ai.ask {question}` or `scope: "today"` | large / Opus 5.5 | The system prompt. The question. Today's work calendar events (time, title, attendees, tentative). Work items that happened or got a message today, with the same fields as above. Life blocks aren't sent. |
-| Topic suggestions | `ai.suggest_topics {limit}` | small / GPT-6 Luna | The system prompt. For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body), and its stored messages (time, author, first 240 chars each: numbered when the item can be split, at most 30; otherwise the last 10). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
+| Topic suggestions | `ai.suggest_topics {limit}` | small / GPT-6 Luna | The system prompt (existing topic, a new 2-5 word one, or none). For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body), and its stored messages (time, author, first 240 chars each: numbered when the item can be split, at most 30; otherwise the last 10). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
 
 Context is capped at 24,000 characters per question, newest first. Items from `personal` sources are filtered out in SQL and checked again in code. Tests plant personal rows straight into the database to prove they never reach a request.
 
@@ -176,21 +186,16 @@ Context is capped at 24,000 characters per question, newest first. Items from `p
 
 ## Topic suggestions
 
-`ai.suggest_topics` looks at new Unsorted items (unseen, from work sources, with no topic link other than `wrong`). For each one it asks the small model for the best existing topic or none. It stores a `topic_links` row with state `suggested`, the model's `confidence`, and a short `reason`. Rules:
+`ai.suggest_topics` looks at new Unsorted items (unseen, from work sources, with no topic link other than `wrong`). For each one it asks the small model for the best existing topic, a new one, or none. It stores a `topic_links` row with state `suggested`, the model's `confidence`, and a short `reason`. Rules:
 
 - It never writes `confirmed`. It never overwrites an existing row, so a `wrong` verdict always stands.
 - Topics you marked wrong for an item are left out of that item's list and named as "NOT about". If the model picks one anyway, the pick is dropped.
 - Picks below confidence 0.4, or of an unknown topic ID, are dropped. The item stays in Unsorted.
-- **Splits by topic.** An item with 2 to 30 messages (a DM's unread run, new thread replies) isn't assumed to be one subject. The model may answer with groups (`{"groups": [{"messages": [1, 2], "topic_id": …, "confidence": …, "reason": …}]}`) instead of one topic. The item is split (`queries/split.rs`) only when at least two groups hold up: each needs confidence 0.7 (a one-message group 0.85), messages in weaker groups or left out stay with the message before them, groups with the same topic (or both without one) merge, and more than 4 groups or a bad or repeated message number means no split. The group holding the newest message stays on the item; each other group becomes a child item (`<external id>#<n>`) with its own `suggested` link, or none (then it sits in Unsorted). Children inherit the item's `wrong` topics. With fewer than two groups left, the item gets a normal whole-item suggestion. Only Unsorted items are considered; an item that already has a suggestion isn't re-asked, and a split child isn't split again. The result lists `split: [{item_id, children}]`.
+- **New topics.** Instead of an existing `topic_id`, the model may propose `new_topic`: a 2 to 5 word name, meant to be broad enough to hold future related items rather than describe this one event. Anything outside 2–5 words is dropped (treated as no suggestion). A proposal reuses an existing active topic of the same name (case-insensitive) rather than duplicating it; otherwise a new `topics` row is created (category `work`, no Obsidian note) and linked as `suggested` like any other pick, so you still confirm it yourself. Only available in the whole-item shape, not in split groups (below).
+- **Splits by topic.** An item with 2 to 30 messages (a DM's unread run, new thread replies) isn't assumed to be one subject. The model may answer with groups (`{"groups": [{"messages": [1, 2], "topic_id": …, "confidence": …, "reason": …}]}`) instead of one topic. New topics aren't supported in this shape (each group picks an existing topic or none) — an item needing a genuinely new topic and a split should get the whole-item shape on a later run once it's down to one message, or you can split it manually. The item is split (`queries/split.rs`) only when at least two groups hold up: each needs confidence 0.7 (a one-message group 0.85), messages in weaker groups or left out stay with the message before them, groups with the same topic (or both without one) merge, and more than 4 groups or a bad or repeated message number means no split. The group holding the newest message stays on the item; each other group becomes a child item (`<external id>#<n>`) with its own `suggested` link, or none (then it sits in Unsorted). Children inherit the item's `wrong` topics. With fewer than two groups left, the item gets a normal whole-item suggestion. Only Unsorted items are considered; an item that already has a suggestion isn't re-asked, and a split child isn't split again. The result lists `split: [{item_id, children}]`.
 - If the AI isn't configured, it returns `{status: "ai_off", message}` and does nothing. If a call fails (for example missing credentials or throttling), it stops and returns `{status: "failed", message}` with whatever it already stored. It never returns an error.
 
-**Scheduling (not wired yet).** Run it after a sync that brought new signal, on the sync thread and outside the DB lock:
-
-```rust
-// in sync::start's loop, after sync_source(&app, id) returns Ok(n) with n > 0
-let out = crate::ai::with_live(&app, |d| crate::ai::suggest::suggest_topics(&app, d, 10));
-if let Ok(o) = out { if o.status == "failed" { eprintln!("suggest: {:?}", o.message) } }
-```
+**Scheduling.** Runs after every sync (`sync::start`'s poll loop and the manual `sync.now` command), outside the DB lock, regardless of whether that sync brought new items — so it also catches a backlog, not just freshly-synced items. `sync::suggest_after_sync` still doesn't inspect `Outcome.status`, so a `"failed"` run (e.g. missing credentials) is only visible via `api::call`'s `ai.*` logging, not via `sync::suggest_after_sync` itself; see `ISSUES.md`.
 
 Each Unsorted item costs one small-model call of roughly 300 input and 30 output tokens, plus up to about 2,500 input tokens for an item with many messages (and ~150 output tokens for a split answer). Items that get a suggestion leave Unsorted, so each is asked about only once. Items that get no pick are asked again on later runs. If that repeats too often, track "last asked" (open question below).
 
@@ -203,7 +208,7 @@ Each Unsorted item costs one small-model call of roughly 300 input and 30 output
 | `ai.region '…' is not a US region` / `… is AWS GovCloud` | Set `ai.region` to a commercial `us-*` region. Nothing was sent. |
 | `Model '…' is not a US inference profile` | Use the `us.` ID the message names. Nothing was sent. |
 | `Model '…' is from a vendor Alethiometer doesn't know` | Only `us.anthropic.*` and `us.openai.*` are supported. |
-| `No AWS credentials found for Bedrock. Store your IAM access key …` | Add `aws_access_key_id` and `aws_secret_access_key` to the secret store. |
+| `No AWS credentials found for Bedrock. Store a Bedrock API key …` | Add `bedrock_api_key` (or an IAM access key pair) to the secret store. |
 | `Bedrock denied access … model access not enabled in Bedrock console for <region>` | 403. Enable model access, or fix the IAM policy (a foundation-model ARN in a routed region is the usual gap). |
 | `Bedrock rejected the AWS credentials` | 403: wrong, disabled or rotated key. |
 | `Bedrock needs an inference-profile id` | 400. The profile ID isn't known in that region; check Cross-region inference. |

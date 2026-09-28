@@ -8,12 +8,14 @@
   let { topic = null }: { topic?: TopicRef | null } = $props();
   let question = $state('');
   let log = $state<{ q: string; a?: string; err?: string }[]>([]);
+  let busy = $state(false);
 
   async function ask(e: SubmitEvent) {
     e.preventDefault();
     const q = question.trim();
-    if (!q) return;
+    if (!q || busy) return;
     question = '';
+    busy = true;
     const entry = { q } as { q: string; a?: string; err?: string };
     log.push(entry);
     try {
@@ -21,6 +23,8 @@
       log[log.length - 1] = { ...entry, a: r.answer };
     } catch (err) {
       log[log.length - 1] = { ...entry, err: String((err as Error).message ?? err) };
+    } finally {
+      busy = false;
     }
   }
 </script>
@@ -38,12 +42,11 @@
     <div class="log scroll">
       {#each log as m}
         <div class="q">{m.q}</div>
-        {#if m.a}<div class="a">{m.a}</div>{/if}
-        {#if m.err}<div class="err"><i class="ph ph-warning"></i>{m.err}</div>{/if}
+        {#if m.a}<div class="a">{m.a}</div>{:else if m.err}<div class="err"><i class="ph ph-warning"></i>{m.err}</div>{:else}<div class="a pending">Thinking…</div>{/if}
       {/each}
     </div>
     <form class="ask" onsubmit={ask}>
-      <input bind:value={question} placeholder="Ask, or @ to reference…" />
+      <input bind:value={question} placeholder="Ask, or @ to reference…" disabled={busy} />
     </form>
   </aside>
 {:else}
@@ -113,6 +116,10 @@
   }
   .a {
     color: var(--tx-2);
+  }
+  .a.pending {
+    opacity: 0.6;
+    font-style: italic;
   }
   .err {
     color: var(--orange);

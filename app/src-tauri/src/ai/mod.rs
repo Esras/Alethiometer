@@ -188,7 +188,7 @@ pub mod tests {
     use crate::sync::http::FakeHttp;
 
     pub fn fake_creds() -> anyhow::Result<creds::AwsCreds> {
-        Ok(creds::AwsCreds {
+        Ok(creds::AwsCreds::Keys {
             access_key_id: "AKIDEXAMPLE".into(),
             secret_access_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(),
             session_token: None,

@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
     match area {
-        "app" => app_call(app, name),
+        "app" => app_call(app, name, args),
         "daystrip" => queries::daystrip::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "incoming" => queries::incoming::call(app, name, args),
@@ -22,7 +22,13 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "sync" => crate::sync::call(app, name, args),
         "outbox" => crate::outbox::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
-        "ai" => crate::ai::call(app, name, args),
+        "ai" => {
+            let out = crate::ai::call(app, name, args);
+            if let Err(e) = &out {
+                eprintln!("ai.{name} failed: {e}");
+            }
+            out
+        }
         _ => Err(unknown(cmd)),
     }
 }
@@ -31,7 +37,7 @@ pub fn unknown(cmd: &str) -> crate::error::Error {
     msg(format!("unknown command '{cmd}'"))
 }
 
-fn app_call(app: &App, name: &str) -> Result<Value> {
+fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
             let incoming: i64 = app.db().query_row(
@@ -50,6 +56,23 @@ fn app_call(app: &App, name: &str) -> Result<Value> {
                 "platform": std::env::consts::OS,
             }))
         }
+        "open_url" => {
+            let url = args.get("url").and_then(Value::as_str).ok_or_else(|| msg("open_url needs a 'url'"))?;
+            app.platform.open_url(url).map_err(|e| msg(format!("couldn't open {url}: {e}")))?;
+            Ok(json!({ "ok": true }))
+        }
         _ => Err(unknown(name)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ai::context::tests::app;
+
+    #[test]
+    fn open_url_needs_a_url_arg() {
+        let (app, _dir) = app();
+        let e = crate::api::call(&app, "app.open_url", &serde_json::json!({})).unwrap_err().to_string();
+        assert!(e.contains("needs a 'url'"), "{e}");
     }
 }

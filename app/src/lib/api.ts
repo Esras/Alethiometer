@@ -20,6 +20,6 @@ export async function call<T>(cmd: string, args: Record<string, unknown> = {}): 
 }
 
 /** Open an item in its source app / browser. */
-export function openExternal(url: string) {
-  window.open(url, '_blank');
+export async function openExternal(url: string) {
+  await call('app.open_url', { url });
 }

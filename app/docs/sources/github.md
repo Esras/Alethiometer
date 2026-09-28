@@ -35,6 +35,7 @@ Kind `github`, tag `work`. Connector: `src-tauri/src/sync/connectors/github.rs`.
 | `gh_user` | no | Without a stored token: the `gh` account to take the token from, when `gh` is logged in to several (see below) |
 | `gh_path` | no | Full path to the `gh` binary, if it's somewhere unusual |
 | `read_only` | no (`false`) | `true`: Alethiometer only reads from GitHub. The outbox refuses every `github.*` write for this source, so replies and labels stay in GitHub |
+| `team_review_requests` | no (`true`) | `false`: skip PRs where you were only pulled in via a team review request (GitHub's `review-requested:@me` search matches team membership, not just an individual request) and nothing else (no mention/assignment/comment/authorship of yours, no individual request). Checked against each PR's `requested_reviewers` |
 
 With neither `repos` nor `orgs`, everything the token can see is included.
 

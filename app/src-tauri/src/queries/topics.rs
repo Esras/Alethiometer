@@ -65,11 +65,41 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "list" => list(app),
         "get" => get(app, arg_i64(args, "id")?),
+        "create" => create(app, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str)),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
         _ => Err(unknown(name)),
     }
+}
+
+fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::msg("Topic name can't be empty"));
+    }
+    let category = category.unwrap_or("work");
+    if !app.settings.categories.contains_key(category) {
+        return Err(crate::error::msg(format!("unknown category '{category}'")));
+    }
+    let conn = app.db();
+    if find_by_name(&conn, name)?.is_some() {
+        return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
+    }
+    Ok(json!({ "id": find_or_create(&conn, name, category)? }))
+}
+
+pub(crate) fn find_by_name(conn: &rusqlite::Connection, name: &str) -> Result<Option<i64>> {
+    use rusqlite::OptionalExtension;
+    Ok(conn.query_row("SELECT id FROM topics WHERE archived_at IS NULL AND name = ?1 COLLATE NOCASE", [name], |r| r.get(0)).optional()?)
+}
+
+pub(crate) fn find_or_create(conn: &rusqlite::Connection, name: &str, category: &str) -> Result<i64> {
+    if let Some(id) = find_by_name(conn, name)? {
+        return Ok(id);
+    }
+    conn.execute("INSERT INTO topics (name, category) VALUES (?1, ?2)", params![name, category])?;
+    Ok(conn.last_insert_rowid())
 }
 
 /// The topic's note edited in place (Topics pane, `e`). `base` is the text the
@@ -460,6 +490,22 @@ mod tests {
 
     fn topic_id(app: &App, name: &str) -> i64 {
         app.db().query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn create_dedupes_case_insensitively_and_rejects_a_bad_category() {
+        let (app, _dir) = app();
+        let r = crate::api::call(&app, "topics.create", &json!({ "name": "New thing" })).unwrap();
+        let id = r["id"].as_i64().unwrap();
+        assert_eq!(topic_id(&app, "New thing"), id);
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "new thing" })).unwrap_err().to_string();
+        assert!(e.contains("already exists"), "{e}");
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "Datadog renewal" })).unwrap_err().to_string();
+        assert!(e.contains("already exists"), "{e}");
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "X", "category": "nope" })).unwrap_err().to_string();
+        assert!(e.contains("unknown category"), "{e}");
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "  " })).unwrap_err().to_string();
+        assert!(e.contains("empty"), "{e}");
     }
 
     #[test]

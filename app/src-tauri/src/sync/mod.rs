@@ -402,8 +402,7 @@ pub fn start(app: std::sync::Arc<App>) {
             .name(format!("sync-{name}"))
             .spawn(move || loop {
                 match sync_source(&app, id) {
-                    Ok(n) if n > 0 => suggest_after_sync(&app),
-                    Ok(_) => {}
+                    Ok(_) => suggest_after_sync(&app),
                     Err(e) => eprintln!("sync {name}: {e}"),
                 }
                 std::thread::sleep(std::time::Duration::from_secs(poll));
@@ -444,9 +443,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
             let n = sync_source(app, id)?;
-            if n > 0 {
-                suggest_after_sync(app);
-            }
+            suggest_after_sync(app);
             Ok(serde_json::json!({ "new_signals": n }))
         }
         _ => Err(crate::api::unknown(name)),

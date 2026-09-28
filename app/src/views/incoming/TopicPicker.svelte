@@ -26,6 +26,21 @@
     return all.filter((t) => t.id !== exclude && (!needle || t.name.toLowerCase().includes(needle))).slice(0, 8);
   });
 
+  const canCreate = $derived(q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()));
+  let creating = $state(false);
+
+  async function create() {
+    const name = q.trim();
+    if (!name || creating) return;
+    creating = true;
+    try {
+      const r = await call<{ id: number }>('topics.create', { name });
+      onpick(r.id);
+    } finally {
+      creating = false;
+    }
+  }
+
   $effect(() => {
     void q;
     sel = 0;
@@ -44,6 +59,7 @@
     if (e.key === 'Enter') {
       const t = matches[sel];
       if (t) onpick(t.id);
+      else if (canCreate) void create();
       return true;
     }
   });
@@ -61,7 +77,13 @@
       <span class="ellipsis">{t.name}</span>
     </button>
   {:else}
-    <div class="none">No topic matches.</div>
+    {#if canCreate}
+      <button class="opt create" onmousedown={(e) => (e.preventDefault(), create())} disabled={creating}>
+        <i class="ph ph-plus"></i><span class="ellipsis">Create “{q.trim()}”</span>
+      </button>
+    {:else}
+      <div class="none">No topic matches.</div>
+    {/if}
   {/each}
 </div>
 
@@ -114,6 +136,14 @@
   .bar {
     align-self: stretch;
     border-radius: 0 2px 2px 0;
+  }
+  .opt.create {
+    grid-template-columns: 16px minmax(0, 1fr);
+    padding: 6px 10px;
+    color: var(--tx-label);
+  }
+  .opt.create:hover {
+    color: var(--tx-title);
   }
   .none {
     padding: 6px 10px;

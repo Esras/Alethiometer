@@ -1,0 +1,9 @@
+[devshell]
+packages = [
+	"nodejs_22",
+	"pkg-config",
+	"openssl",
+]
+
+[language.rust]
+enableDefaultToolchain = true

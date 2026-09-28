@@ -182,14 +182,19 @@ pub fn body(req: &Request) -> Value {
 
 /// One Converse call. Errors are user-facing and never contain credentials.
 pub fn converse(http: &dyn Http, creds: &AwsCreds, req: &Request, time: SystemTime) -> anyhow::Result<Reply> {
-    // `ai::check` runs this too; repeated here so no caller can skip it.
     check_route(req.region, req.model)?;
     let url = endpoint(req.region, req.model)?;
     let body = body(req).to_string();
     let base = [("content-type", "application/json")];
-    let signed = sign_headers(creds, req.region, "bedrock", "POST", &url, &base, body.as_bytes(), time)?;
-    let mut headers: Vec<(&str, &str)> = base.to_vec();
-    headers.extend(signed.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    let mut headers: Vec<(String, String)> = base.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    match creds {
+        AwsCreds::Bearer { token, .. } => headers.push(("authorization".to_string(), format!("Bearer {token}"))),
+        AwsCreds::Keys { .. } => {
+            let signed = sign_headers(creds, req.region, "bedrock", "POST", &url, &base, body.as_bytes(), time)?;
+            headers.extend(signed);
+        }
+    }
+    let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let resp = http
         .request("POST", &url, &headers, Some(&body))
         .map_err(|e| anyhow::anyhow!("Could not reach Bedrock in {}: {e}", req.region))?;
@@ -265,14 +270,10 @@ pub fn sign_headers(
 ) -> anyhow::Result<Vec<(String, String)>> {
     use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
     use aws_sigv4::sign::v4;
-    let identity = aws_credential_types::Credentials::new(
-        &creds.access_key_id,
-        &creds.secret_access_key,
-        creds.session_token.clone(),
-        None,
-        "alethiometer",
-    )
-    .into();
+    let AwsCreds::Keys { access_key_id, secret_access_key, session_token, .. } = creds else {
+        anyhow::bail!("sign_headers called with bearer credentials")
+    };
+    let identity = aws_credential_types::Credentials::new(access_key_id, secret_access_key, session_token.clone(), None, "alethiometer").into();
     let params = v4::SigningParams::builder()
         .identity(&identity)
         .region(region)
@@ -298,12 +299,7 @@ mod tests {
     const SECRET: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 
     fn creds(token: Option<&str>) -> AwsCreds {
-        AwsCreds {
-            access_key_id: "AKIDEXAMPLE".into(),
-            secret_access_key: SECRET.into(),
-            session_token: token.map(str::to_owned),
-            source: "test".into(),
-        }
+        AwsCreds::Keys { access_key_id: "AKIDEXAMPLE".into(), secret_access_key: SECRET.into(), session_token: token.map(str::to_owned), source: "test".into() }
     }
 
     fn at(rfc3339: &str) -> SystemTime {

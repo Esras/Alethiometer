@@ -18,8 +18,11 @@ mod desktop {
     use std::sync::Arc;
 
     #[tauri::command]
-    fn call(app: tauri::State<'_, Arc<App>>, cmd: String, args: Value) -> Result<Value, crate::error::Error> {
-        crate::api::call(&app, &cmd, &args)
+    async fn call(app: tauri::State<'_, Arc<App>>, cmd: String, args: Value) -> Result<Value, crate::error::Error> {
+        let app = app.inner().clone();
+        tauri::async_runtime::spawn_blocking(move || crate::api::call(&app, &cmd, &args))
+            .await
+            .map_err(|e| crate::error::msg(format!("internal: {e}")))?
     }
 
     pub fn run() {

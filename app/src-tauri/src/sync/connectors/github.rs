@@ -260,25 +260,29 @@ impl GitHub {
         });
         let scope = scope(ctx);
 
-        // (search result, review requested from me)
-        let mut found: Vec<(Value, bool)> = vec![];
+        // (search result, review requested from me, matched involves:@me for another reason)
+        let mut found: Vec<(Value, bool, bool)> = vec![];
         for (role, is, review) in
             [("involves:@me", "is:issue", false), ("involves:@me", "is:pr", false), ("review-requested:@me", "is:pr", true)]
         {
             let q = format!("updated:>={} {scope}{role} {is}", since.format("%Y-%m-%dT%H:%M:%SZ"));
             for it in search(&api, &q)? {
                 let url = it.get("html_url").cloned();
-                match found.iter_mut().find(|(f, _)| f.get("html_url") == url.as_ref()) {
-                    Some(f) => f.1 |= review,
-                    None => found.push((it, review)),
+                match found.iter_mut().find(|(f, _, _)| f.get("html_url") == url.as_ref()) {
+                    Some(f) => {
+                        f.1 |= review;
+                        f.2 |= !review;
+                    }
+                    None => found.push((it, review, !review)),
                 }
             }
         }
 
+        let team_reviews = ctx.source.config.get("team_review_requests").and_then(Value::as_bool).unwrap_or(true);
         let mut batch = Batch::default();
         let mut newest = cursor;
-        for (it, review) in &found {
-            let Some(item) = map_item(&api, it, *review, &me, cursor)? else { continue };
+        for (it, review, involved) in &found {
+            let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, cursor)? else { continue };
             if let Some(u) = it.get("updated_at").and_then(Value::as_str).and_then(parse_time) {
                 if newest.is_none_or(|n| u > n) {
                     newest = Some(u);
@@ -366,7 +370,7 @@ fn search(api: &Api, q: &str) -> anyhow::Result<Vec<Value>> {
     Ok(out)
 }
 
-fn map_item(api: &Api, it: &Value, review_hit: bool, me: &str, cursor: Option<DateTime<Utc>>) -> anyhow::Result<Option<ItemUpsert>> {
+fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, cursor: Option<DateTime<Utc>>) -> anyhow::Result<Option<ItemUpsert>> {
     let s = |p: &str| it.pointer(p).and_then(Value::as_str);
     let (Some(repo), Some(number)) = (
         s("/repository_url").and_then(|u| u.split("/repos/").nth(1)).map(str::to_owned),
@@ -385,7 +389,11 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, me: &str, cursor: Option<Da
     let (mut review, mut label) = (review_hit, String::new());
     if is_pr {
         let pr = api.get(&format!("/repos/{repo}/pulls/{number}"))?;
-        review |= pr.get("requested_reviewers").and_then(Value::as_array).into_iter().flatten().any(|r| r.get("login").and_then(Value::as_str) == Some(me));
+        let individually_requested = pr.get("requested_reviewers").and_then(Value::as_array).into_iter().flatten().any(|r| r.get("login").and_then(Value::as_str) == Some(me));
+        review |= individually_requested;
+        if review_hit && !involved && !individually_requested && !team_reviews {
+            return Ok(None);
+        }
         let merged = pr.get("merged").and_then(Value::as_bool).unwrap_or(false) || it.pointer("/pull_request/merged_at").is_some_and(|m| !m.is_null());
         let state = if merged {
             "Merged"
@@ -569,6 +577,35 @@ mod tests {
         let src = source(cursor, config);
         let b = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap();
         (b, http.requests().into_iter().map(|r| r.1).collect())
+    }
+
+    #[test]
+    fn team_only_review_requests_are_filtered_out_when_disabled() {
+        let http = FakeHttp::default();
+        http.on("GET", "/user", 200, USER);
+        http.on("GET", "/search/issues", 200, EMPTY);
+        http.on("GET", "review-requested%3A%40me%20is%3Apr&", 200, r#"{"total_count":1,"incomplete_results":false,"items":[{
+            "url": "https://api.github.com/repos/platform/ingest/issues/90",
+            "repository_url": "https://api.github.com/repos/platform/ingest",
+            "html_url": "https://github.com/platform/ingest/pull/90",
+            "number": 90, "title": "Team-requested PR", "user": {"login": "kimlee"}, "assignees": [],
+            "state": "open", "comments": 0, "created_at": "2026-09-20T10:00:00Z", "updated_at": "2026-09-27T07:40:00Z",
+            "closed_at": null, "draft": false, "pull_request": {"merged_at": null}
+        }]}"#);
+        http.on(
+            "GET",
+            "/repos/platform/ingest/pulls/90",
+            200,
+            r#"{"requested_reviewers": [], "requested_teams": [{"slug": "platform-team"}], "merged": false, "draft": false, "changed_files": 2}"#,
+        );
+        let src = source(None, json!({ "team_review_requests": false }));
+        let b = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap();
+        assert!(b.items.is_empty(), "{:#?}", b.items);
+
+        let src = source(None, json!({}));
+        let b = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap();
+        assert_eq!(b.items.len(), 1);
+        assert_eq!(b.items[0].owner.as_deref(), Some("you"));
     }
 
     #[test]
