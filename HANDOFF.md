@@ -6,7 +6,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 - Branch `claude/helm-ui-shell` holds all work. `main` holds only the design handoff.
 - App: `app/` (Tauri 2, Rust core in `app/src-tauri`, Svelte 5 UI in `app/src`).
-- Checks: `cd app/src-tauri && cargo test --no-default-features` (≈196 tests), `cargo build` (desktop; needs WebKitGTK dev libs on Linux), `cd app && npx svelte-check --tsconfig ./tsconfig.json`.
+- Checks: `cd app/src-tauri && cargo test --no-default-features` (≈215 tests), `cargo build` (desktop; needs WebKitGTK dev libs on Linux), `cd app && npx svelte-check --tsconfig ./tsconfig.json`.
 - Browser-mode dev: `ALETHIOMETER_FAKE_NOW=10:52 npm run devserver` + `npm run dev`; screenshots with `node scripts/shot.mjs out.png <tab> [keys…]`.
 - Nothing has been run against real accounts. Every connector is tested with recorded-shape fixtures only.
 
@@ -32,7 +32,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 ## In flight / next
 
-1. **Obsidian writes through the running app** (Local REST API plugin), in-place note editing in Topics, Reflect saves through the same path. A background agent was building this when the previous session ended; if it isn't merged on the branch, redo it from the notes in this file.
+1. **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). `e` edits a topic note in place; Reflect saves the same way. Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
 2. **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
 3. UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 4. macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
