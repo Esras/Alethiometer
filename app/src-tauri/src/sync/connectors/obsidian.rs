@@ -288,7 +288,7 @@ fn due_of(text: &str) -> Option<String> {
     let d = c.get(1).or_else(|| c.get(2))?.as_str();
     chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()?;
     // Date-only due; end of the working day, like the rest of the app.
-    Some(format!("{d}T17:00:00"))
+    Some(format!("{d}T{}", crate::queries::DAY_ONLY_DUE))
 }
 
 /// `x`, `X` and `-` (cancelled) close a task; other markers (` `, `/`, `>`…) leave it open.
@@ -806,11 +806,11 @@ mod tests {
             b.items.iter().filter(|i| i.kind == "task" && i.raw_json["path"] == "Topics/Datadog renewal.md").collect();
         assert_eq!(tasks.len(), 3);
         assert_eq!(tasks[0].title, "True-down at 12 months");
-        assert_eq!(tasks[0].due_at.as_deref(), Some("2026-10-01T17:00:00"));
+        assert_eq!(tasks[0].due_at.as_deref(), Some("2026-10-01T23:59:59"));
         assert_eq!(tasks[0].owner.as_deref(), Some("you"));
         assert_eq!(tasks[0].summary.as_deref(), Some("Datadog renewal"));
         assert_eq!((tasks[1].status.as_str(), tasks[1].due_at.as_deref()), ("done", None));
-        assert_eq!((tasks[2].title.as_str(), tasks[2].due_at.as_deref()), ("Cap on overage rate", Some("2026-10-03T17:00:00")));
+        assert_eq!((tasks[2].title.as_str(), tasks[2].due_at.as_deref()), ("Cap on overage rate", Some("2026-10-03T23:59:59")));
         let numbered = b.items.iter().find(|i| i.kind == "task" && i.title == "numbered task").unwrap();
         assert_eq!(numbered.status, "open");
         let idea = b.items.iter().find(|i| i.title == "Idea #1").unwrap();
@@ -843,7 +843,7 @@ mod tests {
         let b = note_items(Path::new("/v"), "n.md", "2026-09-28T10:00:00", "- [ ] Ship it 📅 2026-10-09\n- [ ] Ship it\n");
         assert_eq!(a[1].external_id, b[1].external_id);
         assert_eq!(a[2].external_id, format!("{}-2", a[1].external_id));
-        assert_eq!(b[1].due_at.as_deref(), Some("2026-10-09T17:00:00"));
+        assert_eq!(b[1].due_at.as_deref(), Some("2026-10-09T23:59:59"));
     }
 
     fn db_with_topic(v: &Vault) -> (Connection, Source) {

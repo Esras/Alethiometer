@@ -68,7 +68,7 @@ Each issue becomes an item:
 | `url` | `<base_url>/browse/KEY` |
 | `author` | reporter (Jira `accountId` handle) |
 | `owner` | `you` when assigned to you, else the assignee's name |
-| `due_at` | `due_field` when set on the issue (its date and time, in local time), else `duedate` (stored as 23:59 that day) |
+| `due_at` | `due_field` when set on the issue (its date and time, in local time), else `duedate` (stored as 23:59:59 that day, shown as a day) |
 | `status` | `done` when the status category is Done, else `open` |
 | `msg_count` | comment total |
 | `body` | description, as plain text |
@@ -77,14 +77,14 @@ Each issue becomes an item:
 ### Due dates
 
 Jira's built-in **Due date** (`duedate`) is a day with no time. Alethiometer stores it as
-23:59 on that day, so it sorts after that day's timed work. Views show a due date as a
-day only ("due Fri", "due Oct 2"), never with a time.
+23:59:59 on that day, so it sorts after that day's timed work, and shows it as a day only
+("due Fri", "due Oct 2"). A due date that has a real time shows it ("due today 15:00").
 
 If your team keeps the real deadline in a custom **Date Time Picker** field, set
 `due_field` to that field's id. Alethiometer then asks for that field too, and when an issue has
 it set, uses its date and time, converted from the value's offset to your local time.
 Issues where the field is empty fall back to `duedate`. A custom field that holds only a
-date (a *Date Picker*) is also pinned to 23:59.
+date (a *Date Picker*) is also pinned to 23:59:59 and shown as a day.
 
 To find the field id (`customfield_` + a number), use one of these:
 - Open `https://<site>.atlassian.net/rest/api/3/issue/<KEY>?expand=names` in a browser

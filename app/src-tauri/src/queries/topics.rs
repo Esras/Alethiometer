@@ -1,7 +1,7 @@
 //! Topics (7a): the root object. Upcoming, Open, Chronology, People, and the
 //! topic's Obsidian note.
 
-use super::{arg_i64, dur_label, parse_ts, when_label, Pill};
+use super::{arg_i64, due_is_day_only, due_label, dur_label, parse_ts, when_label, Pill};
 use crate::api::unknown;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
@@ -177,7 +177,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 source: r.source.clone(),
                 title: r.title.clone(),
                 due: r.due.as_deref().and_then(parse_ts).map(|d| Pill {
-                    label: format!("due {}", when_label(d, now, false)),
+                    label: format!("due {}", due_label(d, now)),
                     weight: "yellow".into(),
                 }),
                 owner: r.owner.clone(),
@@ -204,7 +204,9 @@ fn get(app: &App, id: i64) -> Result<Value> {
             (r.at.clone(), title, sub, right)
         };
         let t = parse_ts(&t_str).unwrap_or(now);
-        let has_time = is_event;
+        let is_due = is_task && r.status == "open";
+        // Events show their time; due dates show one only when they have it.
+        let has_time = is_event || (is_due && !due_is_day_only(t));
         let range = if r.kind == "thread" {
             r.ended.as_deref().and_then(parse_ts).map(|e| format!("{}–{}", at.format("%H:%M"), e.format("%H:%M")))
         } else {
@@ -213,7 +215,8 @@ fn get(app: &App, id: i64) -> Result<Value> {
         chron.push((t_str.clone(), Entry {
             item_id: r.id,
             when: when_label(t, now, has_time),
-            today: t.date() == now.date(),
+            // Only today's meetings are lit; due dates stay grey like everything else.
+            today: !is_due && t.date() == now.date(),
             source: r.source.clone(),
             title,
             range,

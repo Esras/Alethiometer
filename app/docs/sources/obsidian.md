@@ -45,7 +45,7 @@ The vault must only sync through BAA-covered storage (see the boundary rules). A
 | Item | From | Fields |
 |---|---|---|
 | `note` (one per file) | every `.md` file | title = file name, body = content (first 64 KB, for search), summary = first line that isn't a heading, link `obsidian://open?path=<absolute path>`, time = modified time |
-| `task` (one per checkbox) | `- [ ] …`, `* [ ]`, `1. [ ]` lines outside code blocks | title = task text without due/done markers, owner "you", due from `📅 2026-10-01` (Tasks plugin) or `due:: 2026-10-01` (Dataview), at 17:00. `[x]`, `[X]`, `[-]` = done; anything else is open |
+| `task` (one per checkbox) | `- [ ] …`, `* [ ]`, `1. [ ]` lines outside code blocks | title = task text without due/done markers, owner "you", due from `📅 2026-10-01` (Tasks plugin) or `due:: 2026-10-01` (Dataview), shown as a day (no time). `[x]`, `[X]`, `[-]` = done; anything else is open |
 
 A task's id is its note's path plus a hash of its words, so adding a due date keeps the same item. Editing the words makes a new item and closes the old one.
 

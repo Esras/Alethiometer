@@ -15,7 +15,7 @@
 //! (see `find_created`), so a retried outbox row doesn't file a duplicate.
 //!
 //! Due dates: Jira's built-in `duedate` is a date without a time; it's stored
-//! as 23:59 that day and every view shows due dates as a day only. A custom
+//! as 23:59:59 that day and views show it as a day only. A custom
 //! date-time field named by `config.due_field` wins when an issue has it set.
 
 use super::github::urlencode;
@@ -197,7 +197,7 @@ fn due_field<'c>(ctx: &'c Ctx) -> anyhow::Result<Option<&'c str>> {
 
 /// Local `due_at`. A date-time custom field (`2026-10-02T17:00:00.000+0200`)
 /// keeps its time, converted to local. A date alone (the built-in `duedate`, or
-/// a custom *date* field) is pinned to 23:59 that day: sorts after that day's
+/// a custom *date* field) is pinned to 23:59:59 that day (`DAY_ONLY_DUE`): sorts after that day's
 /// timed work, and views only ever show the day for a due date.
 fn due_at(f: &Value, due_field: Option<&str>) -> Option<String> {
     let as_due = |v: &Value| {
@@ -205,7 +205,7 @@ fn due_at(f: &Value, due_field: Option<&str>) -> Option<String> {
         if let Some(t) = to_local(s) {
             return Some(t);
         }
-        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| format!("{d}T23:59:00"))
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| format!("{d}T{}", crate::queries::DAY_ONLY_DUE))
     };
     due_field.and_then(|k| f.get(k)).and_then(as_due).or_else(|| f.get("duedate").and_then(as_due))
 }
@@ -608,7 +608,7 @@ mod tests {
     fn due_is_the_day_unless_a_custom_datetime_field_is_set() {
         // Built-in duedate: date only, pinned to the end of that day.
         let (b, reqs) = polled(None);
-        assert_eq!(b.items[0].due_at.as_deref(), Some("2026-10-02T23:59:00"));
+        assert_eq!(b.items[0].due_at.as_deref(), Some("2026-10-02T23:59:59"));
         assert!(!reqs[1].1.contains("customfield"));
 
         let mut src = source(None);
@@ -623,9 +623,9 @@ mod tests {
 
         // A custom field holding a plain date is still just a day.
         let f = json!({ "customfield_1": "2026-10-05", "duedate": "2026-10-09" });
-        assert_eq!(due_at(&f, Some("customfield_1")).as_deref(), Some("2026-10-05T23:59:00"));
+        assert_eq!(due_at(&f, Some("customfield_1")).as_deref(), Some("2026-10-05T23:59:59"));
         // Missing or unparseable custom value falls back to duedate.
-        assert_eq!(due_at(&f, Some("customfield_2")).as_deref(), Some("2026-10-09T23:59:00"));
+        assert_eq!(due_at(&f, Some("customfield_2")).as_deref(), Some("2026-10-09T23:59:59"));
         assert_eq!(due_at(&json!({ "customfield_1": "soon", "duedate": null }), Some("customfield_1")), None);
 
         let mut src = source(None);
@@ -656,7 +656,7 @@ mod tests {
         assert_eq!(it.owner.as_deref(), Some("you"));
         assert_eq!(it.url.as_deref(), Some("https://acme.atlassian.net/browse/PLAT-1170"));
         assert_eq!(it.author.as_ref().unwrap().handle, "acc-jordan");
-        assert_eq!(it.due_at.as_deref(), Some("2026-10-02T23:59:00"));
+        assert_eq!(it.due_at.as_deref(), Some("2026-10-02T23:59:59"));
         assert_eq!(it.status, "open");
         assert_eq!(it.msg_count, Some(2));
         assert_eq!(it.occurred_at, to_local("2026-09-26T14:05:00.000+0000").unwrap());

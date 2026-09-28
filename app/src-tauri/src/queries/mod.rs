@@ -56,6 +56,24 @@ pub fn when_label(t: NaiveDateTime, now: NaiveDateTime, with_time: bool) -> Stri
     }
 }
 
+/// Due dates with no time of day (Jira's `duedate`, Obsidian `📅`) are stored at
+/// 23:59:59 so they sort after that day's timed items; views show them as a day.
+pub const DAY_ONLY_DUE: &str = "23:59:59";
+
+pub fn due_is_day_only(t: NaiveDateTime) -> bool {
+    t.format("%H:%M:%S").to_string() == DAY_ONLY_DUE
+}
+
+/// "today", "Wed", "Oct 9", plus the time when the due date has one ("today 15:00").
+pub fn due_label(t: NaiveDateTime, now: NaiveDateTime) -> String {
+    let day = when_label(t, now, false).replace("Today", "today");
+    if due_is_day_only(t) {
+        day
+    } else {
+        format!("{day} {}", t.format("%H:%M"))
+    }
+}
+
 /// "45m", "1h30m".
 pub fn dur_label(mins: i64) -> String {
     match (mins / 60, mins % 60) {
@@ -83,4 +101,18 @@ pub fn topic_ref(conn: &rusqlite::Connection, id: i64) -> Result<TopicRef> {
     Ok(conn.query_row("SELECT id, name, category FROM topics WHERE id = ?1", [id], |r| {
         Ok(TopicRef { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? })
     })?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn due_labels_show_time_only_when_there_is_one() {
+        let now = parse_ts("2026-09-28T10:52:00").unwrap();
+        assert_eq!(due_label(parse_ts("2026-09-28T23:59:59").unwrap(), now), "today");
+        assert_eq!(due_label(parse_ts("2026-09-28T15:00:00").unwrap(), now), "today 15:00");
+        assert_eq!(due_label(parse_ts("2026-09-30T23:59:59").unwrap(), now), "Wed");
+        assert_eq!(due_label(parse_ts("2026-09-30T17:30:00").unwrap(), now), "Wed 17:30");
+    }
 }
