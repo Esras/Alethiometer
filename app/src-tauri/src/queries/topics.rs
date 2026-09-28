@@ -122,7 +122,7 @@ fn list(app: &App) -> Result<Value> {
     let mut stmt = conn.prepare(
         "SELECT t.id, t.name, t.category,
                 (SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id
-                  WHERE tl.topic_id = t.id AND tl.state = 'suggested' AND i.seen = 0)
+                  WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0)
            FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
     )?;
     let rows = stmt

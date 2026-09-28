@@ -29,7 +29,15 @@ mod desktop {
         let app = Arc::new(App::open(&App::default_data_dir()).expect("failed to open Alethiometer data directory"));
         crate::sync::start(app.clone());
         crate::outbox::start(app.clone());
+        let scale = app.settings.ui_scale.clamp(0.5, 3.0);
         tauri::Builder::default()
+            .setup(move |a| {
+                use tauri::Manager;
+                if let Some(w) = a.get_webview_window("main") {
+                    let _ = w.set_zoom(scale);
+                }
+                Ok(())
+            })
             .manage(app)
             .invoke_handler(tauri::generate_handler![call])
             .run(tauri::generate_context!())

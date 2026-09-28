@@ -4,13 +4,14 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 ## Where things are
 
-- Branch `claude/helm-ui-shell` holds all work. `main` holds only the design handoff.
+- **`main` now holds all work** (app + design handoff; design updates land there too). `claude/helm-ui-shell` is stale at `291d96f`. Work on `main` — an earlier session silently ran on an out-of-date checkout, check `git status`/`git log` first.
 - App: `app/` (Tauri 2, Rust core in `app/src-tauri`, Svelte 5 UI in `app/src`).
 - **Devshell**: `flake.nix`/`devshell.toml`/`.envrc` at repo root (numtide/devshell, same pattern as `k8s-iac`). `direnv allow` once, then `cargo`/`node`/`pkg-config`/`openssl` resolve inside the repo — nothing installed system-wide. `language.rust` module handles Darwin `*-sys` crate linking (frameworks, `xcbuild` toolchain on PATH).
-- Checks: `cd app/src-tauri && cargo test --no-default-features` (≈224 tests), `cargo build` (desktop; needs WebKitGTK dev libs on Linux, nothing extra on macOS), `cd app && npx svelte-check --tsconfig ./tsconfig.json`.
-- Browser-mode dev: `ALETHIOMETER_FAKE_NOW=10:52 npm run devserver` + `npm run dev`; screenshots with `node scripts/shot.mjs out.png <tab> [keys…]`. Desktop dev: `npx tauri dev` (real window, real IPC).
+- Checks: `cd app/src-tauri && cargo test --no-default-features` (≈230 tests), `cargo build` (desktop; needs WebKitGTK dev libs on Linux, nothing extra on macOS), `cd app && npx svelte-check --tsconfig ./tsconfig.json`.
+- Browser-mode dev: `ALETHIOMETER_FAKE_NOW=10:52 npm run devserver` + `npm run dev` (set `ALETHIOMETER_DATA_DIR` to a temp dir to keep off the real DB); screenshots with `node scripts/shot.mjs out.png <tab> [keys…]` — needs Playwright, which the devshell doesn't have yet. Desktop dev: `npx tauri dev` (real window, real IPC; its watcher rebuilds/relaunches on Rust changes, Vite hot-reloads Svelte).
+- Real data dir on the Mac: `~/Library/Application Support/dev.alethiometer.app` (`settings.json`, `secrets.json` mode 0600, `alethiometer.sqlite`). Keychain isn't wired, secrets live in the file.
 - **`ISSUES.md`** (repo root): running list of bugs/gaps found wiring up real accounts on the Mac, separate from this file's "in flight" list until triaged in here. Check it before starting more connector work — several are load-bearing (the Tauri command was synchronous and froze the whole window on any slow call; `suggest_topics` had two separate gating bugs that made it silently do nothing).
-- GitHub + Bedrock AI have now run against real accounts on the work Mac (see below). Every other connector is still tested with recorded-shape fixtures only.
+- **Live on the work Mac: GitHub, Bedrock AI, Google Calendar, Jira.** Slack, Obsidian, Proton ICS are still fixture-tested only.
 
 ## Built
 
@@ -20,6 +21,10 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - **Work AI: live and verified** on Bedrock Converse (`ai/`) — real `ai.ask` round-trip confirmed against real GitHub data. Small `us.openai.gpt-6-luna` (effort low), large `us.anthropic.claude-opus-5-5`; US regions and `us.` ids only. Ask pane, topic suggestions after every sync (not just ones with new items), AI split of mixed signals.
 - **Credentials: a Bedrock API key (bearer token) is the primary path**, not classic IAM access-key/secret — `AwsCreds::Bearer` alongside `AwsCreds::Keys` in `ai/creds.rs`; checks `AWS_BEARER_TOKEN_BEDROCK`/secret `bedrock_api_key` before the IAM-key chain. See `docs/ai.md` §2.
 - **Topics can now be created two ways**: manually (`topics.create`, wired into `TopicPicker.svelte`'s "Create '…'" when nothing matches, `t` in Incoming), or **proposed by the small model itself** during triage (`new_topic` in the suggestion reply shape: 2 to 5 words, broad, validated server-side, dedup'd case-insensitively against existing topics) — still lands as `suggested`, never auto-confirmed. Splits: AI triage splits multi-topic signals (new-topic proposals not supported in that shape yet, see `ISSUES.md`); manual split in Unsorted (select messages, `t`).
+- **Google Calendar: live.** OAuth client lives in an existing Internal tooling GCP project (not a personal one). First sync arrives read except invites still awaiting your answer. Recurring series: Incoming shows one row per series (next upcoming unseen instance; `sync::collapse_series`), confirm/move files every instance (`incoming::confirm_series`), new instances inherit the series' links and stay quiet (`sync::inherit_series`); topic timeline shows past instances plus only the next future one. Instances past `days_ahead` are dropped (incremental `syncToken` syncs return every instance of an edited series unbounded — had filled the DB to 2051). SyncStatus Connect waits for consent, then syncs.
+- **Jira: live** (`qventus.atlassian.net`, classic API token in `jira_api_token`). JQL = yours (assignee/reporter/watcher) OR created in DEVOPS/IT/ITP2 in the last 7 days; Notes → Jira creates in DEVOPS.
+- **Incoming**: dismiss (`d`/`u`, 13a; flips `seen`, no column, nothing written remotely; optimistic). **Updates on filed items**: unseen items with a `confirmed` link show under their topic with **Seen** instead of Confirm. Views reload when any source's `last_sync_at` changes (SyncStatus's 30 s poll); `suggest_after_sync` re-stamps it so AI suggestions show once the run finishes. Topics that get their first new signal join at the end (above Unsorted). Titles wrap when expanded, tooltips when truncated.
+- `ui_scale` in settings.json: native webview zoom (`set_zoom`), read at startup; user runs 1.15.
 - `app.open_url` command (backend `platform::Platform::open_url`, `open`/`xdg-open`) wired to `openExternal()` — "open in GitHub"/"open in Obsidian" links actually open something now; `window.open()` is a silent no-op in Tauri's WKWebView without a plugin this app doesn't have.
 
 ## User decisions (don't re-ask)
@@ -35,14 +40,22 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - Google sign-in: fine with re-auth every 7 days if needed; one Connect button saves the token.
 - **AI-proposed topics should be 2 to 5 words and fairly broad** (a recurring subject, not a one-off event's title).
 - **Dismissing a signal in Incoming without linking it to a topic**: built (design 13a, `d`/`u`).
+- Calendar: quiet first sync (only pending invites surface); one Incoming row per recurring series, but the topic timeline shows individual instances (past + next upcoming only). Horizon trickle of new instances is fine.
+- GCP: no personal projects (user blocks project creation org-wide); reuse existing Internal tooling project.
+- Jira: assigned/reported/watched issues are usually already filed — their updates should still be *seen* in Incoming, not re-triaged. New issues in DEVOPS/IT/ITP2 (projects the user owns, small volume) should surface. Missing creations while the app is closed >7 days is fine.
+- Updates to filed things (GitHub comments, Slack messages, Jira changes) must show in Incoming. **Slack's behavior here is being designed by the user in a separate Design thread — don't build it ahead of that.**
+- Background AI suggestions should appear promptly, and new topics shouldn't jump to the top of the list.
 - Name: Alethiometer.
 
 ## In flight / next
 
+0. **Next up: Topics index (12c)** — spec in `project/design_handoff_helm/README.md` §"Topics index (12c)", screenshot `12c-topics-index.png`. Also fix truncated text (tooltips/wrap) in Topics while there. Then 13b (AI failure panel) exists as a design too, and relates to the open `suggest_topics` swallowed-failure issue.
+0a. Open questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
+0b. Watch: UI lag/CPU. A dismiss-triggered `refresh()` loop (effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action. Any `$effect` that calls `refresh()` must `untrack` it.
 1. **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). `e` edits a topic note in place; Reflect saves the same way. Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
 2. **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
 3. UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 4. macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
-5. **First real-account run on the Mac: done for GitHub + Bedrock AI**, per `app/docs/sources/*.md` and `app/docs/ai.md`. Still to do: Google Calendar, Slack, Jira, Obsidian, Proton ICS.
+5. **First real-account run on the Mac: done for GitHub, Bedrock AI, Google Calendar, Jira.** Still to do: Slack (waiting on the user's design), Obsidian, Proton ICS.
 6. **Archive topics** (cleanup for AI-proposed topics that turn out wrong/duplicate/one-off) — wanted, deferred; see `ISSUES.md`. Dismiss is built.
 7. Check `ISSUES.md`'s "Open" section before starting more connector work; several found bugs there (the swallowed `suggest_topics` failures, the still-synchronous split-shape new-topic gap) are directly relevant to whatever's touched next.

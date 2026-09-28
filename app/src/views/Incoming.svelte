@@ -210,7 +210,7 @@
 
   $effect(() => {
     const id = selItem;
-    if (untrack(() => [...dismissed].some((d) => d !== id))) refresh();
+    if (untrack(() => [...dismissed].some((d) => d !== id))) untrack(refresh);
   });
 
   async function dismiss(s: Signal | null, on = true) {
@@ -263,6 +263,12 @@
     act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: typeof selKey === 'number' ? selKey : null });
   }
 
+  function info(s: Signal) {
+    const shown = new Set(s.meta.split(' · '));
+    const extra = (s.summary ?? '').split(' · ').filter((p) => p && !shown.has(p));
+    return [s.meta, ...extra].filter(Boolean).join(' · ');
+  }
+
   function open(s: Signal | null) {
     if (s?.url) openExternal(s.url);
   }
@@ -297,7 +303,7 @@
       {#if t.key === 'unsorted'}<div class="fade-rule"></div>{/if}
       <button class="topic" class:on={t.key === selKey} class:unsorted={t.key === 'unsorted'} onclick={() => selectTopic(t.key)}>
         <span class="bar" style:background={t.category ? catColor(t.category) : null}></span>
-        <span class="name ellipsis">
+        <span class="name ellipsis" title={t.name}>
           {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{/if}{t.name}
         </span>
         <span class="count tnum">{t.count}</span>
@@ -319,8 +325,8 @@
             <div class="sig" class:sel class:gone data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
               <div class="row">
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
-                  <span class="title ellipsis">{s.title}</span>
-                  <span class="meta tnum">{s.meta}</span>
+                  <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
+                  {#if !isOpen}<span class="meta tnum">{s.meta}</span>{/if}
                   {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
                 </button>
                 <div class="actions">
@@ -333,7 +339,7 @@
                     </button>
                     <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                   {:else}
-                    <button class="btn primary" onclick={() => confirm(s)}>Confirm</button>
+                    <button class="btn primary" onclick={() => confirm(s)}>{s.update ? 'Seen' : 'Confirm'}</button>
                     <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
                     <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                   {/if}
@@ -341,6 +347,7 @@
               </div>
               {#if isOpen}
                 <div class="ctx">
+                  <div class="info tnum">{info(s)}</div>
                   {#if s.messages.length}
                     {#each s.messages as m, mi (m.id)}
                       {@const canPick = splittable(s)}
@@ -355,12 +362,10 @@
                       >
                         {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                         <span class="t tnum">{m.time}</span>
-                        <span class="who ellipsis">{m.author}</span>
+                        <span class="who ellipsis" title={m.author}>{m.author}</span>
                         <span class="txt">{m.text}</span>
                       </div>
                     {/each}
-                  {:else if s.summary}
-                    <div class="summary">{s.summary}</div>
                   {/if}
                   {#if s.url}
                     <div class="links">
@@ -400,7 +405,7 @@
           <span>t move to topic</span><span>d dismiss</span><span>u undo</span>
         {:else}
           <span>j/k signal</span><span>↵ expand</span>
-          <span>c confirm</span><span>x wrong topic</span><span>d dismiss</span><span>u undo</span><span>t move to topic</span>
+          <span>{current?.update ? 'c seen' : 'c confirm'}</span><span>x wrong topic</span><span>d dismiss</span><span>u undo</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
@@ -631,9 +636,13 @@
     color: var(--tx-body);
     font-weight: 500;
   }
-  .txt,
-  .summary {
+  .txt {
     color: var(--tx-2);
+  }
+  .info {
+    padding-bottom: 6px;
+    font-size: 12px;
+    color: var(--tx-muted-2);
   }
   .links {
     display: flex;

@@ -14,6 +14,8 @@ export interface Signal {
   msg_count: number | null;
   /** `id` is what `incoming.split` takes. */
   messages: { id: number; time: string; author: string; text: string }[];
+  /** Already filed under this topic: new activity rather than a suggestion. */
+  update: boolean;
 }
 
 export interface TopicSignals extends TopicRef {

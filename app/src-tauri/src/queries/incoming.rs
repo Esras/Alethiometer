@@ -1,7 +1,7 @@
 //! Incoming (8a): the triage queue. Topics with new signals on the left,
 //! Unsorted last; the selected topic's new signals grouped by app on the right.
 //!
-//! - A new signal is an unseen item (`seen = 0`) with a `suggested` link.
+//! - A new signal is an unseen item (`seen = 0`) with a `suggested` link, or a `confirmed` one (an update).
 //! - Unsorted is every unseen item with no link other than `wrong`.
 //! - Confirm: link -> `confirmed`, item seen.
 //! - Wrong topic: link -> `wrong`. Nothing else: no reason asked, nothing
@@ -46,6 +46,8 @@ pub struct Signal {
     pub msg_count: Option<i64>,
     /// Stored context messages, oldest first.
     pub messages: Vec<Message>,
+    /// Already filed under this topic: new activity, not a suggestion.
+    pub update: bool,
     #[serde(skip)]
     at: String,
 }
@@ -117,6 +119,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         url: r.get(5)?,
         msg_count,
         messages: vec![],
+        update: false,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -172,16 +175,19 @@ fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
 /// Topics with new signals (most recent signal first), then Unsorted.
 pub fn queue(conn: &Connection, now: NaiveDateTime) -> Result<Queue> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {SIGNAL_COLS}, t.id, t.name, t.category
+        "SELECT {SIGNAL_COLS}, t.id, t.name, t.category, tl.state = 'confirmed'
            FROM topic_links tl
            JOIN items i ON i.id = tl.item_id
            JOIN sources s ON s.id = i.source_id
            JOIN topics t ON t.id = tl.topic_id
-          WHERE tl.state = 'suggested' AND i.seen = 0 AND t.archived_at IS NULL AND s.tag = 'work'
+          WHERE tl.state IN ('suggested', 'confirmed') AND i.seen = 0 AND t.archived_at IS NULL AND s.tag = 'work'
           ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
     ))?;
     let mut topics: Vec<TopicSignals> = vec![];
-    let rows = stmt.query_map([], |r| Ok((row_to_signal(r, now)?, r.get::<_, i64>(10)?, r.get::<_, String>(11)?, r.get::<_, String>(12)?)))?;
+    let rows = stmt.query_map([], |r| {
+        let sig = Signal { update: r.get(13)?, ..row_to_signal(r, now)? };
+        Ok((sig, r.get::<_, i64>(10)?, r.get::<_, String>(11)?, r.get::<_, String>(12)?))
+    })?;
     for row in rows {
         let (sig, id, name, category) = row?;
         match topics.iter_mut().find(|t| t.id == id) {
@@ -607,6 +613,21 @@ mod tests {
         assert_eq!(q2.topics[topic(&q2, "Acme outage").unwrap()].signals.len(), 2);
         assert!(!q2.unsorted.iter().any(|s| s.item_id == item));
         assert_eq!(unseen(&conn) as usize, shown(&q2));
+    }
+
+    #[test]
+    fn updates_on_filed_items_show_under_their_topic() {
+        let (conn, now, _d) = setup();
+        let (item, topic): (i64, i64) = conn
+            .query_row("SELECT item_id, topic_id FROM topic_links WHERE state = 'confirmed' LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
+        let q = queue(&conn, now).unwrap();
+        let t = q.topics.iter().find(|t| t.id == topic).unwrap();
+        assert!(t.signals.iter().any(|s| s.item_id == item && s.update));
+        assert_eq!(unseen(&conn) as usize, shown(&q));
+        confirm(&conn, item, topic).unwrap();
+        assert_eq!(unseen(&conn) as usize, shown(&queue(&conn, now).unwrap()));
     }
 
     #[test]

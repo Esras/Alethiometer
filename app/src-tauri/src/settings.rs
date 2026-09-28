@@ -78,6 +78,8 @@ pub struct Settings {
     pub ai: AiSettings,
     /// Development only: pretend the local time is this ("10:52"). Empty = real clock.
     pub fake_now: String,
+    /// Page zoom for the desktop window, e.g. 1.15.
+    pub ui_scale: f64,
     /// Real sources to sync. Empty while running on sample data.
     pub sources: Vec<SourceConfig>,
     /// Fill an empty database with the sample data from the design mocks.
@@ -111,6 +113,7 @@ impl Default for Settings {
                 large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
             },
             fake_now: String::new(),
+            ui_scale: 1.0,
             sources: vec![],
             demo_data: true,
         }
