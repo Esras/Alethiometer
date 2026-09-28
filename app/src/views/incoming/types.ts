@@ -12,7 +12,8 @@ export interface Signal {
   url: string | null;
   /** Messages behind the signal (e.g. all Slack messages since you last looked). */
   msg_count: number | null;
-  messages: { time: string; author: string; text: string }[];
+  /** `id` is what `incoming.split` takes. */
+  messages: { id: number; time: string; author: string; text: string }[];
 }
 
 export interface TopicSignals extends TopicRef {

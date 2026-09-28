@@ -94,8 +94,11 @@ pub struct ItemUpsert {
     pub status: String,
     pub msg_count: Option<i64>,
     pub owner: Option<String>,
+    /// Source fields. `msgs`, when it lists one id per message (in order), keys
+    /// the messages so a topic split can move some to a child item for good.
     pub raw_json: Value,
-    /// Expanded context (e.g. Slack messages since last look). Replaces stored ones.
+    /// Expanded context (e.g. Slack messages since last look). Replaces stored
+    /// ones, except messages a split child owns (see `queries::split`).
     pub messages: Vec<Message>,
     /// Set when this is a calendar event.
     pub event: Option<EventFields>,
@@ -200,6 +203,13 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             Some(h) => Some(person_for(&tx, &source.kind, h)?),
             None => None,
         };
+        // Split children own some messages of this item (queries::split): those
+        // are never re-added here, and a run made only of them isn't new signal.
+        let owned = crate::queries::split::owned_keys(&tx, source.id, &it.external_id)?;
+        let tuples: Vec<(&str, &str, &str)> = it.messages.iter().map(|m| (m.at.as_str(), m.author.as_str(), m.text.as_str())).collect();
+        let keys = crate::queries::split::keys(&it.raw_json, &tuples);
+        let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
+        let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
         let existing: Option<i64> = tx
             .query_row(
                 "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
@@ -229,10 +239,10 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                      WHERE id = ?1",
                     params![
                         id, it.kind, it.title, it.body, it.summary, it.url, author, it.occurred_at, it.ended_at,
-                        it.due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), it.bump
+                        it.due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump
                     ],
                 )?;
-                if it.bump {
+                if bump {
                     new_signal += 1;
                 }
                 id
@@ -240,11 +250,14 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
         };
         if !it.messages.is_empty() {
             tx.execute("DELETE FROM item_messages WHERE item_id = ?1", [item_id])?;
-            for m in &it.messages {
+            for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)) {
                 tx.execute(
-                    "INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, ?3, ?4)",
-                    params![item_id, m.at, m.author, m.text],
+                    "INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![item_id, m.at, m.author, m.text, key],
                 )?;
+            }
+            if skipped > 0 {
+                crate::queries::split::recount(&tx, item_id, skipped)?;
             }
         }
         if let Some(e) = &it.event {

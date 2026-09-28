@@ -8,9 +8,10 @@
 
   let {
     exclude = null,
+    placeholder = 'Move to topic…',
     onpick,
     onclose,
-  }: { exclude?: number | null; onpick: (topicId: number) => void; onclose: () => void } = $props();
+  }: { exclude?: number | null; placeholder?: string; onpick: (topicId: number) => void; onclose: () => void } = $props();
 
   let all = $state<TopicRow[]>([]);
   let q = $state('');
@@ -51,7 +52,7 @@
 <div class="picker">
   <div class="field">
     <i class="ph ph-arrow-bend-down-right"></i>
-    <input bind:this={input} bind:value={q} placeholder="Move to topic…" onblur={onclose} />
+    <input bind:this={input} bind:value={q} {placeholder} onblur={onclose} />
     <span class="hint">↵ pick · esc</span>
   </div>
   {#each matches as t, i}

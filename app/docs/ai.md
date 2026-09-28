@@ -128,7 +128,7 @@ Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime
 |---|---|---|---|
 | Ask about a topic (assistant pane with a topic open) | `ai.ask {question, topic_id}` | large | The question. The topic name. The topic's Obsidian note (first 6,000 chars). For confirmed, work-tagged items linked to the topic (open tasks first, then newest first): source, kind, time, status, due date, owner, title, summary, first 600 chars of the body, and the last 6 messages (300 chars each). |
 | Ask about today (Reflect, or the assistant pane with no topic) | `ai.ask {question}` or `scope: "today"` | large | The question. Today's work calendar events (time, title, attendees, tentative). Work items that happened or got a message today, with the same fields as above. Life blocks aren't sent. |
-| Topic suggestions | `ai.suggest_topics {limit}` | small | For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
+| Topic suggestions | `ai.suggest_topics {limit}` | small | For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body), and its stored messages (time, author, first 240 chars each: numbered when the item can be split, at most 30; otherwise the last 10). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
 
 Context is capped at 24,000 characters per question, newest first. Items from `personal` sources are filtered out in SQL and checked again in code. Tests plant personal rows straight into the database to prove they never reach a request.
 
@@ -141,6 +141,7 @@ Context is capped at 24,000 characters per question, newest first. Items from `p
 - It never writes `confirmed`. It never overwrites an existing row, so a `wrong` verdict always stands.
 - Topics you marked wrong for an item are left out of that item's list and named as "NOT about". If the model picks one anyway, the pick is dropped.
 - Picks below confidence 0.4, or of an unknown topic ID, are dropped. The item stays in Unsorted.
+- **Splits by topic.** An item with 2 to 30 messages (a DM's unread run, new thread replies) isn't assumed to be one subject. The model may answer with groups (`{"groups": [{"messages": [1, 2], "topic_id": …, "confidence": …, "reason": …}]}`) instead of one topic. The item is split (`queries/split.rs`) only when at least two groups hold up: each needs confidence 0.7 (a one-message group 0.85), messages in weaker groups or left out stay with the message before them, groups with the same topic (or both without one) merge, and more than 4 groups or a bad or repeated message number means no split. The group holding the newest message stays on the item; each other group becomes a child item (`<external id>#<n>`) with its own `suggested` link, or none (then it sits in Unsorted). Children inherit the item's `wrong` topics. With fewer than two groups left, the item gets a normal whole-item suggestion. Only Unsorted items are considered; an item that already has a suggestion isn't re-asked, and a split child isn't split again. The result lists `split: [{item_id, children}]`.
 - If the AI isn't configured, it returns `{status: "ai_off", message}` and does nothing. If a call fails (for example missing credentials or throttling), it stops and returns `{status: "failed", message}` with whatever it already stored. It never returns an error.
 
 **Scheduling (not wired yet).** Run it after a sync that brought new signal, on the sync thread and outside the DB lock:
@@ -151,7 +152,7 @@ let out = crate::ai::with_live(&app, |d| crate::ai::suggest::suggest_topics(&app
 if let Ok(o) = out { if o.status == "failed" { eprintln!("suggest: {:?}", o.message) } }
 ```
 
-Each Unsorted item costs one small-model call of roughly 300 input and 30 output tokens. Items that get a suggestion leave Unsorted, so each is asked about only once. Items that get no pick are asked again on later runs. If that repeats too often, track "last asked" (open question below).
+Each Unsorted item costs one small-model call of roughly 300 input and 30 output tokens, plus up to about 2,500 input tokens for an item with many messages (and ~150 output tokens for a split answer). Items that get a suggestion leave Unsorted, so each is asked about only once. Items that get no pick are asked again on later runs. If that repeats too often, track "last asked" (open question below).
 
 ## Errors you may see
 
