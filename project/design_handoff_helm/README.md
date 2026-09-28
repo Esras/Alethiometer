@@ -126,6 +126,25 @@ Reference: 12c (12b is the same layout before it was checked against the code; 1
 
 **Out of scope:** a periodic review of quiet topics (possibly in Reflect), and "Dismiss a signal" in Incoming, which is tracked separately in ISSUES.md.
 
+### Incoming · Dismiss (13a)
+Resolves the ISSUES.md item "No way to dismiss a signal in Incoming".
+- **Where:** a ghost **Dismiss** button (eye-slash icon, `--tx-muted-2`, no border) goes after Wrong topic in topic view, and after Move to topic in Unsorted. The key is `d`, listed in the hints row.
+- **Undo:** a dismissed row stays in place, struck through (`--tx-label`, faint hatch), with Dismissed and an **Undo** `.btn` (`u`) in place of the actions. It disappears on the next `refresh()` or when the selection moves away.
+- **What dismissing does:** it marks the item seen without a topic link and never writes to the source. The item comes back into Incoming only on new source activity (new messages, status change, edit), the same way `seen` resets today.
+- **Backend:** add `incoming.dismiss {item_id}` and `incoming.undismiss {item_id}`. Add `items.dismissed_at` if needed to tell a dismissal apart from a plain seen.
+- Dismissed items still count for Reflect and search. Dismissing only takes them out of triage.
+
+### AI failures in the sync chip (13b)
+Resolves the ISSUES.md item "`suggest_topics` failures are silently swallowed". It gives that failure a place to show.
+- **Chip:** when topic suggestions last failed, the dot turns `--orange` and the chip adds "· suggestions failed", the same pattern as failed writes.
+- **Popover:** a new **AI · Bedrock** section below Sources has one row, **Topic suggestions**, with a state and a Retry button (`.btn.primary`). The states:
+  - "not run yet"
+  - "ok · nothing new" or "ok · 3 suggested · 2m ago"
+  - "failed 3m ago" in orange, with an error line underneath and a line saying how many signals are waiting in Unsorted and when the last success was
+- **Backend:** `suggest_after_sync` persists the last `Outcome` (status, message, counts, at), and `sync.status` (or a new `ai.status_live`) returns it.
+- **Notification:** a macOS notification fires once when suggestions go from ok to failed, and again only after a recovery. Never on every poll.
+- Ask errors stay inline in the Ask pane and aren't listed here.
+
 ### Incoming (8a)
 - The left column lists topics with counts; **Unsorted** is last. The right pane shows the selected topic's new signals, grouped by app.
 - Per item: **Confirm** or **Wrong topic** (goes to Unsorted). The selected row gets a tinted fill plus an aqua right edge.
@@ -174,7 +193,7 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `7a-topics.png`, `7b-daystrip-empty.png`
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
-- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`
+- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`
 
 Caveats:
 - **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
@@ -183,6 +202,6 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
+- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b** (12a/12b superseded).
 - `design/DayStripGruv.dc.html`: the day strip component (props: `highlight`, `minutes`, `note`, `life`).
 - `design/support.js`, `design/_ds/…`: runtime needed to open the HTML references. Not for production.
