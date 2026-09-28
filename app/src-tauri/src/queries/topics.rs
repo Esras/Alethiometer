@@ -1,11 +1,12 @@
 //! Topics (7a): the root object. Upcoming, Open, Chronology, People, and the
 //! topic's Obsidian note.
 
-use super::{arg_i64, due_is_day_only, due_label, dur_label, parse_ts, when_label, Pill};
+use super::{arg_i64, arg_str, due_is_day_only, due_label, dur_label, parse_ts, when_label, Pill};
 use crate::api::unknown;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
+use crate::sync::connectors::obsidian::save;
 use rusqlite::params;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -64,8 +65,26 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "list" => list(app),
         "get" => get(app, arg_i64(args, "id")?),
+        "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
+        "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
+        "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
         _ => Err(unknown(name)),
     }
+}
+
+/// The topic's note edited in place (Topics pane, `e`). `base` is the text the
+/// editor loaded (`note.base` from `get`; null when the note didn't exist).
+/// Answers `{state: "saved"}`, `{state: "conflict", disk}` or
+/// `{state: "saving", outbox_id}` (follow it with `note_status`).
+fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value> {
+    let path: Option<String> = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [id], |r| r.get(0))?;
+    let path = path.ok_or_else(|| crate::error::msg("this topic has no Obsidian note"))?;
+    let rel = path.trim_start_matches("./").trim_start_matches('/');
+    Ok(match save::save_note(app, rel, base, text)? {
+        save::Saved::Written => json!({ "state": "saved" }),
+        save::Saved::Conflict(disk) => json!({ "state": "conflict", "disk": disk }),
+        save::Saved::Queued(outbox_id) => json!({ "state": "saving", "outbox_id": outbox_id }),
+    })
 }
 
 fn list(app: &App) -> Result<Value> {
@@ -252,10 +271,12 @@ fn get(app: &App, id: i64) -> Result<Value> {
         .query_map([id], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
+    // `base` is what an edit starts from and must still be there when it saves
+    // (null: no file yet). The file on disk is what Obsidian last saved.
     let note = path.as_ref().map(|p| {
         let abs = app.vault.join(p);
-        let text = std::fs::read_to_string(&abs).unwrap_or_default();
-        json!({ "path": p, "abs_path": abs.to_string_lossy(), "text": text })
+        let disk = std::fs::read_to_string(&abs).ok();
+        json!({ "path": p, "abs_path": abs.to_string_lossy(), "text": disk.clone().unwrap_or_default(), "base": disk })
     });
 
     Ok(json!({
@@ -453,6 +474,51 @@ mod tests {
         // Timeline is newest first.
         let whens: Vec<i64> = v["chronology"].as_array().unwrap().iter().map(|e| e["item_id"].as_i64().unwrap()).collect();
         assert!(!whens.is_empty());
+    }
+
+    #[test]
+    fn edit_the_note_in_place_sample_data() {
+        // No obsidian source: the note file is written directly, base-checked.
+        let (app, _dir) = app();
+        let id = topic_id(&app, "Datadog renewal");
+        let note = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["note"].clone();
+        let base = note["base"].as_str().unwrap().to_string();
+        assert_eq!(note["text"], note["base"]);
+        // Reordered sections, a line edited in the middle.
+        let mine = base.replace("## Links", "## Links (moved)").replace("Prefer 2y", "Prefer 1y");
+        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": mine, "base": base })).unwrap();
+        assert_eq!(r["state"], "saved");
+        let got = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
+        assert_eq!(got["note"]["text"], mine);
+        // A stale base (the note changed in Obsidian meanwhile) writes nothing.
+        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": "x", "base": base })).unwrap();
+        assert_eq!((r["state"].as_str(), r["disk"].as_str()), (Some("conflict"), Some(mine.as_str())));
+    }
+
+    #[test]
+    fn edit_the_note_in_place_through_obsidian() {
+        use crate::sync::http::FakeHttp;
+        let (app, _dir) = crate::sync::connectors::obsidian::save::tests::app_with_source("obsidian");
+        let id = topic_id(&app, "Datadog renewal");
+        let base = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["note"]["base"].as_str().unwrap().to_string();
+        let mine = format!("{base}- [ ] Ask about SSO seats\n");
+        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": mine, "base": base })).unwrap();
+        assert_eq!(r["state"], "saving");
+        let ob = r["outbox_id"].as_i64().unwrap();
+        let http = FakeHttp::default();
+        let note = json!({ "path": "Topics/Datadog renewal.md", "content": base, "stat": { "ctime": 1, "mtime": 2, "size": 3 },
+                           "tags": [], "frontmatter": {}, "links": [], "backlinks": [], "unresolvedLinks": [] });
+        http.on("GET", "/vault/Topics/Datadog%20renewal.md", 200, note.to_string());
+        http.on("PUT", "/vault/Topics/Datadog%20renewal.md", 204, "");
+        crate::outbox::process_one(&app, &http).unwrap();
+        let s = crate::api::call(&app, "topics.note_status", &json!({ "outbox_id": ob })).unwrap();
+        assert_eq!(s["state"], "saved");
+        let put = http.requests().into_iter().find(|r| r.0 == "PUT").unwrap();
+        assert_eq!(put.2.as_deref(), Some(mine.as_str()));
+        // Topics without a note can't be edited.
+        let q4 = topic_id(&app, "Q4 headcount");
+        app.db().execute("UPDATE topics SET obsidian_path = NULL WHERE id = ?1", [q4]).unwrap();
+        assert!(crate::api::call(&app, "topics.save_note", &json!({ "id": q4, "text": "x", "base": null })).is_err());
     }
 
     #[test]

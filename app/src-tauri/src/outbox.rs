@@ -105,7 +105,16 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
     Ok(true)
 }
 
-/// Background sender: drains pending rows, then waits.
+static WAKE: (std::sync::Mutex<bool>, std::sync::Condvar) = (std::sync::Mutex::new(false), std::sync::Condvar::new());
+
+/// Send what's pending now rather than at the next 5 s tick (e.g. an edit the
+/// user is watching save).
+pub fn wake() {
+    *WAKE.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    WAKE.1.notify_all();
+}
+
+/// Background sender: drains pending rows, then waits (5 s, or until `wake`).
 pub fn start(app: std::sync::Arc<App>) {
     std::thread::Builder::new()
         .name("outbox".into())
@@ -117,7 +126,12 @@ pub fn start(app: std::sync::Arc<App>) {
                     Ok(false) => {}
                     Err(e) => eprintln!("outbox: {e}"),
                 }
-                std::thread::sleep(std::time::Duration::from_secs(5));
+                let woken = WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+                let (mut woken, _) = WAKE
+                    .1
+                    .wait_timeout_while(woken, std::time::Duration::from_secs(5), |w| !*w)
+                    .unwrap_or_else(|e| e.into_inner());
+                *woken = false;
             }
         })
         .ok();
@@ -167,6 +181,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 Some(id) => app.db().execute("UPDATE outbox SET state = 'pending' WHERE id = ?1 AND state = 'failed'", [id])?,
                 None => app.db().execute("UPDATE outbox SET state = 'pending' WHERE state = 'failed'", [])?,
             };
+            wake();
             Ok(json!({ "retried": n }))
         }
         _ => Err(crate::api::unknown(name)),
