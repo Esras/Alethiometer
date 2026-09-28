@@ -210,6 +210,9 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     };
 
     let floor = crate::seed::fmt(window_start);
+    let ceiling = crate::seed::fmt(ctx.now + Duration::days(cfg.days_ahead));
+    let now = crate::seed::fmt(ctx.now);
+    let first = ctx.source.cursor.is_none();
     let mut batch = Batch::default();
     for ev in &events {
         let Some(id) = ev.get("id").and_then(Value::as_str) else { continue };
@@ -221,12 +224,13 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             continue;
         }
         let Some((item, seen)) = map_event(ev, &cfg, cur.seen.get(id)) else { continue };
-        if seen.end < floor {
+        if seen.end < floor || item.occurred_at > ceiling {
             continue;
         }
+        let quiet = first && !(seen.needs_action && seen.end >= now);
         cur.seen.insert(id.to_string(), seen);
         // Holds Alethiometer created itself (Reflect "< schedule") aren't news.
-        if ev.pointer("/extendedProperties/private/alethiometer_item_id").is_some() {
+        if quiet || ev.pointer("/extendedProperties/private/alethiometer_item_id").is_some() {
             batch.seen.push(id.to_string());
         }
         batch.items.push(item);
@@ -572,6 +576,12 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn first_sync_arrives_read_except_pending_invites() {
+        let (_, b) = first_sync();
+        assert_eq!(b.seen, ["7kq3c1standup_20260928T150000Z", "2b9vlunch0928", "6t1allhands", "9zz1offsite", "3dq8declined"]);
+    }
+
+    #[test]
     fn alethiometer_made_holds_arrive_already_seen() {
         let (_, first) = first_sync();
         let http = http();
@@ -601,6 +611,19 @@ pub(crate) mod tests {
         assert_eq!(c["sync_token"], "CKjC0YiEx70CEKjC0YiEx70CGAU=");
         assert!(c["seen"].get("2b9vlunch0928").is_none());
         assert!(c["seen"].get("8nw1newinvite").is_some());
+    }
+
+    #[test]
+    fn instances_past_the_horizon_are_skipped() {
+        let (_, first) = first_sync();
+        let http = http();
+        let mut page: Value = serde_json::from_str(fixture!("incremental.json")).unwrap();
+        page["items"][2]["start"] = json!({ "dateTime": "2051-12-22T10:00:00Z" });
+        page["items"][2]["end"] = json!({ "dateTime": "2051-12-22T10:30:00Z" });
+        http.on("GET", "syncToken=CPDAlvWDx70CEPDAlvWDx70CGAU%3D", 200, page.to_string());
+        let b = poll(&http, json!({}), first.cursor.clone());
+        assert!(!b.items.iter().any(|i| i.external_id == "8nw1newinvite"));
+        assert!(cursor_json(&b)["seen"].get("8nw1newinvite").is_none());
     }
 
     #[test]

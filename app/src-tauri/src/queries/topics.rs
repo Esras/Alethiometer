@@ -163,7 +163,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
     // All non-wrong links; suggestions still waiting in Incoming are left out.
     let mut stmt = conn.prepare(
         "SELECT i.id, s.kind, i.kind, i.title, i.summary, i.occurred_at, i.ended_at, i.due_at, i.status,
-                i.msg_count, i.owner
+                i.msg_count, i.owner, json_extract(i.raw_json, '$.recurringEventId')
            FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
           WHERE tl.topic_id = ?1 AND tl.state = 'confirmed'",
     )?;
@@ -179,6 +179,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
         status: String,
         msgs: Option<i64>,
         owner: Option<String>,
+        series: Option<String>,
     }
     let rows = stmt
         .query_map([id], |r| {
@@ -194,9 +195,19 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 status: r.get(8)?,
                 msgs: r.get(9)?,
                 owner: r.get(10)?,
+                series: r.get(11)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut next_of_series: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for r in rows.iter().filter(|r| r.at > now_s) {
+        if let Some(s) = &r.series {
+            let e = next_of_series.entry(s).or_insert(&r.at);
+            if r.at.as_str() < *e {
+                *e = &r.at;
+            }
+        }
+    }
 
     let mut upcoming = vec![];
     let mut open = vec![];
@@ -261,6 +272,9 @@ fn get(app: &App, id: i64) -> Result<Value> {
         } else {
             None
         };
+        if r.series.as_deref().is_some_and(|s| r.at > now_s && next_of_series.get(s) != Some(&r.at.as_str())) {
+            continue;
+        }
         chron.push((t_str.clone(), Entry {
             item_id: r.id,
             when: when_label(t, now, has_time),
@@ -565,6 +579,27 @@ mod tests {
         let q4 = topic_id(&app, "Q4 headcount");
         app.db().execute("UPDATE topics SET obsidian_path = NULL WHERE id = ?1", [q4]).unwrap();
         assert!(crate::api::call(&app, "topics.save_note", &json!({ "id": q4, "text": "x", "base": null })).is_err());
+    }
+
+    #[test]
+    fn only_the_next_future_instance_of_a_series_is_on_the_timeline() {
+        let (app, _dir) = app();
+        let id = topic_id(&app, "Datadog renewal");
+        let conn = app.db();
+        let src: i64 = conn.query_row("SELECT id FROM sources LIMIT 1", [], |r| r.get(0)).unwrap();
+        for (ext, at) in [("s0", "2000-01-01T09:00:00"), ("s1", "2099-01-01T09:00:00"), ("s2", "2099-01-08T09:00:00")] {
+            conn.execute(
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, seen, raw_json)
+                 VALUES (?1, ?2, 'event', 'Weekly sync', ?3, 1, '{\"recurringEventId\":\"S\"}')",
+                rusqlite::params![src, ext, at],
+            )
+            .unwrap();
+            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", rusqlite::params![conn.last_insert_rowid(), id]).unwrap();
+        }
+        drop(conn);
+        let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
+        let n = v["chronology"].as_array().unwrap().iter().filter(|e| e["title"] == "Weekly sync").count();
+        assert_eq!(n, 2);
     }
 
     #[test]

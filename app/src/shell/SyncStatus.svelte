@@ -18,8 +18,12 @@
     if (open && e.target instanceof Node && !wrap.contains(e.target)) open = false;
   }
 
+  let synced = '';
   async function load() {
     [sources, writes] = await Promise.all([call<Source[]>('sync.status'), call<Write[]>('outbox.list')]);
+    const key = sources.map((s) => `${s.id}:${s.last_sync_at}`).join();
+    if (synced && key !== synced) refresh();
+    synced = key;
   }
 
   $effect(() => {
@@ -56,7 +60,16 @@
   async function connect(id: number) {
     try {
       const r = await call<{ url: string; opened: boolean }>('gcal.auth_start', { source_id: id });
-      connectMsg = r.opened ? 'Approve in your browser, then press Sync.' : `Open this link to approve: ${r.url}`;
+      connectMsg = r.opened ? 'Approve in your browser…' : `Open this link to approve: ${r.url}`;
+      for (;;) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        const s = await call<{ state: string; error: string | null }>('gcal.auth_status', { source_id: id });
+        if (s.state === 'failed') throw new Error(s.error ?? 'consent failed');
+        if (s.state !== 'waiting') break;
+      }
+      connectMsg = 'Connected. Syncing…';
+      await syncNow(id);
+      connectMsg = null;
     } catch (e) {
       connectMsg = String((e as Error).message ?? e);
     }

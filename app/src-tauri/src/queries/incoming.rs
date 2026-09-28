@@ -218,7 +218,25 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
         params![item_id, topic_id],
     )?;
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
+    confirm_series(conn, item_id, topic_id)?;
     mark_read_remote(conn, item_id)?;
+    Ok(())
+}
+
+/// A recurring event is triaged once: every instance of its series gets the topic.
+fn confirm_series(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
+    let sibs = "SELECT o.id FROM items i JOIN items o ON o.source_id = i.source_id AND o.id != i.id
+          AND json_extract(o.raw_json, '$.recurringEventId') = json_extract(i.raw_json, '$.recurringEventId')
+          WHERE i.id = ?1";
+    conn.execute(
+        &format!(
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
+             SELECT id, ?2, 'confirmed', 1.0, 'same series' FROM ({sibs}) WHERE true
+             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = 'confirmed', updated_at = datetime('now')"
+        ),
+        params![item_id, topic_id],
+    )?;
+    conn.execute(&format!("UPDATE items SET seen = 1 WHERE id IN ({sibs})"), [item_id])?;
     Ok(())
 }
 
@@ -309,6 +327,7 @@ pub fn move_to(conn: &Connection, item_id: i64, topic_id: i64, from: Option<i64>
         params![item_id, topic_id],
     )?;
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
+    confirm_series(conn, item_id, topic_id)?;
     Ok(())
 }
 

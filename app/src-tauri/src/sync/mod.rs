@@ -198,6 +198,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
     }
     let tx = conn.unchecked_transaction()?;
     let mut new_signal = 0;
+    let mut touched = std::collections::BTreeSet::new();
     for it in &batch.items {
         let author = match &it.author {
             Some(h) => Some(person_for(&tx, &source.kind, h)?),
@@ -228,8 +229,15 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                         it.occurred_at, it.ended_at, it.due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string()
                     ],
                 )?;
-                new_signal += 1;
-                tx.last_insert_rowid()
+                let id = tx.last_insert_rowid();
+                let series = it.raw_json.get("recurringEventId").and_then(Value::as_str);
+                if let Some(k) = series {
+                    touched.insert(k.to_string());
+                }
+                if !series.map_or(Ok(false), |k| inherit_series(&tx, source.id, id, k))? {
+                    new_signal += 1;
+                }
+                id
             }
             Some(id) => {
                 tx.execute(
@@ -289,6 +297,9 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
     for ext in &batch.seen {
         tx.execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext])?;
     }
+    for k in &touched {
+        collapse_series(&tx, source.id, k)?;
+    }
     if let Some(busy) = &batch.busy {
         // Keep per-block buffer overrides across refreshes, keyed by start time.
         let mut buffers = std::collections::HashMap::new();
@@ -313,6 +324,55 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
     )?;
     tx.commit()?;
     Ok(new_signal)
+}
+
+const SERIES: &str = "json_extract(raw_json, '$.recurringEventId')";
+
+/// New instance of a known series: inherits its links; quiet unless the series is still in Incoming.
+fn inherit_series(tx: &Connection, source_id: i64, item_id: i64, key: &str) -> Result<bool> {
+    let sibs = format!("SELECT id FROM items WHERE source_id = ?1 AND id != ?2 AND {SERIES} = ?3");
+    let (n, unseen, confirmed): (i64, i64, i64) = tx.query_row(
+        &format!(
+            "SELECT count(*), coalesce(sum(seen = 0), 0),
+                    EXISTS (SELECT 1 FROM topic_links WHERE state = 'confirmed' AND item_id IN ({sibs}))
+               FROM items WHERE id IN ({sibs})"
+        ),
+        params![source_id, item_id, key],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    if n == 0 {
+        return Ok(false);
+    }
+    tx.execute(
+        &format!(
+            "INSERT OR IGNORE INTO topic_links (item_id, topic_id, state, confidence, reason)
+             SELECT ?2, topic_id, state, confidence, reason FROM topic_links WHERE item_id IN ({sibs})
+              ORDER BY state = 'confirmed' DESC"
+        ),
+        params![source_id, item_id, key],
+    )?;
+    let quiet = unseen == 0 || confirmed == 1;
+    if quiet {
+        tx.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
+    }
+    Ok(quiet)
+}
+
+/// One unseen instance per series: the next upcoming, else the latest past.
+fn collapse_series(tx: &Connection, source_id: i64, key: &str) -> Result<()> {
+    let now = "strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')";
+    tx.execute(
+        &format!(
+            "UPDATE items SET seen = 1 WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2 AND id != (
+               SELECT id FROM items WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2
+                ORDER BY coalesce(ended_at, occurred_at) < {now},
+                         CASE WHEN coalesce(ended_at, occurred_at) >= {now} THEN occurred_at END,
+                         occurred_at DESC
+                LIMIT 1)"
+        ),
+        params![source_id, key],
+    )?;
+    Ok(())
 }
 
 fn person_for(conn: &Connection, kind: &str, h: &Handle) -> Result<i64> {
@@ -546,6 +606,43 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].1, Some(25));
         assert!(rows.iter().all(|r| r.2.is_none()));
+    }
+
+    #[test]
+    fn recurring_series_shows_once_and_new_instances_inherit_its_topic() {
+        let (conn, src) = setup("work");
+        let inst = |id: &str, at: &str| ItemUpsert {
+            external_id: id.into(),
+            kind: "event".into(),
+            title: "Standup".into(),
+            occurred_at: at.into(),
+            status: "open".into(),
+            raw_json: serde_json::json!({ "recurringEventId": "S" }),
+            bump: true,
+            ..Default::default()
+        };
+        let b = Batch {
+            items: vec![inst("past", "2000-01-01T09:00:00"), inst("feb", "2099-02-01T09:00:00"), inst("jan", "2099-01-01T09:00:00")],
+            ..Default::default()
+        };
+        apply(&conn, &src, &b).unwrap();
+        let unseen = |c: &Connection| -> Vec<String> {
+            c.prepare("SELECT external_id FROM items WHERE seen = 0").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(unseen(&conn), ["jan"]);
+
+        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Standups', 'work')", []).unwrap();
+        let jan: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'jan'", [], |r| r.get(0)).unwrap();
+        crate::queries::incoming::move_to(&conn, jan, 1, None).unwrap();
+        let linked = |c: &Connection| -> i64 {
+            c.query_row("SELECT count(*) FROM topic_links WHERE topic_id = 1 AND state = 'confirmed'", [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(linked(&conn), 3);
+
+        let b = Batch { items: vec![inst("mar", "2099-03-01T09:00:00")], ..Default::default() };
+        assert_eq!(apply(&conn, &src, &b).unwrap(), 0);
+        assert!(unseen(&conn).is_empty());
+        assert_eq!(linked(&conn), 4);
     }
 
     #[test]
