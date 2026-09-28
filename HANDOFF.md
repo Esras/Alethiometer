@@ -34,7 +34,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - Obsidian: edits can be anywhere in a note; go through the running Obsidian app (Local REST API plugin); prompting that Obsidian isn't open is fine. The vault syncs with a self-hosted sync plugin.
 - Google sign-in: fine with re-auth every 7 days if needed; one Connect button saves the token.
 - **AI-proposed topics should be 2 to 5 words and fairly broad** (a recurring subject, not a one-off event's title).
-- **Dismissing a signal in Incoming without linking it to a topic is wanted, but deferred** — tracked in `ISSUES.md`, not built yet.
+- **Dismissing a signal in Incoming without linking it to a topic**: built (design 13a, `d`/`u`).
 - Name: Alethiometer.
 
 ## In flight / next
@@ -44,5 +44,5 @@ Read this first, then `app/README.md` and the docs it links. The original design
 3. UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 4. macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
 5. **First real-account run on the Mac: done for GitHub + Bedrock AI**, per `app/docs/sources/*.md` and `app/docs/ai.md`. Still to do: Google Calendar, Slack, Jira, Obsidian, Proton ICS.
-6. **Dismiss a signal** (Incoming) and **archive topics** (cleanup for AI-proposed topics that turn out wrong/duplicate/one-off) — both wanted, both deferred; see `ISSUES.md`.
+6. **Archive topics** (cleanup for AI-proposed topics that turn out wrong/duplicate/one-off) — wanted, deferred; see `ISSUES.md`. Dismiss is built.
 7. Check `ISSUES.md`'s "Open" section before starting more connector work; several found bugs there (the swallowed `suggest_topics` failures, the still-synchronous split-shape new-topic gap) are directly relevant to whatever's touched next.

@@ -4,10 +4,6 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
-### No way to dismiss a signal in Incoming
-
-`queries/incoming.rs` only exposes `confirm` (needs a `topic_id`), `wrong`, `move`, `split`. There's no "drop this, I don't care" action that clears an item from Incoming without linking it to a topic — confirmed absent while reviewing the key table (`c`/`x`/`t`/`o` in `app/README.md`) against the actual command list. User: fine deferring this, tracked here for later.
-
 ### Topics created by the AI will need an archive/cleanup story
 
 Added (see "Resolved" below): the small model can now propose brand-new topics, not just link into existing ones. Nothing prunes topics that turn out to be wrong, near-duplicates, or one-offs that seemed broad enough at the time but weren't — the `topics` table's `archived_at` column exists but nothing sets it anywhere in the codebase. User: "eventually" needed, not now. Revisit once topic volume from AI proposals is visible.
@@ -28,6 +24,10 @@ Repro: sync a source with items and no Bedrock credentials configured. Sync succ
 Fix direction: `suggest_after_sync` should inspect `Outcome.status` (per the doc's own snippet) and surface `"failed"` somewhere durable — at minimum `eprintln`, ideally something the UI/sync-status tab can show, since right now there's no way to distinguish "AI never ran," "AI ran and failed," and "AI ran and had nothing to suggest."
 
 ## Resolved
+
+### No way to dismiss a signal in Incoming
+
+Built per design 13a: a ghost **Dismiss** (`d`) after Wrong topic / Move to topic; the row stays struck through with **Undo** (`u`) until the next refresh or the selection moves. `incoming.dismiss`/`incoming.undismiss` just flip `seen` — no `dismissed_at` column, nothing written to the source; new source activity brings the item back the usual way. Dismissing a recurring series' row dismisses the series (its other instances are already seen, and new ones stay quiet).
 
 ### The whole window froze on any slow command — the Tauri command handler was synchronous
 

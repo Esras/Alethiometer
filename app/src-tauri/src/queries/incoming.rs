@@ -81,6 +81,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             move_to(&conn, arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"))?;
             Ok(json!({ "ok": true }))
         }
+        "dismiss" | "undismiss" => {
+            dismiss(&conn, arg_i64(args, "item_id")?, name == "dismiss")?;
+            Ok(json!({ "ok": true }))
+        }
         "split" => {
             let ids: Vec<i64> = args
                 .get("message_ids")
@@ -311,6 +315,14 @@ pub fn wrong(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     )?;
     if n == 0 {
         return Err(msg("no link to mark wrong"));
+    }
+    Ok(())
+}
+
+/// Out of triage without a topic and without touching the source; new activity brings it back.
+pub fn dismiss(conn: &Connection, item_id: i64, on: bool) -> Result<()> {
+    if conn.execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![item_id, on])? == 0 {
+        return Err(msg("no such item"));
     }
     Ok(())
 }
@@ -595,6 +607,19 @@ mod tests {
         assert_eq!(q2.topics[topic(&q2, "Acme outage").unwrap()].signals.len(), 2);
         assert!(!q2.unsorted.iter().any(|s| s.item_id == item));
         assert_eq!(unseen(&conn) as usize, shown(&q2));
+    }
+
+    #[test]
+    fn dismiss_leaves_triage_and_undo_brings_it_back() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let item = q.unsorted[0].item_id;
+        dismiss(&conn, item, true).unwrap();
+        let q2 = queue(&conn, now).unwrap();
+        assert!(!q2.unsorted.iter().any(|s| s.item_id == item));
+        assert_eq!(unseen(&conn) as usize, shown(&q2));
+        dismiss(&conn, item, false).unwrap();
+        assert!(queue(&conn, now).unwrap().unsorted.iter().any(|s| s.item_id == item));
     }
 
     #[test]

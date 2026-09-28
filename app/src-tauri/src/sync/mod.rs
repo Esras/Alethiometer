@@ -424,10 +424,12 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
 
 /// New signals may land in Unsorted; ask the small model for topic suggestions.
 /// A no-op (with a status) when AI isn't configured; never fails the sync.
-pub fn suggest_after_sync(app: &App) {
+/// Re-stamps `last_sync_at` afterwards so the UI reloads once the suggestions have landed.
+pub fn suggest_after_sync(app: &App, source_id: i64) {
     if let Err(e) = crate::ai::call(app, "suggest_topics", &serde_json::json!({ "limit": 10 })) {
         eprintln!("suggest_topics: {e}");
     }
+    let _ = app.db().execute("UPDATE sources SET last_sync_at = datetime('now', 'localtime') WHERE id = ?1", [source_id]);
 }
 
 /// Background polling for every enabled source. One thread per source.
@@ -462,7 +464,7 @@ pub fn start(app: std::sync::Arc<App>) {
             .name(format!("sync-{name}"))
             .spawn(move || loop {
                 match sync_source(&app, id) {
-                    Ok(_) => suggest_after_sync(&app),
+                    Ok(_) => suggest_after_sync(&app, id),
                     Err(e) => eprintln!("sync {name}: {e}"),
                 }
                 std::thread::sleep(std::time::Duration::from_secs(poll));
@@ -503,7 +505,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
             let n = sync_source(app, id)?;
-            suggest_after_sync(app);
+            suggest_after_sync(app, id);
             Ok(serde_json::json!({ "new_signals": n }))
         }
         _ => Err(crate::api::unknown(name)),

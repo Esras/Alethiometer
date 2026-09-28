@@ -7,6 +7,7 @@
   // (j/k move, space selects, t files the selected messages under a topic as a
   // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
   import { call, openExternal } from '../lib/api';
+  import { untrack } from 'svelte';
   import { catColor, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { sourceLabel } from '../lib/sources';
@@ -27,6 +28,7 @@
   let inMsgs = $state(false);
   let msgIdx = $state(0);
   let chosen = $state<Set<number>>(new Set());
+  let dismissed = $state<Set<number>>(new Set());
   let busy = false;
   let err = $state<string | null>(null);
 
@@ -77,14 +79,15 @@
     const topicIdx = Math.max(0, prevEntries.findIndex((e) => e.key === selKey));
     const itemIdx = Math.max(0, prevFlat.findIndex((s) => s.item_id === selItem));
     // Keep the topic order stable while triaging: topics already listed stay put,
-    // topics that just got their first new signal go on top.
+    // topics that just got their first new signal go at the end, above Unsorted.
     const known = queue?.topics.map((t) => t.id) ?? [];
     const pos = (id: number) => {
       const i = known.indexOf(id);
-      return i < 0 ? -1 : i;
+      return i < 0 ? known.length : i;
     };
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
+    dismissed = new Set();
     const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted'];
     if (selKey === null || !keys.includes(selKey)) {
       selKey = keys[Math.min(topicIdx, keys.length - 1)];
@@ -204,20 +207,45 @@
     }
   }
 
+  $effect(() => {
+    const id = selItem;
+    if (untrack(() => [...dismissed].some((d) => d !== id))) refresh();
+  });
+
+  async function dismiss(s: Signal | null, on = true) {
+    if (!s || dismissed.has(s.item_id) === on) return;
+    selItem = s.item_id;
+    picking = false;
+    const flip = (add: boolean) => {
+      const next = new Set(dismissed);
+      if (add) next.add(s.item_id);
+      else next.delete(s.item_id);
+      dismissed = next;
+    };
+    flip(on);
+    try {
+      await call(on ? 'incoming.dismiss' : 'incoming.undismiss', { item_id: s.item_id });
+      err = null;
+    } catch (e) {
+      flip(!on);
+      err = String((e as Error).message ?? e);
+    }
+  }
+
   function confirm(s: Signal | null) {
-    if (!s || typeof selKey !== 'number') return;
+    if (!s || typeof selKey !== 'number' || dismissed.has(s.item_id)) return;
     selItem = s.item_id;
     act('incoming.confirm', { item_id: s.item_id, topic_id: selKey });
   }
 
   function wrong(s: Signal | null) {
-    if (!s || typeof selKey !== 'number') return;
+    if (!s || typeof selKey !== 'number' || dismissed.has(s.item_id)) return;
     selItem = s.item_id;
     act('incoming.wrong', { item_id: s.item_id, topic_id: selKey });
   }
 
   function pick(s: Signal | null) {
-    if (!s) return;
+    if (!s || dismissed.has(s.item_id)) return;
     selItem = s.item_id;
     picking = true;
   }
@@ -255,6 +283,8 @@
     if (plain(e, 'c')) return confirm(current), true;
     if (plain(e, 'x')) return wrong(current), true;
     if (plain(e, 't')) return pick(current), true;
+    if (plain(e, 'd')) return dismiss(current), true;
+    if (plain(e, 'u')) return dismiss(current, false), true;
     if (plain(e, 'o')) return open(current), true;
   });
 </script>
@@ -284,7 +314,8 @@
           {#each g.signals as s (s.item_id)}
             {@const sel = s.item_id === selItem}
             {@const isOpen = expanded.has(s.item_id)}
-            <div class="sig" class:sel data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+            {@const gone = dismissed.has(s.item_id)}
+            <div class="sig" class:sel class:gone data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
               <div class="row">
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title ellipsis">{s.title}</span>
@@ -292,13 +323,18 @@
                   {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
                 </button>
                 <div class="actions">
-                  {#if unsorted}
+                  {#if gone}
+                    <span class="ghost"><i class="ph ph-eye-slash"></i>Dismissed</span>
+                    <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
+                  {:else if unsorted}
                     <button class="btn primary" onclick={() => pick(s)}>
                       {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
                     </button>
+                    <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                   {:else}
                     <button class="btn primary" onclick={() => confirm(s)}>Confirm</button>
                     <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
+                    <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                   {/if}
                 </div>
               </div>
@@ -360,10 +396,10 @@
           <span>↵ collapse</span><span>esc done</span>
         {:else if unsorted}
           <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span>
-          <span>t move to topic</span>
+          <span>t move to topic</span><span>d dismiss</span><span>u undo</span>
         {:else}
           <span>j/k signal</span><span>↵ expand</span>
-          <span>c confirm</span><span>x wrong topic</span><span>t move to topic</span>
+          <span>c confirm</span><span>x wrong topic</span><span>d dismiss</span><span>u undo</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
@@ -529,6 +565,27 @@
   .actions {
     display: flex;
     gap: 6px;
+    align-items: center;
+  }
+  .ghost {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 0 8px;
+    color: var(--tx-muted-2);
+  }
+  button.ghost:hover {
+    color: var(--tx-2);
+  }
+  .sig.gone {
+    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.025) 0 6px, transparent 6px 12px);
+  }
+  .gone .title,
+  .gone .meta {
+    color: var(--tx-label);
+  }
+  .gone .title {
+    text-decoration: line-through;
   }
   .ctx {
     padding: 4px 16px 12px 38px;
