@@ -67,6 +67,12 @@ impl UreqHttp {
             .new_agent();
         UreqHttp { agent }
     }
+
+    /// A caller-built agent (e.g. Obsidian's, which pins the plugin's certificate
+    /// and never goes through a proxy). It must keep `http_status_as_error(false)`.
+    pub fn from_agent(agent: ureq::Agent) -> Self {
+        UreqHttp { agent }
+    }
 }
 
 impl Http for UreqHttp {
@@ -97,6 +103,8 @@ impl Http for UreqHttp {
 pub struct FakeHttp {
     routes: std::sync::Mutex<Vec<(String, String, Response)>>,
     pub log: std::sync::Mutex<Vec<(String, String, Option<String>)>>,
+    /// Request headers, parallel to `log` (names as the caller wrote them).
+    pub header_log: std::sync::Mutex<Vec<Vec<(String, String)>>>,
 }
 
 impl FakeHttp {
@@ -117,8 +125,9 @@ impl FakeHttp {
 }
 
 impl Http for FakeHttp {
-    fn request(&self, method: &str, url: &str, _headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response> {
+    fn request(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response> {
         self.log.lock().unwrap().push((method.into(), url.into(), body.map(str::to_owned)));
+        self.header_log.lock().unwrap().push(headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
         let routes = self.routes.lock().unwrap();
         routes
             .iter()

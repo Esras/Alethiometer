@@ -9,9 +9,16 @@
 //! Notes are the user's own writing, so they're never Incoming signal; new
 //! tasks are (unless they sit in a topic's note, see `after_apply`).
 //!
-//! Writeback only appends a line or flips one checkbox, never rewrites a file
-//! from our own copy: read, check the target is still unambiguous, write a
-//! temp file and rename it over the original.
+//! Writeback (outbox ops) goes through the running Obsidian app by default
+//! (`rest`, the Local REST API plugin), so the user's editor buffers and sync
+//! plugin see ordinary Obsidian edits; `config.write_mode = "file"` writes the
+//! files directly instead. Either way every op reads the note first and never
+//! merges: `obsidian.replace` needs the note to still hold the text the edit
+//! started from, `append`/`toggle_task` need their target to be unambiguous.
+//! Reads (the poll) always scan the files.
+
+pub mod rest;
+pub mod save;
 
 use crate::error::Result;
 use crate::seed::fmt;
@@ -58,40 +65,141 @@ impl Connector for Obsidian {
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         let vault = vault_root(&ctx.source.config)?;
-        let path = payload.get("path").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("{op}: payload needs path"))?;
-        let str_arg = |k: &str| payload.get(k).and_then(Value::as_str);
-        match op {
-            "obsidian.append" => {
-                let text = str_arg("text").ok_or_else(|| anyhow::anyhow!("obsidian.append: payload needs text"))?;
-                let create = payload.get("create").and_then(Value::as_bool).unwrap_or(false);
-                let (abs, rel) = target(&vault, path, create)?;
-                let before = if abs.exists() { read_text(&abs)? } else { String::new() };
-                let (after, line) = append_text(&before, text, str_arg("under_heading"))?;
-                let mtime = match &after {
-                    Some(after) => write_checked(&abs, abs.exists().then_some(before.as_str()), after)?,
-                    None => std::fs::metadata(&abs)?.modified()?,
+        match write_mode(&ctx.source.config)? {
+            WriteMode::File => write_op(&Store::File, &vault, op, payload),
+            WriteMode::Obsidian => {
+                // Tests hand in a FakeHttp through ctx; the app needs the pinned client.
+                let own = if cfg!(test) { None } else { Some(rest::transport(&ctx.source.config, &vault)?) };
+                let url = match &own {
+                    Some((url, _)) => url.clone(),
+                    None => ctx.source.config.get("rest_url").and_then(Value::as_str).unwrap_or(rest::DEFAULT_URL).to_string(),
                 };
-                Ok(receipt(&rel, after.is_some(), line, mtime))
+                let http = own.as_ref().map_or(ctx.http, |(_, h)| h.as_ref());
+                let key = ctx.require_secret(rest::API_KEY)?;
+                write_op(&Store::Rest(rest::Rest::new(http, &url, &key)), &vault, op, payload)
             }
-            "obsidian.toggle_task" => {
-                let task = str_arg("task_text").ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs task_text"))?;
-                let done = payload.get("done").and_then(Value::as_bool).ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs done"))?;
-                let (abs, rel) = target(&vault, path, false)?;
-                let before = read_text(&abs)?;
-                let (after, line) = toggle_text(&before, task, done).map_err(|e| anyhow::anyhow!("{rel}: {e}"))?;
-                let mtime = match &after {
-                    Some(after) => write_checked(&abs, Some(&before), after)?,
-                    None => std::fs::metadata(&abs)?.modified()?,
-                };
-                Ok(receipt(&rel, after.is_some(), line, mtime))
-            }
-            _ => anyhow::bail!("Obsidian doesn't support '{op}'"),
         }
     }
 }
 
-fn receipt(rel: &str, changed: bool, line: usize, mtime: SystemTime) -> Value {
-    json!({ "path": rel, "changed": changed, "line": line, "mtime": fmt(local_naive(mtime)), "mtime_ms": ms(mtime) })
+/// How writes reach the vault. `obsidian` (default): through the running app's
+/// Local REST API plugin, so editors and the user's sync plugin stay in step.
+/// `file`: straight to disk (temp file + rename), for vaults without the plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteMode {
+    Obsidian,
+    File,
+}
+
+pub fn write_mode(config: &Value) -> anyhow::Result<WriteMode> {
+    match config.get("write_mode").and_then(Value::as_str) {
+        None | Some("obsidian") => Ok(WriteMode::Obsidian),
+        Some("file") => Ok(WriteMode::File),
+        Some(m) => anyhow::bail!("obsidian config.write_mode must be \"obsidian\" or \"file\", not \"{m}\""),
+    }
+}
+
+/// Where a write op reads the current text and writes the new one.
+enum Store<'a> {
+    File,
+    Rest(rest::Rest<'a>),
+}
+
+impl Store<'_> {
+    /// Current text; None when the note doesn't exist.
+    fn read(&self, abs: &Path, rel: &str) -> anyhow::Result<Option<String>> {
+        match self {
+            Store::File => abs.exists().then(|| read_text(abs)).transpose(),
+            Store::Rest(api) => Ok(api.read(rel)?.map(|n| n.content)),
+        }
+    }
+
+    /// Write `after`. `before` is what `read` just returned: the file store
+    /// re-checks it right before its rename; the REST store has no conditional
+    /// write, and its read happened a moment ago.
+    fn write(&self, abs: &Path, rel: &str, before: Option<&str>, after: &str) -> anyhow::Result<()> {
+        match self {
+            Store::File => write_checked(abs, before, after).map(|_| ()),
+            Store::Rest(api) => api.write(rel, after),
+        }
+    }
+
+    fn receipt(&self, abs: &Path, rel: &str, changed: bool, line: Option<usize>) -> Value {
+        let mut r = json!({ "path": rel, "changed": changed });
+        if let Some(line) = line {
+            r["line"] = json!(line);
+        }
+        match self {
+            Store::File => {
+                if let Ok(m) = std::fs::metadata(abs).and_then(|m| m.modified()) {
+                    r["mtime"] = json!(fmt(local_naive(m)));
+                    r["mtime_ms"] = json!(ms(m));
+                }
+                r["via"] = json!("file");
+            }
+            Store::Rest(_) => r["via"] = json!("obsidian"),
+        }
+        r
+    }
+}
+
+fn write_op(store: &Store, vault: &Path, op: &str, payload: &Value) -> anyhow::Result<Value> {
+    let path = payload.get("path").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("{op}: payload needs path"))?;
+    let str_arg = |k: &str| payload.get(k).and_then(Value::as_str);
+    match op {
+        // The whole note, as the user edited it in Alethiometer. `base` is the
+        // text they started from (null: the note didn't exist). Anything else in
+        // the note now is a conflict: nothing is written, nothing is merged.
+        "obsidian.replace" => {
+            let text = str_arg("text").ok_or_else(|| anyhow::anyhow!("obsidian.replace: payload needs text"))?;
+            let base = match payload.get("base") {
+                Some(Value::Null) => None,
+                Some(Value::String(s)) => Some(s.as_str()),
+                _ => anyhow::bail!("obsidian.replace: payload needs base (the text the edit started from, or null)"),
+            };
+            let (abs, rel) = target(vault, path, true)?;
+            if let (Store::File, Some(dir)) = (store, abs.parent()) {
+                // `target` checked that the nearest existing folder is inside the vault.
+                std::fs::create_dir_all(dir)?;
+            }
+            let now = store.read(&abs, &rel)?;
+            // Already there (a retry after the write landed): done.
+            if now.as_deref() == Some(text) {
+                return Ok(store.receipt(&abs, &rel, false, None));
+            }
+            if now.as_deref() != base {
+                anyhow::bail!("{} the note changed in Obsidian since you started editing; nothing was written", rest::CONFLICT);
+            }
+            store.write(&abs, &rel, now.as_deref(), text)?;
+            Ok(store.receipt(&abs, &rel, true, None))
+        }
+        "obsidian.append" => {
+            let text = str_arg("text").ok_or_else(|| anyhow::anyhow!("obsidian.append: payload needs text"))?;
+            let create = payload.get("create").and_then(Value::as_bool).unwrap_or(false);
+            let (abs, rel) = target(vault, path, create)?;
+            let before = store.read(&abs, &rel)?;
+            if before.is_none() && !create {
+                anyhow::bail!("note not found: {path}");
+            }
+            let (after, line) = append_text(before.as_deref().unwrap_or(""), text, str_arg("under_heading"))?;
+            if let Some(after) = &after {
+                store.write(&abs, &rel, before.as_deref(), after)?;
+            }
+            Ok(store.receipt(&abs, &rel, after.is_some(), Some(line)))
+        }
+        "obsidian.toggle_task" => {
+            let task = str_arg("task_text").ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs task_text"))?;
+            let done = payload.get("done").and_then(Value::as_bool).ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs done"))?;
+            let (abs, rel) = target(vault, path, false)?;
+            let before = store.read(&abs, &rel)?.ok_or_else(|| anyhow::anyhow!("note not found: {path}"))?;
+            let (after, line) = toggle_text(&before, task, done).map_err(|e| anyhow::anyhow!("{rel}: {e}"))?;
+            if let Some(after) = &after {
+                store.write(&abs, &rel, Some(&before), after)?;
+            }
+            Ok(store.receipt(&abs, &rel, after.is_some(), Some(line)))
+        }
+        _ => anyhow::bail!("Obsidian doesn't support '{op}'"),
+    }
 }
 
 /// Fill `config.vault` for obsidian sources that don't name one:
@@ -560,7 +668,9 @@ fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(Path
     let check = if abs.exists() {
         abs.canonicalize()?
     } else if allow_missing {
-        abs.parent().ok_or_else(|| anyhow::anyhow!("bad path: {path}"))?.canonicalize().map_err(|_| anyhow::anyhow!("folder not found for {path}"))?
+        // The nearest folder that exists decides (a symlink there could lead out).
+        let dir = abs.ancestors().skip(1).find(|a| a.exists()).ok_or_else(|| anyhow::anyhow!("bad path: {path}"))?;
+        dir.canonicalize()?
     } else {
         anyhow::bail!("note not found: {path}");
     };
@@ -745,7 +855,7 @@ mod tests {
             std::fs::read_to_string(self.dir.path().join(rel)).unwrap()
         }
         fn config(&self) -> Value {
-            json!({ "vault": self.dir.path().to_string_lossy() })
+            json!({ "vault": self.dir.path().to_string_lossy(), "write_mode": "file" })
         }
     }
 
@@ -766,6 +876,130 @@ mod tests {
         let secret = |_: &str| None;
         let ctx = Ctx { source: &s, http: &http, secret: &secret, now: chrono::Local::now().naive_local() };
         Obsidian.send(&ctx, op, &payload)
+    }
+
+    /// An op through the REST API (the default write mode), answered by `http`.
+    fn send_rest(v: &Vault, http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
+        let mut s = src(v, None);
+        s.config["write_mode"] = json!("obsidian");
+        let secret = |k: &str| (k == rest::API_KEY).then(|| "k3y".to_string());
+        let ctx = Ctx { source: &s, http, secret: &secret, now: chrono::Local::now().naive_local() };
+        Obsidian.send(&ctx, op, &payload)
+    }
+
+    fn note_json(content: &str) -> String {
+        json!({ "path": "x.md", "content": content, "frontmatter": {}, "tags": [], "links": [], "backlinks": [], "unresolvedLinks": [],
+                "stat": { "ctime": 1788001200000u64, "mtime": 1790592723000u64, "size": content.len() } })
+        .to_string()
+    }
+
+    fn puts(http: &FakeHttp) -> Vec<(String, Option<String>)> {
+        http.requests().into_iter().filter(|r| r.0 == "PUT").map(|r| (r.1, r.2)).collect()
+    }
+
+    #[test]
+    fn rest_replace_writes_through_obsidian() {
+        let v = Vault::new();
+        v.write("Topics/T.md", "old on disk\n");
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/Topics/T.md", 200, note_json("## A\n- one\n"));
+        http.on("PUT", "/vault/Topics/T.md", 204, "");
+        let r = send_rest(&v, &http, "obsidian.replace", json!({ "path": "Topics/T.md", "base": "## A\n- one\n", "text": "## B\n- moved\n\n## A\n- one\n" })).unwrap();
+        assert_eq!((r["changed"].as_bool(), r["via"].as_str()), (Some(true), Some("obsidian")));
+        assert_eq!(puts(&http), vec![("https://127.0.0.1:27124/vault/Topics/T.md".to_string(), Some("## B\n- moved\n\n## A\n- one\n".to_string()))]);
+        // The file on disk is Obsidian's business in this mode.
+        assert_eq!(v.read("Topics/T.md"), "old on disk\n");
+        let h = http.header_log.lock().unwrap();
+        assert!(h.iter().all(|h| h.contains(&("Authorization".to_string(), "Bearer k3y".to_string()))));
+    }
+
+    #[test]
+    fn rest_replace_conflict_writes_nothing() {
+        let v = Vault::new();
+        v.write("T.md", "x");
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/T.md", 200, note_json("## A\n- one\n- added in Obsidian\n"));
+        let e = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" })).unwrap_err().to_string();
+        assert!(e.starts_with(rest::CONFLICT), "{e}");
+        assert!(puts(&http).is_empty());
+        // A retry after the write already landed is a no-op, not a conflict.
+        http.on("GET", "/vault/T.md", 200, note_json("mine"));
+        let r = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" })).unwrap();
+        assert_eq!(r["changed"], false);
+        assert!(puts(&http).is_empty());
+        // base is required, so nothing is written unguarded.
+        assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "text": "y" })).is_err());
+    }
+
+    #[test]
+    fn rest_replace_creates_a_missing_note_only_from_a_null_base() {
+        let v = Vault::new();
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/Reflections/Daily/2026-09-28.md", 404, r#"{"errorCode":40400,"message":"Not Found"}"#);
+        http.on("PUT", "/vault/Reflections/Daily/2026-09-28.md", 204, "");
+        let p = "Reflections/Daily/2026-09-28.md";
+        assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": p, "base": "old", "text": "new" })).unwrap_err().to_string().starts_with("conflict"));
+        send_rest(&v, &http, "obsidian.replace", json!({ "path": p, "base": null, "text": "Calm.\n" })).unwrap();
+        assert_eq!(puts(&http).len(), 1);
+        // Paths are still checked against the vault.
+        assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": "../out.md", "base": null, "text": "x" })).is_err());
+    }
+
+    #[test]
+    fn rest_append_and_toggle_read_modify_put() {
+        let v = Vault::new();
+        v.write("Topics/T.md", "");
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/Topics/T.md", 200, note_json("# T\n\n## Asks\n- [ ] one\n\n## Links\n- x\n"));
+        http.on("PUT", "/vault/Topics/T.md", 204, "");
+        let r = send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" })).unwrap();
+        assert_eq!((r["changed"].as_bool(), r["line"].as_i64()), (Some(true), Some(5)));
+        assert_eq!(puts(&http)[0].1.as_deref(), Some("# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n"));
+        // Idempotent through the API too: the line is already there, no PUT.
+        http.on("GET", "/vault/Topics/T.md", 200, note_json("# T\n\n## Asks\n- [ ] one\n- [ ] two\n"));
+        let r = send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" })).unwrap();
+        assert_eq!(r["changed"], false);
+        assert_eq!(puts(&http).len(), 1);
+
+        let r = send_rest(&v, &http, "obsidian.toggle_task", json!({ "path": "Topics/T.md", "task_text": "one", "done": true })).unwrap();
+        assert_eq!(r["line"], 4);
+        assert_eq!(puts(&http)[1].1.as_deref(), Some("# T\n\n## Asks\n- [x] one\n- [ ] two\n"));
+        // A missing note is refused for toggles and for appends without create.
+        http.on("GET", "/vault/Topics/T.md", 404, "{}");
+        assert!(send_rest(&v, &http, "obsidian.toggle_task", json!({ "path": "Topics/T.md", "task_text": "one", "done": true })).is_err());
+        assert!(send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "x" })).is_err());
+    }
+
+    #[test]
+    fn rest_needs_the_api_key_and_explains_a_bad_one() {
+        let v = Vault::new();
+        v.write("T.md", "a\n");
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/T.md", 401, r#"{"errorCode":40101,"message":"Authorization required."}"#);
+        let e = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "a\n", "text": "b" })).unwrap_err().to_string();
+        assert!(e.contains("refused the API key"), "{e}");
+        let mut s = src(&v, None);
+        s.config["write_mode"] = json!("obsidian");
+        let none = |_: &str| None;
+        let ctx = Ctx { source: &s, http: &http, secret: &none, now: chrono::Local::now().naive_local() };
+        let e = Obsidian.send(&ctx, "obsidian.replace", &json!({ "path": "T.md", "base": "a\n", "text": "b" })).unwrap_err().to_string();
+        assert!(e.contains("obsidian.api_key"), "{e}");
+        assert!(write_mode(&json!({ "write_mode": "disk" })).is_err());
+    }
+
+    #[test]
+    fn file_mode_replace_checks_the_base() {
+        let v = Vault::new();
+        v.write("T.md", "theirs\n");
+        let e = send(&v, "obsidian.replace", json!({ "path": "T.md", "base": "mine before\n", "text": "mine\n" })).unwrap_err().to_string();
+        assert!(e.starts_with("conflict"), "{e}");
+        assert_eq!(v.read("T.md"), "theirs\n");
+        let r = send(&v, "obsidian.replace", json!({ "path": "T.md", "base": "theirs\n", "text": "mine\n" })).unwrap();
+        assert_eq!((r["changed"].as_bool(), r["via"].as_str()), (Some(true), Some("file")));
+        assert_eq!(v.read("T.md"), "mine\n");
+        // New notes in new folders.
+        send(&v, "obsidian.replace", json!({ "path": "Reflections/Daily/d.md", "base": null, "text": "x\n" })).unwrap();
+        assert_eq!(v.read("Reflections/Daily/d.md"), "x\n");
     }
 
     /// Move a file's mtime forward so the next scan sees a change even within the same ms.

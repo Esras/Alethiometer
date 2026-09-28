@@ -1,17 +1,18 @@
 <script lang="ts">
   // Topics (7a): the root object. Left column: Upcoming (only when something is
   // soon), Open, Chronology, People. Right: the topic's Obsidian note. The two
-  // columns scroll independently; z folds the left column.
-  import { call, openExternal } from '../lib/api';
+  // columns scroll independently; z folds the left column. e edits the note in
+  // place (topics/NotePane), o opens it in Obsidian.
+  import { call } from '../lib/api';
   import { catColor, category, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { SOURCES, sourceLabel } from '../lib/sources';
   import type { TopicDetail, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
-  import NoteText from '../lib/ui/NoteText.svelte';
   import Panel from '../lib/ui/Panel.svelte';
   import Pill from '../lib/ui/Pill.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
+  import NotePane from './topics/NotePane.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
@@ -57,16 +58,12 @@
     filter = keys[(keys.indexOf(filter) + 1) % keys.length];
   }
 
-  function editNote() {
-    if (d?.note) openExternal(`obsidian://open?path=${encodeURIComponent(d.note.abs_path)}`);
-  }
-
+  // e (edit here) and o (open in Obsidian) live in the note pane.
   useKeys((e) => {
     if (plain(e, 'z')) return fold(), true;
     if (plain(e, '[')) return step(-1), true;
     if (plain(e, ']')) return step(1), true;
     if (plain(e, 'f')) return cycleFilter(), true;
-    if (plain(e, 'e')) return editNote(), true;
   });
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
@@ -187,15 +184,7 @@
         </div>
 
         <div class="right-col">
-          <div class="note">
-            <div class="note-head">
-              <AppIcon source="obsidian" />{d.note?.path ?? 'No note linked'}
-              {#if d.note}<button class="edit" onclick={editNote}><kbd>e</kbd> edit</button>{/if}
-            </div>
-            <div class="note-body scroll">
-              {#if d.note?.text}<NoteText text={d.note.text} />{:else}<span class="empty">Empty note.</span>{/if}
-            </div>
-          </div>
+          {#key d.topic.id}<NotePane topicId={d.topic.id} note={d.note} />{/key}
         </div>
       </div>
     </div>
@@ -484,37 +473,5 @@
     display: flex;
     flex-direction: column;
     padding-bottom: 16px;
-  }
-  .note {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .note-head {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 7px 12px;
-    background: var(--bg-head);
-    font-size: 11.5px;
-    color: var(--tx-2);
-  }
-  .edit {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--tx-muted-2);
-  }
-  .note-body {
-    flex: 1;
-    min-height: 0;
-    padding: 12px 16px 16px;
-    font-size: 13px;
-    line-height: 1.75;
-    color: var(--tx-2);
   }
 </style>

@@ -63,7 +63,16 @@ export interface ReflectData {
   carry: CarryRow[];
 }
 
-export type SaveResult = { ok: true; base: string; summary: string | null } | { conflict: true; disk: string | null };
+export type SaveResult =
+  | { ok: true; base: string; summary: string | null }
+  | { conflict: true; disk: string | null }
+  // Going through Obsidian: an outbox row to follow with reflect.save_status.
+  | { queued: number; base: string };
+
+export type SaveStatus =
+  | { state: 'saving' | 'saved' }
+  | { state: 'conflict'; disk: string | null }
+  | { state: 'offline' | 'failed'; error: string };
 
 export interface NudgeData {
   show: boolean;

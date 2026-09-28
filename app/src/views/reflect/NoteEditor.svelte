@@ -4,13 +4,15 @@
   // `## ` headings (week and up, from a template) shows each heading in orange
   // with its own textarea; the file text is exactly the lines joined back.
   //
-  // Autosave is debounced. A save only lands if the file on disk still matches
-  // what we loaded; otherwise we show the conflict and write nothing.
+  // Autosave is debounced. A save only lands if the note still matches what we
+  // loaded; otherwise we show the conflict and write nothing. With a vault
+  // configured the save goes through Obsidian (an outbox row we follow);
+  // without one (sample data) it's a direct write, answered at once.
   import { onDestroy, tick, untrack } from 'svelte';
   import { call, openExternal } from '../../lib/api';
   import { refresh } from '../../lib/app.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
-  import type { ReflectNote, SaveResult, Scope } from './types';
+  import type { ReflectNote, SaveResult, SaveStatus, Scope } from './types';
 
   let {
     note,
@@ -52,7 +54,7 @@
   let sections = $state(untrack(() => parse(note.text)));
   let base = $state<string | null>(untrack(() => note.base));
   const structured = $derived(sections.some((s) => s.head !== null));
-  type Status = 'new' | 'saved' | 'unsaved' | 'saving' | 'conflict' | 'error';
+  type Status = 'new' | 'saved' | 'unsaved' | 'saving' | 'conflict' | 'offline' | 'error';
   let status = $state<Status>(untrack(() => (note.base === null ? 'new' : 'saved')));
   let disk = $state<string | null>(null);
   let error = $state('');
@@ -79,27 +81,76 @@
         return;
       }
       base = r.base;
-      if (serialize(sections) === text) {
-        status = 'saved';
-        refresh();
-      } else {
-        status = 'unsaved';
-        timer = setTimeout(flush, 700);
+      if ('queued' in r) {
+        // Written through Obsidian: follow the outbox row. Later saves continue from this text.
+        outboxId = r.queued;
+        clearTimeout(poller);
+        poller = setTimeout(poll, 400);
+        return;
       }
+      landed(text);
     } catch (e) {
       error = String((e as Error).message ?? e);
       status = 'error';
     }
   }
 
+  function landed(text: string) {
+    if (serialize(sections) === text) {
+      status = 'saved';
+      refresh();
+    } else {
+      status = 'unsaved';
+      timer = setTimeout(flush, 700);
+    }
+  }
+
+  // Obsidian-mode saves: an outbox row per burst of typing.
+  let outboxId: number | null = null;
+  let poller: ReturnType<typeof setTimeout> | undefined;
+  async function poll() {
+    if (outboxId === null) return;
+    let r: SaveStatus;
+    try {
+      r = await call<SaveStatus>('reflect.save_status', { outbox_id: outboxId });
+    } catch {
+      poller = setTimeout(poll, 2000);
+      return;
+    }
+    // Typing since: the pending flush carries on from here.
+    if (status === 'unsaved') return;
+    if (r.state === 'saving') {
+      poller = setTimeout(poll, 400);
+    } else if (r.state === 'saved') {
+      landed(base ?? '');
+    } else if (r.state === 'conflict') {
+      disk = r.disk;
+      status = 'conflict';
+    } else if (r.state === 'offline' || r.state === 'failed') {
+      // Obsidian closed (⌘R retries) or another failure: keep watching the row.
+      error = r.error;
+      if (status !== r.state) refresh();
+      status = r.state === 'offline' ? 'offline' : 'error';
+      poller = setTimeout(poll, 2000);
+    }
+  }
+
   function loadTheirs() {
     sections = parse(disk ?? '');
     base = disk;
+    outboxId = null;
     status = disk === null ? 'new' : 'saved';
     tick().then(sizeAll);
   }
 
-  function keepMine() {
+  async function keepMine() {
+    if (outboxId !== null) {
+      // The queued row is re-sent over what's there now, still guarded.
+      status = 'saving';
+      await call('reflect.keep_mine', { outbox_id: outboxId });
+      poller = setTimeout(poll, 400);
+      return;
+    }
     // The user chose this; still guarded by the new base.
     base = disk;
     status = 'unsaved';
@@ -107,6 +158,7 @@
   }
 
   onDestroy(() => {
+    clearTimeout(poller);
     if (status === 'unsaved') flush();
   });
 
@@ -141,6 +193,7 @@
       unsaved: 'editing',
       saving: 'saving…',
       conflict: 'not saved',
+      offline: "Obsidian isn't open · ⌘R retry",
       error: 'not saved',
     }[status],
   );
@@ -150,7 +203,7 @@
   <div class="head">
     <AppIcon source="obsidian" size={15} />
     <button class="path ellipsis" onclick={openInObsidian} title="Open in Obsidian (o)">{target.path}</button>
-    <span class="status nowrap" class:warn={status === 'conflict' || status === 'error'}>{statusLabel}</span>
+    <span class="status nowrap" class:warn={status === 'conflict' || status === 'offline' || status === 'error'}>{statusLabel}</span>
   </div>
   {#if status === 'conflict'}
     <div class="conflict">

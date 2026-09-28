@@ -25,6 +25,7 @@ use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
+use crate::sync::connectors::obsidian::save;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,8 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "get" => get(app, args),
         "save" => save(app, args),
+        "save_status" => save::status(app, arg_i64(args, "outbox_id")?),
+        "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
         "carry" => carry(app, arg_i64(args, "item_id")?, &arg_str(args, "period")?, &arg_str(args, "action")?),
         "nudge" => nudge(app),
         "nudge_answer" => nudge_answer(app, &arg_str(args, "answer")?),
@@ -557,6 +560,11 @@ fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result
 }
 
 fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: NaiveDate, lens: &str) -> Result<(Option<String>, bool)> {
+    // The note is the truth (edited in Obsidian, or saved through it); the
+    // stored summary is for when the file isn't there.
+    if let Ok(text) = std::fs::read_to_string(app.vault.join(note_path(scope, s, lens))) {
+        return Ok((summarize(&text), true));
+    }
     let row: Option<Option<String>> = conn
         .query_row(
             "SELECT summary FROM reflections WHERE scope = ?1 AND period_start = ?2 AND lens = ?3",
@@ -564,14 +572,10 @@ fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: NaiveDate, 
             |r| r.get(0),
         )
         .optional()?;
-    if let Some(summary) = row {
-        return Ok((summary, true));
-    }
-    // Written directly in Obsidian: derive from the file.
-    match std::fs::read_to_string(app.vault.join(note_path(scope, s, lens))) {
-        Ok(text) => Ok((summarize(&text), true)),
-        Err(_) => Ok((None, false)),
-    }
+    Ok(match row {
+        Some(summary) => (summary, true),
+        None => (None, false),
+    })
 }
 
 fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: NaiveDate, e: NaiveDate, lens: &str) -> Result<Vec<Child>> {
@@ -661,14 +665,16 @@ fn save(app: &App, args: &Value) -> Result<Value> {
     let text = arg_str(args, "text")?;
     let base = args.get("base").and_then(Value::as_str).map(str::to_owned);
     let path = note_path(scope, s, &lens);
-    let abs = app.vault.join(&path);
 
-    // Never clobber: write only if the file is still what the UI loaded.
-    let disk = std::fs::read_to_string(&abs).ok();
-    if disk != base {
-        return Ok(json!({ "conflict": true, "disk": disk }));
+    // Never clobber: write only if the note still holds what the UI loaded.
+    // With an obsidian source this queues `obsidian.replace` (written through
+    // Obsidian, checked there); the summary then comes from the file once it
+    // lands (`reflection_summary`). Without one (sample data) it's a direct write.
+    match save::save_note(app, &path, base.as_deref(), &text)? {
+        save::Saved::Conflict(disk) => return Ok(json!({ "conflict": true, "disk": disk })),
+        save::Saved::Queued(id) => return Ok(json!({ "queued": id, "base": text })),
+        save::Saved::Written => {}
     }
-    write_atomic(&abs, &text)?;
     let summary = summarize(&text);
     app.db().execute(
         "INSERT INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -676,16 +682,6 @@ fn save(app: &App, args: &Value) -> Result<Value> {
         params![scope.key(), s.format("%Y-%m-%d").to_string(), lens, path, summary],
     )?;
     Ok(json!({ "ok": true, "base": text, "summary": summary }))
-}
-
-fn write_atomic(abs: &Path, text: &str) -> Result<()> {
-    if let Some(dir) = abs.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = abs.with_extension("md.alethiometer-tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, abs)?;
-    Ok(())
 }
 
 // ---------------------------------------------------------------- carry
@@ -1078,6 +1074,34 @@ mod tests {
         // With the current base it lands and the summary rolls up.
         let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "Calm.\nmore", "base": "Edited in Obsidian\n" })).unwrap();
         assert_eq!(r["summary"], "Calm.");
+    }
+
+    #[test]
+    fn save_goes_through_obsidian_when_a_source_is_configured() {
+        use crate::sync::http::FakeHttp;
+        let (app, _d) = crate::sync::connectors::obsidian::save::tests::app_with_source("obsidian");
+        let t = today(&app);
+        let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "work" })).unwrap();
+        let base = got["note"]["base"].clone();
+        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "Calm day.\n", "base": base })).unwrap();
+        let id = r["queued"].as_i64().unwrap();
+        assert_eq!(r["base"], "Calm day.\n");
+        // Nothing on disk yet: that's Obsidian's job.
+        let path = note_path(Scope::Day, parse_date(&t).unwrap(), "work");
+        assert_ne!(std::fs::read_to_string(app.vault.join(&path)).ok().as_deref(), Some("Calm day.\n"));
+
+        let http = FakeHttp::default();
+        match base.as_str() {
+            Some(b) => http.on("GET", "/vault/Reflections/", 200, json!({ "content": b, "stat": { "mtime": 1 } }).to_string()),
+            None => http.on("GET", "/vault/Reflections/", 404, "{}"),
+        };
+        http.on("PUT", "/vault/Reflections/", 204, "");
+        crate::outbox::process_one(&app, &http).unwrap();
+        assert_eq!(call(&app, "save_status", &json!({ "outbox_id": id })).unwrap()["state"], "saved");
+        // Obsidian writes the file; the rollup summary then comes from it.
+        std::fs::write(app.vault.join(&path), "Calm day.\n").unwrap();
+        let (summary, has) = reflection_summary(&app, &app.db(), Scope::Day, parse_date(&t).unwrap(), "work").unwrap();
+        assert_eq!((summary.as_deref(), has), (Some("Calm day."), true));
     }
 
     #[test]

@@ -1,0 +1,18 @@
+{
+  "tags": [
+    "vendor"
+  ],
+  "frontmatter": {},
+  "stat": {
+    "ctime": 1788001200000,
+    "mtime": 1790592723000,
+    "size": 318
+  },
+  "path": "Topics/Datadog renewal.md",
+  "content": "## Where we are\n- Offer: 12% off for 3y (Sep 24 call)\n- Logs are 18% over commit, so fix retention first\n\n## Asks for Thu\n- [ ] True-down at 12 months\n- [ ] 30d log retention included\n- [ ] Cap on overage rate\n",
+  "links": [
+    "Accounts/Datadog.md"
+  ],
+  "backlinks": [],
+  "unresolvedLinks": []
+}
