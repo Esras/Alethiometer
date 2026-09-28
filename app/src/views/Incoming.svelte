@@ -3,6 +3,9 @@
   // Right: one panel with the selected topic's new signals, grouped by app.
   // Confirm links the signal for good; Wrong topic only records that the link was
   // wrong (the item drops into Unsorted, nothing is deleted, no reason asked).
+  // Unsorted only: ↵ on a signal with several messages enters its message list
+  // (j/k move, space selects, t files the selected messages under a topic as a
+  // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
   import { call, openExternal } from '../lib/api';
   import { catColor, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
@@ -20,6 +23,10 @@
   let selItem = $state<number | null>(null);
   let expanded = $state<Set<number>>(new Set());
   let picking = $state(false);
+  // Message mode (Unsorted): focus is inside the current signal's messages.
+  let inMsgs = $state(false);
+  let msgIdx = $state(0);
+  let chosen = $state<Set<number>>(new Set());
   let busy = false;
   let err = $state<string | null>(null);
 
@@ -55,6 +62,7 @@
   const current = $derived(flat.find((s) => s.item_id === selItem) ?? null);
   const unsorted = $derived(selKey === 'unsorted');
   const topicName = $derived(entries.find((e) => e.key === selKey)?.name ?? '');
+  const splittable = (s: Signal | null) => unsorted && !!s && s.messages.length > 1;
 
   $effect(() => {
     void ui.rev;
@@ -86,6 +94,56 @@
     if (!now.some((s) => s.item_id === selItem)) {
       selItem = now[Math.min(itemIdx, now.length - 1)]?.item_id ?? null;
     }
+    // A sync may have changed the messages under an open selection.
+    const msgs = now.find((s) => s.item_id === selItem)?.messages ?? [];
+    if (selKey !== 'unsorted' || msgs.length < 2) leaveMsgs();
+    else {
+      chosen = new Set([...chosen].filter((id) => msgs.some((m) => m.id === id)));
+      msgIdx = Math.min(msgIdx, msgs.length - 1);
+    }
+  }
+
+  function leaveMsgs() {
+    inMsgs = false;
+    msgIdx = 0;
+    if (chosen.size) chosen = new Set();
+  }
+
+  function enterMsgs(s: Signal, idx = 0) {
+    if (selItem !== s.item_id) leaveMsgs();
+    selItem = s.item_id;
+    if (!expanded.has(s.item_id)) toggle(s.item_id);
+    inMsgs = true;
+    msgIdx = idx;
+  }
+
+  function stepMsg(d: number) {
+    if (!current) return;
+    msgIdx = Math.max(0, Math.min(current.messages.length - 1, msgIdx + d));
+  }
+
+  function choose(id: number) {
+    const next = new Set(chosen);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    chosen = next;
+  }
+
+  function clickMsg(s: Signal, idx: number) {
+    if (!splittable(s)) return;
+    enterMsgs(s, idx);
+    choose(s.messages[idx].id);
+  }
+
+  // Unsorted ↵: collapsed → expand and enter the messages; expanded → enter;
+  // in the messages → collapse and leave.
+  function enter(s: Signal | null) {
+    if (!s) return;
+    if (!splittable(s)) return toggle(s.item_id);
+    if (inMsgs) {
+      leaveMsgs();
+      if (expanded.has(s.item_id)) toggle(s.item_id);
+    } else enterMsgs(s);
   }
 
   $effect(() => {
@@ -97,10 +155,17 @@
     document.querySelector(`[data-item="${selItem}"]`)?.scrollIntoView({ block: 'nearest' });
   });
 
+  $effect(() => {
+    if (!inMsgs || !current) return;
+    const m = current.messages[msgIdx];
+    if (m) document.querySelector(`[data-msg="${m.id}"]`)?.scrollIntoView({ block: 'nearest' });
+  });
+
   function selectTopic(key: QueueKey) {
     if (key === selKey) return;
     selKey = key;
     picking = false;
+    leaveMsgs();
     selItem = grouped(signalsFor(queue, key)).flatMap((g) => g.signals)[0]?.item_id ?? null;
   }
 
@@ -115,6 +180,7 @@
     const i = flat.findIndex((s) => s.item_id === selItem);
     selItem = flat[Math.max(0, Math.min(flat.length - 1, i + d))].item_id;
     picking = false;
+    leaveMsgs();
   }
 
   function toggle(id: number) {
@@ -159,6 +225,12 @@
   function moveTo(topicId: number) {
     picking = false;
     if (!current) return;
+    if (unsorted && chosen.size) {
+      const ids = [...chosen];
+      leaveMsgs();
+      act('incoming.split', { item_id: current.item_id, message_ids: ids, topic_id: topicId });
+      return;
+    }
     act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: typeof selKey === 'number' ? selKey : null });
   }
 
@@ -168,11 +240,17 @@
 
   useKeys((e) => {
     if (picking) return;
+    if (inMsgs && current) {
+      if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepMsg(1), true;
+      if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepMsg(-1), true;
+      if (plain(e, ' ')) return current.messages[msgIdx] && choose(current.messages[msgIdx].id), true;
+      if (plain(e, 'Escape')) return leaveMsgs(), true;
+    }
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepSignal(1), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepSignal(-1), true;
     if (plain(e, ']')) return stepTopic(1), true;
     if (plain(e, '[')) return stepTopic(-1), true;
-    if (plain(e, 'Enter')) return current && toggle(current.item_id), true;
+    if (plain(e, 'Enter')) return enter(current), true;
     if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return toggle(current.item_id), true;
     if (plain(e, 'c')) return confirm(current), true;
     if (plain(e, 'x')) return wrong(current), true;
@@ -215,7 +293,9 @@
                 </button>
                 <div class="actions">
                   {#if unsorted}
-                    <button class="btn primary" onclick={() => pick(s)}>Move to topic</button>
+                    <button class="btn primary" onclick={() => pick(s)}>
+                      {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
+                    </button>
                   {:else}
                     <button class="btn primary" onclick={() => confirm(s)}>Confirm</button>
                     <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
@@ -225,8 +305,18 @@
               {#if isOpen}
                 <div class="ctx">
                   {#if s.messages.length}
-                    {#each s.messages as m}
-                      <div class="msg">
+                    {#each s.messages as m, mi (m.id)}
+                      {@const canPick = splittable(s)}
+                      <div
+                        class="msg"
+                        class:pickable={canPick}
+                        class:focus={sel && inMsgs && mi === msgIdx}
+                        class:chosen={sel && chosen.has(m.id)}
+                        data-msg={m.id}
+                        onclick={(e) => (e.stopPropagation(), clickMsg(s, mi))}
+                        role="presentation"
+                      >
+                        {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                         <span class="t tnum">{m.time}</span>
                         <span class="who ellipsis">{m.author}</span>
                         <span class="txt">{m.text}</span>
@@ -247,7 +337,12 @@
               {/if}
               {#if sel && picking}
                 <div class="pick">
-                  <TopicPicker exclude={typeof selKey === 'number' ? selKey : null} onpick={moveTo} onclose={() => (picking = false)} />
+                  <TopicPicker
+                    exclude={typeof selKey === 'number' ? selKey : null}
+                    placeholder={unsorted && chosen.size ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…` : 'Move to topic…'}
+                    onpick={moveTo}
+                    onclose={() => (picking = false)}
+                  />
                 </div>
               {/if}
             </div>
@@ -259,10 +354,15 @@
         {/each}
       </div>
       <div class="hints">
-        <span>j/k signal</span><span>↵ expand</span>
-        {#if unsorted}
+        {#if unsorted && inMsgs}
+          <span>j/k message</span><span>space select</span>
+          <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
+          <span>↵ collapse</span><span>esc done</span>
+        {:else if unsorted}
+          <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span>
           <span>t move to topic</span>
         {:else}
+          <span>j/k signal</span><span>↵ expand</span>
           <span>c confirm</span><span>x wrong topic</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
@@ -435,10 +535,36 @@
     font-size: 12.5px;
   }
   .msg {
+    position: relative;
     display: grid;
     grid-template-columns: 44px 64px minmax(0, 1fr);
     gap: 10px;
-    padding: 4px 0;
+    padding: 4px 8px;
+    margin: 0 -8px;
+    border-radius: 4px;
+    transition: background 120ms;
+  }
+  .msg.pickable {
+    cursor: pointer;
+  }
+  .msg.pickable:hover:not(.chosen) {
+    background: rgba(235, 219, 178, 0.03);
+  }
+  .msg.focus {
+    box-shadow: inset 2px 0 0 var(--aqua);
+  }
+  .msg.chosen {
+    background: var(--aqua-tint);
+  }
+  .msg.chosen .txt {
+    color: var(--tx-body);
+  }
+  .tick {
+    position: absolute;
+    left: -14px;
+    top: 7px;
+    font-size: 11px;
+    color: var(--aqua);
   }
   .t {
     color: var(--tx-label);

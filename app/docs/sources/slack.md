@@ -194,8 +194,11 @@ once Slack has indexed them (usually seconds).
 `channel`, `first_ts`, `last_ts`, `thread_ts` (threads), `mark_ts` (top-level
 items and mentions in conversations you're in: what "mark read" sends; the
 newest message of the run, or the mention itself), and `msgs`: each
-stored message's ts, in the same order as the item's messages, so a later
-"split by topic" can move some of them to another item.
+stored message's ts, in the same order as the item's messages, so a split by
+topic (AI triage, or selecting messages in Unsorted) can move some of them to
+a child item `<external id>#<n>`; later syncs don't bring moved messages back.
+A child keeps `mark_ts` only if it holds the newest message, and a split
+item's conversation is marked read only once every part has left Incoming.
 
 The cursor stores only timestamps, ids and thread titles, never message text:
 per-conversation newest ts, tracked threads, open items and the search

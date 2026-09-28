@@ -8,6 +8,9 @@
 //!   deleted, the item stays unseen and so drops into Unsorted (rule 5).
 //! - Move (`t`): the user picks a topic; that link becomes `confirmed`, the item
 //!   is seen, and the suggestion it came from (if any) is marked `wrong`.
+//! - Split (Unsorted only, `t` with messages selected): the selected messages
+//!   move to a child item (`split.rs`) confirmed to the picked topic, as `t`
+//!   does for a whole item; the rest stays in Unsorted.
 
 use super::{arg_i64, opt_i64, parse_ts, when_label};
 use crate::api::unknown;
@@ -21,6 +24,8 @@ use serde_json::{json, Value};
 
 #[derive(Serialize, Debug)]
 pub struct Message {
+    /// `item_messages.id`: what a split names.
+    pub id: i64,
     pub time: String,
     pub author: String,
     pub text: String,
@@ -75,6 +80,15 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "move" => {
             move_to(&conn, arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"))?;
             Ok(json!({ "ok": true }))
+        }
+        "split" => {
+            let ids: Vec<i64> = args
+                .get("message_ids")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                .unwrap_or_default();
+            let child = split_to(&conn, arg_i64(args, "item_id")?, &ids, arg_i64(args, "topic_id")?)?;
+            Ok(json!({ "ok": true, "item_id": child }))
         }
         _ => Err(unknown(name)),
     }
@@ -134,15 +148,16 @@ fn meta(title: &str, at: &str, ended: Option<&str>, msgs: Option<i64>, author: O
 }
 
 fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
+    let mut stmt = conn.prepare("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
     for s in sigs {
         s.messages = stmt
             .query_map([s.item_id], |r| {
-                let at: String = r.get(0)?;
+                let at: String = r.get(1)?;
                 Ok(Message {
+                    id: r.get(0)?,
                     time: parse_ts(&at).map(|t| t.format("%H:%M").to_string()).unwrap_or(at),
-                    author: r.get(1)?,
-                    text: r.get(2)?,
+                    author: r.get(2)?,
+                    text: r.get(3)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -210,23 +225,63 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
 /// Confirming a Slack signal also marks it read in Slack, through the outbox.
 /// Only items the Slack connector stored with a read marker qualify (threads
 /// have none; Slack has no API for a thread's read state).
+///
+/// Split families (`split.rs`): `conversations.mark` up to a ts also marks
+/// everything before it, and a run read in Slack closes the parent's item. So
+/// while another part of the family is still new, nothing is marked; the last
+/// part to leave Incoming marks the conversation up to the family's newest
+/// marker.
 fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
-    let row: Option<(i64, String, String)> = conn
+    let row: Option<(i64, String, Option<i64>)> = conn
         .query_row(
-            "SELECT s.id, s.kind, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
+            "SELECT s.id, s.kind, i.parent_id FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
             [item_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
-    let Some((source_id, kind, raw)) = row else { return Ok(()) };
+    let Some((source_id, kind, parent)) = row else { return Ok(()) };
     if kind != "slack" {
         return Ok(());
     }
-    let raw: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-    if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(|v| v.as_str()), raw.get("mark_ts").and_then(|v| v.as_str())) {
-        crate::outbox::enqueue(conn, source_id, "slack.mark_read", &serde_json::json!({ "channel": channel, "ts": ts }), Some(item_id))?;
+    let root = parent.unwrap_or(item_id);
+    let family = "SELECT raw_json, seen, id FROM items WHERE id = ?1 OR parent_id = ?1";
+    let mut stmt = conn.prepare(family)?;
+    let rows = stmt
+        .query_map([root], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.iter().any(|(_, seen, id)| *seen == 0 && *id != item_id) {
+        return Ok(());
+    }
+    let mut newest: Option<(f64, String, String)> = None;
+    for (raw, _, _) in rows {
+        let raw: Value = serde_json::from_str(&raw).unwrap_or_default();
+        if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) {
+            let n = ts.parse::<f64>().unwrap_or(0.0);
+            if newest.as_ref().is_none_or(|b| n > b.0) {
+                newest = Some((n, channel.to_owned(), ts.to_owned()));
+            }
+        }
+    }
+    if let Some((_, channel, ts)) = newest {
+        crate::outbox::enqueue(conn, source_id, "slack.mark_read", &json!({ "channel": channel, "ts": ts }), Some(item_id))?;
     }
     Ok(())
+}
+
+/// Manual split from Unsorted: the selected messages go to a new item confirmed
+/// to `topic_id` (like `t` on a whole item). Selecting every message is just a
+/// move of the whole item. Returns the item that got the topic.
+pub fn split_to(conn: &Connection, item_id: i64, message_ids: &[i64], topic_id: i64) -> Result<i64> {
+    let mut ids = message_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut all = super::split::message_ids(conn, item_id)?;
+    all.sort_unstable();
+    let tx = conn.unchecked_transaction()?;
+    let target = if ids == all { item_id } else { super::split::split_off(&tx, item_id, &ids)? };
+    move_to(&tx, target, topic_id, None)?;
+    tx.commit()?;
+    Ok(target)
 }
 
 /// Only records that the link was wrong. The item stays unseen, so with no
@@ -407,16 +462,6 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
             ..Default::default()
         },
         ItemSeed {
-            source: "slack",
-            kind: "message",
-            title: "DM · Priya".into(),
-            summary: Some("Can you look at the offsite agenda before Thursday?".into()),
-            url: Some("slack://user?team=T0&id=U_PRIYA".into()),
-            author: Some("Priya"),
-            occurred_at: ctx.at(0, "09:20"),
-            ..Default::default()
-        },
-        ItemSeed {
             source: "gmail",
             kind: "email",
             title: "Ana · \"Cloud spend review, October\"".into(),
@@ -446,6 +491,27 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         },
     ] {
         new(it);
+    }
+    // An unread DM run that jumps between subjects: the case for a split.
+    let dm = new(ItemSeed {
+        source: "slack",
+        kind: "thread",
+        title: "DM · Priya".into(),
+        summary: Some("Can you look at the offsite agenda before Thursday?".into()),
+        url: Some("slack://user?team=T0&id=U_PRIYA".into()),
+        author: Some("Priya"),
+        occurred_at: ctx.at(0, "09:12"),
+        ended_at: Some(ctx.at(0, "09:20")),
+        msg_count: Some(4),
+        ..Default::default()
+    });
+    for (t, text) in [
+        ("09:12", "Globex still hasn't scheduled their v1 ingest cutover."),
+        ("09:13", "They want to wait until after their code freeze on Oct 20. OK to push PLAT-1170 out?"),
+        ("09:16", "Different thing: Lee asked me for data eng hiring numbers for the Q4 model."),
+        ("09:20", "Can you look at the offsite agenda before Thursday?"),
+    ] {
+        ctx.message(dm, &ctx.at(0, t), "Priya", text);
     }
     Ok(())
 }
@@ -541,6 +607,90 @@ mod tests {
         let q2 = queue(&conn, now).unwrap();
         assert_eq!(q2.unsorted.len(), 5);
         assert_eq!(unseen(&conn) as usize, shown(&q2));
+    }
+
+    fn topic_named(conn: &Connection, name: &str) -> i64 {
+        conn.query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn split_from_unsorted_confirms_only_the_selection() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let dm = q.unsorted.iter().find(|s| s.title == "DM · Priya").unwrap();
+        assert_eq!(dm.messages.len(), 4);
+        let v1 = topic_named(&conn, "v1 ingest deprecation");
+        let picked = [dm.messages[1].id, dm.messages[0].id, dm.messages[0].id];
+        let child = split_to(&conn, dm.item_id, &picked, v1).unwrap();
+        assert_ne!(child, dm.item_id);
+        assert_eq!(link_state(&conn, child, v1).unwrap().as_deref(), Some("confirmed"));
+        assert_eq!(link_state(&conn, dm.item_id, v1).unwrap(), None);
+
+        let q2 = queue(&conn, now).unwrap();
+        assert!(!q2.unsorted.iter().any(|s| s.item_id == child), "the split-off part is filed");
+        let rest = q2.unsorted.iter().find(|s| s.item_id == dm.item_id).unwrap();
+        let texts: Vec<&str> = rest.messages.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(texts.len(), 2);
+        assert!(texts[0].starts_with("Different thing"));
+        assert_eq!(rest.meta, "2 new · 09:16–09:20");
+        assert_eq!(unseen(&conn) as usize, shown(&q2));
+
+        // The child shows in the topic's chronology like any confirmed item.
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM topic_links WHERE topic_id = ?1 AND item_id = ?2 AND state = 'confirmed'", params![v1, child], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+
+        // Selecting everything that's left is a plain move of the item.
+        let all: Vec<i64> = rest.messages.iter().map(|m| m.id).collect();
+        let q4 = topic_named(&conn, "Q4 headcount");
+        assert_eq!(split_to(&conn, dm.item_id, &all, q4).unwrap(), dm.item_id);
+        assert_eq!(link_state(&conn, dm.item_id, q4).unwrap().as_deref(), Some("confirmed"));
+        // Nothing selected, or someone else's message: refused, nothing changes.
+        assert!(split_to(&conn, dm.item_id, &[], q4).is_err());
+        let before: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        let other = q2.topics[0].signals.iter().find(|s| !s.messages.is_empty()).unwrap().messages[0].id;
+        assert!(split_to(&conn, dm.item_id, &[all[0], other], q4).is_err());
+        let after: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn split_family_marks_slack_read_once_all_parts_are_triaged() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let dm = q.unsorted.iter().find(|s| s.title == "DM · Priya").unwrap();
+        conn.execute(
+            r#"UPDATE items SET raw_json = '{"channel":"D1","mark_ts":"100.4","msgs":["100.1","100.2","100.3","100.4"]}' WHERE id = ?1"#,
+            [dm.item_id],
+        )
+        .unwrap();
+        let marks = || -> Vec<String> {
+            conn.prepare("SELECT payload_json FROM outbox WHERE op = 'slack.mark_read'")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        // The newest message goes to its own item, suggested to a topic.
+        let tx = conn.unchecked_transaction().unwrap();
+        let child = super::super::split::split_off(&tx, dm.item_id, &[dm.messages[3].id]).unwrap();
+        tx.commit().unwrap();
+        let q4 = topic_named(&conn, "Q4 planning");
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![child, q4]).unwrap();
+        // Confirming it while the older part is still new must not mark the DM
+        // read in Slack (that would mark the older messages read too).
+        confirm(&conn, child, q4).unwrap();
+        assert!(marks().is_empty());
+        // Once the rest is triaged, the conversation is marked up to the newest part.
+        let v1 = topic_named(&conn, "v1 ingest deprecation");
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![dm.item_id, v1]).unwrap();
+        confirm(&conn, dm.item_id, v1).unwrap();
+        let m = marks();
+        assert_eq!(m.len(), 1);
+        let v: Value = serde_json::from_str(&m[0]).unwrap();
+        assert_eq!(v, json!({ "channel": "D1", "ts": "100.4" }));
     }
 
     #[test]
