@@ -264,7 +264,10 @@ fn sender(m: &Value) -> Option<Handle> {
     }
     let email = email.to_ascii_lowercase();
     let display_name = if name.is_empty() { name_from_email(&email) } else { name.to_string() };
-    let shared = ["noreply", "no-reply"].iter().any(|n| email.contains(n));
+    let local = email.split('@').next().unwrap_or_default();
+    let relay = ["noreply", "no-reply", "notification"].iter().any(|n| local.contains(n)) || ["jira", "confluence"].contains(&local);
+    let group = name.contains(" via ") && !name.contains("(via ");
+    let shared = relay || group;
     let handle = if shared { format!("{email} {display_name}") } else { email };
     Some(Handle { handle, display_name })
 }
@@ -505,6 +508,10 @@ mod tests {
         assert_eq!(from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"), "comments-noreply@docs.google.com Alan Ho (Google Sheets)");
         assert_ne!(from("\"Xuan Lam (Google Sheets)\" <comments-noreply@docs.google.com>"), from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"));
         assert_eq!(from("Dana Kim <Dana@Acme.com>"), "dana@acme.com");
+        assert_eq!(from("\"Luke Gain (Jira)\" <jira@acme.atlassian.net>"), "jira@acme.atlassian.net Luke Gain (Jira)");
+        assert_eq!(from("dan <notifications@github.com>"), "notifications@github.com dan");
+        assert_eq!(from("'Datadog Alerting' via Devops <devops@acme.com>"), "devops@acme.com 'Datadog Alerting' via Devops");
+        assert_eq!(from("\"Ravi Tadi (via Google Drive)\" <ravi@acme.com>"), "ravi@acme.com", "a person's own address stays theirs");
     }
 
     #[test]
