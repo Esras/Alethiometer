@@ -115,7 +115,7 @@
           <AppIcon source={s.kind} size={14} />
           <span class="ellipsis">{s.name}</span>
           <span class="when" class:bad={!!s.last_error} title={s.last_error ?? ''}>{s.last_error ? 'error' : ago(s.last_sync_at)}</span>
-          {#if s.kind === 'gcal' && s.last_error}
+          {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
             <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
           {:else}
             <button class="btn" onclick={() => syncNow(s.id)} disabled={syncing === s.id}>{syncing === s.id ? 'Syncing…' : 'Sync'}</button>

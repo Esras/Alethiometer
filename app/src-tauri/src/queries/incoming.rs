@@ -250,7 +250,7 @@ fn confirm_series(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> 
     Ok(())
 }
 
-/// Confirming a Slack signal also marks it read in Slack, through the outbox.
+/// Confirming a Slack or Gmail signal also marks it read there, through the outbox.
 /// Only items the Slack connector stored with a read marker qualify (threads
 /// have none; Slack has no API for a thread's read state).
 ///
@@ -260,6 +260,16 @@ fn confirm_series(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> 
 /// part to leave Incoming marks the conversation up to the family's newest
 /// marker.
 fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
+    let Some((source_id, kind, raws)) = settled_family(conn, item_id)? else { return Ok(()) };
+    match kind.as_str() {
+        "slack" => mark_slack_read(conn, source_id, item_id, &raws),
+        "gmail" => mark_gmail_read(conn, source_id, item_id, &raws),
+        _ => Ok(()),
+    }
+}
+
+/// Source, kind and every family part's `raw_json`; `None` while another part of the family is still new.
+fn settled_family(conn: &Connection, item_id: i64) -> Result<Option<(i64, String, Vec<Value>)>> {
     let row: Option<(i64, String, Option<i64>)> = conn
         .query_row(
             "SELECT s.id, s.kind, i.parent_id FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
@@ -267,10 +277,7 @@ fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
-    let Some((source_id, kind, parent)) = row else { return Ok(()) };
-    if kind != "slack" {
-        return Ok(());
-    }
+    let Some((source_id, kind, parent)) = row else { return Ok(None) };
     let root = parent.unwrap_or(item_id);
     let family = "SELECT raw_json, seen, id FROM items WHERE id = ?1 OR parent_id = ?1";
     let mut stmt = conn.prepare(family)?;
@@ -278,11 +285,15 @@ fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
         .query_map([root], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if rows.iter().any(|(_, seen, id)| *seen == 0 && *id != item_id) {
-        return Ok(());
+        return Ok(None);
     }
+    let raws = rows.into_iter().map(|(raw, _, _)| serde_json::from_str(&raw).unwrap_or_default()).collect();
+    Ok(Some((source_id, kind, raws)))
+}
+
+fn mark_slack_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value]) -> Result<()> {
     let mut newest: Option<(f64, String, String)> = None;
-    for (raw, _, _) in rows {
-        let raw: Value = serde_json::from_str(&raw).unwrap_or_default();
+    for raw in raws {
         if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) {
             let n = ts.parse::<f64>().unwrap_or(0.0);
             if newest.as_ref().is_none_or(|b| n > b.0) {
@@ -293,6 +304,23 @@ fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
     if let Some((_, channel, ts)) = newest {
         crate::outbox::enqueue(conn, source_id, "slack.mark_read", &json!({ "channel": channel, "ts": ts }), Some(item_id))?;
     }
+    Ok(())
+}
+
+/// The thread plus every Gmail message id the user saw in it, so `gmail.mark_read` can spot mail that came later.
+fn mark_gmail_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value]) -> Result<()> {
+    if crate::outbox::read_only(conn, source_id)?.is_some() {
+        return Ok(());
+    }
+    let Some(thread) = raws.iter().find_map(|r| r.get("thread_id").and_then(Value::as_str)) else { return Ok(()) };
+    let mut ids: Vec<&str> = vec![];
+    for id in raws.iter().filter_map(|r| r.get("msgs").and_then(Value::as_array)).flatten().filter_map(Value::as_str) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    let payload = json!({ "thread_id": thread, "message_ids": ids });
+    crate::outbox::enqueue(conn, source_id, "gmail.mark_read", &payload, Some(item_id))?;
     Ok(())
 }
 
@@ -346,6 +374,11 @@ pub fn move_to(conn: &Connection, item_id: i64, topic_id: i64, from: Option<i64>
     )?;
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
     confirm_series(conn, item_id, topic_id)?;
+    if let Some((source_id, kind, raws)) = settled_family(conn, item_id)? {
+        if kind == "gmail" {
+            mark_gmail_read(conn, source_id, item_id, &raws)?;
+        }
+    }
     Ok(())
 }
 

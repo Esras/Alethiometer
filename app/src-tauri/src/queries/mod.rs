@@ -1,6 +1,7 @@
 //! Read models and actions for each view. Each module exposes
 //! `call(app, name, args)` and a `seed(ctx)` for its sample data.
 
+pub mod categories;
 pub mod daystrip;
 pub mod incoming;
 pub mod notes;

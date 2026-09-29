@@ -52,6 +52,7 @@ impl App {
             platform: std::sync::Arc::new(FileSecrets::new(data_dir)),
             settings,
         };
+        crate::queries::categories::seed_if_empty(&app.db(), &app.settings.categories)?;
         crate::sync::register_sources(&app.db(), &app.settings.sources)?;
         if app.settings.demo_data {
             crate::seed::seed_if_empty(&app)?;

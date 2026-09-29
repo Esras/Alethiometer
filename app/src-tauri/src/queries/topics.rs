@@ -76,6 +76,15 @@ struct Person {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "list" => list(app, args.get("archived").and_then(Value::as_bool).unwrap_or(false)),
+        "set_category" => {
+            let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
+            let conn = app.db();
+            if !super::categories::exists(&conn, &cat)? {
+                return Err(crate::error::msg(format!("unknown category '{cat}'")));
+            }
+            conn.execute("UPDATE topics SET category = ?2 WHERE id = ?1", params![id, cat])?;
+            Ok(json!({ "ok": true }))
+        }
         "archive" => set_archived(app, arg_i64(args, "id")?, true),
         "unarchive" => set_archived(app, arg_i64(args, "id")?, false),
         "get" => get(app, arg_i64(args, "id")?),
@@ -93,10 +102,10 @@ fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
         return Err(crate::error::msg("Topic name can't be empty"));
     }
     let category = category.unwrap_or("work");
-    if !app.settings.categories.contains_key(category) {
+    let conn = app.db();
+    if !super::categories::exists(&conn, category)? {
         return Err(crate::error::msg(format!("unknown category '{category}'")));
     }
-    let conn = app.db();
     if find_by_name(&conn, name)?.is_some() {
         return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
     }

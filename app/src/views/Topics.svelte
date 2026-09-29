@@ -4,7 +4,7 @@
   // columns scroll independently; z folds the left column. e edits the note in
   // place (topics/NotePane), o opens it in Obsidian.
   import { call } from '../lib/api';
-  import { catColor, category, setTab, TABS, ui } from '../lib/app.svelte';
+  import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { SOURCES, sourceLabel } from '../lib/sources';
   import type { TopicDetail, TopicRow } from '../lib/types';
@@ -14,11 +14,20 @@
   import AssistantPane from '../shell/AssistantPane.svelte';
   import NotePane from './topics/NotePane.svelte';
   import TopicsIndex from './topics/TopicsIndex.svelte';
+  import CategoryPicker from './topics/CategoryPicker.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
   let filter = $state<string | null>(null);
   let open = $state({ up: true, open: true, chron: true, people: true });
+  let picking = $state(false);
+
+  async function setCategory(key: string) {
+    picking = false;
+    if (!d) return;
+    await call('topics.set_category', { id: d.topic.id, category: key });
+    refresh();
+  }
 
   $effect(() => {
     void ui.rev;
@@ -72,6 +81,7 @@
   useKeys((e) => {
     if (ui.openTopicId === null) return;
     if (plain(e, 'Escape')) return toIndex(), true;
+    if (plain(e, 'c')) return (picking = true), true;
     if (plain(e, 'z')) return fold(), true;
     if (plain(e, '[')) return step(-1), true;
     if (plain(e, ']')) return step(1), true;
@@ -87,6 +97,7 @@
 <div class="view">
   {#if ui.openTopicId === null}
     <TopicsIndex />
+    <AssistantPane scope="topics" />
   {:else if d}
     {@const cat = catColor(d.topic.category)}
     <div class="content">
@@ -97,7 +108,7 @@
             <i class="ph ph-{allFolded ? 'arrows-out-line-vertical' : 'arrows-in-line-vertical'}"></i>
           </button>
           <div class="titles">
-            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span style:color={cat}>{category(d.topic.category).label}</span></div>
+            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
             <div class="name">{d.topic.name}</div>
           </div>
           <div class="pills">
@@ -226,11 +237,11 @@
     align-items: stretch;
     border-radius: var(--r-panel);
     border: 1px solid var(--border);
-    overflow: hidden;
   }
   .catbar {
     width: 5px;
     flex: none;
+    border-radius: var(--r-panel) 0 0 var(--r-panel);
   }
   .head-row {
     flex: 1;
@@ -255,6 +266,16 @@
   }
   .titles {
     min-width: 0;
+  }
+  .catpick {
+    position: relative;
+  }
+  .catpick button:hover {
+    text-decoration: underline;
+  }
+  .catpick :global(.picker) {
+    top: calc(100% + 4px);
+    left: 0;
   }
   .back:hover {
     color: var(--tx-2);

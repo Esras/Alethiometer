@@ -27,7 +27,7 @@ pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, ite
 }
 
 /// Name of the source if its config sets `"read_only": true`.
-fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
+pub fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
     let (name, config): (String, String) =
         conn.query_row("SELECT name, config_json FROM sources WHERE id = ?1", [source_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);

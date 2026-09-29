@@ -12,6 +12,7 @@
   import { plain, useKeys } from '../lib/keys.svelte';
   import { sourceLabel } from '../lib/sources';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import Markdown from '../lib/ui/Markdown.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import type { Queue, QueueKey, Signal } from './incoming/types';
@@ -363,7 +364,7 @@
                         {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                         <span class="t tnum">{m.time}</span>
                         <span class="who ellipsis" title={m.author}>{m.author}</span>
-                        <span class="txt">{m.text}</span>
+                        <div class="txt"><Markdown text={m.text} /></div>
                       </div>
                     {/each}
                   {/if}

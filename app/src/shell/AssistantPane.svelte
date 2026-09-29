@@ -4,8 +4,9 @@
   import { call } from '../lib/api';
   import { catColor, ui } from '../lib/app.svelte';
   import type { TopicRef } from '../lib/types';
+  import Markdown from '../lib/ui/Markdown.svelte';
 
-  let { topic = null }: { topic?: TopicRef | null } = $props();
+  let { topic = null, scope = null }: { topic?: TopicRef | null; scope?: 'topics' | null } = $props();
   let question = $state('');
   let log = $state<{ q: string; a?: string; err?: string }[]>([]);
   let busy = $state(false);
@@ -19,7 +20,7 @@
     const entry = { q } as { q: string; a?: string; err?: string };
     log.push(entry);
     try {
-      const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topic?.id ?? null });
+      const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topic?.id ?? null, scope });
       log[log.length - 1] = { ...entry, a: r.answer };
     } catch (err) {
       log[log.length - 1] = { ...entry, err: String((err as Error).message ?? err) };
@@ -37,12 +38,14 @@
     </div>
     {#if topic}
       <div class="ctx"><span class="sq" style:background={catColor(topic.category)}></span>{topic.name}</div>
+    {:else if scope === 'topics'}
+      <div class="ctx"><i class="ph ph-stack"></i>All topics</div>
     {/if}
     <div class="provider" title="Questions go only to this allow-listed provider">{ui.info?.ai_label}</div>
     <div class="log scroll">
       {#each log as m}
         <div class="q">{m.q}</div>
-        {#if m.a}<div class="a">{m.a}</div>{:else if m.err}<div class="err"><i class="ph ph-warning"></i>{m.err}</div>{:else}<div class="a pending">Thinking…</div>{/if}
+        {#if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err"><i class="ph ph-warning"></i>{m.err}</div>{:else}<div class="a pending">Thinking…</div>{/if}
       {/each}
     </div>
     <form class="ask" onsubmit={ask}>

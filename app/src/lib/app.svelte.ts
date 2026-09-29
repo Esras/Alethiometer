@@ -30,12 +30,15 @@ export const ui = $state({
 });
 
 export async function loadInfo() {
-  const info = await call<AppInfo>('app.info');
+  setInfo(await call<AppInfo>('app.info'));
+  tick();
+  setInterval(tick, 15_000);
+}
+
+function setInfo(info: AppInfo) {
   ui.info = info;
   const root = document.documentElement;
   for (const [key, c] of Object.entries(info.categories)) root.style.setProperty(`--cat-${key}`, c.color);
-  tick();
-  setInterval(tick, 15_000);
 }
 
 function tick() {
@@ -72,7 +75,7 @@ export function openTopic(id: number) {
 /** Call after a write: views reload, and the Incoming count updates. */
 export function refresh() {
   ui.rev++;
-  call<AppInfo>('app.info').then((info) => (ui.info = info));
+  call<AppInfo>('app.info').then(setInfo);
 }
 
 /** Countdown color: green > 15 min, yellow 5–15, orange 2–5, red < 2. */

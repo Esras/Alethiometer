@@ -1,0 +1,16 @@
+{
+  "threads": [
+    {
+      "id": "18f0a1b2c3d4e5f6",
+      "snippet": "I can take it at 16:15.",
+      "historyId": "4199"
+    },
+    {
+      "id": "18f0a1b2c3d4e5f7",
+      "snippet": "Hi all, Please book a 10-minute slot &amp; bring Q3 numbers.",
+      "historyId": "4195"
+    }
+  ],
+  "nextPageToken": "09876543210987654321",
+  "resultSizeEstimate": 3
+}

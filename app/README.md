@@ -14,8 +14,8 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Topics (7a/7b) | done |
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
-| Connectors: Google Calendar, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
-| Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
+| Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
+| Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
 | Sync status (freshness per source, write states) | tab bar |
 | sqlite-vec embeddings | not started |
@@ -61,7 +61,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 
 | Field | Meaning |
 |---|---|
-| `categories` | Category key → `{label, color}`. Topics and calendar blocks reference the keys (`work`, `life`, `jobs`, `self`, `alert`). Change a color here and restart. |
+| `categories` | Initial categories, key → `{label, color}`, copied into the database on first run. After that they're managed in the Topics index (Categories); edits here are ignored. `work` (default) and `life` (Life blocks) are built in. |
 | `day_start_hour`, `day_end_hour` | Day strip range (default 8–19). |
 | `life_buffer_min` | Default travel buffer before a Life block (press `b` on a block to override one). |
 | `obsidian_vault` | Absolute path to the work vault. |

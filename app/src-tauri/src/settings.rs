@@ -1,4 +1,4 @@
-//! `settings.json`: sources, categories, buffers, AI allow-list. Hand-edited; no settings UI.
+//! `settings.json`: sources, initial categories (then managed in the app), buffers, AI allow-list. Hand-edited; no settings UI.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

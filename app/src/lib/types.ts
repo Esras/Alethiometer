@@ -44,6 +44,10 @@ export interface DayStripData {
   note: string | null;
 }
 
+export interface CategoryRow extends Category {
+  key: string;
+}
+
 export interface TopicRef {
   id: number;
   name: string;

@@ -1,17 +1,30 @@
+<script lang="ts" module>
+  const saved = { scroll: 0, id: null as number | null, q: '', catFilter: null as string | null, archived: false };
+</script>
+
 <script lang="ts">
-  // Topics index (12c): filter, Active / Archived, New topic. ↑/↓ or ⌃j/⌃k move,
-  // ↵ opens; Esc leaves the filter, then j/k move, a archives, n new topic, / filter.
+  // Topics index (12c): j/k move, ↵ opens, a archives, c category, n new topic, / filter
+  // (in the filter: ↑/↓ or ⌃j/⌃k move, ↵ opens, Esc leaves).
+  import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
   import { catColor, meetingPill, refresh, ui } from '../../lib/app.svelte';
   import { plain, useKeys } from '../../lib/keys.svelte';
-  import type { TopicRow } from '../../lib/types';
+  import type { CategoryRow, TopicRow } from '../../lib/types';
+  import CategoryManager from './CategoryManager.svelte';
+  import CategoryPicker from './CategoryPicker.svelte';
 
-  let archived = $state(false);
+  let archived = $state(saved.archived);
   let rows = $state<TopicRow[]>([]);
-  let q = $state('');
+  let q = $state(saved.q);
   let sel = $state(0);
   let input = $state<HTMLInputElement>();
   let err = $state<string | null>(null);
+  let cats = $state<CategoryRow[]>([]);
+  let catFilter = $state<string | null>(saved.catFilter);
+  let body = $state<HTMLDivElement>();
+  let restored = false;
+  let managing = $state(false);
+  let picking = $state<number | null>(null);
 
   $effect(() => {
     void ui.rev;
@@ -21,11 +34,16 @@
     });
   });
 
-  $effect(() => input?.focus());
+  $effect(() => {
+    void ui.rev;
+    call<CategoryRow[]>('categories.list').then((c) => (cats = c));
+  });
+
 
   const matches = $derived.by(() => {
     const needle = q.trim().toLowerCase();
-    return needle ? rows.filter((t) => t.name.toLowerCase().includes(needle)) : rows;
+    const inCat = catFilter === null ? rows : rows.filter((t) => t.category === catFilter);
+    return needle ? inCat.filter((t) => t.name.toLowerCase().includes(needle)) : inCat;
   });
   const active = $derived(archived ? matches : matches.filter((t) => !t.quiet));
   const quiet = $derived(archived ? [] : matches.filter((t) => t.quiet));
@@ -35,11 +53,24 @@
 
   $effect(() => {
     void q;
+    void catFilter;
     sel = 0;
   });
 
   $effect(() => {
     ui.topicId = current?.id ?? null;
+  });
+
+  $effect(() => {
+    if (restored || !rows.length) return;
+    restored = true;
+    const i = flat.findIndex((t) => t.id === saved.id);
+    if (i >= 0) sel = i;
+    tick().then(() => body && (body.scrollTop = saved.scroll));
+  });
+
+  onDestroy(() => {
+    Object.assign(saved, { scroll: body?.scrollTop ?? 0, id: current?.id ?? null, q, catFilter, archived });
   });
 
   function open(t: TopicRow | null) {
@@ -48,13 +79,24 @@
     ui.openTopicId = t.id;
   }
 
-  async function create() {
-    const name = q.trim();
-    if (!canCreate) return input?.focus();
+  let naming = $state<string | null>(null);
+  let nameInput = $state<HTMLInputElement>();
+  $effect(() => {
+    if (naming !== null) nameInput?.focus();
+  });
+
+  async function create(named?: string) {
+    const name = (named ?? q).trim();
+    if (named === undefined && !canCreate) {
+      naming = q.trim();
+      return;
+    }
+    if (!name) return;
     try {
-      const r = await call<{ id: number }>('topics.create', { name });
+      const r = await call<{ id: number }>('topics.create', { name, category: catFilter ?? undefined });
       ui.openedFrom = null;
       ui.openTopicId = r.id;
+      naming = null;
       refresh();
     } catch (e) {
       err = String((e as Error).message ?? e);
@@ -72,12 +114,28 @@
     }
   }
 
+  async function setCategory(id: number, key: string) {
+    picking = null;
+    try {
+      await call('topics.set_category', { id, category: key });
+      err = null;
+      refresh();
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    }
+  }
+
   function move(d: number) {
     sel = Math.max(0, Math.min(flat.length - 1, sel + d));
     document.querySelector(`[data-topic="${flat[sel]?.id}"]`)?.scrollIntoView({ block: 'nearest' });
   }
 
   useKeys((e) => {
+    if (naming !== null && e.target === nameInput) {
+      if (e.key === 'Enter') return void create(naming), true;
+      if (e.key === 'Escape') return (naming = null), true;
+      return;
+    }
     if (e.target === input) {
       if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return move(1), true;
       if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return move(-1), true;
@@ -90,6 +148,7 @@
     if (plain(e, 'Enter')) return open(current), true;
     if (plain(e, 'a')) return toggleArchive(current), true;
     if (plain(e, 'n')) return create(), true;
+    if (plain(e, 'c')) return current && (picking = current.id), true;
     if (plain(e, '/')) return input?.focus(), true;
   });
 </script>
@@ -97,7 +156,10 @@
 {#snippet row(t: TopicRow)}
   {@const i = flat.indexOf(t)}
   <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} data-topic={t.id} onclick={() => open(t)} onmouseenter={() => (sel = i)} role="presentation">
-    <span class="bar" style:background={catColor(t.category)}></span>
+    <button class="bar" style:background={catColor(t.category)} title="Category (c)" aria-label="Category" onclick={(e) => (e.stopPropagation(), (picking = t.id))}></button>
+    {#if picking === t.id}
+      <div class="pick"><CategoryPicker current={t.category} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>
+    {/if}
     <div class="min0">
       <div class="name">
         <span class="ellipsis" title={t.name}>{t.name}</span>
@@ -131,10 +193,28 @@
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
         <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
       </div>
-      <button class="btn primary new" onclick={create}><i class="ph ph-plus"></i>New topic</button>
+      <button class="btn cats-btn" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"><i class="ph ph-palette"></i>Categories</button>
+      <button class="btn primary new" onclick={() => create()}><i class="ph ph-plus"></i>New topic</button>
+    </div>
+    {#if managing}<CategoryManager />{/if}
+    <div class="chips">
+      <button class="chip" class:on={catFilter === null} onclick={() => (catFilter = null)}>All</button>
+      {#each cats as c (c.key)}
+        <button class="chip" class:on={catFilter === c.key} onclick={() => (catFilter = catFilter === c.key ? null : c.key)}>
+          <span class="sq" style:background={c.color}></span>{c.label}
+        </button>
+      {/each}
     </div>
     <div class="cols label"><span></span><span>Topic</span><span>Open</span><span>Last signal</span><span>Next meeting</span></div>
-    <div class="body scroll">
+    {#if naming !== null}
+      <div class="naming">
+        <i class="ph ph-plus"></i>
+        <input bind:this={nameInput} bind:value={naming} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)} />
+        {#if catFilter}<span class="in">in {cats.find((c) => c.key === catFilter)?.label}</span>{/if}
+        <span class="hint">↵ create · esc</span>
+      </div>
+    {/if}
+    <div class="body scroll" bind:this={body}>
       {#if active.length}
         <div class="section label">{archived ? 'Archived' : 'Active'} <span class="n">{active.length}</span></div>
         {#each active as t (t.id)}{@render row(t)}{/each}
@@ -145,15 +225,15 @@
       {/if}
       {#if !flat.length}
         {#if canCreate}
-          <button class="create" onclick={create}><i class="ph ph-plus"></i>Create “{q.trim()}”</button>
+          <button class="create" onclick={() => create()}><i class="ph ph-plus"></i>Create “{q.trim()}”</button>
         {:else}
           <div class="empty">{archived ? 'No archived topics.' : q ? 'No topic matches.' : 'No topics yet.'}</div>
         {/if}
       {/if}
     </div>
     <div class="hints">
-      <span>↑↓ move</span><span>↵ open</span><span>esc leave filter, then</span><span>j/k move</span>
-      <span>a {archived ? 'unarchive' : 'archive'}</span><span>n new topic</span>
+      <span>j/k move</span><span>↵ open</span><span>/ filter</span>
+      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>n new topic</span>
       {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
     </div>
   </div>
@@ -208,12 +288,6 @@
   .count {
     font-size: 11.5px;
   }
-  .new {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 5px 12px;
-  }
   .cols,
   .row {
     display: grid;
@@ -242,6 +316,78 @@
   .bar {
     align-self: stretch;
     border-radius: 0 2px 2px 0;
+    cursor: pointer;
+  }
+  .row {
+    position: relative;
+  }
+  .pick {
+    position: absolute;
+    left: 10px;
+    top: calc(100% - 6px);
+  }
+  .pick :global(.picker) {
+    position: static;
+  }
+  .cats-btn,
+  .new {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 5px 12px;
+  }
+  .cats-btn.on {
+    border-color: var(--aqua);
+    color: var(--aqua);
+  }
+  .naming {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin: 10px 18px 0;
+    padding: 7px 12px;
+    border-radius: var(--r-input);
+    border: 1px solid var(--aqua);
+    color: var(--aqua);
+  }
+  .naming input {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--tx-body);
+    font: inherit;
+  }
+  .in,
+  .hint {
+    font-size: 11.5px;
+    color: var(--tx-label);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 18px 0;
+    font-size: 12px;
+  }
+  .chip {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 10px;
+    color: var(--tx-muted);
+  }
+  .chip.on {
+    background: rgba(142, 192, 124, 0.18);
+    color: var(--aqua);
+    box-shadow: inset 0 0 0 1px rgba(142, 192, 124, 0.5);
+  }
+  .sq {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
   }
   .min0 {
     min-width: 0;

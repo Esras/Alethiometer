@@ -160,6 +160,44 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
     Ok(ctx)
 }
 
+/// Context for reviewing the topic list (Topics index): every active topic with its
+/// note gist, size, last activity and a few recent work item titles.
+pub fn for_topics(conn: &Connection, vault: &Path) -> Result<Context> {
+    let mut ctx = Context::default();
+    ctx.push("Active topics (id, name, linked work items, last activity, note gist, recent items):\n", None);
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, t.obsidian_path,
+                (SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                  WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work'),
+                (SELECT max(i.occurred_at) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                  WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work')
+           FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
+    )?;
+    let topics = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?, r.get::<_, Option<String>>(4)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut recent = conn.prepare(
+        "SELECT i.title, s.tag FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'
+          ORDER BY i.occurred_at DESC LIMIT 5",
+    )?;
+    for (id, name, path, n, last) in topics {
+        let titles: Vec<String> = recent
+            .query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
+            .filter(|(_, tag)| tag == "work")
+            .map(|(t, _)| clip(&t, 80))
+            .collect();
+        let gist = path.map(|p| note_gist(&std::fs::read_to_string(vault.join(p)).unwrap_or_default())).unwrap_or_default();
+        let last = last.as_deref().and_then(|l| l.get(..10)).unwrap_or("never");
+        let block = format!("- [topic {id}] {name} · {n} items · last {last}\n  note: {gist}\n  recent: {}\n", titles.join("; "));
+        if !ctx.push(&block, None) {
+            break;
+        }
+    }
+    Ok(ctx)
+}
+
 /// Context for "today": today's work calendar and work items touched today.
 pub fn for_today(conn: &Connection, today: chrono::NaiveDate) -> Result<Context> {
     let day = today.format("%Y-%m-%d").to_string();

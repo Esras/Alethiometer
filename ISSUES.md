@@ -29,6 +29,10 @@ Fix direction: `suggest_after_sync` should inspect `Outcome.status` (per the doc
 
 ## Resolved
 
+### AI-proposed topics always landed in `work`
+
+The suggestion prompt now lists the categories (key: label) and the reply shape has `new_topic_category`; `ai::suggest` validates it against the `categories` table and falls back to `work`. No create-a-category from the picker by design.
+
 ### Topics created by the AI will need an archive/cleanup story (manual only)
 
 The Topics index (12c) archives by hand: `a` or the row's Archive button, `topics.archive`/`topics.unarchive` set/clear `archived_at`, and the Archived tab brings them back. Every other query already filters `archived_at IS NULL`. No bulk or automatic cleanup (user: never throw data away in bulk); a periodic review of quiet topics is still out of scope.

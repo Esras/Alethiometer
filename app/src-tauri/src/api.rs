@@ -14,6 +14,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "app" => app_call(app, name, args),
         "daystrip" => queries::daystrip::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
+        "categories" => queries::categories::call(app, name, args),
         "incoming" => queries::incoming::call(app, name, args),
         "priorities" => queries::priorities::call(app, name, args),
         "notes" => queries::notes::call(app, name, args),
@@ -46,7 +47,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 |r| r.get(0),
             )?;
             Ok(json!({
-                "categories": app.settings.categories,
+                "categories": queries::categories::map(&app.db())?,
                 "day_start_hour": app.settings.day_start_hour,
                 "day_end_hour": app.settings.day_end_hour,
                 "life_buffer_min": app.settings.life_buffer_min,

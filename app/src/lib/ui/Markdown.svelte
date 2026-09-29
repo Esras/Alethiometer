@@ -1,0 +1,152 @@
+<script lang="ts">
+  // Small markdown renderer for untrusted text (AI answers, GitHub/Jira bodies). Builds elements, never HTML strings.
+  import { openExternal } from '../api';
+
+  let { text }: { text: string } = $props();
+
+  type Block =
+    | { kind: 'code'; text: string }
+    | { kind: 'h'; level: number; text: string }
+    | { kind: 'ul' | 'ol'; items: string[] }
+    | { kind: 'quote' | 'p'; lines: string[] };
+
+  function blocks(src: string): Block[] {
+    const out: Block[] = [];
+    const lines = src.replace(/\r\n?/g, '\n').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        const body: string[] = [];
+        while (++i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i]);
+        out.push({ kind: 'code', text: body.join('\n') });
+        continue;
+      }
+      const h = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (h) {
+        out.push({ kind: 'h', level: h[1].length, text: h[2] });
+        continue;
+      }
+      const last = out.at(-1);
+      const li = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line);
+      if (li) {
+        const kind = li[1] ? 'ul' : 'ol';
+        if (last?.kind === kind) last.items.push(li[3]);
+        else out.push({ kind, items: [li[3]] });
+        continue;
+      }
+      if (line.trim() === '') {
+        out.push({ kind: 'p', lines: [] });
+        continue;
+      }
+      const q = /^\s*>\s?(.*)$/.exec(line);
+      const kind = q ? 'quote' : 'p';
+      const t = q ? q[1] : line;
+      if (last?.kind === kind && last.lines.length) last.lines.push(t);
+      else out.push({ kind, lines: [t] });
+    }
+    return out.filter((b) => b.kind !== 'p' || b.lines.length);
+  }
+
+  type Span = { kind: 'text' | 'code' | 'b' | 'i' | 'link'; text: string; href?: string };
+  const INLINE = /(`[^`]+`)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g;
+
+  function spans(line: string): Span[] {
+    const out: Span[] = [];
+    let at = 0;
+    for (const m of line.matchAll(INLINE)) {
+      if (m.index! > at) out.push({ kind: 'text', text: line.slice(at, m.index) });
+      if (m[1]) out.push({ kind: 'code', text: m[1].slice(1, -1) });
+      else if (m[2]) out.push({ kind: 'link', text: m[2], href: m[3] });
+      else if (m[4] ?? m[5]) out.push({ kind: 'b', text: (m[4] ?? m[5])! });
+      else if (m[6]) out.push({ kind: 'i', text: m[6] });
+      else out.push({ kind: 'link', text: m[7], href: m[7] });
+      at = m.index! + m[0].length;
+    }
+    if (at < line.length) out.push({ kind: 'text', text: line.slice(at) });
+    return out;
+  }
+
+  const parsed = $derived(blocks(text));
+</script>
+
+{#snippet inline(line: string)}
+  {#each spans(line) as s}
+    {#if s.kind === 'code'}<code>{s.text}</code>
+    {:else if s.kind === 'b'}<strong>{s.text}</strong>
+    {:else if s.kind === 'i'}<em>{s.text}</em>
+    {:else if s.kind === 'link'}<a href={s.href} onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a>
+    {:else}{s.text}{/if}
+  {/each}
+{/snippet}
+
+<div class="md">
+  {#each parsed as b}
+    {#if b.kind === 'code'}<pre><code>{b.text}</code></pre>
+    {:else if b.kind === 'h'}<div class="h h{Math.min(b.level, 3)}">{@render inline(b.text)}</div>
+    {:else if b.kind === 'ul'}<ul>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ul>
+    {:else if b.kind === 'ol'}<ol>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ol>
+    {:else if b.kind === 'quote'}<blockquote>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</blockquote>
+    {:else if b.kind === 'p'}<p>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</p>{/if}
+  {/each}
+</div>
+
+<style>
+  .md {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .md > :first-child {
+    margin-top: 0;
+  }
+  .md > :last-child {
+    margin-bottom: 0;
+  }
+  p,
+  ul,
+  ol,
+  pre,
+  blockquote {
+    margin: 0 0 6px;
+  }
+  ul,
+  ol {
+    padding-left: 18px;
+  }
+  .h {
+    font-weight: 600;
+    color: var(--tx-title);
+    margin: 8px 0 4px;
+  }
+  .h1 {
+    font-size: 1.1em;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(235, 219, 178, 0.07);
+  }
+  pre {
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: rgba(235, 219, 178, 0.05);
+    overflow-x: auto;
+  }
+  pre code {
+    padding: 0;
+    background: none;
+    white-space: pre;
+  }
+  blockquote {
+    padding-left: 8px;
+    border-left: 2px solid var(--border-strong);
+    color: var(--tx-muted);
+  }
+  a {
+    color: var(--blue);
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+</style>

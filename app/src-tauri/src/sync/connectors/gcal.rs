@@ -13,7 +13,7 @@
 //!
 //! Writes (`send`): `gcal.rsvp` and `gcal.hold`, see `writeback`.
 
-mod oauth;
+pub mod oauth;
 mod writeback;
 
 pub use oauth::call as auth_call;
@@ -399,7 +399,7 @@ fn attendee_summary(others: &[&&Value]) -> Option<String> {
 }
 
 /// "priya.shah@acme.com" -> "Priya".
-fn name_from_email(email: &str) -> String {
+pub(crate) fn name_from_email(email: &str) -> String {
     let local = email.split('@').next().unwrap_or(email);
     let first = local.split(['.', '_', '+', '-']).next().unwrap_or(local);
     let mut c = first.chars();
@@ -410,7 +410,7 @@ fn name_from_email(email: &str) -> String {
 }
 
 /// Descriptions may be HTML; keep the text for search.
-fn strip_html(s: &str) -> String {
+pub(crate) fn strip_html(s: &str) -> String {
     let re = regex::Regex::new(r"(?i)<br\s*/?>|</p>|<[^>]+>").expect("static regex");
     let text = re.replace_all(s, |c: &regex::Captures| {
         let tag = c[0].to_ascii_lowercase();

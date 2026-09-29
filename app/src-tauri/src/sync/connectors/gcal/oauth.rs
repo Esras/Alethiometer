@@ -27,14 +27,15 @@ pub const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 /// Read, create and change events on calendars the user owns (their primary
 /// calendar included). Enough for polling, RSVP and holds; nothing else.
 pub const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events.owned";
+/// Read mail and change labels (mark read); no delete, no send.
+pub const GMAIL_SCOPE: &str = "https://www.googleapis.com/auth/gmail.modify";
 
 /// How long the loopback listener waits for the browser.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(600);
 /// Refresh this long before Google's stated expiry.
 const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 
-/// Secret names for one Google account. `prefix` comes from `config.secret_prefix`
-/// (default `gcal`), so a second account can live next to the first.
+/// Secret names for a Google source; Gmail shares the calendar's OAuth client by default.
 pub struct SecretNames {
     pub client_id: String,
     pub client_secret: String,
@@ -42,22 +43,26 @@ pub struct SecretNames {
 }
 
 impl SecretNames {
-    pub fn new(prefix: &str) -> SecretNames {
+    pub fn of(kind: &str, config: &Value) -> SecretNames {
+        let prefix = prefix_of(kind, config);
+        let default_client = if kind == "gcal" { prefix.as_str() } else { "gcal" };
+        let client = config.get("client_prefix").and_then(Value::as_str).unwrap_or(default_client);
         SecretNames {
-            client_id: format!("{prefix}.client_id"),
-            client_secret: format!("{prefix}.client_secret"),
+            client_id: format!("{client}.client_id"),
+            client_secret: format!("{client}.client_secret"),
             refresh_token: format!("{prefix}.refresh_token"),
         }
     }
 }
 
-pub fn prefix_of(config: &Value) -> String {
-    config.get("secret_prefix").and_then(Value::as_str).unwrap_or("gcal").to_string()
+pub fn prefix_of(kind: &str, config: &Value) -> String {
+    config.get("secret_prefix").and_then(Value::as_str).unwrap_or(kind).to_string()
 }
 
-pub fn scopes_of(config: &Value) -> String {
+pub fn scopes_of(kind: &str, config: &Value) -> String {
     match config.get("scopes").and_then(Value::as_array) {
         Some(list) if !list.is_empty() => list.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+        _ if kind == "gmail" => GMAIL_SCOPE.to_string(),
         _ => DEFAULT_SCOPE.to_string(),
     }
 }
@@ -108,15 +113,16 @@ pub fn cache_key(prefix: &str, refresh_token: &str) -> String {
 
 /// A valid access token for this source, refreshing if needed.
 pub fn access_token(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<String> {
-    let names = SecretNames::new(&prefix_of(&ctx.source.config));
+    let (kind, config) = (&ctx.source.kind, &ctx.source.config);
+    let names = SecretNames::of(kind, config);
     let refresh = (ctx.secret)(&names.refresh_token).ok_or_else(|| {
         anyhow::anyhow!(
-            "Google Calendar '{}' isn't connected yet (no secret '{}'); run gcal.auth_start",
+            "'{}' isn't connected to Google yet (no secret '{}'); press Connect or run gcal.auth_start",
             ctx.source.name,
             names.refresh_token
         )
     })?;
-    let key = cache_key(&prefix_of(&ctx.source.config), &refresh);
+    let key = cache_key(&prefix_of(kind, config), &refresh);
     if let Some(t) = cache.get(&key) {
         return Ok(t);
     }
@@ -130,9 +136,9 @@ pub fn access_token(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<String> {
 
 /// Drop the cached token after a 401 so the next call refreshes.
 pub fn invalidate(ctx: &Ctx, cache: &TokenCache) {
-    let names = SecretNames::new(&prefix_of(&ctx.source.config));
+    let names = SecretNames::of(&ctx.source.kind, &ctx.source.config);
     if let Some(refresh) = (ctx.secret)(&names.refresh_token) {
-        cache.forget(&cache_key(&prefix_of(&ctx.source.config), &refresh));
+        cache.forget(&cache_key(&prefix_of(&ctx.source.kind, &ctx.source.config), &refresh));
     }
 }
 
@@ -332,13 +338,13 @@ pub fn serve_callback(
                 match parse_callback(&read_request_line(&mut stream), state) {
                     Callback::Ignore => respond(&mut stream, "404 Not Found", "Not found."),
                     Callback::Denied(e) => {
-                        respond(&mut stream, "200 OK", "Google Calendar access was not granted. You can close this tab.");
+                        respond(&mut stream, "200 OK", "Google access was not granted. You can close this tab.");
                         return Flow::Failed(format!("consent denied ({e})"));
                     }
                     Callback::Code(code) => {
                         return match exchange(&code) {
                             Ok(refresh) => {
-                                respond(&mut stream, "200 OK", "Alethiometer is connected to Google Calendar. You can close this tab.");
+                                respond(&mut stream, "200 OK", "Alethiometer is connected to Google. You can close this tab.");
                                 Flow::Exchanged(refresh)
                             }
                             Err(e) => {
@@ -372,23 +378,26 @@ fn flows() -> std::sync::MutexGuard<'static, BTreeMap<i64, Flow>> {
     FLOWS.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// `source_id`, else the first source of `kind` (default `gcal`).
 fn pick_source(app: &App, args: &Value) -> Result<crate::sync::Source> {
     let id = match crate::queries::opt_i64(args, "source_id") {
         Some(id) => id,
-        None => app
-            .db()
-            .query_row("SELECT id FROM sources WHERE kind = 'gcal' ORDER BY id LIMIT 1", [], |r| r.get(0))
-            .optional()?
-            .ok_or_else(|| msg("no gcal source in settings.json"))?,
+        None => {
+            let kind = args.get("kind").and_then(Value::as_str).unwrap_or("gcal");
+            app.db()
+                .query_row("SELECT id FROM sources WHERE kind = ?1 ORDER BY id LIMIT 1", [kind], |r| r.get(0))
+                .optional()?
+                .ok_or_else(|| msg(format!("no {kind} source in settings.json")))?
+        }
     };
     let src = load_source(&app.db(), id)?;
-    if src.kind != "gcal" {
-        return Err(msg(format!("source {id} isn't a Google Calendar source")));
+    if src.kind != "gcal" && src.kind != "gmail" {
+        return Err(msg(format!("source {id} isn't a Google source")));
     }
     Ok(src)
 }
 
-/// `gcal.auth_start {source_id?}` and `gcal.auth_status {source_id?}`.
+/// `gcal.auth_start` and `gcal.auth_status` (`{source_id?}` or `{kind?}`), for gcal and gmail.
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "auth_start" => auth_start(app, args),
@@ -399,8 +408,8 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 
 fn auth_start(app: &App, args: &Value) -> Result<Value> {
     let src = pick_source(app, args)?;
-    let prefix = prefix_of(&src.config);
-    let names = SecretNames::new(&prefix);
+    let prefix = prefix_of(&src.kind, &src.config);
+    let names = SecretNames::of(&src.kind, &src.config);
     let missing = |n: &str| msg(format!("store your OAuth client in secret '{n}' first (see docs/sources/gcal.md)"));
     let client_id = app.platform.secret_get(&names.client_id).ok_or_else(|| missing(&names.client_id))?;
     let client_secret = app.platform.secret_get(&names.client_secret).ok_or_else(|| missing(&names.client_secret))?;
@@ -410,7 +419,7 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let redirect_uri = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
     let hint = src.config.get("account").and_then(Value::as_str);
-    let url = consent_url(&client_id, &redirect_uri, &scopes_of(&src.config), &pkce_challenge(&verifier), &state, hint);
+    let url = consent_url(&client_id, &redirect_uri, &scopes_of(&src.kind, &src.config), &pkce_challenge(&verifier), &state, hint);
 
     flows().insert(src.id, Flow::Waiting);
     let id = src.id;
@@ -449,8 +458,8 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
 
 fn auth_status(app: &App, args: &Value) -> Result<Value> {
     let src = pick_source(app, args)?;
-    let prefix = prefix_of(&src.config);
-    let names = SecretNames::new(&prefix);
+    let prefix = prefix_of(&src.kind, &src.config);
+    let names = SecretNames::of(&src.kind, &src.config);
     let mut flows = flows();
     if let Some(Flow::Exchanged(refresh)) = flows.get(&src.id) {
         app.platform.secret_set(&names.refresh_token, refresh)?;
@@ -485,6 +494,20 @@ mod tests {
         let v = random_b64(48).unwrap();
         assert_eq!(v.len(), 64);
         assert!(v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+
+    #[test]
+    fn gmail_shares_the_calendar_client_with_its_own_token_and_scope() {
+        let names = |kind: &str, config: Value| {
+            let n = SecretNames::of(kind, &config);
+            [n.client_id, n.client_secret, n.refresh_token]
+        };
+        assert_eq!(names("gmail", json!({})), ["gcal.client_id", "gcal.client_secret", "gmail.refresh_token"]);
+        assert_eq!(names("gcal", json!({})), ["gcal.client_id", "gcal.client_secret", "gcal.refresh_token"]);
+        assert_eq!(names("gcal", json!({ "secret_prefix": "gcal.w2" })), ["gcal.w2.client_id", "gcal.w2.client_secret", "gcal.w2.refresh_token"]);
+        assert_eq!(names("gmail", json!({ "client_prefix": "g2" }))[0], "g2.client_id");
+        assert_eq!(scopes_of("gmail", &json!({})), GMAIL_SCOPE);
+        assert_eq!(scopes_of("gcal", &json!({})), DEFAULT_SCOPE);
     }
 
     #[test]

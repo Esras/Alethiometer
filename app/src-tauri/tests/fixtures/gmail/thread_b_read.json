@@ -1,0 +1,49 @@
+{
+  "id": "18f0a1b2c3d4e5f7",
+  "historyId": "4210",
+  "messages": [
+    {
+      "id": "18f0a1b2c3d4e5f7",
+      "threadId": "18f0a1b2c3d4e5f7",
+      "labelIds": [
+        "CATEGORY_UPDATES",
+        "INBOX"
+      ],
+      "snippet": "Hi all, Please book a 10-minute slot &amp; bring Q3 numbers.",
+      "sizeEstimate": 4312,
+      "historyId": "4190",
+      "internalDate": "1790600100000",
+      "payload": {
+        "mimeType": "text/html",
+        "filename": "",
+        "body": {
+          "size": 241,
+          "data": "PGh0bWw-PGhlYWQ-PG1ldGEgY2hhcnNldD0idXRmLTgiPjxzdHlsZT5kaXZ7Y29sb3I6IzMzM30KLnh7bWFyZ2luOjB9PC9zdHlsZT48L2hlYWQ-PGJvZHk-PGRpdj5IaSBhbGwsPC9kaXY-PGRpdj5QbGVhc2UgYm9vayBhIDEwLW1pbnV0ZSBzbG90ICZhbXA7IGJyaW5nIFEzIG51bWJlcnMuPC9kaXY-PHA-VGhhbmtzLDxicj5BbmEmIzM5O3MgdGVhbTwvcD48c2NyaXB0PnRyYWNrKCk8L3NjcmlwdD48L2JvZHk-PC9odG1sPg=="
+        },
+        "headers": [
+          {
+            "name": "Delivered-To",
+            "value": "alex.morgan@acme.com"
+          },
+          {
+            "name": "From",
+            "value": "Ana Ruiz <ana.ruiz@acme.com>"
+          },
+          {
+            "name": "To",
+            "value": "Alex Morgan <alex.morgan@acme.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "Cloud spend review, October"
+          },
+          {
+            "name": "Date",
+            "value": "Mon, 28 Sep 2026 12:55:00 +0000"
+          }
+        ],
+        "partId": ""
+      }
+    }
+  ]
+}

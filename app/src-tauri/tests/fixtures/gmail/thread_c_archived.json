@@ -1,0 +1,92 @@
+{
+  "id": "18f0a1b2c3d4e5f8",
+  "historyId": "4240",
+  "messages": [
+    {
+      "id": "18f0a1b2c3d4e5f8",
+      "threadId": "18f0a1b2c3d4e5f8",
+      "labelIds": [
+        "UNREAD"
+      ],
+      "snippet": "Draft agenda attached.",
+      "sizeEstimate": 4312,
+      "historyId": "4190",
+      "internalDate": "1790595000000",
+      "payload": {
+        "mimeType": "multipart/mixed",
+        "filename": "",
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "mimeType": "multipart/alternative",
+            "filename": "",
+            "body": {
+              "size": 0
+            },
+            "parts": [
+              {
+                "mimeType": "text/plain",
+                "filename": "",
+                "body": {
+                  "size": 24,
+                  "data": "RHJhZnQgYWdlbmRhIGF0dGFjaGVkLg0K"
+                },
+                "partId": "0"
+              },
+              {
+                "mimeType": "text/html",
+                "filename": "",
+                "body": {
+                  "size": 36,
+                  "data": "PHA-RHJhZnQgYWdlbmRhIDxiPmF0dGFjaGVkPC9iPi48L3A-"
+                },
+                "partId": "1"
+              }
+            ],
+            "partId": "0"
+          },
+          {
+            "partId": "1",
+            "mimeType": "application/pdf",
+            "filename": "agenda.pdf",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "application/pdf; name=\"agenda.pdf\""
+              }
+            ],
+            "body": {
+              "attachmentId": "ANGjdJ8x",
+              "size": 48213
+            }
+          }
+        ],
+        "headers": [
+          {
+            "name": "Delivered-To",
+            "value": "alex.morgan@acme.com"
+          },
+          {
+            "name": "From",
+            "value": "priya.shah@acme.com"
+          },
+          {
+            "name": "To",
+            "value": "Alex Morgan <alex.morgan@acme.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "Offsite agenda"
+          },
+          {
+            "name": "Date",
+            "value": "Mon, 28 Sep 2026 11:30:00 +0000"
+          }
+        ],
+        "partId": ""
+      }
+    }
+  ]
+}
