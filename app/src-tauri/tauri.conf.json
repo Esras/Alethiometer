@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Alethiometer",
-        "width": 1320,
-        "height": 880,
+        "width": 1980,
+        "height": 1320,
         "minWidth": 1100,
         "minHeight": 700,
         "titleBarStyle": "Overlay",
