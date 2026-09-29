@@ -264,7 +264,9 @@ fn sender(m: &Value) -> Option<Handle> {
     }
     let email = email.to_ascii_lowercase();
     let display_name = if name.is_empty() { name_from_email(&email) } else { name.to_string() };
-    Some(Handle { handle: email, display_name })
+    let shared = ["noreply", "no-reply"].iter().any(|n| email.contains(n));
+    let handle = if shared { format!("{email} {display_name}") } else { email };
+    Some(Handle { handle, display_name })
 }
 
 /// text/plain if there is one, else the HTML's text; quoted history cut off.
@@ -495,6 +497,14 @@ mod tests {
         assert_eq!((author.handle.as_str(), author.display_name.as_str()), ("sam.lee@acme.com", "Lee, Sam"));
         assert_eq!(a.raw_json["msgs"], json!(["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]));
         assert_eq!(a.summary.as_deref(), Some("I can take it at 16:15."));
+    }
+
+    #[test]
+    fn no_reply_senders_are_told_apart_by_name() {
+        let from = |f: &str| sender(&json!({ "payload": { "headers": [{ "name": "From", "value": f }] } })).unwrap().handle;
+        assert_eq!(from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"), "comments-noreply@docs.google.com Alan Ho (Google Sheets)");
+        assert_ne!(from("\"Xuan Lam (Google Sheets)\" <comments-noreply@docs.google.com>"), from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"));
+        assert_eq!(from("Dana Kim <Dana@Acme.com>"), "dana@acme.com");
     }
 
     #[test]
