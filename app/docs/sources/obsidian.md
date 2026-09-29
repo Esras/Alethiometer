@@ -151,7 +151,7 @@ Receipts:
 
 ## Editing notes in the app
 
-- **Topics:** the note pane shows the preview; `e` turns it into a plain-text editor (same type and colours), `⌘S` saves, `esc` or clicking away saves and returns to the preview, `o` opens the note in Obsidian. The header shows `saving…`, `saved`, `conflict: changed in Obsidian · reload (r) / keep mine (k)` or `Obsidian isn't open · ⌘R retry`.
+- **Topics:** the note pane shows the preview; `e` turns it into a plain-text editor (same type and colours), `⌘S` saves, `esc` or clicking away saves and returns to the preview, `o` opens the note in Obsidian. A topic with no note linked gets `Topics/<topic name>.md` (characters not allowed in file names become `-`); the file is created on the first save and the path is then stored on the topic. The header shows `saving…`, `saved`, `conflict: changed in Obsidian · reload (r) / keep mine (k)` or `Obsidian isn't open · ⌘R retry`.
 - **Reflect:** the reflection note autosaves as before (debounced), through the same `obsidian.replace`.
 - A save is one outbox row. Typing more while it's still queued (or while Obsidian is closed) updates that row's text instead of queuing another, so ⌘R later sends your latest text once.
 - **No obsidian source configured** (the sample data: its "Obsidian" source is a placeholder with no vault): there's no Obsidian to talk to, so saves write the file under the vault folder directly, with the same base check and conflict UI. That keeps the sample app editable.

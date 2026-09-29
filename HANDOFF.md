@@ -11,7 +11,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - Browser-mode dev: `ALETHIOMETER_FAKE_NOW=10:52 npm run devserver` + `npm run dev` (set `ALETHIOMETER_DATA_DIR` to a temp dir to keep off the real DB); screenshots with `node scripts/shot.mjs out.png <tab> [keys…]` — needs Playwright, which the devshell doesn't have yet. Desktop dev: `npx tauri dev` (real window, real IPC; its watcher rebuilds/relaunches on Rust changes, Vite hot-reloads Svelte).
 - Real data dir on the Mac: `~/Library/Application Support/dev.alethiometer.app` (`settings.json`, `secrets.json` mode 0600, `alethiometer.sqlite`). Keychain isn't wired, secrets live in the file.
 - **`ISSUES.md`** (repo root): running list of bugs/gaps found wiring up real accounts on the Mac, separate from this file's "in flight" list until triaged in here. Check it before starting more connector work — several are load-bearing (the Tauri command was synchronous and froze the whole window on any slow call; `suggest_topics` had two separate gating bugs that made it silently do nothing).
-- **Live on the work Mac: GitHub, Bedrock AI, Google Calendar, Jira, Gmail.** Slack, Obsidian, Proton ICS are still fixture-tested only.
+- **Live on the work Mac: GitHub, Bedrock AI, Google Calendar, Jira, Gmail, Obsidian.** Slack and Proton ICS are still fixture-tested only.
 
 ## Built
 
@@ -68,9 +68,11 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 - Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
-- **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
+- **Obsidian (live):** connected to the work vault; a Topics note save through the plugin is verified. Writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
 - UI for remaining writebacks: RSVP on invites in Incoming (designed, 14a/14b, design README "RSVP"), Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 - macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
-- Real-account runs still to do: Slack, Obsidian, Proton ICS.
-- Reclassifying a single signal is designed (18c/18d). Topic merge is still wanted later.
+- Real-account runs still to do: Slack, Proton ICS.
+- Reclassifying a single signal is designed (18c/18d). 
+- Wanted later: topic merge/reclassification (the Topics assistant can only advise); assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
 - Check `ISSUES.md`'s "Open" section before starting connector work.
+

@@ -130,14 +130,25 @@ pub(crate) fn find_or_create(conn: &rusqlite::Connection, name: &str, category: 
 /// Answers `{state: "saved"}`, `{state: "conflict", disk}` or
 /// `{state: "saving", outbox_id}` (follow it with `note_status`).
 fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value> {
-    let path: Option<String> = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [id], |r| r.get(0))?;
-    let path = path.ok_or_else(|| crate::error::msg("this topic has no Obsidian note"))?;
+    let (name, path): (String, Option<String>) =
+        app.db().query_row("SELECT name, obsidian_path FROM topics WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let linked = path.is_some();
+    let path = path.unwrap_or_else(|| default_note_path(&name));
     let rel = path.trim_start_matches("./").trim_start_matches('/');
-    Ok(match save::save_note(app, rel, base, text)? {
+    let saved = save::save_note(app, rel, base, text)?;
+    if !linked {
+        app.db().execute("UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL", rusqlite::params![id, path])?;
+    }
+    Ok(match saved {
         save::Saved::Written => json!({ "state": "saved" }),
         save::Saved::Conflict(disk) => json!({ "state": "conflict", "disk": disk }),
         save::Saved::Queued(outbox_id) => json!({ "state": "saving", "outbox_id": outbox_id }),
     })
+}
+
+fn default_note_path(name: &str) -> String {
+    let file: String = name.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) || c.is_control() { '-' } else { c }).collect();
+    format!("Topics/{}.md", file.trim().trim_start_matches('.'))
 }
 
 fn list(app: &App, archived: bool) -> Result<Value> {
@@ -403,11 +414,12 @@ fn get(app: &App, id: i64) -> Result<Value> {
 
     // `base` is what an edit starts from and must still be there when it saves
     // (null: no file yet). The file on disk is what Obsidian last saved.
-    let note = path.as_ref().map(|p| {
-        let abs = app.vault.join(p);
+    let p = path.unwrap_or_else(|| default_note_path(&name));
+    let note = {
+        let abs = app.vault.join(&p);
         let disk = std::fs::read_to_string(&abs).ok();
         json!({ "path": p, "abs_path": abs.to_string_lossy(), "text": disk.clone().unwrap_or_default(), "base": disk })
-    });
+    };
 
     Ok(json!({
         "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills },
@@ -681,10 +693,15 @@ mod tests {
         assert_eq!(s["state"], "saved");
         let put = http.requests().into_iter().find(|r| r.0 == "PUT").unwrap();
         assert_eq!(put.2.as_deref(), Some(mine.as_str()));
-        // Topics without a note can't be edited.
+        // A topic without a note gets Topics/<name>.md, linked on first save.
         let q4 = topic_id(&app, "Q4 headcount");
-        app.db().execute("UPDATE topics SET obsidian_path = NULL WHERE id = ?1", [q4]).unwrap();
-        assert!(crate::api::call(&app, "topics.save_note", &json!({ "id": q4, "text": "x", "base": null })).is_err());
+        app.db().execute("UPDATE topics SET name = 'Q4 CI/CD', obsidian_path = NULL WHERE id = ?1", [q4]).unwrap();
+        let g = crate::api::call(&app, "topics.get", &json!({ "id": q4 })).unwrap();
+        assert_eq!(g["note"]["path"], "Topics/Q4 CI-CD.md");
+        assert!(g["note"]["base"].is_null());
+        crate::api::call(&app, "topics.save_note", &json!({ "id": q4, "text": "x", "base": null })).unwrap();
+        let p: String = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0)).unwrap();
+        assert_eq!(p, "Topics/Q4 CI-CD.md");
     }
 
     #[test]

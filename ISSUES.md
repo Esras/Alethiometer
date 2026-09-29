@@ -35,6 +35,10 @@ Repro: sync a source with items and no Bedrock credentials configured. Sync succ
 
 Fix direction: `suggest_after_sync` should inspect `Outcome.status` (per the doc's own snippet) and surface `"failed"` somewhere durable — at minimum `eprintln`, ideally something the UI/sync-status tab can show, since right now there's no way to distinguish "AI never ran," "AI ran and failed," and "AI ran and had nothing to suggest."
 
+### Changing `obsidian_vault` strands notes saved in the stand-in vault
+
+With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. Setting `obsidian_vault` later switches every read to the real vault and nothing moves the stand-in's files, so earlier reflections silently disappear from Reflect. Hit when connecting Obsidian on the work Mac: `Reflections/Daily/2026-09-28.md` was copied over by hand (the original is still in the stand-in). Fix direction: on startup, if `obsidian_vault` is set and `<data dir>/vault` has files, offer to copy them over (never overwrite), or at least warn.
+
 ## Resolved
 
 ### AI-proposed topics always landed in `work`
