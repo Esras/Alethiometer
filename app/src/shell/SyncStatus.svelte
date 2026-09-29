@@ -9,7 +9,7 @@
   type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null };
   type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
 
-  type Tokens = { calls: number; input: number; output: number };
+  type Tokens = { calls: number; input: number; output: number; cost: number | null };
   type Usage = { tier: string; today: Tokens; week: Tokens };
 
   let sources = $state<Source[]>([]);
@@ -53,7 +53,7 @@
   }
 
   const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : `${n}`);
-  const tokens = (t: Tokens) => `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out`;
+  const tokens = (t: Tokens) => `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out${t.cost === null ? '' : ` · $${t.cost.toFixed(2)}`}`;
 
   const newest = $derived(live.map((s) => s.last_sync_at).filter(Boolean).sort().at(-1) ?? null);
 

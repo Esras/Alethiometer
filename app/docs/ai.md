@@ -201,7 +201,7 @@ Each Unsorted item costs one small-model call of roughly 300 input and 30 output
 
 ## Token usage
 
-Every call Bedrock answers records its `usage` (tier, model, input and output tokens) in the `ai_usage` table, including calls that came back without text (for example when reasoning used up the whole budget). Failed requests (throttling, auth, network) aren't counted; Bedrock reports no usage for them. The sync status popover in the tab bar shows today's calls and tokens per tier; hover for the last 7 days. `ai.usage` returns the same numbers. There's no cost figure: Alethiometer doesn't know the prices. Bedrock's own numbers are in CloudWatch (`AWS/Bedrock`, `InputTokenCount` / `OutputTokenCount` per model) and Cost Explorer.
+Every call Bedrock answers records its `usage` (tier, model, input and output tokens) in the `ai_usage` table, including calls that came back without text (for example when reasoning used up the whole budget). Failed requests (throttling, auth, network) aren't counted; Bedrock reports no usage for them. The sync status popover in the tab bar shows today's calls and tokens per tier; hover for the last 7 days. `ai.usage` returns the same numbers. With `ai.prices` in `settings.json` (model id → US dollars per million tokens, `{"input": 4.40, "output": 22.00}`), the popover also shows the cost; a model without a price shows tokens only. Alethiometer sends no cache points, so there are no cache reads or writes to price, and no call comes near GPT-6 Luna's long-context rate (a topic suggestion is a few thousand tokens). Bedrock's own numbers are in CloudWatch (`AWS/Bedrock`, `InputTokenCount` / `OutputTokenCount` per model) and Cost Explorer.
 
 ## Errors you may see
 

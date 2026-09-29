@@ -47,6 +47,12 @@ pub struct AiTier {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Price {
+    pub input: f64,
+    pub output: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiSettings {
     /// Providers covered by a BAA (or local). Work data may only go to these.
     pub allowed_providers: Vec<String>,
@@ -58,6 +64,8 @@ pub struct AiSettings {
     pub aws_profile: String,
     pub small: AiTier,
     pub large: AiTier,
+    #[serde(default)]
+    pub prices: BTreeMap<String, Price>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +121,7 @@ impl Default for Settings {
                 // Suggestions are simple picks: low effort keeps them fast and cheap.
                 small: AiTier { provider: "bedrock".into(), model: "us.openai.gpt-6-luna".into(), effort: "low".into() },
                 large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
+                prices: BTreeMap::new(),
             },
             fake_now: String::new(),
             ui_scale: 1.0,

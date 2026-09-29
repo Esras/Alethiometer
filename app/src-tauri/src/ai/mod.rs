@@ -193,22 +193,32 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "usage" => {
             let conn = app.db();
             let mut stmt = conn.prepare(
-                "SELECT tier, count(*), sum(input_tokens), sum(output_tokens),
-                        coalesce(sum(date(at) = date('now', 'localtime')), 0),
-                        coalesce(sum(CASE WHEN date(at) = date('now', 'localtime') THEN input_tokens END), 0),
-                        coalesce(sum(CASE WHEN date(at) = date('now', 'localtime') THEN output_tokens END), 0)
-                   FROM ai_usage WHERE at >= datetime('now', 'localtime', '-7 days') GROUP BY tier ORDER BY tier DESC",
+                "SELECT tier, model, date(at) = date('now', 'localtime'), count(*), sum(input_tokens), sum(output_tokens)
+                   FROM ai_usage WHERE at >= datetime('now', 'localtime', '-7 days') GROUP BY 1, 2, 3 ORDER BY tier DESC",
             )?;
             let rows = stmt
-                .query_map([], |r| {
-                    Ok(json!({
-                        "tier": r.get::<_, String>(0)?,
-                        "week": { "calls": r.get::<_, i64>(1)?, "input": r.get::<_, i64>(2)?, "output": r.get::<_, i64>(3)? },
-                        "today": { "calls": r.get::<_, i64>(4)?, "input": r.get::<_, i64>(5)?, "output": r.get::<_, i64>(6)? },
-                    }))
-                })?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(json!(rows))
+            let mut out: Vec<Value> = vec![];
+            for (tier, model, today, calls, input, output) in rows {
+                if !out.iter().any(|u| u["tier"] == tier.as_str()) {
+                    let zero = json!({ "calls": 0, "input": 0, "output": 0, "cost": 0.0 });
+                    out.push(json!({ "tier": tier, "today": zero, "week": zero }));
+                }
+                let u = out.iter_mut().find(|u| u["tier"] == tier.as_str()).expect("just pushed");
+                let cost = app.settings.ai.prices.get(&model).map(|p| (input as f64 * p.input + output as f64 * p.output) / 1e6);
+                for w in if today { vec!["today", "week"] } else { vec!["week"] } {
+                    let t = &mut u[w];
+                    t["calls"] = json!(t["calls"].as_i64().unwrap_or(0) + calls);
+                    t["input"] = json!(t["input"].as_i64().unwrap_or(0) + input);
+                    t["output"] = json!(t["output"].as_i64().unwrap_or(0) + output);
+                    t["cost"] = match (t["cost"].as_f64(), cost) {
+                        (Some(a), Some(c)) => json!(a + c),
+                        _ => Value::Null,
+                    };
+                }
+            }
+            Ok(json!(out))
         }
         _ => Err(crate::api::unknown(name)),
     }
@@ -335,7 +345,13 @@ pub mod tests {
         let out = complete(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
         assert_eq!(out, r#"{"topic_id":null}"#);
         let usage = call(&app, "usage", &json!({})).unwrap();
-        assert_eq!(usage, json!([{ "tier": "small", "week": { "calls": 1, "input": 90, "output": 40 }, "today": { "calls": 1, "input": 90, "output": 40 } }]));
+        assert_eq!(usage[0]["today"], json!({ "calls": 1, "input": 90, "output": 40, "cost": null }));
+        let mut settings = Settings::default();
+        settings.ai.prices.insert("us.openai.gpt-6-luna".into(), crate::settings::Price { input: 0.11, output: 0.55 });
+        let priced = App::from_parts(crate::db::open_in_memory().unwrap(), settings, dir.path()).unwrap();
+        priced.db().execute("INSERT INTO ai_usage (tier, model, input_tokens, output_tokens) VALUES ('small', 'us.openai.gpt-6-luna', 1000000, 2000000)", []).unwrap();
+        let week = &call(&priced, "usage", &json!({})).unwrap()[0]["week"];
+        assert!((week["cost"].as_f64().unwrap() - 1.21).abs() < 1e-9, "{week}");
         let v: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(v["system"][0]["text"], "S");
         assert_eq!(v["inferenceConfig"], json!({ "maxTokens": 1024 }));
