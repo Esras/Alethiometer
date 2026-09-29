@@ -141,10 +141,13 @@ pub fn recount(conn: &Connection, item_id: i64, removed: usize) -> Result<()> {
 /// no topic link except inherited `wrong` ones; the caller links it. Run inside
 /// a transaction.
 pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result<i64> {
-    let (source_id, parent_id, raw): (i64, Option<i64>, String) = conn
-        .query_row("SELECT source_id, parent_id, raw_json FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+    let (source_id, parent_id, raw, kind): (i64, Option<i64>, String, String) = conn
+        .query_row("SELECT source_id, parent_id, raw_json, kind FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .optional()?
         .ok_or_else(|| msg("no such item"))?;
+    if kind == "email" {
+        return Err(msg("an email thread moves as a whole: move the item instead"));
+    }
     let raw: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
     let mut rows = messages(conn, item_id)?;
     let wanted: HashSet<i64> = message_ids.iter().copied().collect();

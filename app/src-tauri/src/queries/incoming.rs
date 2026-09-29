@@ -88,6 +88,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             dismiss(&conn, arg_i64(args, "item_id")?, name == "dismiss")?;
             Ok(json!({ "ok": true }))
         }
+        "trash" => {
+            trash(&conn, arg_i64(args, "item_id")?)?;
+            Ok(json!({ "ok": true }))
+        }
         "split" => {
             let ids: Vec<i64> = args
                 .get("message_ids")
@@ -235,7 +239,7 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     )?;
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
     confirm_series(conn, item_id, topic_id)?;
-    mark_read_remote(conn, item_id)?;
+    mark_read_remote(conn, item_id, topic_id)?;
     Ok(())
 }
 
@@ -265,11 +269,11 @@ fn confirm_series(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> 
 /// while another part of the family is still new, nothing is marked; the last
 /// part to leave Incoming marks the conversation up to the family's newest
 /// marker.
-fn mark_read_remote(conn: &Connection, item_id: i64) -> Result<()> {
+fn mark_read_remote(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     let Some((source_id, kind, raws)) = settled_family(conn, item_id)? else { return Ok(()) };
     match kind.as_str() {
         "slack" => mark_slack_read(conn, source_id, item_id, &raws),
-        "gmail" => mark_gmail_read(conn, source_id, item_id, &raws),
+        "gmail" => file_gmail(conn, source_id, item_id, &raws, topic_id),
         _ => Ok(()),
     }
 }
@@ -313,8 +317,9 @@ fn mark_slack_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Valu
     Ok(())
 }
 
-/// The thread plus every Gmail message id the user saw in it, so `gmail.mark_read` can spot mail that came later.
-fn mark_gmail_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value]) -> Result<()> {
+/// The thread, every Gmail message id the user saw in it (so `gmail.file` can spot mail that came later), and the
+/// Gmail label of the topic's category (`config.category_labels`), if any.
+fn file_gmail(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value], topic_id: i64) -> Result<()> {
     if crate::outbox::read_only(conn, source_id)?.is_some() {
         return Ok(());
     }
@@ -325,9 +330,35 @@ fn mark_gmail_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Valu
             ids.push(id);
         }
     }
-    let payload = json!({ "thread_id": thread, "message_ids": ids });
-    crate::outbox::enqueue(conn, source_id, "gmail.mark_read", &payload, Some(item_id))?;
+    let (config, category): (String, String) = conn.query_row(
+        "SELECT s.config_json, t.category FROM sources s, topics t WHERE s.id = ?1 AND t.id = ?2",
+        params![source_id, topic_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let config: Value = serde_json::from_str(&config).unwrap_or_default();
+    let mut payload = json!({ "thread_id": thread, "message_ids": ids });
+    if let Some(label) = config.pointer(&format!("/category_labels/{category}")).and_then(Value::as_str) {
+        payload["label"] = json!(label);
+    }
+    crate::outbox::enqueue(conn, source_id, "gmail.file", &payload, Some(item_id))?;
     Ok(())
+}
+
+fn gmail_op(conn: &Connection, item_id: i64, op: &str) -> Result<()> {
+    let row: Option<(i64, String, String)> = conn
+        .query_row(
+            "SELECT s.id, s.kind, i.external_id FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    match row {
+        Some((source_id, kind, thread)) if kind == "gmail" && crate::outbox::read_only(conn, source_id)?.is_none() => {
+            crate::outbox::enqueue(conn, source_id, op, &json!({ "thread_id": thread }), Some(item_id))?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Manual split from Unsorted: the selected messages go to a new item confirmed
@@ -359,12 +390,24 @@ pub fn wrong(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Out of triage without a topic and without touching the source; new activity brings it back.
+/// Out of triage without a topic; new activity brings it back. The source is only touched for Gmail (`gmail_op`).
 pub fn dismiss(conn: &Connection, item_id: i64, on: bool) -> Result<()> {
     if conn.execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![item_id, on])? == 0 {
         return Err(msg("no such item"));
     }
-    Ok(())
+    gmail_op(conn, item_id, if on { "gmail.archive" } else { "gmail.restore" })
+}
+
+pub fn trash(conn: &Connection, item_id: i64) -> Result<()> {
+    let is_gmail: bool = conn
+        .query_row("SELECT s.kind = 'gmail' FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1", [item_id], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| msg("no such item"))?;
+    if !is_gmail {
+        return Err(msg("only Gmail threads can be trashed"));
+    }
+    conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
+    gmail_op(conn, item_id, "gmail.trash")
 }
 
 /// The user picked the topic, so it's confirmed. If the item came from another
@@ -382,7 +425,7 @@ pub fn move_to(conn: &Connection, item_id: i64, topic_id: i64, from: Option<i64>
     confirm_series(conn, item_id, topic_id)?;
     if let Some((source_id, kind, raws)) = settled_family(conn, item_id)? {
         if kind == "gmail" {
-            mark_gmail_read(conn, source_id, item_id, &raws)?;
+            file_gmail(conn, source_id, item_id, &raws, topic_id)?;
         }
     }
     Ok(())

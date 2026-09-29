@@ -1,4 +1,4 @@
-//! Gmail (the work inbox), one item per unread Inbox thread; see docs/sources/gmail.md.
+//! Gmail (the work inbox), one item per Inbox thread; see docs/sources/gmail.md.
 
 use super::gcal::oauth::{self, TokenCache};
 use super::gcal::{enc, name_from_email, strip_html, Api};
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 
 pub const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
-const QUERY: &str = "in:inbox is:unread";
+const QUERY: &str = "in:inbox";
 /// `threads.get` calls per poll; the rest of the queue waits for the next one.
 const FETCH_PER_POLL: usize = 200;
 /// Pages of 500 for `threads.list` and `history.list`.
@@ -27,7 +27,13 @@ impl Connector for Gmail {
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         let api = Api { ctx, cache: &oauth::CACHE };
         match op {
-            "gmail.mark_read" => mark_read(&api, payload),
+            "gmail.file" | "gmail.mark_read" => file(&api, payload),
+            "gmail.archive" => modify(&api, payload, json!({ "removeLabelIds": ["INBOX"] })),
+            "gmail.trash" => thread_post(&api, payload, "trash"),
+            "gmail.restore" => {
+                thread_post(&api, payload, "untrash")?;
+                modify(&api, payload, json!({ "addLabelIds": ["INBOX"] }))
+            }
             _ => anyhow::bail!("Gmail doesn't support '{op}'"),
         }
     }
@@ -39,7 +45,7 @@ struct Cursor {
     /// Threads still to read with `threads.get`, in order.
     #[serde(default)]
     queue: Vec<String>,
-    /// Unread Inbox thread id -> newest unread message (`internalDate`, ms).
+    /// Inbox thread id -> newest message (`internalDate`, ms).
     #[serde(default)]
     tracked: BTreeMap<String, i64>,
 }
@@ -54,21 +60,24 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     };
     match changed {
         Some((threads, id)) => {
-            for (t, may_be_unread) in threads {
-                if may_be_unread || cur.tracked.contains_key(&t) {
+            for (t, may_be_in_inbox) in threads {
+                if may_be_in_inbox || cur.tracked.contains_key(&t) {
                     cur.queue.push(t);
                 }
             }
             cur.history_id = Some(id);
         }
-        // First sync, or the history id is too old: list everything unread.
+        // First sync, or the history id is too old: list the whole Inbox.
         None => {
             let profile = api.get(&format!("{API}/profile"))?.ok()?.json()?;
             let id = id_str(&profile["historyId"]).ok_or_else(|| anyhow::anyhow!("Gmail profile had no historyId"))?;
-            let unread = list_unread(&api)?;
-            let listed: HashSet<&String> = unread.iter().collect();
+            let inbox = list_inbox(&api)?;
+            let listed: HashSet<&String> = inbox.iter().collect();
+            for t in cur.tracked.keys().filter(|t| !listed.contains(t)) {
+                batch.seen.push(t.clone());
+            }
             cur.tracked.retain(|t, _| listed.contains(t));
-            cur.queue.splice(0..0, unread.iter().cloned());
+            cur.queue.splice(0..0, inbox.iter().cloned());
             cur.history_id = Some(id);
         }
     }
@@ -91,7 +100,9 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
                 batch.items.push(item);
             }
             None => {
-                cur.tracked.remove(t);
+                if cur.tracked.remove(t).is_some() {
+                    batch.seen.push(t.clone());
+                }
             }
         }
     }
@@ -108,7 +119,7 @@ fn id_str(v: &Value) -> Option<String> {
     v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string()))
 }
 
-/// Changed threads (flagged when they may now be unread in the Inbox) and the new history id; `None` means re-list.
+/// Changed threads (flagged when they may now be in the Inbox) and the new history id; `None` means re-list.
 fn history(api: &Api, start: &str) -> anyhow::Result<Option<(Vec<(String, bool)>, String)>> {
     let base = format!("{API}/history?startHistoryId={}&maxResults=500", enc(start));
     let mut out = Vec::new();
@@ -139,18 +150,20 @@ fn changes(h: &Value, out: &mut Vec<(String, bool)>) {
     for key in ["messagesAdded", "labelsAdded", "labelsRemoved", "messagesDeleted"] {
         for c in h.get(key).and_then(Value::as_array).into_iter().flatten() {
             let Some(t) = c.pointer("/message/threadId").and_then(Value::as_str) else { continue };
-            let may_be_unread = match key {
-                "messagesAdded" => has(&c["message"]["labelIds"], "INBOX") && has(&c["message"]["labelIds"], "UNREAD"),
-                "labelsAdded" => has(&c["labelIds"], "INBOX") || has(&c["labelIds"], "UNREAD"),
+            let inbox_moved = ["INBOX", "TRASH", "SPAM"].iter().any(|l| has(&c["labelIds"], l));
+            let may_be_in_inbox = match key {
+                "messagesAdded" => has(&c["message"]["labelIds"], "INBOX"),
+                "labelsAdded" if inbox_moved => has(&c["labelIds"], "INBOX"),
+                "labelsAdded" | "labelsRemoved" if !inbox_moved => continue,
                 _ => false,
             };
-            out.push((t.to_string(), may_be_unread));
+            out.push((t.to_string(), may_be_in_inbox));
         }
     }
 }
 
 /// Every thread matching `QUERY`, newest first.
-fn list_unread(api: &Api) -> anyhow::Result<Vec<String>> {
+fn list_inbox(api: &Api) -> anyhow::Result<Vec<String>> {
     let base = format!("{API}/threads?q={}&maxResults=500", enc(QUERY));
     let mut out = Vec::new();
     let mut page: Option<String> = None;
@@ -167,7 +180,7 @@ fn list_unread(api: &Api) -> anyhow::Result<Vec<String>> {
             None => return Ok(out),
         }
     }
-    anyhow::bail!("more than {} unread threads in the Inbox; not syncing a partial list", out.len())
+    anyhow::bail!("more than {} threads in the Inbox; not syncing a partial list", out.len())
 }
 
 fn labeled(m: &Value, l: &str) -> bool {
@@ -176,6 +189,10 @@ fn labeled(m: &Value, l: &str) -> bool {
 
 fn unread_in_inbox(m: &Value) -> bool {
     labeled(m, "UNREAD") && labeled(m, "INBOX")
+}
+
+fn kept(m: &Value) -> bool {
+    !["TRASH", "SPAM", "DRAFT"].iter().any(|l| labeled(m, l))
 }
 
 fn internal_ms(m: &Value) -> i64 {
@@ -190,15 +207,18 @@ fn header<'a>(m: &'a Value, name: &str) -> Option<&'a str> {
         .as_str()
 }
 
-/// The item and newest unread time; `None` when nothing in the thread is unread in the Inbox.
+/// The item (every message, read or not) and its newest message time; `None` when the thread isn't in the Inbox.
 fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<(ItemUpsert, i64)> {
     let all = th["messages"].as_array()?;
-    let mut unread: Vec<&Value> = all.iter().filter(|m| unread_in_inbox(m)).collect();
-    unread.sort_by_key(|m| internal_ms(m));
-    let (first, last) = (*unread.first()?, *unread.last()?);
+    let mut msgs: Vec<&Value> = all.iter().filter(|m| kept(m)).collect();
+    if !msgs.iter().any(|m| labeled(m, "INBOX")) {
+        return None;
+    }
+    msgs.sort_by_key(|m| internal_ms(m));
+    let (first, last) = (*msgs.first()?, *msgs.last()?);
     let last_ms = internal_ms(last);
     let at = |m: &Value| local_from_unix(internal_ms(m) as f64 / 1000.0).unwrap_or_default();
-    let messages: Vec<Message> = unread
+    let messages: Vec<Message> = msgs
         .iter()
         .map(|m| Message {
             at: at(m),
@@ -223,7 +243,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
         raw_json: json!({
             "thread_id": id,
             "last_ms": last_ms,
-            "msgs": unread.iter().filter_map(|m| m["id"].as_str()).collect::<Vec<_>>(),
+            "msgs": msgs.iter().filter_map(|m| m["id"].as_str()).collect::<Vec<_>>(),
         }),
         messages,
         bump: prev.is_none_or(|p| last_ms > p),
@@ -316,23 +336,52 @@ fn clip(s: &str, n: usize) -> String {
     out
 }
 
-/// `gmail.mark_read {thread_id, message_ids?}`: threads.modify, skipped if unseen unread mail arrived since.
-fn mark_read(api: &Api, payload: &Value) -> anyhow::Result<Value> {
-    let thread = payload["thread_id"]
-        .as_str()
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("gmail.mark_read needs thread_id"))?;
-    let url = format!("{API}/threads/{}", enc(thread));
+fn thread_id(payload: &Value) -> anyhow::Result<&str> {
+    payload["thread_id"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| anyhow::anyhow!("payload needs thread_id"))
+}
+
+/// `gmail.file {thread_id, message_ids?, label?}`: adds the label (by name) and marks the thread read, unless
+/// unread mail you haven't seen here arrived since; then it only adds the label.
+fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
+    let thread = thread_id(payload)?;
+    let mut mark_read = true;
     if let Some(known) = payload["message_ids"].as_array() {
-        let th = api.get(&format!("{url}?format=minimal"))?.ok()?.json()?;
+        let th = api.get(&format!("{API}/threads/{}?format=minimal", enc(thread)))?.ok()?.json()?;
         let msgs = th["messages"].as_array().into_iter().flatten();
-        if msgs.filter(|m| unread_in_inbox(m)).any(|m| !known.contains(&m["id"])) {
-            return Ok(json!({ "thread_id": thread, "left_unread": "new mail arrived since" }));
-        }
+        mark_read = !msgs.filter(|m| unread_in_inbox(m)).any(|m| !known.contains(&m["id"]));
     }
-    let body = json!({ "removeLabelIds": ["UNREAD"] });
-    let v = api.request("POST", &format!("{url}/modify"), Some(&body), &[])?.ok()?.json()?;
+    let mut change = json!({});
+    if mark_read {
+        change["removeLabelIds"] = json!(["UNREAD"]);
+    }
+    if let Some(name) = payload["label"].as_str() {
+        let labels = api.get(&format!("{API}/labels"))?.ok()?.json()?;
+        let id = labels["labels"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|l| l["name"].as_str() == Some(name))
+            .and_then(|l| l["id"].as_str())
+            .ok_or_else(|| anyhow::anyhow!("no Gmail label named '{name}'; create it in Gmail, then retry"))?;
+        change["addLabelIds"] = json!([id]);
+    }
+    let mut receipt = if change.as_object().is_some_and(|o| o.is_empty()) { json!({ "thread_id": thread }) } else { modify(api, payload, change)? };
+    if !mark_read {
+        receipt["left_unread"] = json!("new mail arrived since");
+    }
+    Ok(receipt)
+}
+
+fn modify(api: &Api, payload: &Value, change: Value) -> anyhow::Result<Value> {
+    let thread = thread_id(payload)?;
+    let v = api.request("POST", &format!("{API}/threads/{}/modify", enc(thread)), Some(&change), &[])?.ok()?.json()?;
     Ok(json!({ "thread_id": v["id"].as_str().unwrap_or(thread), "history_id": v["historyId"] }))
+}
+
+fn thread_post(api: &Api, payload: &Value, action: &str) -> anyhow::Result<Value> {
+    let thread = thread_id(payload)?;
+    let v = api.request("POST", &format!("{API}/threads/{}/{action}", enc(thread)), None, &[])?.ok()?.json()?;
+    Ok(json!({ "thread_id": v["id"].as_str().unwrap_or(thread) }))
 }
 
 #[cfg(test)]
@@ -406,11 +455,11 @@ mod tests {
     }
 
     #[test]
-    fn first_sync_brings_every_unread_inbox_thread_as_new() {
+    fn first_sync_brings_every_inbox_thread_as_new() {
         let (http, b) = first_sync();
         let g = gets(&http);
         assert_eq!(g[0], format!("{API}/profile"));
-        assert_eq!(g[1], format!("{API}/threads?q=in%3Ainbox%20is%3Aunread&maxResults=500"));
+        assert_eq!(g[1], format!("{API}/threads?q=in%3Ainbox&maxResults=500"));
         assert!(g[2].ends_with("&pageToken=09876543210987654321"));
         assert_eq!(g[3], format!("{API}/threads/{A}?format=full"));
         assert_eq!(g.len(), 6);
@@ -427,23 +476,24 @@ mod tests {
     }
 
     #[test]
-    fn thread_becomes_one_item_of_its_unread_messages() {
+    fn thread_becomes_one_item_of_all_its_messages() {
         let (_, b) = first_sync();
         let a = item(&b, A);
         assert_eq!(a.title, "Acme exec call today");
         assert_eq!(a.url.clone().unwrap(), format!("https://mail.google.com/mail/u/0/#all/{A}"));
         let texts: Vec<(&str, &str)> = a.messages.iter().map(|m| (m.author.as_str(), m.text.as_str())).collect();
-        // The read first message stays out, the quoted reply is cut, plain text wins over HTML.
+        // Read or not, every message is in; the quoted reply is cut, plain text wins over HTML.
+        assert_eq!(texts.len(), 3);
         assert_eq!(
-            texts,
+            texts[1..],
             [("Dana Kim", "Can someone senior join a call today?\nWe're seeing delays again."), ("Lee, Sam", "I can take it at 16:15.")]
         );
-        assert_eq!(a.messages[0].at, utc(14, 22));
-        assert_eq!((a.occurred_at.clone(), a.ended_at.clone()), (utc(14, 22), Some(utc(14, 41))));
-        assert_eq!(a.msg_count, Some(2));
+        assert_eq!(a.messages[1].at, utc(14, 22));
+        assert_eq!(a.ended_at.clone(), Some(utc(14, 41)));
+        assert_eq!(a.msg_count, Some(3));
         let author = a.author.as_ref().unwrap();
         assert_eq!((author.handle.as_str(), author.display_name.as_str()), ("sam.lee@acme.com", "Lee, Sam"));
-        assert_eq!(a.raw_json["msgs"], json!(["18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]));
+        assert_eq!(a.raw_json["msgs"], json!(["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]));
         assert_eq!(a.summary.as_deref(), Some("I can take it at 16:15."));
     }
 
@@ -459,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn history_bumps_new_mail_and_leaves_read_or_archived_threads_in_incoming() {
+    fn history_bumps_new_mail_ignores_read_state_and_drops_threads_that_left_the_inbox() {
         let (_, first) = first_sync();
         let http = google();
         http.on("GET", "/history?startHistoryId=4201", 200, fixture!("history_page1.json"));
@@ -470,37 +520,21 @@ mod tests {
         let b = poll(&http, first.cursor.clone());
         let g = gets(&http);
         assert_eq!(g[0], format!("{API}/history?startHistoryId=4201&maxResults=500"));
-        // Untracked threads that only got a user label or a sent message aren't read.
-        assert_eq!(g.iter().filter(|u| u.contains("/threads/")).count(), 3);
+        // Read-state and user-label changes, and untracked sent mail, aren't read.
+        assert_eq!(g.iter().filter(|u| u.contains("/threads/")).count(), 2);
         let a = item(&b, A);
         assert!(a.bump);
-        assert_eq!(a.messages.len(), 3);
+        assert_eq!(a.messages.len(), 4);
         assert_eq!(a.author.as_ref().unwrap().display_name, "Dana Kim");
         assert_eq!(b.items.len(), 1);
-        assert!(b.seen.is_empty(), "reading or archiving in Gmail never clears Incoming");
+        assert_eq!(b.seen, [C], "archived in Gmail: out of Incoming");
         let c = cursor(&b);
         assert_eq!(c["history_id"], "4250");
-        assert_eq!(c["tracked"].as_object().unwrap().keys().collect::<Vec<_>>(), [A]);
+        assert_eq!(c["tracked"].as_object().unwrap().keys().collect::<Vec<_>>(), [A, B]);
     }
 
     #[test]
-    fn reading_part_of_a_thread_updates_it_without_a_bump() {
-        let (_, first) = first_sync();
-        let http = google();
-        let mut th: Value = serde_json::from_str(fixture!("thread_a.json")).unwrap();
-        th["messages"][1]["labelIds"] = json!(["CATEGORY_PERSONAL", "INBOX"]);
-        let change = json!({ "message": { "id": "18f0a1b2c3d4e601", "threadId": A, "labelIds": ["INBOX"] }, "labelIds": ["UNREAD"] });
-        let page = json!({ "history": [{ "id": "4202", "labelsRemoved": [change] }], "historyId": "4202" });
-        http.on("GET", "/history?", 200, page.to_string());
-        http.on("GET", &format!("/threads/{A}?"), 200, th.to_string());
-        let b = poll(&http, first.cursor.clone());
-        let a = item(&b, A);
-        assert!(!a.bump);
-        assert_eq!(a.messages.len(), 1);
-    }
-
-    #[test]
-    fn expired_history_id_relists_and_stops_tracking_threads_read_meanwhile() {
+    fn expired_history_id_relists_and_drops_threads_that_left_the_inbox_meanwhile() {
         let (_, first) = first_sync();
         let mut cur = cursor(&first);
         cur["history_id"] = json!("12");
@@ -510,7 +544,7 @@ mod tests {
         http.on("GET", "/history?startHistoryId=12", 404, fixture!("not_found.json"));
         http.on("GET", &format!("/threads/{C}?"), 404, fixture!("not_found.json"));
         let b = poll(&http, Some(cur.to_string()));
-        assert!(b.seen.is_empty());
+        assert_eq!(b.seen, ["18f0000000000old", C]);
         assert!(cursor(&b)["tracked"].get("18f0000000000old").is_none());
         assert!(b.items.iter().all(|i| !i.bump), "nothing new after a re-list");
         assert_eq!(cursor(&b)["history_id"], "4201");
@@ -536,33 +570,65 @@ mod tests {
         assert_eq!(cursor(&b)["queue"], json!(ids[FETCH_PER_POLL + 1..]));
     }
 
-    fn send(http: &FakeHttp, payload: Value) -> Value {
+    fn send(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
         let src = source(None);
         let secret = secrets;
         let ctx = Ctx { source: &src, http, secret: &secret, now: crate::sync::connectors::gcal::tests::now() };
-        mark_read(&Api { ctx: &ctx, cache: &TokenCache::new() }, &payload).unwrap()
+        Gmail.send(&ctx, op, &payload)
+    }
+
+    fn posts(http: &FakeHttp) -> Vec<(String, Option<Value>)> {
+        let base = format!("{API}/threads/");
+        http.requests()
+            .into_iter()
+            .filter(|r| r.0 == "POST" && r.1.starts_with(&base))
+            .map(|r| (r.1[base.len()..].to_string(), r.2.map(|b| serde_json::from_str(&b).unwrap())))
+            .collect()
     }
 
     #[test]
-    fn mark_read_removes_unread_from_the_thread_unless_new_mail_came() {
+    fn file_labels_and_marks_read_unless_new_mail_came() {
         let http = google();
         http.on("GET", &format!("/threads/{A}?format=minimal"), 200, fixture!("thread_a.json"));
+        http.on("GET", "/labels", 200, r#"{"labels": [{"id": "Label_3", "name": "Vendors"}, {"id": "Label_9", "name": "Customers"}]}"#);
         http.on("POST", &format!("/threads/{A}/modify"), 200, fixture!("modify.json"));
-        let r = send(&http, json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601", "18f0a1b2c3d4e602"] }));
+        let known = json!(["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]);
+        let r = send(&http, "gmail.file", json!({ "thread_id": A, "message_ids": known, "label": "Customers" })).unwrap();
         assert_eq!(r["thread_id"], A);
-        let post = http.requests().into_iter().find(|r| r.1.ends_with("/modify")).unwrap();
-        assert_eq!(post.1, format!("{API}/threads/{A}/modify"));
-        assert_eq!(serde_json::from_str::<Value>(&post.2.unwrap()).unwrap(), json!({ "removeLabelIds": ["UNREAD"] }));
+        assert_eq!(posts(&http), [(format!("{A}/modify"), Some(json!({ "removeLabelIds": ["UNREAD"], "addLabelIds": ["Label_9"] })))]);
 
         let http = google();
         http.on("GET", &format!("/threads/{A}?format=minimal"), 200, fixture!("thread_a.json"));
-        let r = send(&http, json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601"] }));
+        let r = send(&http, "gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601"] })).unwrap();
         assert!(r["left_unread"].is_string());
-        assert!(!http.requests().iter().any(|r| r.1.ends_with("/modify")));
+        assert!(posts(&http).is_empty());
+
+        let http = google();
+        http.on("GET", "/labels", 200, r#"{"labels": []}"#);
+        let e = send(&http, "gmail.file", json!({ "thread_id": A, "label": "Customers" })).unwrap_err().to_string();
+        assert!(e.contains("no Gmail label named 'Customers'"), "{e}");
     }
 
     #[test]
-    fn confirm_and_move_mark_read_dismiss_does_not() {
+    fn archive_trash_and_restore() {
+        let http = google();
+        http.on("POST", "/threads/", 200, fixture!("modify.json"));
+        send(&http, "gmail.archive", json!({ "thread_id": A })).unwrap();
+        send(&http, "gmail.trash", json!({ "thread_id": A })).unwrap();
+        send(&http, "gmail.restore", json!({ "thread_id": A })).unwrap();
+        assert_eq!(
+            posts(&http),
+            [
+                (format!("{A}/modify"), Some(json!({ "removeLabelIds": ["INBOX"] }))),
+                (format!("{A}/trash"), None),
+                (format!("{A}/untrash"), None),
+                (format!("{A}/modify"), Some(json!({ "addLabelIds": ["INBOX"] }))),
+            ]
+        );
+    }
+
+    #[test]
+    fn triage_files_archives_trashes_and_restores() {
         let conn = crate::db::open_in_memory().unwrap();
         let cfg = crate::settings::SourceConfig {
             kind: "gmail".into(),
@@ -570,37 +636,46 @@ mod tests {
             name: "Work mail".into(),
             enabled: true,
             poll_secs: 120,
-            config: json!({}),
+            config: json!({ "category_labels": { "customers": "Customers" } }),
         };
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
         assert_eq!(crate::sync::apply(&conn, &src, &first).unwrap(), 3);
-        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'work')", []).unwrap();
+        conn.execute("INSERT INTO categories (key, label, color, position) VALUES ('customers', 'Customers', '#fff', 9)", []).unwrap();
+        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'customers'), (2, 'Hiring', 'work')", []).unwrap();
         let id = |ext: &str| -> i64 { conn.query_row("SELECT id FROM items WHERE external_id = ?1", [ext], |r| r.get(0)).unwrap() };
-        let marks = || -> Vec<Value> {
-            conn.prepare("SELECT payload_json FROM outbox WHERE op = 'gmail.mark_read' ORDER BY id")
+        let ops = || -> Vec<(String, Value)> {
+            conn.prepare("SELECT op, payload_json FROM outbox ORDER BY id")
                 .unwrap()
-                .query_map([], |r| r.get::<_, String>(0))
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
                 .unwrap()
-                .map(|p| serde_json::from_str(&p.unwrap()).unwrap())
+                .map(|p| {
+                    let (op, p) = p.unwrap();
+                    (op, serde_json::from_str(&p).unwrap())
+                })
                 .collect()
         };
-        crate::queries::incoming::dismiss(&conn, id(C), true).unwrap();
-        assert!(marks().is_empty());
+        let incoming = crate::queries::incoming::dismiss;
+        incoming(&conn, id(C), true).unwrap();
+        incoming(&conn, id(C), false).unwrap();
+        crate::queries::incoming::trash(&conn, id(C)).unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, 1, 'suggested')", [id(A)]).unwrap();
         crate::queries::incoming::confirm(&conn, id(A), 1).unwrap();
-        crate::queries::incoming::move_to(&conn, id(B), 1, None).unwrap();
+        crate::queries::incoming::move_to(&conn, id(B), 2, None).unwrap();
+        let t = |op: &str, p: Value| (op.to_string(), p);
         assert_eq!(
-            marks(),
+            ops(),
             [
-                json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601", "18f0a1b2c3d4e602"] }),
-                json!({ "thread_id": B, "message_ids": [B] })
+                t("gmail.archive", json!({ "thread_id": C })),
+                t("gmail.restore", json!({ "thread_id": C })),
+                t("gmail.trash", json!({ "thread_id": C })),
+                t("gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"], "label": "Customers" })),
+                t("gmail.file", json!({ "thread_id": B, "message_ids": [B] })),
             ]
         );
-        let b = Batch { seen: vec![A.into(), B.into(), C.into()], ..Default::default() };
-        crate::sync::apply(&conn, &src, &b).unwrap();
-        let n: i64 = conn.query_row("SELECT count(*) FROM items WHERE seen = 1", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 3, "seen from Gmail, never deleted");
+        let tx = conn.unchecked_transaction().unwrap();
+        let msgs = crate::queries::split::message_ids(&tx, id(A)).unwrap();
+        assert!(crate::queries::split::split_off(&tx, id(A), &msgs[..1]).is_err(), "email threads move as a whole");
     }
 }

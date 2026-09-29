@@ -30,6 +30,7 @@
   let msgIdx = $state(0);
   let chosen = $state<Set<number>>(new Set());
   let dismissed = $state<Set<number>>(new Set());
+  let trashed = $state<Set<number>>(new Set());
   let busy = false;
   let err = $state<string | null>(null);
 
@@ -65,7 +66,7 @@
   const current = $derived(flat.find((s) => s.item_id === selItem) ?? null);
   const unsorted = $derived(selKey === 'unsorted');
   const topicName = $derived(entries.find((e) => e.key === selKey)?.name ?? '');
-  const splittable = (s: Signal | null) => unsorted && !!s && s.messages.length > 1;
+  const splittable = (s: Signal | null) => unsorted && !!s && s.source !== 'gmail' && s.messages.length > 1;
 
   $effect(() => {
     void ui.rev;
@@ -214,19 +215,23 @@
     if (untrack(() => [...dismissed].some((d) => d !== id))) untrack(refresh);
   });
 
-  async function dismiss(s: Signal | null, on = true) {
-    if (!s || dismissed.has(s.item_id) === on) return;
+  async function dismiss(s: Signal | null, on = true, trash = false) {
+    if (!s || dismissed.has(s.item_id) === on || (trash && s.source !== 'gmail')) return;
     selItem = s.item_id;
     picking = false;
     const flip = (add: boolean) => {
       const next = new Set(dismissed);
+      const t = new Set(trashed);
       if (add) next.add(s.item_id);
       else next.delete(s.item_id);
+      if (add && trash) t.add(s.item_id);
+      else t.delete(s.item_id);
       dismissed = next;
+      trashed = t;
     };
     flip(on);
     try {
-      await call(on ? 'incoming.dismiss' : 'incoming.undismiss', { item_id: s.item_id });
+      await call(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id });
       err = null;
     } catch (e) {
       flip(!on);
@@ -293,6 +298,7 @@
     if (plain(e, 't')) return pick(current), true;
     if (plain(e, 'd')) return dismiss(current), true;
     if (plain(e, 'u')) return dismiss(current, false), true;
+    if (plain(e, '#')) return dismiss(current, true, true), true;
     if (plain(e, 'o')) return open(current), true;
   });
 </script>
@@ -332,17 +338,23 @@
                 </button>
                 <div class="actions">
                   {#if gone}
-                    <span class="ghost"><i class="ph ph-eye-slash"></i>Dismissed</span>
+                    {#if trashed.has(s.item_id)}
+                      <span class="ghost"><i class="ph ph-trash"></i>Trashed</span>
+                    {:else}
+                      <span class="ghost"><i class="ph ph-eye-slash"></i>{s.source === 'gmail' ? 'Archived' : 'Dismissed'}</span>
+                    {/if}
                     <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
                   {:else if unsorted}
                     <button class="btn primary" onclick={() => pick(s)}>
                       {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
                     </button>
                     <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                    {#if s.source === 'gmail'}<button class="ghost" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                   {:else}
                     <button class="btn primary" onclick={() => confirm(s)}>{s.update ? 'Seen' : 'Confirm'}</button>
                     <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
                     <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                    {#if s.source === 'gmail'}<button class="ghost" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                   {/if}
                 </div>
               </div>
@@ -410,10 +422,10 @@
           <span>↵ collapse</span><span>esc done</span>
         {:else if unsorted}
           <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span>
-          <span>t move to topic</span><span>d dismiss</span><span>u undo</span>
+          <span>t move to topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
         {:else}
           <span>j/k signal</span><span>↵ expand</span>
-          <span>{current?.update ? 'c seen' : 'c confirm'}</span><span>x wrong topic</span><span>d dismiss</span><span>u undo</span><span>t move to topic</span>
+          <span>{current?.update ? 'c seen' : 'c confirm'}</span><span>x wrong topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}

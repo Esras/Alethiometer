@@ -178,7 +178,7 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
         let msgs = item_messages(conn, item_id, false)?;
         let earlier = item_messages(conn, item_id, true)?;
-        let splittable = parent.is_none() && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
+        let splittable = parent.is_none() && kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
         let mut p = format!("Item\nSource: {source} {kind}\nTitle: {}\n", clip(&title, 300));
         if let Some(s) = summary.filter(|s| !s.trim().is_empty()) {
             let _ = writeln!(p, "Summary: {}", clip(&s, 300));

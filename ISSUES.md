@@ -4,17 +4,13 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
-### Priority: Gmail writebacks beyond mark-read (archive, delete, labels)
+### Gmail: to-dos, and archive on filing
 
-The inbox is large and much of it should be pruned: while triaging, a lot of mail wants **archiving** (remove `INBOX`) and a lot wants **deleting** (trash, not permanent delete). Today the only writeback is `gmail.mark_read` on Confirm/Seen/Move; Dismiss writes nothing (13a rule, which may need an email-specific exception or separate archive/trash actions and keys). Needs outbox ops (e.g. `gmail.archive`, `gmail.trash`) through `threads.modify`/`threads.trash` — `gmail.modify` already covers both, no new scope — plus Incoming actions for them. **Gmail labels are an analog of Alethiometer categories** (and possibly topics): worth exploring a link, e.g. mapping labels to categories/topics on read, or applying a label when an email is filed under a topic. Related, later: the assistant helping write Gmail filters (needs `gmail.settings.basic`).
+Built: Incoming mirrors the whole Inbox (read or not), filing labels by category (`config.category_labels`) and marks read, Dismiss archives, `#` trashes, `u` restores (docs/sources/gmail.md). Still open: to-dos, after which filing should also archive and follow-ups stay in the Inbox until done; assistant help writing Gmail filters (needs `gmail.settings.basic`); relabeling when an email moves to a topic in another category.
 
 ### Priority: Slack integration
 
 Bumped up. Slack is the one work source not yet live. The design's data changes are built (see HANDOFF "In flight"); going live and the split review UI are next.
-
-### Gmail: reading part of a thread in Gmail still shrinks its item
-
-Reading or archiving in Gmail no longer marks an item seen, but `gmail::map_thread` still builds the item from the thread's *unread* messages only, so reading some of them in Gmail drops those from the item here. Slack's rule ("an item keeps every message until it's triaged") would need the same treatment: keep the messages from the first unread one at the time the item was created.
 
 ### Expanded signal layout in Incoming needs a design pass
 
