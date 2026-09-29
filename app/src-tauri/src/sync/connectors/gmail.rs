@@ -252,24 +252,39 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
     Some((item, last_ms))
 }
 
-/// `Dana Kim <dana@acme.com>`, `"Lee, Sam" <sam@acme.com>` or a bare address.
-fn sender(m: &Value) -> Option<Handle> {
-    let from = header(m, "From")?;
-    let (name, email) = match (from.rfind('<'), from.rfind('>')) {
-        (Some(a), Some(b)) if a < b => (from[..a].trim().trim_matches('"').trim(), from[a + 1..b].trim()),
-        _ => ("", from.trim()),
+/// `Dana Kim <dana@acme.com>`, `"Lee, Sam" <sam@acme.com>` or a bare address, as (name, lowercased address).
+fn address(v: &str) -> Option<(String, String)> {
+    let (name, email) = match (v.rfind('<'), v.rfind('>')) {
+        (Some(a), Some(b)) if a < b => (v[..a].trim().trim_matches('"').trim(), v[a + 1..b].trim()),
+        _ => ("", v.trim()),
     };
-    if email.is_empty() {
-        return None;
+    (!email.is_empty()).then(|| (name.to_string(), email.to_ascii_lowercase()))
+}
+
+fn sender(m: &Value) -> Option<Handle> {
+    let person = |(name, email): (String, String)| {
+        let display_name = if name.is_empty() { name_from_email(&email) } else { name };
+        Handle { handle: email, display_name }
+    };
+    if let Some(original) = header(m, "X-Original-From").or_else(|| header(m, "X-Original-Sender")).and_then(address) {
+        return Some(person(original));
     }
-    let email = email.to_ascii_lowercase();
-    let display_name = if name.is_empty() { name_from_email(&email) } else { name.to_string() };
+    let (name, email) = address(header(m, "From")?)?;
     let local = email.split('@').next().unwrap_or_default();
     let relay = ["noreply", "no-reply", "notification"].iter().any(|n| local.contains(n)) || ["jira", "confluence"].contains(&local);
     let group = name.contains(" via ") && !name.contains("(via ");
-    let shared = relay || group;
-    let handle = if shared { format!("{email} {display_name}") } else { email };
-    Some(Handle { handle, display_name })
+    if !(relay || group) {
+        return Some(person((name, email)));
+    }
+    if let Some(login) = header(m, "X-GitHub-Sender").map(str::trim).filter(|l| !l.is_empty()) {
+        return Some(Handle { handle: format!("github:{login}"), display_name: if name.is_empty() { login.to_string() } else { name } });
+    }
+    let reply_to = header(m, "Reply-To").and_then(address).filter(|(_, e)| !e.split('@').next().unwrap_or_default().contains('+'));
+    if let Some((reply_name, reply_email)) = reply_to {
+        return Some(person((if reply_name.is_empty() { name } else { reply_name }, reply_email)));
+    }
+    let p = person((name, email));
+    Some(Handle { handle: format!("{} {}", p.handle, p.display_name), display_name: p.display_name })
 }
 
 /// text/plain if there is one, else the HTML's text; quoted history cut off.
@@ -503,8 +518,21 @@ mod tests {
     }
 
     #[test]
-    fn no_reply_senders_are_told_apart_by_name() {
-        let from = |f: &str| sender(&json!({ "payload": { "headers": [{ "name": "From", "value": f }] } })).unwrap().handle;
+    fn relayed_mail_resolves_to_the_person_behind_it() {
+        let with = |hs: &[(&str, &str)]| {
+            let hs: Vec<Value> = hs.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect();
+            let h = sender(&json!({ "payload": { "headers": hs } })).unwrap();
+            (h.handle, h.display_name)
+        };
+        let group = with(&[("From", "'Amazon Web Services' via Devops <devops@acme.com>"), ("X-Original-From", "Amazon Web Services <no-reply-aws@amazon.com>")]);
+        assert_eq!(group, ("no-reply-aws@amazon.com".into(), "Amazon Web Services".into()));
+        let share = with(&[("From", "\"AJ Modi (via Google Sheets)\" <drive-shares-dm-noreply@google.com>"), ("Reply-To", "AJ Modi <amodi@acme.com>")]);
+        assert_eq!(share, ("amodi@acme.com".into(), "AJ Modi".into()));
+        let gh = with(&[("From", "Rahul Kumar <notifications@github.com>"), ("Reply-To", "\"acme/infra\" <reply+BYCF7E@reply.github.com>"), ("X-GitHub-Sender", "rkredux")]);
+        assert_eq!(gh, ("github:rkredux".into(), "Rahul Kumar".into()));
+        let comment = with(&[("From", "\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"), ("Reply-to", "Reply <d+AORGpRfX@docs.google.com>")]);
+        assert_eq!(comment.0, "comments-noreply@docs.google.com Alan Ho (Google Sheets)", "reply tokens aren't people");
+        let from = |f: &str| with(&[("From", f)]).0;
         assert_eq!(from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"), "comments-noreply@docs.google.com Alan Ho (Google Sheets)");
         assert_ne!(from("\"Xuan Lam (Google Sheets)\" <comments-noreply@docs.google.com>"), from("\"Alan Ho (Google Sheets)\" <comments-noreply@docs.google.com>"));
         assert_eq!(from("Dana Kim <Dana@Acme.com>"), "dana@acme.com");

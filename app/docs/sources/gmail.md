@@ -70,7 +70,7 @@ A thread is in the Inbox when one of its messages has the `INBOX` label. It's on
 | Item field | From |
 |---|---|
 | title | `Subject` of the thread's first message (`(no subject)` if empty) |
-| author | `From` of the newest message: address as handle, display name (or a name from the address) as the person |
+| author | `From` of the newest message: address as handle, display name (or a name from the address) as the person. Mail a service sends for many people from one address is traced to the person where the headers say who: Google Groups `X-Original-From` / `X-Original-Sender`, Drive shares `Reply-To`, GitHub `X-GitHub-Sender` (handle `github:<login>`). Where they don't (Jira, Docs comments; relay addresses containing `noreply`, `no-reply`, `notification`, or `jira@`/`confluence@`), the handle is the address plus the display name. |
 | messages | every message, oldest first: time, sender name, body. Body is the `text/plain` part if there is one, else the `text/html` part with tags, styles and scripts stripped. Quoted replies ("On … wrote:", `>` lines, Outlook's "Original Message") are cut, whitespace is tidied and each body is clipped to 2,000 characters. Attachments are skipped. |
 | summary | the newest message, first 140 characters |
 | url | `https://mail.google.com/mail/u/<account or 0>/#all/<thread id>` |
