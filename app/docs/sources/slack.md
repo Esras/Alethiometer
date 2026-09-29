@@ -117,6 +117,8 @@ In `settings.json` → `sources`:
 
 ## What is read
 
+**WARNING** This section is now out of date (see the Handoff doc for updated information on this topic). Succinctly: The read marker needs to be tracked, but a read marker advancing in Slack does _not clear the signal in the incoming dashboard_. The point is not to just see it, but the classification and association with topics.
+
 **Signals follow Slack's read marker.** Every conversation and every thread has
 its own "read up to here" marker in Slack (`last_read`). A signal holds the
 messages after it:
