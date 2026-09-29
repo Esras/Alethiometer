@@ -397,8 +397,33 @@ fn person_for(conn: &Connection, kind: &str, h: &Handle) -> Result<i64> {
     Ok(id)
 }
 
+static RUNNING: std::sync::Mutex<Vec<i64>> = std::sync::Mutex::new(Vec::new());
+
+struct Running(i64);
+
+impl Running {
+    fn start(id: i64) -> Running {
+        RUNNING.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+        Running(id)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let mut r = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = r.iter().position(|id| *id == self.0) {
+            r.remove(i);
+        }
+    }
+}
+
+fn is_running(id: i64) -> bool {
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner()).contains(&id)
+}
+
 /// Poll one source now. Errors are stored on the source row and returned.
 pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
+    let _running = Running::start(source_id);
     let mut source = load_source(&app.db(), source_id)?;
     if source.kind == "slack" {
         source.cursor = connectors::slack::close_triaged(&app.db(), &source)?;
@@ -431,6 +456,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
 /// A no-op (with a status) when AI isn't configured; never fails the sync.
 /// Re-stamps `last_sync_at` afterwards so the UI reloads once the suggestions have landed.
 pub fn suggest_after_sync(app: &App, source_id: i64) {
+    let _running = Running::start(source_id);
     if let Err(e) = crate::ai::call(app, "suggest_topics", &serde_json::json!({ "limit": 10 })) {
         eprintln!("suggest_topics: {e}");
     }
@@ -486,6 +512,7 @@ pub struct SourceStatus {
     pub name: String,
     pub last_sync_at: Option<String>,
     pub last_error: Option<String>,
+    pub syncing: bool,
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
@@ -502,6 +529,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                         name: r.get(3)?,
                         last_sync_at: r.get(4)?,
                         last_error: r.get(5)?,
+                        syncing: is_running(r.get(0)?),
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;

@@ -6,7 +6,7 @@
   import { useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
 
-  type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null };
+  type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean };
   type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
 
   type Tokens = { calls: number; input: number; output: number; cost: number | null };
@@ -33,7 +33,7 @@
   $effect(() => {
     void ui.rev;
     load();
-    const t = setInterval(load, 30_000);
+    const t = setInterval(load, open ? 2_000 : 30_000);
     return () => clearInterval(t);
   });
 
@@ -82,13 +82,15 @@
     }
   }
 
-  let syncing = $state<number | null>(null);
+  let clicked = $state<Set<number>>(new Set());
   async function syncNow(id: number) {
-    syncing = id;
+    clicked = new Set(clicked).add(id);
     try {
       await call('sync.now', { source_id: id });
     } finally {
-      syncing = null;
+      const next = new Set(clicked);
+      next.delete(id);
+      clicked = next;
       refresh();
     }
   }
@@ -125,7 +127,8 @@
           {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
             <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
           {:else}
-            <button class="btn" onclick={() => syncNow(s.id)} disabled={syncing === s.id}>{syncing === s.id ? 'Syncing…' : 'Sync'}</button>
+            {@const busy = s.syncing || clicked.has(s.id)}
+            <button class="btn" onclick={() => syncNow(s.id)} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>
           {/if}
         </div>
         {#if s.last_error}<div class="err">{s.last_error}</div>{/if}
