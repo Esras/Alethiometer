@@ -37,19 +37,21 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - **Bedrock credentials: a Bedrock API key (bearer token) is what's actually provisioned**, not a classic IAM access-key/secret pair — supersedes the old "long-lived IAM keys only" note. Both paths are supported; bearer is checked first. Long-lived (not short-term/session) either way.
 - Reflect is work-only (no Life/Both lens). Personal content never lands on the work Mac; Life = untitled busy blocks.
 - Slack: **reading something in Slack never removes it from Incoming.** Only triage in Alethiometer (confirm, move or dismiss) closes a signal. Slack's read marker may decide which messages count as new, but it never closes or shrinks an item. The other direction stays as it is: triaging here marks the item read in Slack, and marking mentions read up to the mention is fine. Your own messages belong in the signal as context. Websocket first, polling as catch-up. Missing messages is the main concern. A safety catch-up runs every 3 hours while connected.
-- Splitting must not add steps to normal triage; manual split only in Unsorted; the AI triage should split mixed signals itself.
+- Splitting must not add steps to normal triage, and the AI splits mixed signals itself. Manual splitting of *unsplit* signals happens in Unsorted. Two exceptions, both from the design: (a) the split review (15g/15h) lets you correct an AI split in Incoming, and (b) `s` on a confirmed signal in the chronology or search (18c/18d) opens the same review.
 - Jira: no tagging issues (public record); dedupe by a JQL search; built-in due date is day-only; timed due fields show the time (option B); due items are never highlighted in the chronology.
 - GitHub: one work org; token from `gh` (installed via Nix) is fine; mostly read-only (`read_only: true` available); **team-only review requests are noise, filter them out** (`team_review_requests: false`).
-- Obsidian: edits can be anywhere in a note; go through the running Obsidian app (Local REST API plugin); prompting that Obsidian isn't open is fine. The vault syncs with a self-hosted sync plugin.
+- Obsidian: edits can be anywhere in a note; go through the running Obsidian app (Local REST API plugin); prompting that Obsidian isn't open is fine. The work vault is **work-only and doesn't sync to any external system** (the self-hosted sync plugin is the user's separate personal vault, not part of this app). Person notes in `People/` hold coworker details and stay in this vault.
 - Google sign-in: fine with re-auth every 7 days if needed; one Connect button saves the token.
 - **AI-proposed topics should be 2 to 5 words and fairly broad** (a recurring subject, not a one-off event's title).
 - **Dismissing a signal in Incoming without linking it to a topic**: built (design 13a, `d`/`u`).
 - Calendar: quiet first sync (only pending invites surface); one Incoming row per recurring series, but the topic timeline shows individual instances (past + next upcoming only). Horizon trickle of new instances is fine.
 - GCP: no personal projects (user blocks project creation org-wide); reuse existing Internal tooling project.
 - Jira: assigned/reported/watched issues are usually already filed — their updates should still be *seen* in Incoming, not re-triaged. New issues in DEVOPS/IT/ITP2 (projects the user owns, small volume) should surface. Missing creations while the app is closed >7 days is fine.
-- Updates to filed things (GitHub comments, Slack messages, Jira changes) must show in Incoming. **Slack's behavior here is being designed by the user in a separate Design thread — don't build it ahead of that.**
+- Updates to filed things must show in Incoming. Slack's design has landed (design README, "Slack split review", data changes 1 and 1b). Before triage, new messages join the open signal. After triage, the next message starts a new item, which the updates mechanism shows under its topic with **Seen**.
 - Background AI suggestions should appear promptly, and new topics shouldn't jump to the top of the list.
 - Name: Alethiometer.
+- **Reading anything in its own app never removes it from Incoming. This applies to every source, not just Slack.** Gmail: reading or archiving a thread in Gmail must not mark it seen here. Alethiometer is meant to be the main way the user works through Gmail, so archive, trash and labels will be actions here (see ISSUES.md "Gmail writebacks"). The other direction stays: triage here writes back to Gmail.
+- **Incoming is where everything gets viewed.** No message is marked seen automatically. An update on a filed item stays in Incoming until the user acts on it here (Seen, Move or Dismiss).
 
 ## In flight / next
 
@@ -67,8 +69,8 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
 - **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
-- UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
+- UI for remaining writebacks: RSVP on invites in Incoming (designed, 14a/14b, design README "RSVP"), Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 - macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
 - Real-account runs still to do: Slack, Obsidian, Proton ICS.
-- Wanted later: topic merge/reclassification (the Topics assistant can only advise); assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
+- Reclassifying a single signal is designed (18c/18d). Topic merge is still wanted later.
 - Check `ISSUES.md`'s "Open" section before starting connector work.

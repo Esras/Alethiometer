@@ -108,13 +108,12 @@ Reference: 12c (12b is the same layout before it was checked against the code; 1
   - `.pill.red` "in 8 min" when it's 30 min away or less
   - `.pill.yellow` "in 3h 38m" later today
   - `.pill.green` "Thu 11:00" on another day, within 7 days, matching the Upcoming panel
-  - Don't reuse `urgencyColor()`: its 15/5/2-minute thresholds belong to the countdown. Add a separate `meetingPillWeight()`, and ask the user whether the strip should follow it.
+  - Don't reuse `urgencyColor()`. Settled: the strip countdown keeps its 15/5/2 thresholds, because it shows different information.
 - **Sections:** Active first, sorted by next meeting then last signal. Then **Quiet · no signal in 7 days**, with row content at 60% opacity. The 7 days is a `settings.json` value.
 - The selected row uses `.sel` and sets `ui.topicId`, which lights its meetings on the strip.
 
 **Keys**, following TopicPicker:
-- The filter has focus on arrival. ↑/↓ or ⌃j/⌃k move, ↵ opens.
-- Esc leaves the filter. Then j/k move, `a` archives, `n` starts a new topic, and `/` goes back to the filter. (Global `/` search stays as it is everywhere else.)
+- As built: the filter doesn't take focus on arrival. j/k move, `/` focuses the filter, `a` archives, `n` starts a new topic, and `c` opens the category picker. This supersedes the earlier focus-on-arrival note.
 - Archive is `a`, not `e`: `e` already means "edit note" inside a topic.
 
 **Archive:** hovering a row, active or quiet, swaps the Next meeting cell for an **Archive** button. There's no bulk archive (the user was explicit in chat1: never throw data away in bulk).
@@ -125,6 +124,68 @@ Reference: 12c (12b is the same layout before it was checked against the code; 1
 - Every other query already filters `archived_at IS NULL` (suggest, incoming, notes, search, github, obsidian), so archived topics drop out of AI suggestions and pickers with no further changes. This resolves the ISSUES.md "archive/cleanup story" item, though only manually for now.
 
 **Out of scope:** a periodic review of quiet topics (possibly in Reflect), and "Dismiss a signal" in Incoming, which is tracked separately in ISSUES.md.
+
+### Reclassifying a confirmed signal (18c chronology, 18d search)
+Resolves HANDOFF's "Wanted later: topic merge/reclassification" for single signals. Merging topics is still out of scope.
+- **One topic per signal.** Reclassifying moves a signal. It never adds a second topic, and it never writes to the source; writebacks don't depend on topics.
+- **Two actions**, the same keys everywhere:
+  - `t` moves the whole signal, using the usual topic picker (create allowed).
+  - `s` opens the split review (15g) for this one signal, to move some of its messages. Only offered when the signal has more than one message.
+  - Afterwards, the old spot shows one quiet line ("moved to X", `u` undo) until you leave the view.
+- **No prompts on select or hover.** Selecting an entry adds nothing. The actions only appear as small hint text once an entry is expanded.
+
+**18c Topic chronology**
+- ↵ or a click on an entry expands it in place and shows its messages: sender colours (16c), your own replies, one faded context message before the signal, and Open in Slack. Esc collapses it.
+- While it's expanded, `t` and `s` act on it. This is also the general "see more" for any chronology entry, not just for reclassifying.
+
+**18d Search results**
+- ⌘K stays a quick-jump field: ↵ opens the top hit.
+- ⌘↵ in ⌘K opens a full **Search** results view and moves focus out of the field. There, single keys work: j/k move, ↵ opens, space expands (as in 18c), `t` moves, `s` splits, `/` goes back to the query, Esc goes back.
+- Each result shows its source icon, a title, a snippet with the match highlighted, its topic ("no topic" if it has none, with a category bar) and a date.
+- Source chips at the top filter the results.
+
+**No AI feedback:** corrections aren't fed back as examples. The classifier already gets recent classified context (see the Slack split section).
+
+### People (17a new person, 17b link to person)
+**A person is a note in the work vault** (`People/<Name>.md`). The vault is work-only and doesn't sync to any external system.
+```
+---
+aliases: [Jordan, jlee]
+slack: U04JRDN
+email: [jordan.lee@work.com]
+jira: 5f2c…
+github: jlee-work
+color: 212          # optional; index into the 256 person palette (16c)
+team: "[[Platform]]"
+manager: "[[Dana Ruiz]]"
+---
+Free notes…
+```
+**Reading the notes**
+- The Obsidian connector reads `People/*.md` frontmatter into a local `people` table and a lookup from each account to its person (`person_accounts(source, account_id) → person_id`).
+- Every message and item author is matched through that lookup. `aliases` is Obsidian's own field, so `[[Jordan]]` still resolves.
+- Colour: the note's `color` if set, otherwise the hash colour (16c).
+
+**Agent context**
+- One link away only: which notes link to this person (backlinks), and the person note's own text.
+- Plus activity from the app's database: which topics this person's signals were confirmed to, and how recently.
+- Don't follow links more than one step.
+
+**17a New person**
+- **When it appears:** an unknown sender in 3 or more signals within 7 days (a setting).
+- **Where:** a dashed strip under the signal's messages showing the name, account, email and how many signals they've been in.
+- **Actions:** **Create note** (`p`) writes the stub note with `aliases` and the account fields. **Link to…** (`l`) opens 17b. **Not now** hides the suggestion for that person for 7 days.
+- **Separate from triage:** Confirm is unaffected.
+- **Unknown names:** a dotted underline, in their hash colour.
+
+**17b Link to person**
+- **Opening it:** click an unknown name or address, or press `l`.
+- **The picker** is built like the topic picker. It matches names and aliases, and each result shows its note path and the accounts already linked.
+- **↵** adds this account to the chosen note's frontmatter. That write goes through the outbox, like any other Obsidian write.
+- **Last row:** "Create person '…'".
+- **Never automatic:** don't auto-create, auto-link or auto-merge people.
+
+**Open:** extra frontmatter fields (`team`, `manager`, `role`) are free-form for now, so nothing should depend on them yet.
 
 ### Slack split review (15g, 15h) and person colours (16c)
 Reference: 15g is a DM grouped by topic, and 15h is a channel with a thread. 15f is the In order view of the same signal. 15a–15e are superseded.
@@ -221,7 +282,7 @@ Resolves the ISSUES.md item "No way to dismiss a signal in Incoming".
 - **Where:** a ghost **Dismiss** button (eye-slash icon, `--tx-muted-2`, no border) goes after Wrong topic in topic view, and after Move to topic in Unsorted. The key is `d`, listed in the hints row.
 - **Undo:** a dismissed row stays in place, struck through (`--tx-label`, faint hatch), with Dismissed and an **Undo** `.btn` (`u`) in place of the actions. It disappears on the next `refresh()` or when the selection moves away.
 - **What dismissing does:** it marks the item seen without a topic link and never writes to the source. The item comes back into Incoming only on new source activity (new messages, status change, edit), the same way `seen` resets today.
-- **Backend:** add `incoming.dismiss {item_id}` and `incoming.undismiss {item_id}`. Add `items.dismissed_at` if needed to tell a dismissal apart from a plain seen.
+- **Backend (as built):** `incoming.dismiss`/`incoming.undismiss` flip `seen`. There's no `dismissed_at` column, and nothing is written to the source.
 - Dismissed items still count for Reflect and search. Dismissing only takes them out of triage.
 
 ### AI failures in the sync chip (13b)
@@ -283,7 +344,7 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `7a-topics.png`, `7b-daystrip-empty.png`
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
-- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`
+- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`, `17a-new-person.png`, `17b-link-person.png`, `18c-chronology-expand.png`, `18d-search-results.png`
 
 Caveats:
 - **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
@@ -292,6 +353,6 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (12a/12b, 15a–15e, 16a/16b superseded).
+- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c, 17a, 17b, 18c, 18d** (12a/12b, 15a–15e, 16a/16b, 18a/18b superseded).
 - `design/DayStripGruv.dc.html`: the day strip component (props: `highlight`, `minutes`, `note`, `life`).
 - `design/support.js`, `design/_ds/…`: runtime needed to open the HTML references. Not for production.
