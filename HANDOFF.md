@@ -53,14 +53,22 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 ## In flight / next
 
-0. **Priorities (user, 2026-09-28):** (1) **Slack** integration build items, from the user's Slack design once it's in `project/`, plus the missed-message audit (item 2 below); (2) **Gmail writebacks** — archive, trash, labels↔categories — see `ISSUES.md` Open. Slack/Gmail can only be tested with fixtures outside the user's Mac.
-0a0. Then: 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue. Wanted later: topic merge/reclassification (the Topics assistant can only advise), assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
-0a. Open questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
-0b. Watch: UI lag/CPU. A dismiss-triggered `refresh()` loop (effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action. Any `$effect` that calls `refresh()` must `untrack` it.
-1. **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). `e` edits a topic note in place; Reflect saves the same way. Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
-2. **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
-3. UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
-4. macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
-5. **First real-account run on the Mac: done for GitHub, Bedrock AI, Google Calendar, Jira.** Still to do: Slack (waiting on the user's design), Obsidian, Proton ICS.
-6. **Archive topics** (cleanup for AI-proposed topics that turn out wrong/duplicate/one-off) — wanted, deferred; see `ISSUES.md`. Dismiss is built.
-7. Check `ISSUES.md`'s "Open" section before starting more connector work; several found bugs there (the swallowed `suggest_topics` failures, the still-synchronous split-shape new-topic gap) are directly relevant to whatever's touched next.
+**Priorities (user, 2026-09-28), in order:**
+
+1. **Slack** integration build items, from the user's Slack design once it's in `project/`, plus the missed-message audit (below). The design covers how new messages on already-filed threads appear as Incoming updates — don't build that part ahead of it.
+2. **Gmail writebacks**: archive, trash, labels↔categories. See `ISSUES.md` Open.
+3. 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue.
+
+Slack and Gmail can only be tested with fixtures outside the user's Mac.
+
+**Also open:**
+
+- Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
+- Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
+- **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
+- **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
+- UI for remaining writebacks: RSVP on invites in Incoming, Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
+- macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
+- Real-account runs still to do: Slack, Obsidian, Proton ICS.
+- Wanted later: topic merge/reclassification (the Topics assistant can only advise); assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
+- Check `ISSUES.md`'s "Open" section before starting connector work.
