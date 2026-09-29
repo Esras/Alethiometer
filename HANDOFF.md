@@ -65,6 +65,7 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 
 **Also open:**
 
+- **Design pass for the bigger window:** the app now opens at 1760×1175 (`tauri.conf.json`, about 80% of the user's screen); the mocks and the design README ("The window is about 1320×880") assume the old size. The user wants to review layouts for the larger space with the design thread.
 - Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
