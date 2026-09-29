@@ -91,17 +91,30 @@ pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
     f(&Deps { http: &http, creds: &resolve, time: SystemTime::now() })
 }
 
-/// One system + user prompt to a tier; returns the model's text.
-/// Checks the allow-list before touching credentials or the network.
-pub fn complete(ai: &AiSettings, deps: &Deps, tier: Tier, system: &str, user: &str, max_tokens: u32) -> Result<String> {
+/// One system + user prompt to a tier; returns the model's text. Every answered call's token counts go to
+/// `ai_usage`. Checks the allow-list before touching credentials or the network.
+pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, max_tokens: u32) -> Result<String> {
+    let ai = &app.settings.ai;
     let t = check(ai, tier)?;
     match t.provider.as_str() {
         "bedrock" => {
             let creds = (deps.creds)().map_err(|e| msg(e.to_string()))?;
             let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens, effort: tier_effort(t) };
-            bedrock::converse(deps.http, &creds, &req, deps.time).map(|r| r.text).map_err(|e| msg(e.to_string()))
+            let reply = bedrock::converse(deps.http, &creds, &req, deps.time).map_err(|e| msg(e.to_string()))?;
+            app.db().execute(
+                "INSERT INTO ai_usage (tier, model, input_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![tier_name(tier), t.model, reply.input_tokens, reply.output_tokens],
+            )?;
+            reply.answer().map_err(|e| msg(e.to_string()))
         }
         other => Err(msg(format!("No client for provider '{other}'"))),
+    }
+}
+
+fn tier_name(tier: Tier) -> &'static str {
+    match tier {
+        Tier::Small => "small",
+        Tier::Large => "large",
     }
 }
 
@@ -150,7 +163,7 @@ pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope:
         }
     };
     let user = format!("<context>\n{}\n</context>\n\nQuestion: {}", ctx.text, context::clip(question, QUESTION_CAP));
-    let answer = complete(&app.settings.ai, deps, Tier::Large, ASK_SYSTEM, &user, ASK_MAX_TOKENS)?;
+    let answer = complete(app, deps, Tier::Large, ASK_SYSTEM, &user, ASK_MAX_TOKENS)?;
     Ok(Answer { answer, used: ctx.used })
 }
 
@@ -176,6 +189,26 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 Err(e) => json!({ "ok": false, "error": e.to_string() }),
             };
             Ok(json!({ "label": label(ai), "region": ai.region, "small": tier(Tier::Small), "large": tier(Tier::Large) }))
+        }
+        "usage" => {
+            let conn = app.db();
+            let mut stmt = conn.prepare(
+                "SELECT tier, count(*), sum(input_tokens), sum(output_tokens),
+                        coalesce(sum(date(at) = date('now', 'localtime')), 0),
+                        coalesce(sum(CASE WHEN date(at) = date('now', 'localtime') THEN input_tokens END), 0),
+                        coalesce(sum(CASE WHEN date(at) = date('now', 'localtime') THEN output_tokens END), 0)
+                   FROM ai_usage WHERE at >= datetime('now', 'localtime', '-7 days') GROUP BY tier ORDER BY tier DESC",
+            )?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(json!({
+                        "tier": r.get::<_, String>(0)?,
+                        "week": { "calls": r.get::<_, i64>(1)?, "input": r.get::<_, i64>(2)?, "output": r.get::<_, i64>(3)? },
+                        "today": { "calls": r.get::<_, i64>(4)?, "input": r.get::<_, i64>(5)?, "output": r.get::<_, i64>(6)? },
+                    }))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(json!(rows))
         }
         _ => Err(crate::api::unknown(name)),
     }
@@ -289,8 +322,9 @@ pub mod tests {
 
     /// The small tier on GPT-6 Luna: same Converse body, reasoning ignored.
     #[test]
-    fn small_tier_on_gpt6_luna_returns_only_text() {
-        let ai = Settings::default().ai;
+    fn small_tier_on_gpt6_luna_returns_only_text_and_records_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
         let http = FakeHttp::default();
         http.on(
             "POST",
@@ -298,8 +332,10 @@ pub mod tests {
             200,
             r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"cnNu"}},{"text":"{\"topic_id\":null}"}]}},"stopReason":"end_turn","usage":{"inputTokens":90,"outputTokens":40,"totalTokens":130}}"#,
         );
-        let out = complete(&ai, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
+        let out = complete(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
         assert_eq!(out, r#"{"topic_id":null}"#);
+        let usage = call(&app, "usage", &json!({})).unwrap();
+        assert_eq!(usage, json!([{ "tier": "small", "week": { "calls": 1, "input": 90, "output": 40 }, "today": { "calls": 1, "input": 90, "output": 40 } }]));
         let v: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(v["system"][0]["text"], "S");
         assert_eq!(v["inferenceConfig"], json!({ "maxTokens": 1024 }));

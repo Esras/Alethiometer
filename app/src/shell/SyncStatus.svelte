@@ -9,7 +9,11 @@
   type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null };
   type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
 
+  type Tokens = { calls: number; input: number; output: number };
+  type Usage = { tier: string; today: Tokens; week: Tokens };
+
   let sources = $state<Source[]>([]);
+  let usage = $state<Usage[]>([]);
   let writes = $state<Write[]>([]);
   let open = $state(false);
   let wrap: HTMLElement;
@@ -20,7 +24,7 @@
 
   let synced = '';
   async function load() {
-    [sources, writes] = await Promise.all([call<Source[]>('sync.status'), call<Write[]>('outbox.list')]);
+    [sources, writes, usage] = await Promise.all([call<Source[]>('sync.status'), call<Write[]>('outbox.list'), call<Usage[]>('ai.usage')]);
     const key = sources.map((s) => `${s.id}:${s.last_sync_at}`).join();
     if (synced && key !== synced) refresh();
     synced = key;
@@ -47,6 +51,9 @@
     const h = Math.round(mins / 60);
     return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
   }
+
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : `${n}`);
+  const tokens = (t: Tokens) => `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out`;
 
   const newest = $derived(live.map((s) => s.last_sync_at).filter(Boolean).sort().at(-1) ?? null);
 
@@ -126,6 +133,15 @@
         <div class="muted">No live sources yet. Add them under "sources" in settings.json.</div>
       {/each}
       {#if connectMsg}<div class="muted connect">{connectMsg}</div>{/if}
+      {#if usage.length}
+        <div class="label">AI tokens</div>
+        {#each usage as u (u.tier)}
+          <div class="row u">
+            <span>{u.tier}</span>
+            <span class="when tok" title="last 7 days: {tokens(u.week)}">today {tokens(u.today)}</span>
+          </div>
+        {/each}
+      {/if}
       {#if writes.length}
         <div class="label">Writes</div>
         {#each writes.slice(0, 8) as w (w.id)}
@@ -197,6 +213,12 @@
   }
   .row.w {
     grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .row.u {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .tok {
+    max-width: none;
   }
   .when {
     font-size: 11.5px;

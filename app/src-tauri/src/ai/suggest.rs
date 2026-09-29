@@ -437,7 +437,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     for p in pending {
         let system = if p.split_ids.is_empty() { SYSTEM } else { SYSTEM_SPLIT };
         // Network call without the DB lock.
-        let reply = match super::complete(&app.settings.ai, deps, Tier::Small, system, &p.prompt, MAX_TOKENS) {
+        let reply = match super::complete(app, deps, Tier::Small, system, &p.prompt, MAX_TOKENS) {
             Ok(r) => r,
             Err(e) => {
                 out.status = "failed";

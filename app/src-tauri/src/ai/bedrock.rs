@@ -144,6 +144,20 @@ pub fn check_route(region: &str, model: &str) -> anyhow::Result<Family> {
 pub struct Reply {
     pub text: String,
     pub stop_reason: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+
+impl Reply {
+    pub fn answer(self) -> anyhow::Result<String> {
+        if self.text.is_empty() {
+            let why = if self.stop_reason.is_empty() { "none" } else { &self.stop_reason };
+            // Models that think by default can spend the whole budget before answering.
+            let hint = if self.stop_reason == "max_tokens" { "; the model used its whole token budget, often on reasoning" } else { "" };
+            anyhow::bail!("Bedrock returned no text (stop reason: {why}{hint})");
+        }
+        Ok(self.text)
+    }
 }
 
 pub fn endpoint(region: &str, model: &str) -> anyhow::Result<String> {
@@ -215,13 +229,8 @@ pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
         .map(|blocks| blocks.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
         .unwrap_or_default();
     let text = text.trim().to_string();
-    if text.is_empty() {
-        let why = if stop_reason.is_empty() { "none" } else { &stop_reason };
-        // Models that think by default can spend the whole budget before answering.
-        let hint = if stop_reason == "max_tokens" { "; the model used its whole token budget, often on reasoning" } else { "" };
-        anyhow::bail!("Bedrock returned no text (stop reason: {why}{hint})");
-    }
-    Ok(Reply { text, stop_reason })
+    let tokens = |k: &str| v.pointer(&format!("/usage/{k}")).and_then(Value::as_i64).unwrap_or(0);
+    Ok(Reply { text, stop_reason, input_tokens: tokens("inputTokens"), output_tokens: tokens("outputTokens") })
 }
 
 /// Turn a Bedrock error response into a message the user can act on.
@@ -506,7 +515,7 @@ mod tests {
         assert_eq!(r.stop_reason, "end_turn");
         // Reasoning that ate the whole budget is an error, not a blank answer.
         let cut = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"eA=="}}]}},"stopReason":"max_tokens"}"#;
-        let e = parse_reply(cut).unwrap_err().to_string();
+        let e = parse_reply(cut).unwrap().answer().unwrap_err().to_string();
         assert!(e.contains("max_tokens") && e.contains("reasoning"), "{e}");
     }
 
@@ -536,10 +545,12 @@ mod tests {
     #[test]
     fn empty_output_is_an_error_not_a_blank_answer() {
         let body = r#"{"output":{"message":{"role":"assistant","content":[]}},"stopReason":"content_filtered","usage":{"inputTokens":1,"outputTokens":0,"totalTokens":1},"metrics":{"latencyMs":5}}"#;
-        let e = parse_reply(body).unwrap_err().to_string();
+        let r = parse_reply(body).unwrap();
+        assert_eq!((r.input_tokens, r.output_tokens), (1, 0));
+        let e = r.answer().unwrap_err().to_string();
         assert!(e.contains("content_filtered"), "{e}");
         let body = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"reasoningText":{"text":"","signature":"x"}}}]}},"stopReason":"max_tokens"}"#;
-        let e = parse_reply(body).unwrap_err().to_string();
+        let e = parse_reply(body).unwrap().answer().unwrap_err().to_string();
         assert!(e.contains("max_tokens") && e.contains("reasoning"), "{e}");
     }
 }
