@@ -64,7 +64,7 @@ pub fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Resul
 type Row = (i64, String, String, String, Option<String>);
 
 fn messages(conn: &Connection, item_id: i64) -> Result<Vec<Row>> {
-    let mut stmt = conn.prepare_cached("SELECT id, at, author, text, ext_key FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
+    let mut stmt = conn.prepare_cached("SELECT id, at, author, text, ext_key FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at, id")?;
     let rows = stmt
         .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -229,7 +229,7 @@ mod tests {
     fn run(ts: &[&str], bump: bool) -> ItemUpsert {
         let messages: Vec<Message> = ts
             .iter()
-            .map(|t| Message { at: format!("2026-09-27T09:{t}:00"), author: "Priya".into(), text: format!("msg {t}") })
+            .map(|t| Message { at: format!("2026-09-27T09:{t}:00"), author: "Priya".into(), text: format!("msg {t}"), ..Default::default() })
             .collect();
         ItemUpsert {
             external_id: "D1/100.01".into(),

@@ -67,10 +67,6 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             let id = id_str(&profile["historyId"]).ok_or_else(|| anyhow::anyhow!("Gmail profile had no historyId"))?;
             let unread = list_unread(&api)?;
             let listed: HashSet<&String> = unread.iter().collect();
-            // Read or archived while history wasn't followed.
-            for t in cur.tracked.keys().filter(|t| !listed.contains(t)) {
-                batch.seen.push(t.clone());
-            }
             cur.tracked.retain(|t, _| listed.contains(t));
             cur.queue.splice(0..0, unread.iter().cloned());
             cur.history_id = Some(id);
@@ -96,7 +92,6 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             }
             None => {
                 cur.tracked.remove(t);
-                batch.seen.push(t.clone());
             }
         }
     }
@@ -209,6 +204,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
             at: at(m),
             author: sender(m).map(|h| h.display_name).unwrap_or_else(|| "unknown".into()),
             text: body_text(m),
+            ..Default::default()
         })
         .collect();
     let title = header(&all[0], "Subject").map(str::trim).filter(|s| !s.is_empty()).unwrap_or("(no subject)").to_string();
@@ -463,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn history_bumps_new_mail_and_marks_read_or_archived_threads_seen() {
+    fn history_bumps_new_mail_and_leaves_read_or_archived_threads_in_incoming() {
         let (_, first) = first_sync();
         let http = google();
         http.on("GET", "/history?startHistoryId=4201", 200, fixture!("history_page1.json"));
@@ -481,7 +477,7 @@ mod tests {
         assert_eq!(a.messages.len(), 3);
         assert_eq!(a.author.as_ref().unwrap().display_name, "Dana Kim");
         assert_eq!(b.items.len(), 1);
-        assert_eq!(b.seen, [B, C]);
+        assert!(b.seen.is_empty(), "reading or archiving in Gmail never clears Incoming");
         let c = cursor(&b);
         assert_eq!(c["history_id"], "4250");
         assert_eq!(c["tracked"].as_object().unwrap().keys().collect::<Vec<_>>(), [A]);
@@ -504,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn expired_history_id_relists_and_closes_threads_read_meanwhile() {
+    fn expired_history_id_relists_and_stops_tracking_threads_read_meanwhile() {
         let (_, first) = first_sync();
         let mut cur = cursor(&first);
         cur["history_id"] = json!("12");
@@ -514,7 +510,8 @@ mod tests {
         http.on("GET", "/history?startHistoryId=12", 404, fixture!("not_found.json"));
         http.on("GET", &format!("/threads/{C}?"), 404, fixture!("not_found.json"));
         let b = poll(&http, Some(cur.to_string()));
-        assert_eq!(b.seen, ["18f0000000000old", C]);
+        assert!(b.seen.is_empty());
+        assert!(cursor(&b)["tracked"].get("18f0000000000old").is_none());
         assert!(b.items.iter().all(|i| !i.bump), "nothing new after a re-list");
         assert_eq!(cursor(&b)["history_id"], "4201");
     }

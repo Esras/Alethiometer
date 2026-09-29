@@ -1,12 +1,6 @@
 # Slack
 
-Reads your DMs, group DMs, the channels you follow, threads you're in and
-mentions of you. What you haven't read **in Slack** becomes a signal in
-Incoming: one per thread, and one per conversation for its unread top-level
-messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those
-messages. When you read them in Slack the signal stops being new; when you
-confirm it in Alethiometer, Alethiometer marks it read in Slack. Writes back (through the
-outbox) mark read, thread replies you type, and reactions.
+Reads your DMs, group DMs, the channels you follow, threads you're in and mentions of you. New messages become a signal in Incoming: one per thread, and one per conversation for its top-level messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those messages. Reading them in Slack never takes a signal out of Incoming; only triage here does (confirm, move, dismiss or Seen). Confirming a top-level signal marks it read in Slack. Writes back (through the outbox) mark read, thread replies you type, and reactions.
 
 Alethiometer talks to Slack as **you**, through a small Slack app you create for
 yourself. Nothing is hosted; the app only exists to issue tokens.
@@ -117,31 +111,13 @@ In `settings.json` → `sources`:
 
 ## What is read
 
-**WARNING** This section is now out of date (see the Handoff doc for updated information on this topic). Succinctly: The read marker needs to be tracked, but a read marker advancing in Slack does _not clear the signal in the incoming dashboard_. The point is not to just see it, but the classification and association with topics.
+**Slack's read marker decides what's new; triage here decides when a signal is done.** Every conversation and every thread has its own "read up to here" marker in Slack (`last_read`). A signal (a *run*) starts with the first message after that marker from someone other than you. From then on, until you triage the item in Alethiometer, every later message in that stream joins it, yours included, and new ones from others bring it back as new. Reading all or part of it in Slack changes nothing here: the item keeps every message. Once you've triaged it, the next message starts a new run.
 
-**Signals follow Slack's read marker.** Every conversation and every thread has
-its own "read up to here" marker in Slack (`last_read`). A signal holds the
-messages after it:
-
-- **Top level.** In a DM, group DM or followed channel, the unread top-level
-  messages form one item (`DM · Priya`, `#inc-2291`, `Group DM · alice, bob`;
-  `kind` `message` for one message, else `thread`). New messages from others
-  update the same item and bring it back as new. If you read part of it in
-  Slack it shrinks to what's still unread. Once you've read past all of it the
-  item is marked seen, and the next message starts a new item. A run of
-  messages is not assumed to be one topic: it's just "since you last looked".
-- **Threads.** Each thread is one item for good (`#inc-2291 · thread: <first
-  words of the parent>`), holding its unread replies (per the thread's own
-  read marker, from the parent message in `conversations.replies`). New replies
-  after you've read it bring the same item back as new.
-- **Mentions** of you in channels you don't follow: one item each
-  (`#random · mention`). A mention inside a thread goes to that thread's item.
-  Confirming one marks that channel read in Slack up to the mention (see
-  "What is written").
-- Your own messages are kept for context but never make an item new, and a run
-  of only your messages isn't stored. Join/leave/topic messages are ignored.
-  Text is converted from Slack markup to plain text with names resolved.
-  Up to 50 messages are kept per item; `msg_count` counts them all.
+- **Top level.** In a DM, group DM or followed channel, the run's top-level messages form one item (`DM · Priya`, `#inc-2291`, `Group DM · alice, bob`; `kind` `message` for one message, else `thread`). A run isn't assumed to be one topic: it's just "since you last looked". After triage the next run is a new item, which the AI classifies on its own.
+- **Threads.** Each thread is one item for good (`#inc-2291 · thread: <first words of the parent>`). After triage, new replies start a new run on the same item: it comes back as new holding only those replies, and since it keeps its topic it shows under that topic as an update (**Seen**).
+- **Mentions** of you in channels you don't follow: one item each (`#random · mention`). A mention inside a thread goes to that thread's item. Confirming one marks that channel read in Slack up to the mention (see "What is written").
+- **Context messages.** Each item also stores, faded and before its own messages: for a thread, its first message and up to 3 replies before the run; at top level, up to 3 messages before the run (one extra `conversations.history` call when the item is written). They're never counted in `msg_count`, never split off, and the AI reads them as context only. Mentions have none.
+- A run made only of your own messages isn't stored. Join/leave/topic messages are ignored. Text is converted from Slack markup to plain text with names resolved. Every message keeps the sender's Slack user id (`item_messages.author_id`). Up to 50 messages are kept per item; `msg_count` counts them all.
 
 **Threads you're in are never too old.** Alethiometer tracks a thread (in its cursor,
 for `thread_days` after its last reply) when it's in a DM or followed channel,
@@ -167,9 +143,7 @@ once Slack has indexed them (usually seconds).
   event is acknowledged; a DM, a message in a followed channel, a relevant
   thread reply or a mention flags that conversation/thread, and a sync a few
   seconds later (bursts coalesced) fetches only what was flagged. Followed
-  channels you haven't joined send no events and are read every poll. Every
-  2 minutes the read markers of open items are checked (Slack sends no
-  "you read this" event to apps), so reading in Slack clears signals here.
+  channels you haven't joined send no events and are read every poll. Every 2 minutes the streams of open items are re-read as well, in case an event was lost.
 - **Catch-up** runs when the connection opens (at startup and after any
   disconnect): followed channels, up to `max_dms` DMs, open items, all tracked
   threads and the two searches. A DM costs one `conversations.info`; its
@@ -193,18 +167,14 @@ once Slack has indexed them (usually seconds).
 
 **Item fields.** External ids: `<channel>/<first unread ts>` (top level),
 `<channel>/thread/<thread ts>`, `<channel>/mention/<ts>`. `raw_json` holds
-`channel`, `first_ts`, `last_ts`, `thread_ts` (threads), `mark_ts` (top-level
-items and mentions in conversations you're in: what "mark read" sends; the
-newest message of the run, or the mention itself), and `msgs`: each
-stored message's ts, in the same order as the item's messages, so a split by
+`channel`, `first_ts`, `last_ts`, `thread_ts` (threads), `mark_ts` (top-level items and mentions in conversations you're in: what "mark read" sends; the newest message of the run, or the mention itself), and `msgs`: each stored message's ts (context messages first), in the same order as the item's messages, so a split by
 topic (AI triage, or selecting messages in Unsorted) can move some of them to
 a child item `<external id>#<n>`; later syncs don't bring moved messages back.
 A child keeps `mark_ts` only if it holds the newest message, and a split
 item's conversation is marked read only once every part has left Incoming.
 
 The cursor stores only timestamps, ids and thread titles, never message text:
-per-conversation newest ts, tracked threads, open items and the search
-positions. Upgrading from the first version of this connector resets it; old
+per-conversation newest ts, tracked threads, open items, the last message of each stream's newest triaged run (`closed`) and the search positions. Before each sync, open items you've triaged since are moved from `open` to `closed`. Upgrading from the first version of this connector resets it; old
 "window" items stay as they are.
 
 **Rate limits.** A 429 waits for `Retry-After` (up to 2 minutes, 3 tries per

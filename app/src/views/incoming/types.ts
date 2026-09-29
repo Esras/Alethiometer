@@ -1,6 +1,13 @@
 // Shapes returned by incoming.list (src-tauri/src/queries/incoming.rs).
 import type { SourceKind, TopicRef } from '../../lib/types';
 
+export interface Message {
+  id: number;
+  time: string;
+  author: string;
+  text: string;
+}
+
 export interface Signal {
   item_id: number;
   source: SourceKind;
@@ -13,7 +20,8 @@ export interface Signal {
   /** Messages behind the signal (e.g. all Slack messages since you last looked). */
   msg_count: number | null;
   /** `id` is what `incoming.split` takes. */
-  messages: { id: number; time: string; author: string; text: string }[];
+  messages: Message[];
+  context: Message[];
   /** Already filed under this topic: new activity rather than a suggestion. */
   update: boolean;
 }

@@ -74,6 +74,7 @@ fn workspace(inc_page1: &str) -> FakeHttp {
         .on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM)
         .on("GET", "conversations.history?channel=C0INC", 200, inc_page1)
         .on("GET", "cursor=bmV4dF90czoxNzg5OTkyMDAwMDAwMzAw", 200, HISTORY_INC_2)
+        .on("GET", "conversations.history?channel=C0INC&latest", 200, HISTORY_INC_2)
         .on("GET", "conversations.replies?channel=C0INC&ts=1789990000.000200", 200, REPLIES_INC)
         .on("GET", "conversations.replies?channel=C0RANDOM&ts=1789000000.000100", 200, REPLIES_RANDOM)
         .on("GET", "conversations.history?channel=D0PRIYA", 200, PRIYA_HISTORY)
@@ -134,7 +135,11 @@ fn count(http: &FakeHttp, part: &str) -> usize {
 }
 
 fn texts(it: &crate::sync::ItemUpsert) -> Vec<&str> {
-    it.messages.iter().map(|m| m.text.as_str()).collect()
+    it.messages.iter().filter(|m| !m.context).map(|m| m.text.as_str()).collect()
+}
+
+fn context(it: &crate::sync::ItemUpsert) -> Vec<&str> {
+    it.messages.iter().filter(|m| m.context).map(|m| m.text.as_str()).collect()
 }
 
 #[test]
@@ -154,7 +159,7 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert!(b.seen.is_empty());
 
     // Followed channel: read back a day (recent parents), both pages.
-    assert_eq!(count(&http, "conversations.history?channel=C0INC"), 2);
+    assert_eq!(count(&http, "conversations.history?channel=C0INC&oldest"), 2);
     assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&oldest=1789913600.000000&inclusive=true&limit=200")));
     // The group DM has nothing unread per conversations.info: no history call.
     assert_eq!(count(&http, "conversations.history?channel=G0MPIM"), 0);
@@ -167,20 +172,24 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert_eq!((inc.kind.as_str(), inc.title.as_str(), inc.msg_count), ("thread", "#inc-2291", Some(3)));
     assert_eq!(inc.occurred_at, local_from_unix(1789992000.0).unwrap());
     assert_eq!(inc.ended_at, local_from_unix(1789995600.0));
-    let authors: Vec<&str> = inc.messages.iter().map(|m| m.author.as_str()).collect();
+    let authors: Vec<&str> = inc.messages.iter().filter(|m| !m.context).map(|m| m.author.as_str()).collect();
     assert_eq!(authors, vec!["PagerDuty", "me", "Jordan"]);
-    assert_eq!(inc.messages[0].text, "Incident acknowledged by @Jordan");
+    assert_eq!(texts(inc)[0], "Incident acknowledged by @Jordan");
+    assert_eq!(context(inc), vec!["Anyone else seeing webhook lag? cc @me", "Backoff patch is up, needs a second reviewer."]);
+    assert_eq!(inc.messages[0].author_id.as_deref(), Some("U0SAM"));
+    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&latest=1789992000.000300&inclusive=false&limit=12")));
     assert_eq!(inc.author.as_ref().map(|h| h.handle.as_str()), Some("U0JORDAN"));
     assert_eq!(inc.url.as_deref(), Some("https://acme.slack.com/archives/C0INC/p1789995600000500"));
     assert_eq!(inc.raw_json["channel"], "C0INC");
     assert_eq!(inc.raw_json["mark_ts"], "1789995600.000500");
-    assert_eq!(inc.raw_json["msgs"], json!(["1789992000.000300", "1789994000.000400", "1789995600.000500"]));
+    assert_eq!(inc.raw_json["msgs"], json!(["1789960000.000100", "1789990000.000200", "1789992000.000300", "1789994000.000400", "1789995600.000500"]));
     assert!(inc.bump);
 
     // The thread is its own item, with its own (thread) read marker.
     let thread = find(&b, "C0INC/thread/1789990000.000200");
     assert_eq!((thread.kind.as_str(), thread.title.as_str()), ("thread", "#inc-2291 · thread: Backoff patch is up, needs a…"));
     assert_eq!(texts(thread), vec!["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291"]);
+    assert_eq!(context(thread), vec!["Backoff patch is up, needs a second reviewer."]);
     assert!(thread.raw_json.get("mark_ts").is_none());
     assert_eq!(thread.raw_json["thread_ts"], "1789990000.000200");
     assert_eq!(
@@ -232,39 +241,72 @@ fn db() -> rusqlite::Connection {
     conn
 }
 
+fn unseen(conn: &rusqlite::Connection) -> Vec<String> {
+    conn.prepare("SELECT external_id FROM items WHERE seen = 0 ORDER BY external_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
+fn read_all_in_slack(http: &FakeHttp) {
+    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789995600.000500"))
+        .on("GET", "conversations.info?channel=D0PRIYA", 200, INFO_PRIYA.replace("\"last_read\": \"1789990000.000000\"", "\"last_read\": \"1789997000.000800\""))
+        .on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"))
+        .on("GET", "conversations.replies?channel=C0INC", 200, REPLIES_INC.replace("\"last_read\": \"1789990000.000200\"", "\"last_read\": \"1789996000.000700\""));
+}
+
 #[test]
-fn reading_in_slack_marks_items_seen() {
+fn reading_in_slack_never_clears_incoming() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     let b1 = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     assert_eq!(apply(&conn, &src, &b1).unwrap(), 5);
     let src = crate::sync::load_source(&conn, 1).unwrap();
 
-    // You read everything in Slack except the #random thread.
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789995600.000500"))
-        .on("GET", "conversations.info?channel=D0PRIYA", 200, INFO_PRIYA.replace("\"last_read\": \"1789990000.000000\"", "\"last_read\": \"1789997000.000800\""))
-        .on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"))
-        .on("GET", "conversations.replies?channel=C0INC", 200, REPLIES_INC.replace("\"last_read\": \"1789990000.000200\"", "\"last_read\": \"1789996000.000700\""));
+    read_all_in_slack(&http);
     let b2 = run_poll(&http, &src).unwrap();
-    assert!(b2.items.is_empty(), "{:?}", ids(&b2));
-    let mut seen = b2.seen.clone();
-    seen.sort();
-    assert_eq!(seen, vec!["C0INC/1789992000.000300", "C0INC/thread/1789990000.000200", "C0RANDOM/mention/1789998000.000900", "D0PRIYA/1789997000.000800"]);
-    // The DM wasn't re-read: conversations.info said it's read.
+    assert!(b2.items.is_empty() && b2.seen.is_empty(), "{:?}", ids(&b2));
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
+    apply(&conn, &src, &b2).unwrap();
+    assert_eq!(unseen(&conn).len(), 5);
+    assert_eq!(State::parse(b2.cursor.as_deref()).open.len(), 5);
+}
 
-    assert_eq!(apply(&conn, &src, &b2).unwrap(), 0);
-    let unseen: Vec<String> = conn
-        .prepare("SELECT external_id FROM items WHERE seen = 0")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    assert_eq!(unseen, vec!["C0RANDOM/thread/1789000000.000100"]);
-    let state = State::parse(b2.cursor.as_deref());
-    assert_eq!(state.open.keys().collect::<Vec<_>>(), vec!["C0RANDOM/1789000000.000100"]);
+#[test]
+fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
+    let conn = db();
+    let src = crate::sync::load_source(&conn, 1).unwrap();
+    apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    conn.execute("UPDATE items SET seen = 1 WHERE external_id IN ('C0INC/1789992000.000300', 'C0INC/thread/1789990000.000200')", []).unwrap();
+    let mut src = crate::sync::load_source(&conn, 1).unwrap();
+    src.cursor = close_triaged(&conn, &src).unwrap();
+    let state = State::parse(src.cursor.as_deref());
+    assert!(!state.open.contains_key("C0INC") && !state.open.contains_key("C0INC/1789990000.000200"));
+    assert_eq!(state.closed["C0INC"], "1789995600.000500");
+
+    // Nothing new: the triaged runs stay closed although Slack still has them unread.
+    let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
+    assert!(!ids(&b).iter().any(|i| i.starts_with("C0INC")), "{:?}", ids(&b));
+
+    let http = workspace(&with_new_message("U0JORDAN", "Postmortem draft is up."));
+    let mut replies: Value = serde_json::from_str(REPLIES_INC).unwrap();
+    replies["messages"].as_array_mut().unwrap().push(json!({ "type": "message", "user": "U0SAM", "text": "Merged.", "ts": "1789999100.001100", "thread_ts": "1789990000.000200" }));
+    http.on("GET", "conversations.replies?channel=C0INC", 200, replies.to_string());
+    let b = run_poll(&http, &src).unwrap();
+    let inc = find(&b, "C0INC/1789999000.001000");
+    assert_eq!((texts(inc), inc.msg_count, inc.bump), (vec!["Postmortem draft is up."], Some(1), true));
+    let thread = find(&b, "C0INC/thread/1789990000.000200");
+    assert_eq!((texts(thread), thread.bump), (vec!["Merged."], true));
+    assert_eq!(context(thread)[0], "Backoff patch is up, needs a second reviewer.");
+    assert_eq!(context(thread).len(), 3);
+
+    apply(&conn, &src, &b).unwrap();
+    assert!(unseen(&conn).contains(&"C0INC/1789999000.001000".to_owned()));
+    assert!(unseen(&conn).contains(&"C0INC/thread/1789990000.000200".to_owned()));
+    assert!(!unseen(&conn).contains(&"C0INC/1789992000.000300".to_owned()));
 }
 
 fn with_new_message(user: &str, text: &str) -> String {
@@ -295,16 +337,13 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
 }
 
 #[test]
-fn partly_read_run_shrinks_without_bumping() {
+fn partly_read_run_keeps_every_message() {
     let b1 = run_poll(&workspace(HISTORY_INC_1), &source(None)).unwrap();
     let http = workspace(HISTORY_INC_1);
     http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789992000.000300"));
     let b2 = run_poll(&http, &source(b1.cursor.clone())).unwrap();
-    assert_eq!(ids(&b2), vec!["C0INC/1789992000.000300"]);
-    let inc = &b2.items[0];
-    assert_eq!((inc.msg_count, inc.bump), (Some(2), false));
-    assert_eq!(inc.raw_json["first_ts"], "1789994000.000400");
-    assert_eq!(inc.raw_json["msgs"], json!(["1789994000.000400", "1789995600.000500"]));
+    assert!(!ids(&b2).contains(&"C0INC/1789992000.000300"), "{:?}", ids(&b2));
+    assert_eq!(State::parse(b2.cursor.as_deref()).open["C0INC"].first, "1789992000.000300");
 }
 
 #[test]
@@ -315,7 +354,7 @@ fn live_sync_reads_only_what_events_flagged() {
 
     let http = FakeHttp::default();
     with_ops_thread(&http);
-    for (id, display) in [("U0SAM", "Sam"), ("U0PRIYA", "Priya")] {
+    for (id, display) in [("U0SAM", "Sam"), ("U0PRIYA", "Priya"), ("U0ME", "me")] {
         http.on("GET", &format!("users.info?user={id}"), 200, user(id, display, display));
     }
     http.on("GET", "conversations.info?channel=D0PRIYA", 200, INFO_PRIYA.replace("1789997000.000800\"}", "1789999950.001400\"}"))

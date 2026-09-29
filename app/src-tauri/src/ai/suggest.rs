@@ -159,11 +159,11 @@ fn wrong_topics(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// (id, at, author, text), oldest first.
-fn item_messages(conn: &Connection, item_id: i64) -> Result<Vec<(i64, String, String, String)>> {
-    let mut stmt = conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
+/// (id, at, author, text), oldest first: the item's own messages, or its context ones.
+fn item_messages(conn: &Connection, item_id: i64, context: bool) -> Result<Vec<(i64, String, String, String)>> {
+    let mut stmt = conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = ?2 ORDER BY at, id")?;
     let rows = stmt
-        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .query_map(params![item_id, context], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -176,11 +176,18 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
     for (item_id, source, kind, title, summary, parent) in unsorted(conn, limit)? {
         let wrong = wrong_topics(conn, item_id)?;
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
-        let msgs = item_messages(conn, item_id)?;
+        let msgs = item_messages(conn, item_id, false)?;
+        let earlier = item_messages(conn, item_id, true)?;
         let splittable = parent.is_none() && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
         let mut p = format!("Item\nSource: {source} {kind}\nTitle: {}\n", clip(&title, 300));
         if let Some(s) = summary.filter(|s| !s.trim().is_empty()) {
             let _ = writeln!(p, "Summary: {}", clip(&s, 300));
+        }
+        if !earlier.is_empty() {
+            p.push_str("\nEarlier in the conversation (context only, not part of this item):\n");
+            for (_, at, author, text) in &earlier {
+                let _ = writeln!(p, "{} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+            }
         }
         if splittable {
             p.push_str("\nMessages (numbered, oldest first):\n");

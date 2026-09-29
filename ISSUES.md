@@ -10,7 +10,11 @@ The inbox is large and much of it should be pruned: while triaging, a lot of mai
 
 ### Priority: Slack integration
 
-Bumped up. Slack is the one work source not yet live. The user is designing Slack's behavior (in particular how new messages on already-filed threads show up as Incoming "updates" — see below) in a separate Design thread; build from that design once it lands in `project/`, together with HANDOFF's "Slack missed-message audit" item.
+Bumped up. Slack is the one work source not yet live. The design's data changes are built (see HANDOFF "In flight"); going live and the split review UI are next.
+
+### Gmail: reading part of a thread in Gmail still shrinks its item
+
+Reading or archiving in Gmail no longer marks an item seen, but `gmail::map_thread` still builds the item from the thread's *unread* messages only, so reading some of them in Gmail drops those from the item here. Slack's rule ("an item keeps every message until it's triaged") would need the same treatment: keep the messages from the first unread one at the time the item was created.
 
 ### Expanded signal layout in Incoming needs a design pass
 

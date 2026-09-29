@@ -76,7 +76,7 @@ A message counts when it has both the `UNREAD` and `INBOX` labels. A thread with
 | times | first and newest unread message (`internalDate`) |
 
 - **New signal:** a new thread, or a newer unread message in a known thread (bump). Reading part of a thread in Gmail updates the item's messages without resurfacing it.
-- **Read, archived, trashed or deleted in Gmail:** the item is marked seen. It is never deleted, so its topic links and history stay.
+- **Read, archived, trashed or deleted in Gmail:** nothing changes here. The item stays in Incoming until you triage it; Alethiometer stops following the thread until it gets new unread mail. It is never deleted, so its topic links and history stay.
 
 ## What is written (outbox ops)
 

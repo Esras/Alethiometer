@@ -349,6 +349,13 @@
               {#if isOpen}
                 <div class="ctx">
                   <div class="info tnum">{info(s)}</div>
+                  {#each s.context as m (m.id)}
+                    <div class="msg context">
+                      <span class="t tnum">{m.time}</span>
+                      <span class="who ellipsis" title={m.author}>{m.author}</span>
+                      <div class="txt"><Markdown text={m.text} /></div>
+                    </div>
+                  {/each}
                   {#if s.messages.length}
                     {#each s.messages as m, mi (m.id)}
                       {@const canPick = splittable(s)}
@@ -607,6 +614,9 @@
     margin: 0 -8px;
     border-radius: 4px;
     transition: background 120ms;
+  }
+  .msg.context {
+    opacity: 0.5;
   }
   .msg.pickable {
     cursor: pointer;

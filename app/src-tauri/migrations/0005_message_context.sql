@@ -1,0 +1,2 @@
+ALTER TABLE item_messages ADD COLUMN context INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE item_messages ADD COLUMN author_id TEXT;

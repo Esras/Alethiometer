@@ -46,6 +46,7 @@ pub struct Signal {
     pub msg_count: Option<i64>,
     /// Stored context messages, oldest first.
     pub messages: Vec<Message>,
+    pub context: Vec<Message>,
     /// Already filed under this topic: new activity, not a suggestion.
     pub update: bool,
     #[serde(skip)]
@@ -119,6 +120,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         url: r.get(5)?,
         msg_count,
         messages: vec![],
+        context: vec![],
         update: false,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
@@ -155,19 +157,23 @@ fn meta(title: &str, at: &str, ended: Option<&str>, msgs: Option<i64>, author: O
 }
 
 fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
+    let mut stmt = conn.prepare("SELECT id, at, author, text, context FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
     for s in sigs {
-        s.messages = stmt
+        let rows = stmt
             .query_map([s.item_id], |r| {
                 let at: String = r.get(1)?;
-                Ok(Message {
+                let m = Message {
                     id: r.get(0)?,
                     time: parse_ts(&at).map(|t| t.format("%H:%M").to_string()).unwrap_or(at),
                     author: r.get(2)?,
                     text: r.get(3)?,
-                })
+                };
+                Ok((m, r.get::<_, bool>(4)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        let (context, own): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1);
+        s.context = context.into_iter().map(|r| r.0).collect();
+        s.messages = own.into_iter().map(|r| r.0).collect();
     }
     Ok(())
 }

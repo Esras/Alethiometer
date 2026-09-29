@@ -1,4 +1,5 @@
-//! Turning Slack into signals, following Slack's own read marker.
+//! Turning Slack into signals. Slack's read marker decides which messages are
+//! new; only triage in Alethiometer closes a signal.
 //!
 //! **Units.** A conversation (channel, DM, group DM) and each thread in it are
 //! separate *streams*, each with its own read marker (`last_read`: from
@@ -12,11 +13,13 @@
 //!   resurfaced when new replies arrive after you read it;
 //! - a top-level mention in a channel you don't follow: `<channel>/mention/<ts>`.
 //!
-//! While a run is unread the same item is updated: new messages from others
-//! bump it back to new; if you read part of it in Slack its messages shrink to
-//! what's still unread (no bump). When the marker passes the whole run (you
-//! read it in Slack, or Alethiometer marked it read) the item is marked seen through
-//! `Batch::seen` and the run closes; the next message starts a new one.
+//! A run starts with the first new message and needs one from someone else.
+//! Until the item is triaged every later message in the stream (yours too)
+//! joins it, and new ones from others bump it back to new. Reading in Slack
+//! never shrinks or closes it. Triage (the item is seen) closes the run before
+//! the next poll (`close_triaged`); the next message starts a new one. Each item
+//! also carries context messages: a thread's first message and the few before
+//! the run, never counted or classified.
 //!
 //! **Per-message ids.** `raw_json.msgs` lists each stored message's ts in the
 //! same order as the item's messages, so a later "split by topic" can move a
@@ -50,11 +53,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Messages kept per item; `msg_count` still counts the whole unread run.
 pub const MAX_MSGS: usize = 50;
+const CONTEXT_MSGS: usize = 3;
 /// Pages of 200 read per conversation per poll.
 const HISTORY_PAGES: usize = 10;
 const REPLIES_PAGES: usize = 5;
-/// Live mode: how often open items are checked against Slack's read markers
-/// (there is no read-state event for user tokens).
+/// Live mode: how often open streams are re-read, in case an event was lost.
 const READ_CHECK_SECS: f64 = 120.0;
 /// Without the socket, threads active within a day are checked every poll,
 /// older ones at most hourly.
@@ -92,10 +95,12 @@ pub struct State {
     /// Tracked threads, key "<channel>/<thread ts>".
     #[serde(default)]
     pub threads: BTreeMap<String, ThreadState>,
-    /// Items whose run is still unread in Slack. Key: the stream ("<channel>",
+    /// Items not triaged yet. Key: the stream ("<channel>",
     /// "<channel>/<thread ts>") or, for mentions, the item's external id.
     #[serde(default)]
     pub open: BTreeMap<String, Open>,
+    #[serde(default)]
+    pub closed: BTreeMap<String, String>,
     /// Newest mention / own thread reply already handled from search.
     #[serde(default)]
     pub mention_ts: Option<String>,
@@ -131,12 +136,9 @@ pub struct ThreadState {
 pub struct Open {
     /// The item's external id.
     pub id: String,
-    /// First and last ts of the stored unread run.
+    /// First and last ts of the stored run.
     pub first: String,
     pub last: String,
-    /// The read marker when the item was last written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read: Option<String>,
 }
 
 impl State {
@@ -242,33 +244,43 @@ impl Msg {
     }
 }
 
-/// Which messages of a stream are unread: after Slack's marker when there is
-/// one; otherwise from the open run's start, else after what we last read,
-/// else after the lookback floor.
+/// Which messages of a stream belong to its run: never those of a triaged run
+/// (`closed`); with an open run, everything from its start; otherwise what's
+/// after Slack's marker, else after what we last read, else after the
+/// lookback floor.
 struct Marker {
     last_read: Option<String>,
     from: Option<String>,
     after: Option<String>,
+    closed: Option<String>,
     floor: f64,
 }
 
 impl Marker {
     fn unread(&self, ts: &str) -> bool {
+        if self.closed.as_deref().is_some_and(|c| !ts_after(ts, c)) {
+            return false;
+        }
+        if let Some(from) = &self.from {
+            return !ts_after(from, ts);
+        }
         if ts_secs(ts) <= self.floor {
             return false;
         }
-        match (&self.last_read, &self.from, &self.after) {
-            (Some(lr), _, _) => ts_after(ts, lr),
-            (None, Some(from), _) => !ts_after(from, ts),
-            (None, None, Some(after)) => ts_after(ts, after),
+        match (&self.last_read, &self.after) {
+            (Some(lr), _) => ts_after(ts, lr),
+            (None, Some(after)) => ts_after(ts, after),
             _ => true,
         }
     }
 
     /// Lower bound for `oldest` when reading history.
     fn oldest(&self) -> f64 {
-        let t = self.last_read.as_ref().or(self.from.as_ref()).or(self.after.as_ref()).map(|t| ts_secs(t)).unwrap_or(0.0);
-        t.max(self.floor)
+        if let Some(from) = &self.from {
+            return ts_secs(from);
+        }
+        let t = self.last_read.as_ref().or(self.after.as_ref()).map(|t| ts_secs(t)).unwrap_or(0.0);
+        t.max(self.closed.as_deref().map(ts_secs).unwrap_or(0.0)).max(self.floor)
     }
 }
 
@@ -284,7 +296,6 @@ pub struct Poller<'a> {
     done_convs: BTreeSet<String>,
     done_threads: BTreeSet<String>,
     items: Vec<ItemUpsert>,
-    seen: Vec<String>,
 }
 
 pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
@@ -309,12 +320,11 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         done_convs: BTreeSet::new(),
         done_threads: BTreeSet::new(),
         items: vec![],
-        seen: vec![],
     };
     let result = p.run();
     socket::finish(ctx.source.id, &plan, result.is_ok());
     result?;
-    Ok(Batch { items: p.items, seen: p.seen, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
+    Ok(Batch { items: p.items, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
 }
 
 impl Poller<'_> {
@@ -344,7 +354,7 @@ impl Poller<'_> {
     }
 
     /// Only what events flagged, unjoined followed channels, and now and
-    /// then the read markers of open items.
+    /// then the open streams.
     fn live(&mut self) -> anyhow::Result<()> {
         let mut convs: Vec<String> = self.state.unjoined.clone();
         let mut threads: Vec<(String, String)> = vec![];
@@ -361,7 +371,6 @@ impl Poller<'_> {
             let (c, t) = self.open_streams();
             convs.extend(c);
             threads.extend(t);
-            self.check_mention_reads()?;
         }
         for c in convs {
             self.check_conv(&c)?;
@@ -423,13 +432,12 @@ impl Poller<'_> {
         for (c, ts) in mentions {
             self.fetch_mention(&c, &ts)?;
         }
-        self.check_mention_reads()?;
         self.state.read_checked = self.now;
         self.state.caught_up = self.now;
         Ok(())
     }
 
-    /// Conversations and threads that have an open (unread) item.
+    /// Conversations and threads that have an open (untriaged) item.
     fn open_streams(&self) -> (Vec<String>, Vec<(String, String)>) {
         let mut convs = vec![];
         let mut threads = vec![];
@@ -437,7 +445,7 @@ impl Poller<'_> {
             match key.split('/').collect::<Vec<_>>()[..] {
                 [c] => convs.push(c.to_owned()),
                 [c, t] => threads.push((c.to_owned(), t.to_owned())),
-                _ => {} // mentions: `check_mention_reads`
+                _ => {}
             }
         }
         (convs, threads)
@@ -531,22 +539,17 @@ impl Poller<'_> {
         let open = self.state.open.get(id).cloned();
         let last_read = conv.last_read.clone().filter(|_| conv.member);
         let marker = Marker {
-            last_read: last_read.clone(),
+            last_read,
             from: open.as_ref().map(|o| o.first.clone()),
             after: prev.as_ref().map(|p| p.seen.clone()),
+            closed: self.state.closed.get(id).cloned(),
             floor: self.floor(),
         };
         // DMs: skip history when Slack's summary says nothing changed.
         if !followed {
             if let Some(latest) = &conv.latest {
-                if !marker.unread(latest) {
-                    if let Some(o) = self.state.open.remove(id) {
-                        self.seen.push(o.id);
-                    }
-                    return Ok(());
-                }
                 let nothing_new = prev.as_ref().is_some_and(|p| !ts_after(latest, &p.seen));
-                if nothing_new && open.as_ref().is_some_and(|o| o.read == last_read) {
+                if nothing_new || !marker.unread(latest) {
                     return Ok(());
                 }
             }
@@ -583,7 +586,7 @@ impl Poller<'_> {
             }
         }
         let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
-        self.emit(&conv, None, id, &unread, prev_seen.as_deref(), last_read)?;
+        self.emit(&conv, None, id, &unread, prev_seen.as_deref(), None)?;
         for t in threads {
             self.check_thread(id, &t)?;
         }
@@ -641,13 +644,13 @@ impl Poller<'_> {
                 if words.is_empty() { format!("{base} · thread") } else { format!("{base} · thread: {words}") }
             }
         };
-        let last_read = pstr("last_read").map(str::to_owned);
         let open = self.state.open.get(&key).cloned();
         let prev_seen = prev.as_ref().map(|t| t.seen.clone());
         let marker = Marker {
-            last_read: last_read.clone(),
+            last_read: pstr("last_read").map(str::to_owned),
             from: open.map(|o| o.first),
             after: prev_seen.clone(),
+            closed: self.state.closed.get(&key).cloned(),
             // The floor bounds the first read of a thread, not its age.
             floor: if prev.is_some() { 0.0 } else { self.floor() },
         };
@@ -657,8 +660,11 @@ impl Poller<'_> {
             _ => newest,
         };
         self.state.threads.insert(key.clone(), ThreadState { seen, title: title.clone(), checked: self.now });
+        let start = msgs.iter().position(|m| marker.unread(&m.ts)).unwrap_or(msgs.len());
+        let mut context: Vec<Msg> = parent.and_then(Msg::parse).into_iter().collect();
+        context.extend(msgs[..start].iter().skip(start.saturating_sub(CONTEXT_MSGS)).cloned());
         let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
-        self.emit(&conv, Some((thread_ts, &title)), &key, &unread, prev_seen.as_deref(), last_read)
+        self.emit(&conv, Some((thread_ts, &title)), &key, &unread, prev_seen.as_deref(), Some(context))
     }
 
     /// Write, update or close the item for one stream's unread run.
@@ -669,25 +675,26 @@ impl Poller<'_> {
         key: &str,
         unread: &[Msg],
         prev_seen: Option<&str>,
-        last_read: Option<String>,
+        context: Option<Vec<Msg>>,
     ) -> anyhow::Result<()> {
         let me = self.state.me.clone();
         let mine = |m: &Msg| m.user.as_deref() == Some(me.as_str());
         let open = self.state.open.get(key).cloned();
-        // Nothing unread, or only your own messages: the run is read.
-        if unread.iter().all(mine) {
-            if let Some(o) = self.state.open.remove(key) {
-                self.seen.push(o.id);
-            }
+        // A run needs someone else's message to start; after that it only grows.
+        if unread.is_empty() || (open.is_none() && unread.iter().all(mine)) {
             return Ok(());
         }
         let (first, last) = (&unread[0], &unread[unread.len() - 1]);
         let fresh = |m: &Msg| prev_seen.is_none_or(|s| ts_after(&m.ts, s));
         let bump = unread.iter().any(|m| !mine(m) && fresh(m));
-        let unchanged = open.as_ref().is_some_and(|o| o.first == first.ts && o.last == last.ts && o.read == last_read);
+        let unchanged = open.as_ref().is_some_and(|o| o.first == first.ts && o.last == last.ts);
         if !bump && unchanged {
             return Ok(());
         }
+        let context = match context {
+            Some(c) => c,
+            None => self.context_before(&conv.id, &first.ts)?,
+        };
         let id = match (&open, thread) {
             (Some(o), _) => o.id.clone(),
             (None, Some((tts, _))) => format!("{}/thread/{tts}", conv.id),
@@ -699,15 +706,18 @@ impl Poller<'_> {
         };
         let kept = &unread[unread.len().saturating_sub(MAX_MSGS)..];
         let mut messages = vec![];
-        for m in kept {
+        for (m, is_context) in context.iter().map(|m| (m, true)).chain(kept.iter().map(|m| (m, false))) {
             messages.push(Message {
                 at: local_from_unix(ts_secs(&m.ts)).unwrap_or_default(),
                 author: self.author_name(m)?,
                 text: self.clean(&m.text)?,
+                author_id: m.user.clone(),
+                context: is_context,
             });
         }
-        let body = messages.iter().map(|m| format!("{}: {}", m.author, m.text)).collect::<Vec<_>>().join("\n");
-        let summary = messages.last().map(|m| truncate(&m.text, 140));
+        let run = messages.iter().filter(|m| !m.context);
+        let body = run.clone().map(|m| format!("{}: {}", m.author, m.text)).collect::<Vec<_>>().join("\n");
+        let summary = run.clone().next_back().map(|m| truncate(&m.text, 140));
         let author = match unread.iter().rev().find_map(|m| m.user.as_ref().filter(|u| **u != me)) {
             Some(u) => Some(Handle { handle: u.clone(), display_name: self.user_name(u)? }),
             None => None,
@@ -717,7 +727,7 @@ impl Poller<'_> {
             "first_ts": first.ts,
             "last_ts": last.ts,
             // One ts per stored message, in the same order.
-            "msgs": kept.iter().map(|m| m.ts.as_str()).collect::<Vec<_>>(),
+            "msgs": context.iter().chain(kept).map(|m| m.ts.as_str()).collect::<Vec<_>>(),
         });
         match thread {
             Some((tts, _)) => raw["thread_ts"] = json!(tts),
@@ -744,8 +754,20 @@ impl Poller<'_> {
             bump,
             ..Default::default()
         });
-        self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone(), read: last_read });
+        self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone() });
         Ok(())
+    }
+
+    fn context_before(&mut self, channel: &str, ts: &str) -> anyhow::Result<Vec<Msg>> {
+        let limit = (CONTEXT_MSGS * 4).to_string();
+        let v = self.client.get("conversations.history", &[("channel", channel), ("latest", ts), ("inclusive", "false"), ("limit", &limit)])?;
+        let mut msgs: Vec<Msg> = v
+            .get("messages")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Msg::parse).filter(|m| !m.is_reply() && ts_after(ts, &m.ts)).collect())
+            .unwrap_or_default();
+        msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
+        Ok(msgs.split_off(msgs.len().saturating_sub(CONTEXT_MSGS)))
     }
 
     fn base_title(&mut self, conv: &Conv) -> anyhow::Result<String> {
@@ -847,8 +869,7 @@ impl Poller<'_> {
     /// carries `mark_ts` = the mention, so confirming it marks the channel read
     /// up to there in Slack. That also marks what came before it read: by the
     /// user's choice, the mention is the unread part that matters there.
-    /// (`slack.mark_read` never moves the marker backwards.) The info call is
-    /// the one `check_mention_reads` makes anyway, cached per poll.
+    /// (`slack.mark_read` never moves the marker backwards.)
     fn mention_item(&mut self, channel: &str, channel_name: String, m: &Msg, permalink: Option<String>) -> anyhow::Result<()> {
         let member = self.info(channel).ok().flatten().is_some_and(|c| c.member);
         let name = self.author_name(m)?;
@@ -873,30 +894,11 @@ impl Poller<'_> {
                 }
                 raw
             },
-            messages: vec![Message { at, author: name, text: clean }],
+            messages: vec![Message { at, author: name, text: clean, author_id: m.user.clone(), context: false }],
             bump: true,
             ..Default::default()
         });
-        self.state.open.insert(id.clone(), Open { id, first: m.ts.clone(), last: m.ts.clone(), read: None });
-        Ok(())
-    }
-
-    /// Open mentions whose channel you have read past them in Slack.
-    fn check_mention_reads(&mut self) -> anyhow::Result<()> {
-        let keys: Vec<(String, Open)> =
-            self.state.open.iter().filter(|(k, _)| k.contains("/mention/")).map(|(k, o)| (k.clone(), o.clone())).collect();
-        for (key, o) in keys {
-            let channel = key.split('/').next().unwrap_or_default().to_owned();
-            let read = match self.info(&channel) {
-                Ok(Some(c)) => c.member && c.last_read.as_deref().is_some_and(|lr| !ts_after(&o.last, lr)),
-                // Channel gone or no access: nothing to learn; it ages out.
-                Ok(None) | Err(_) => false,
-            };
-            if read {
-                self.state.open.remove(&key);
-                self.seen.push(o.id);
-            }
-        }
+        self.state.open.insert(id.clone(), Open { id, first: m.ts.clone(), last: m.ts.clone() });
         Ok(())
     }
 
@@ -905,6 +907,7 @@ impl Poller<'_> {
     fn prune(&mut self) {
         let cutoff = self.now - self.cfg.thread_days as f64 * 86_400.0;
         self.state.open.retain(|_, o| ts_secs(&o.last) >= cutoff);
+        self.state.closed.retain(|_, last| ts_secs(last) >= cutoff);
         let open = &self.state.open;
         self.state.threads.retain(|k, t| ts_secs(&t.seen) >= cutoff || open.contains_key(k));
         if self.state.threads.len() > self.cfg.max_threads {
@@ -1080,17 +1083,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn marker_prefers_slacks_read_state() {
-        let m = Marker { last_read: Some("100.000200".into()), from: Some("50.0".into()), after: Some("90.0".into()), floor: 10.0 };
+    fn marker_keeps_open_runs_and_skips_triaged_ones() {
+        let m = Marker { last_read: Some("100.000200".into()), from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
         assert!(!m.unread("100.000200") && m.unread("100.000300"));
         assert_eq!(m.oldest(), 100.0002);
-        // No marker (not a member): keep the open run from its start.
-        let m = Marker { last_read: None, from: Some("50.000000".into()), after: Some("90.0".into()), floor: 10.0 };
-        assert!(m.unread("50.000000") && !m.unread("49.9"));
-        let m = Marker { last_read: None, from: None, after: Some("90.0".into()), floor: 10.0 };
+        // An open run keeps everything from its start, read in Slack or not, older than the floor or not.
+        let m = Marker { last_read: Some("100.0".into()), from: Some("5.000000".into()), after: Some("90.0".into()), closed: None, floor: 10.0 };
+        assert!(m.unread("5.000000") && m.unread("50.0") && !m.unread("4.9"));
+        assert_eq!(m.oldest(), 5.0);
+        let m = Marker { last_read: None, from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
         assert!(!m.unread("90.0") && m.unread("91.0"));
+        // A triaged run's messages never come back, even if Slack still has them unread.
+        let m = Marker { last_read: Some("20.0".into()), from: None, after: None, closed: Some("60.0".into()), floor: 10.0 };
+        assert!(!m.unread("60.0") && m.unread("60.1"));
+        assert_eq!(m.oldest(), 60.0);
         // Never read ("0000000000.000000"): the lookback floor bounds it.
-        let m = Marker { last_read: Some("0000000000.000000".into()), from: None, after: None, floor: 10.0 };
+        let m = Marker { last_read: Some("0000000000.000000".into()), from: None, after: None, closed: None, floor: 10.0 };
         assert!(!m.unread("9.0") && m.unread("11.0"));
         assert_eq!(m.oldest(), 10.0);
     }

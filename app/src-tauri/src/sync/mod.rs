@@ -116,11 +116,13 @@ pub struct Handle {
     pub display_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Message {
     pub at: String,
     pub author: String,
     pub text: String,
+    pub author_id: Option<String>,
+    pub context: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -260,8 +262,8 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             tx.execute("DELETE FROM item_messages WHERE item_id = ?1", [item_id])?;
             for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)) {
                 tx.execute(
-                    "INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![item_id, m.at, m.author, m.text, key],
+                    "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![item_id, m.at, m.author, m.text, key, m.author_id, m.context],
                 )?;
             }
             if skipped > 0 {
@@ -397,7 +399,10 @@ fn person_for(conn: &Connection, kind: &str, h: &Handle) -> Result<i64> {
 
 /// Poll one source now. Errors are stored on the source row and returned.
 pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
-    let source = load_source(&app.db(), source_id)?;
+    let mut source = load_source(&app.db(), source_id)?;
+    if source.kind == "slack" {
+        source.cursor = connectors::slack::close_triaged(&app.db(), &source)?;
+    }
     let connector = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);

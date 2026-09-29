@@ -14,10 +14,32 @@ pub mod socket;
 mod tests;
 
 use crate::sync::{Batch, Connector, Ctx};
+use rusqlite::OptionalExtension;
 use api::Client;
 use serde_json::{json, Value};
 
 pub use poll::State;
+
+pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
+    let Some(cursor) = source.cursor.as_deref() else { return Ok(None) };
+    let mut state = State::parse(Some(cursor));
+    let mut seen = conn.prepare("SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2")?;
+    let mut done = vec![];
+    for (key, o) in &state.open {
+        let triaged: Option<bool> = seen.query_row(rusqlite::params![source.id, o.id], |r| r.get(0)).optional()?;
+        if triaged == Some(true) {
+            done.push((key.clone(), o.last.clone()));
+        }
+    }
+    if done.is_empty() {
+        return Ok(Some(cursor.to_owned()));
+    }
+    for (key, last) in done {
+        state.open.remove(&key);
+        state.closed.insert(key, last);
+    }
+    Ok(Some(serde_json::to_string(&state)?))
+}
 
 pub struct Slack;
 
