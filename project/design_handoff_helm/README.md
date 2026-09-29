@@ -126,6 +126,96 @@ Reference: 12c (12b is the same layout before it was checked against the code; 1
 
 **Out of scope:** a periodic review of quiet topics (possibly in Reflect), and "Dismiss a signal" in Incoming, which is tracked separately in ISSUES.md.
 
+### Slack split review (15g, 15h) and person colours (16c)
+Reference: 15g is a DM grouped by topic, and 15h is a channel with a thread. 15f is the In order view of the same signal. 15a–15e are superseded.
+
+**When it shows:** the AI split one Slack signal across topics. ↵ on the signal's `split` pill or on a ⋯ gap opens the review, and Esc goes back.
+
+**Modes:** **By topic** or **In order**, and `g` flips between them.
+- The default depends on the type: a 1:1 DM opens In order; a channel, group DM or thread opens By topic.
+- `g` flips only the signal you're on and isn't remembered.
+
+**By topic (15g):**
+- Each topic's messages sit together in time order. A ⋯ marks where messages from another topic came in between.
+- Groups are ordered by their first message and separated by a hairline and 8px of space.
+- Each group has a 4px bar on the left. Bar colours cycle through the Gruvbox brights for this signal only; they're not topic colours.
+- `t` moves the selected messages to a group straight away, at their place in time. The moved message is tinted briefly with `u` to undo it.
+
+**Threads (15h):**
+- A thread's replies are indented under its first message, behind a 1px rule. Only real threads get indented.
+- A thread from the same channel and span shows inside that channel's signal while you review it. It stays a separate item underneath.
+- The AI treats a thread as one unit and only splits it when there's clear evidence.
+
+**Rows:**
+- Each row is time, sender and text. The sender is always shown, you included, in their person colour. The message text is the same colour for everyone.
+
+**Actions:**
+- `d` dismisses a message in place: struck through, with `u` to undo it.
+- **Confirm** (↵) confirms every group that has a topic. The Unsorted group stays in Incoming.
+- `t` opens the usual topic picker, where you can also create a topic.
+- j/k skip the ⋯ gaps. The footer shows each group's colour, topic and count, and wraps onto a second line when there are many groups.
+
+**New activity:** before triage, new messages are added to the same signal. After triage, they start a new signal in Incoming. When the AI classifies them later, it only classifies the new messages, but it gets the last few messages from that conversation with their topics as context.
+
+**Data changes needed** (checked against `slack/poll.rs` on `claude/helm-ui-shell`):
+1. **Keep your own messages, and let triage close a signal.**
+   - Today, your reply in Slack moves the read marker, which closes the signal, and a signal made only of your messages is dropped.
+   - Change: your messages go into the signal like anyone else's. Closing a signal is based on triage, not on Slack's read marker or a timer:
+     - While a signal is untriaged, new messages in that stream (yours included) are added to it. The AI classifies only the new messages and uses the earlier ones as context.
+     - Once it's triaged (confirmed, moved or dismissed), the next message starts a new signal.
+   - The `MAX_MSGS` cap of 50 still applies.
+1b. **Reading in Slack never clears Incoming** (a standing user rule).
+   - Today, reading a stream in Slack moves Slack's read marker, which marks its item seen and takes it out of Incoming (`Batch::seen` from `check_conv`, `check_thread` and `check_mention_reads`).
+   - Change: only triage in Alethiometer removes an item from Incoming. The Slack marker can still decide which messages are new, but it never closes an item.
+   - The other direction stays as it is: triaging here still sends `slack.mark_read` for top-level runs.
+   - Also: the "read part of it in Slack, so its messages shrink to what's still unread" rule in `emit` goes. An item keeps every message until it's triaged.
+   - Check the other connectors (Gmail read state, Jira) for the same leak and apply the same rule.
+2. **Store a thread's first message.** `check_thread` drops it today (`m.ts != thread_ts`). Keep it as a context message so a thread can show inside its channel's signal (15h).
+3. **Context messages.** Store a thread's first message, and the few messages before the signal, flagged `context: true`. They're shown but never classified or counted in `msg_count`. The AI uses them as context.
+4. **Store the sender's ID.** `Message` stores only the display name today. Add `author_id` (the Slack user ID) so person colours and People links have a key.
+
+**Person colours (16c):**
+- 256 colours interpolated in OKLCH through the Gruvbox brights (red, orange, yellow, green, aqua, blue, purple, back to red). Hue and saturation come from Gruvbox; lightness is fixed at **L 0.65**.
+- Default colour: `palette[fnv1a(key) % 256]`, where the key is the person's email when a source provides it, otherwise the source ID.
+- **People** (probably Obsidian notes) link one person to their Slack ID, email and Jira account. One person then has one colour everywhere, on names, avatars and initials. A People note can set the colour; otherwise it defaults to the hash colour.
+- The user is set by hand to index 0 (Gruvbox red). Setting their own colour is a user setting.
+- Some people will hash into the low-saturation part between green and aqua and look nearly grey. **That's intended.** Don't add a minimum saturation or spread people apart; the user wants the colours stable.
+- Person colours and group bars can be similar hues; that's fine. They mean different things (person vs group) and aren't read as linked.
+
+**Open:** how a People note is formatted and stored in Obsidian (People isn't defined yet), and reclassifying a signal after it's been confirmed (deferred).
+
+### RSVP (14a Incoming, 14b Topic)
+**Answering an invite and triaging it are separate actions.** Accepting or declining never confirms, moves or dismisses the signal, and triaging never sends a reply.
+
+**Where:** RSVP shows in three places. It does not appear in Priorities or the day strip popover.
+- Incoming invite rows
+- A topic's **Upcoming** panel (the next 7 days)
+- A topic's **Chronology**, which covers invites further out
+
+**Row (Incoming):**
+- The title line keeps Confirm, Wrong topic and Dismiss.
+- A second line holds a `no reply` pill, **Accept** `y`, **Decline** `n` and **Decline with note…** `⇧N`, followed by the overlap line.
+- The Google Cal group count includes invites.
+
+**Overlap line:** yellow `--yellow` with a warning-circle icon, reading "Overlaps {title} {HH:MM–HH:MM}". Life blocks read "Life" plus the time, never a title (boundary rule). Leave the line out when nothing overlaps.
+
+**Topic:**
+- **Upcoming:** the selected invite row expands to show the same buttons, in a smaller size (11.5px). Its panel count reads "2 · 1 needs a reply".
+- **Chronology:** invites show a `no reply` pill in the right column. The selected invite gets the buttons.
+
+**Decline with note:** opens an inline field under the row. ⌘↵ sends the decline with the note, and Esc cancels.
+
+**After replying:**
+- The line becomes "Accepted · HH:MM" in green or "Declined · HH:MM" in muted text.
+- A "Change in Google Calendar" link calls `openExternal`. The reply can't be changed in-app.
+- The row stays in Incoming until it's triaged.
+
+**Backend:**
+- Replies go through the outbox (`gcal.rsvp {item_id, response: accepted|declined, comment?}`), and the row shows the pending state while sending.
+- The item stores the reply as `rsvp` (`needs_action|accepted|declined`) from the event's `attendees[self].responseStatus`.
+- Overlaps come from `events` on the same day, Life blocks included.
+- Only accept and decline are offered; tentative and propose-new-time are left out on purpose.
+
 ### Incoming · Dismiss (13a)
 Resolves the ISSUES.md item "No way to dismiss a signal in Incoming".
 - **Where:** a ghost **Dismiss** button (eye-slash icon, `--tx-muted-2`, no border) goes after Wrong topic in topic view, and after Move to topic in Unsorted. The key is `d`, listed in the hints row.
@@ -193,7 +283,7 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `7a-topics.png`, `7b-daystrip-empty.png`
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
-- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`
+- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`
 
 Caveats:
 - **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
@@ -202,6 +292,6 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b** (12a/12b superseded).
+- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (12a/12b, 15a–15e, 16a/16b superseded).
 - `design/DayStripGruv.dc.html`: the day strip component (props: `highlight`, `minutes`, `note`, `life`).
 - `design/support.js`, `design/_ds/…`: runtime needed to open the HTML references. Not for production.
