@@ -53,7 +53,8 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 ## In flight / next
 
-0. **Next up:** 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue. Wanted later: topic merge/reclassification (the Topics assistant can only advise), assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
+0. **Priorities (user, 2026-09-28):** (1) **Slack** integration build items, from the user's Slack design once it's in `project/`, plus the missed-message audit (item 2 below); (2) **Gmail writebacks** — archive, trash, labels↔categories — see `ISSUES.md` Open. Slack/Gmail can only be tested with fixtures outside the user's Mac.
+0a0. Then: 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue. Wanted later: topic merge/reclassification (the Topics assistant can only advise), assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
 0a. Open questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 0b. Watch: UI lag/CPU. A dismiss-triggered `refresh()` loop (effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action. Any `$effect` that calls `refresh()` must `untrack` it.
 1. **Obsidian (done, untested live):** writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). `e` edits a topic note in place; Reflect saves the same way. Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.

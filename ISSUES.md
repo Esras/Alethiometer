@@ -4,6 +4,14 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Priority: Gmail writebacks beyond mark-read (archive, delete, labels)
+
+The inbox is large and much of it should be pruned: while triaging, a lot of mail wants **archiving** (remove `INBOX`) and a lot wants **deleting** (trash, not permanent delete). Today the only writeback is `gmail.mark_read` on Confirm/Seen/Move; Dismiss writes nothing (13a rule, which may need an email-specific exception or separate archive/trash actions and keys). Needs outbox ops (e.g. `gmail.archive`, `gmail.trash`) through `threads.modify`/`threads.trash` — `gmail.modify` already covers both, no new scope — plus Incoming actions for them. **Gmail labels are an analog of Alethiometer categories** (and possibly topics): worth exploring a link, e.g. mapping labels to categories/topics on read, or applying a label when an email is filed under a topic. Related, later: the assistant helping write Gmail filters (needs `gmail.settings.basic`).
+
+### Priority: Slack integration
+
+Bumped up. Slack is the one work source not yet live. The user is designing Slack's behavior (in particular how new messages on already-filed threads show up as Incoming "updates" — see below) in a separate Design thread; build from that design once it lands in `project/`, together with HANDOFF's "Slack missed-message audit" item.
+
 ### Expanded signal layout in Incoming needs a design pass
 
 Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title gets its own full-width line (wrapping instead of truncating), and below it one muted info line joins `meta` (author · time) with the connector's `summary`, dropping ` · ` parts that repeat. Found on Jira issues, where `meta` names the reporter and `summary` is "Status · assignee", so the same name showed twice and the header was squished next to the action buttons. Still unlabeled when reporter and assignee differ ("Alice · 10:41 · Open · Bob"). The user wants to adjust the design; labeling roles would mean changing the Jira connector's `summary`, which the Topics timeline also shows.
