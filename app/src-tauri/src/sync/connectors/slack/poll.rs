@@ -1,25 +1,22 @@
-//! Turning Slack into signals. Slack's read marker decides which messages are
-//! new; only triage in Alethiometer closes a signal.
+//! Turning Slack into signals. Every message is captured, yours included,
+//! whatever Slack's read marker says; only triage in Alethiometer closes a signal.
 //!
 //! **Units.** A conversation (channel, DM, group DM) and each thread in it are
-//! separate *streams*, each with its own read marker (`last_read`: from
-//! `conversations.info` for a conversation, from the parent message returned by
-//! `conversations.replies` for a thread). A stream's *unread run* is its
-//! messages after the marker. One item holds one stream's unread run:
+//! separate *streams*. A stream's *run* is its messages since the last triaged
+//! one (`State::closed`), within the lookback. One item holds one stream's run:
 //!
-//! - top level: `<channel>/<first unread ts>`, a new item per run (a DM can
-//!   jump between topics, so runs are not merged across reads);
-//! - thread: `<channel>/thread/<thread ts>`, one item per thread for good,
-//!   resurfaced when new replies arrive after you read it;
+//! - top level: `<channel>/<first ts>`, a new item per run. A DM or channel mixes
+//!   topics, so the AI assigns topics per message (a split) with the earlier
+//!   messages and their topics as context;
+//! - thread: `<channel>/thread/<thread ts>`, one item per thread for good: a
+//!   thread is one topic, and new replies bring it back (under its topic);
 //! - a top-level mention in a channel you don't follow: `<channel>/mention/<ts>`.
 //!
-//! A run starts with the first new message and needs one from someone else.
-//! Until the item is triaged every later message in the stream (yours too)
-//! joins it, and new ones from others bump it back to new. Reading in Slack
-//! never shrinks or closes it. Triage (the item is seen) closes the run before
-//! the next poll (`close_triaged`); the next message starts a new one. Each item
-//! also carries context messages: a thread's first message and the few before
-//! the run, never counted or classified.
+//! Until the item is triaged every new message in the stream joins it and bumps
+//! it back to new. Triage (the item is seen) closes the run before the next
+//! poll (`close_triaged`); the next message starts a new one. Each item also
+//! carries context messages: a thread's first message and the few before the
+//! run, never counted or classified.
 //!
 //! **Per-message ids.** `raw_json.msgs` lists each stored message's ts in the
 //! same order as the item's messages, so a later "split by topic" can move a
@@ -27,12 +24,12 @@
 //!
 //! **What is fetched** depends on `socket::plan` (see `socket`): a live sync
 //! reads only what events flagged, plus followed channels you haven't joined
-//! (no events for those) and, every `READ_CHECK_SECS`, the read markers of open
+//! (no events for those) and, every `READ_CHECK_SECS`, the streams of open
 //! items. A catch-up (startup, reconnect, every `catchup_hours` while
 //! connected, or every poll without the socket)
 //! checks followed channels, DMs (capped to `max_dms` without the socket),
 //! tracked threads and two searches. DMs are only read (`conversations.history`)
-//! when `conversations.info` says there is something unread or new.
+//! when `conversations.info` says there is something new.
 //!
 //! **Threads you're in** are tracked in the cursor for `thread_days` after
 //! their last activity (at most `max_threads`), so replies to an old thread are
@@ -244,12 +241,10 @@ impl Msg {
     }
 }
 
-/// Which messages of a stream belong to its run: never those of a triaged run
-/// (`closed`); with an open run, everything from its start; otherwise what's
-/// after Slack's marker, else after what we last read, else after the
-/// lookback floor.
+/// Which messages of a stream belong to its run: with an open run, everything
+/// from its start; otherwise what's newer than anything read before (`after`)
+/// and than the last triaged run (`closed`), within the lookback floor.
 struct Marker {
-    last_read: Option<String>,
     from: Option<String>,
     after: Option<String>,
     closed: Option<String>,
@@ -264,14 +259,7 @@ impl Marker {
         if let Some(from) = &self.from {
             return !ts_after(from, ts);
         }
-        if ts_secs(ts) <= self.floor {
-            return false;
-        }
-        match (&self.last_read, &self.after) {
-            (Some(lr), _) => ts_after(ts, lr),
-            (None, Some(after)) => ts_after(ts, after),
-            _ => true,
-        }
+        ts_secs(ts) > self.floor && self.after.as_deref().is_none_or(|a| ts_after(ts, a))
     }
 
     /// Lower bound for `oldest` when reading history.
@@ -279,8 +267,8 @@ impl Marker {
         if let Some(from) = &self.from {
             return ts_secs(from);
         }
-        let t = self.last_read.as_ref().or(self.after.as_ref()).map(|t| ts_secs(t)).unwrap_or(0.0);
-        t.max(self.closed.as_deref().map(ts_secs).unwrap_or(0.0)).max(self.floor)
+        let t = |o: &Option<String>| o.as_deref().map(ts_secs).unwrap_or(0.0);
+        t(&self.after).max(t(&self.closed)).max(self.floor)
     }
 }
 
@@ -537,9 +525,7 @@ impl Poller<'_> {
         let followed = self.state.follow.iter().any(|c| c == id);
         let prev = self.state.convs.get(id).cloned();
         let open = self.state.open.get(id).cloned();
-        let last_read = conv.last_read.clone().filter(|_| conv.member);
         let marker = Marker {
-            last_read,
             from: open.as_ref().map(|o| o.first.clone()),
             after: prev.as_ref().map(|p| p.seen.clone()),
             closed: self.state.closed.get(id).cloned(),
@@ -647,7 +633,6 @@ impl Poller<'_> {
         let open = self.state.open.get(&key).cloned();
         let prev_seen = prev.as_ref().map(|t| t.seen.clone());
         let marker = Marker {
-            last_read: pstr("last_read").map(str::to_owned),
             from: open.map(|o| o.first),
             after: prev_seen.clone(),
             closed: self.state.closed.get(&key).cloned(),
@@ -678,15 +663,12 @@ impl Poller<'_> {
         context: Option<Vec<Msg>>,
     ) -> anyhow::Result<()> {
         let me = self.state.me.clone();
-        let mine = |m: &Msg| m.user.as_deref() == Some(me.as_str());
         let open = self.state.open.get(key).cloned();
-        // A run needs someone else's message to start; after that it only grows.
-        if unread.is_empty() || (open.is_none() && unread.iter().all(mine)) {
+        if unread.is_empty() {
             return Ok(());
         }
         let (first, last) = (&unread[0], &unread[unread.len() - 1]);
-        let fresh = |m: &Msg| prev_seen.is_none_or(|s| ts_after(&m.ts, s));
-        let bump = unread.iter().any(|m| !mine(m) && fresh(m));
+        let bump = unread.iter().any(|m| prev_seen.is_none_or(|s| ts_after(&m.ts, s)));
         let unchanged = open.as_ref().is_some_and(|o| o.first == first.ts && o.last == last.ts);
         if !bump && unchanged {
             return Ok(());
@@ -1083,22 +1065,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn marker_keeps_open_runs_and_skips_triaged_ones() {
-        let m = Marker { last_read: Some("100.000200".into()), from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
-        assert!(!m.unread("100.000200") && m.unread("100.000300"));
-        assert_eq!(m.oldest(), 100.0002);
-        // An open run keeps everything from its start, read in Slack or not, older than the floor or not.
-        let m = Marker { last_read: Some("100.0".into()), from: Some("5.000000".into()), after: Some("90.0".into()), closed: None, floor: 10.0 };
+    fn marker_ignores_slacks_read_state() {
+        let m = Marker { from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
+        assert!(!m.unread("90.0") && m.unread("91.0"));
+        assert_eq!(m.oldest(), 90.0);
+        // An open run keeps everything from its start, older than the floor or not.
+        let m = Marker { from: Some("5.000000".into()), after: Some("90.0".into()), closed: None, floor: 10.0 };
         assert!(m.unread("5.000000") && m.unread("50.0") && !m.unread("4.9"));
         assert_eq!(m.oldest(), 5.0);
-        let m = Marker { last_read: None, from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
-        assert!(!m.unread("90.0") && m.unread("91.0"));
-        // A triaged run's messages never come back, even if Slack still has them unread.
-        let m = Marker { last_read: Some("20.0".into()), from: None, after: None, closed: Some("60.0".into()), floor: 10.0 };
+        // A triaged run's messages never come back.
+        let m = Marker { from: None, after: Some("20.0".into()), closed: Some("60.0".into()), floor: 10.0 };
         assert!(!m.unread("60.0") && m.unread("60.1"));
         assert_eq!(m.oldest(), 60.0);
-        // Never read ("0000000000.000000"): the lookback floor bounds it.
-        let m = Marker { last_read: Some("0000000000.000000".into()), from: None, after: None, closed: None, floor: 10.0 };
+        // Nothing read yet: the lookback floor bounds it.
+        let m = Marker { from: None, after: None, closed: None, floor: 10.0 };
         assert!(!m.unread("9.0") && m.unread("11.0"));
         assert_eq!(m.oldest(), 10.0);
     }

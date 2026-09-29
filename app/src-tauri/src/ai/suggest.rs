@@ -159,11 +159,29 @@ fn wrong_topics(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// (id, at, author, text), oldest first: the item's own messages, or its context ones.
-fn item_messages(conn: &Connection, item_id: i64, context: bool) -> Result<Vec<(i64, String, String, String)>> {
-    let mut stmt = conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = ?2 ORDER BY at, id")?;
+/// (id, at, author, text), oldest first.
+fn item_messages(conn: &Connection, item_id: i64) -> Result<Vec<(i64, String, String, String)>> {
+    let mut stmt = conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at, id")?;
     let rows = stmt
-        .query_map(params![item_id, context], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+fn context_messages(conn: &Connection, item_id: i64) -> Result<Vec<(String, String, String, Option<String>)>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT m.at, m.author, m.text,
+                (SELECT t.name FROM item_messages o
+                   JOIN items oi ON oi.id = o.item_id
+                   JOIN topic_links l ON l.item_id = oi.id AND l.state = 'confirmed'
+                   JOIN topics t ON t.id = l.topic_id
+                  WHERE o.ext_key = m.ext_key AND o.context = 0 AND oi.source_id = i.source_id AND oi.id != i.id
+                  LIMIT 1)
+           FROM item_messages m JOIN items i ON i.id = m.item_id
+          WHERE m.item_id = ?1 AND m.context = 1 ORDER BY m.at, m.id",
+    )?;
+    let rows = stmt
+        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -176,17 +194,18 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
     for (item_id, source, kind, title, summary, parent) in unsorted(conn, limit)? {
         let wrong = wrong_topics(conn, item_id)?;
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
-        let msgs = item_messages(conn, item_id, false)?;
-        let earlier = item_messages(conn, item_id, true)?;
+        let msgs = item_messages(conn, item_id)?;
+        let earlier = context_messages(conn, item_id)?;
         let splittable = parent.is_none() && kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
         let mut p = format!("Item\nSource: {source} {kind}\nTitle: {}\n", clip(&title, 300));
         if let Some(s) = summary.filter(|s| !s.trim().is_empty()) {
             let _ = writeln!(p, "Summary: {}", clip(&s, 300));
         }
         if !earlier.is_empty() {
-            p.push_str("\nEarlier in the conversation (context only, not part of this item):\n");
-            for (_, at, author, text) in &earlier {
-                let _ = writeln!(p, "{} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+            p.push_str("\nEarlier in the conversation (context only, not part of this item; [topic] where the user filed it):\n");
+            for (at, author, text, topic) in &earlier {
+                let filed = topic.as_ref().map(|t| format!(" [{}]", clip(t, 60))).unwrap_or_default();
+                let _ = writeln!(p, "{} {}: {}{filed}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
             }
         }
         if splittable {
@@ -753,6 +772,34 @@ mod tests {
 
     fn g(messages: &[usize], topic: Option<i64>, confidence: f64) -> Group {
         Group { messages: messages.to_vec(), topic_id: topic, confidence, reason: String::new() }
+    }
+
+    #[test]
+    fn context_messages_reach_the_prompt_with_the_topic_they_were_filed_under() {
+        let (mut app, _dir) = app();
+        configured(&mut app);
+        let q4 = topic_id(&app, "Q4 headcount");
+        let item = plant_dm(&app, &["Can you send the numbers?", "thanks!"]);
+        {
+            let conn = app.db();
+            let src: i64 = conn.query_row("SELECT source_id FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+            conn.execute(
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen, raw_json) VALUES (?1, 'D9/90.1', 'message', 'DM · Priya', '2999-01-01T08:00:00', 'open', 1, '{}')",
+                [src],
+            )
+            .unwrap();
+            let earlier = conn.last_insert_rowid();
+            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, '2999-01-01T08:00:00', 'Priya', 'Lee wants hiring numbers', '90.1')", [earlier]).unwrap();
+            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![earlier, q4]).unwrap();
+            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key, context) VALUES (?1, '2999-01-01T08:00:00', 'Priya', 'Lee wants hiring numbers', '90.1', 1)", [item]).unwrap();
+        }
+        let http = FakeHttp::default();
+        http.on("POST", "/converse", 200, converse(r#"{"topic_id": null}"#));
+        suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
+        let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+        assert!(prompt.contains("08:00 Priya: Lee wants hiring numbers [Q4 headcount]"), "{prompt}");
+        assert!(prompt.contains("1. 09:01 Priya: Can you send the numbers?\n2. "), "context isn't numbered: {prompt}");
     }
 
     #[test]

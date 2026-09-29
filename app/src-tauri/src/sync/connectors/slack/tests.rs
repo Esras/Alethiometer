@@ -149,7 +149,7 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert_eq!(
         ids(&b),
         vec![
-            "C0INC/1789992000.000300",
+            "C0INC/1789960000.000100",
             "C0INC/thread/1789990000.000200",
             "C0RANDOM/mention/1789998000.000900",
             "C0RANDOM/thread/1789000000.000100",
@@ -158,31 +158,32 @@ fn first_catch_up_turns_unread_runs_into_items() {
     );
     assert!(b.seen.is_empty());
 
-    // Followed channel: read back a day (recent parents), both pages.
+    // Followed channel: read back to the lookback floor, both pages.
     assert_eq!(count(&http, "conversations.history?channel=C0INC&oldest"), 2);
-    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&oldest=1789913600.000000&inclusive=true&limit=200")));
+    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&oldest=1789740800.000000&inclusive=true&limit=200")));
     // The group DM has nothing unread per conversations.info: no history call.
     assert_eq!(count(&http, "conversations.history?channel=G0MPIM"), 0);
     // The deleted user's DM is skipped.
     assert_eq!(count(&http, "D0GONE"), 0);
 
-    // Top level: what's after your read marker (Marco's parent and Sam's
-    // older message are read), your own message kept for context.
-    let inc = find(&b, "C0INC/1789992000.000300");
-    assert_eq!((inc.kind.as_str(), inc.title.as_str(), inc.msg_count), ("thread", "#inc-2291", Some(3)));
-    assert_eq!(inc.occurred_at, local_from_unix(1789992000.0).unwrap());
+    // Top level: everything within the lookback, read in Slack or not (Sam's
+    // and Marco's messages were), your own included.
+    let inc = find(&b, "C0INC/1789960000.000100");
+    assert_eq!((inc.kind.as_str(), inc.title.as_str(), inc.msg_count), ("thread", "#inc-2291", Some(5)));
+    assert_eq!(inc.occurred_at, local_from_unix(1789960000.0).unwrap());
     assert_eq!(inc.ended_at, local_from_unix(1789995600.0));
     let authors: Vec<&str> = inc.messages.iter().filter(|m| !m.context).map(|m| m.author.as_str()).collect();
-    assert_eq!(authors, vec!["PagerDuty", "me", "Jordan"]);
-    assert_eq!(texts(inc)[0], "Incident acknowledged by @Jordan");
-    assert_eq!(context(inc), vec!["Anyone else seeing webhook lag? cc @me", "Backoff patch is up, needs a second reviewer."]);
+    assert_eq!(authors, vec!["Sam", "Marco Rossi", "PagerDuty", "me", "Jordan"]);
+    assert_eq!(texts(inc)[2], "Incident acknowledged by @Jordan");
+    assert!(context(inc).is_empty(), "nothing older in the channel");
     assert_eq!(inc.messages[0].author_id.as_deref(), Some("U0SAM"));
-    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&latest=1789992000.000300&inclusive=false&limit=12")));
+    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&latest=1789960000.000100&inclusive=false&limit=12")));
     assert_eq!(inc.author.as_ref().map(|h| h.handle.as_str()), Some("U0JORDAN"));
     assert_eq!(inc.url.as_deref(), Some("https://acme.slack.com/archives/C0INC/p1789995600000500"));
     assert_eq!(inc.raw_json["channel"], "C0INC");
     assert_eq!(inc.raw_json["mark_ts"], "1789995600.000500");
     assert_eq!(inc.raw_json["msgs"], json!(["1789960000.000100", "1789990000.000200", "1789992000.000300", "1789994000.000400", "1789995600.000500"]));
+    assert_eq!(inc.messages.iter().filter(|m| m.context).count(), 0);
     assert!(inc.bump);
 
     // The thread is its own item, with its own (thread) read marker.
@@ -208,10 +209,10 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert_eq!(mention.summary.as_deref(), Some("@me can you approve the Q4 headcount sheet?"));
     assert_eq!((&mention.raw_json["channel"], &mention.raw_json["mark_ts"]), (&json!("C0RANDOM"), &json!("1789998000.000900")));
 
-    // An old thread you replied in, found through search: only what's after your reply.
+    // An old thread you replied in, found through search: its replies within the lookback, yours too.
     let old = find(&b, "C0RANDOM/thread/1789000000.000100");
     assert_eq!(old.title, "#random · thread: Dashboard migration plan: who owns what?");
-    assert_eq!(texts(old), vec!["Not anymore, @me: it moved to platform in June."]);
+    assert_eq!(texts(old), vec!["I think Alice's team owns it now", "Not anymore, @me: it moved to platform in June."]);
     assert!(old.bump);
 
     // Names resolved once per user per poll.
@@ -280,7 +281,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
-    conn.execute("UPDATE items SET seen = 1 WHERE external_id IN ('C0INC/1789992000.000300', 'C0INC/thread/1789990000.000200')", []).unwrap();
+    conn.execute("UPDATE items SET seen = 1 WHERE external_id IN ('C0INC/1789960000.000100', 'C0INC/thread/1789990000.000200')", []).unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
     src.cursor = close_triaged(&conn, &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
@@ -293,7 +294,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
 
     let http = workspace(&with_new_message("U0JORDAN", "Postmortem draft is up."));
     let mut replies: Value = serde_json::from_str(REPLIES_INC).unwrap();
-    replies["messages"].as_array_mut().unwrap().push(json!({ "type": "message", "user": "U0SAM", "text": "Merged.", "ts": "1789999100.001100", "thread_ts": "1789990000.000200" }));
+    replies["messages"].as_array_mut().unwrap().push(json!({ "type": "message", "user": "U0ME", "text": "Merged.", "ts": "1789999100.001100", "thread_ts": "1789990000.000200" }));
     http.on("GET", "conversations.replies?channel=C0INC", 200, replies.to_string());
     let b = run_poll(&http, &src).unwrap();
     let inc = find(&b, "C0INC/1789999000.001000");
@@ -306,7 +307,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     apply(&conn, &src, &b).unwrap();
     assert!(unseen(&conn).contains(&"C0INC/1789999000.001000".to_owned()));
     assert!(unseen(&conn).contains(&"C0INC/thread/1789990000.000200".to_owned()));
-    assert!(!unseen(&conn).contains(&"C0INC/1789992000.000300".to_owned()));
+    assert!(!unseen(&conn).contains(&"C0INC/1789960000.000100".to_owned()));
 }
 
 fn with_new_message(user: &str, text: &str) -> String {
@@ -323,17 +324,17 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
 
     let http = workspace(&with_new_message("U0JORDAN", "Rollback done, closing the incident."));
     let b2 = run_poll(&http, &src).unwrap();
-    assert_eq!(ids(&b2), vec!["C0INC/1789992000.000300"]);
+    assert_eq!(ids(&b2), vec!["C0INC/1789960000.000100"]);
     let inc = &b2.items[0];
-    assert_eq!((inc.msg_count, inc.bump), (Some(4), true));
+    assert_eq!((inc.msg_count, inc.bump), (Some(6), true));
     assert_eq!(inc.raw_json["mark_ts"], "1789999000.001000");
     // Nothing new in the DM per conversations.info: not re-read. Nothing new in threads.
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
 
-    // Your own message updates the run without making it new signal.
+    // Your own message is new too: it's context to file like anyone else's.
     let b3 = run_poll(&workspace(&with_new_message("U0ME", "Confirmed, thanks all.")), &src).unwrap();
-    assert_eq!(ids(&b3), vec!["C0INC/1789992000.000300"]);
-    assert!(!b3.items[0].bump);
+    assert_eq!(ids(&b3), vec!["C0INC/1789960000.000100"]);
+    assert!(b3.items[0].bump);
 }
 
 #[test]
@@ -342,8 +343,8 @@ fn partly_read_run_keeps_every_message() {
     let http = workspace(HISTORY_INC_1);
     http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789992000.000300"));
     let b2 = run_poll(&http, &source(b1.cursor.clone())).unwrap();
-    assert!(!ids(&b2).contains(&"C0INC/1789992000.000300"), "{:?}", ids(&b2));
-    assert_eq!(State::parse(b2.cursor.as_deref()).open["C0INC"].first, "1789992000.000300");
+    assert!(!ids(&b2).contains(&"C0INC/1789960000.000100"), "{:?}", ids(&b2));
+    assert_eq!(State::parse(b2.cursor.as_deref()).open["C0INC"].first, "1789960000.000100");
 }
 
 #[test]

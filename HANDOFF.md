@@ -57,7 +57,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 **Priorities (user, 2026-09-28), in order:**
 
-1. **Slack**: design data changes 1, 1b, 2, 3, 4 are built (triage closes a run via `slack::close_triaged` before each sync; context messages in `item_messages.context`; sender id in `item_messages.author_id`; Gmail no longer marks items seen when read in Gmail). Next: go live on the work Mac, then the split review UI (15g/15h) and person colours (16c), then the missed-message audit (below). Interpretation to confirm with the user: after triage, a thread's next replies come back on the same item (so it shows under its topic as an update); a top-level run starts a new item that the AI classifies.
+1. **Slack**: capture reworked to the user's model: every message (yours too) within the lookback, Slack's read marker ignored; triage closes a run (`slack::close_triaged`); threads are one item and one topic, new replies come back as updates; top-level runs get per-message topics via the AI split, with earlier messages and their filed topics as context (`ai/suggest.rs::context_messages`). Context messages in `item_messages.context`, sender id in `item_messages.author_id`. Next: go live on the work Mac with `lookback_hours: 12`, then the split review UI (15g/15h) and person colours (16c), then the missed-message audit (below).
 2. **Gmail**: reworked around the whole Inbox with label/archive/trash writebacks (docs/sources/gmail.md). Next: the user resets the Gmail data and resyncs; then to-dos (ISSUES.md).
 3. 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue.
 

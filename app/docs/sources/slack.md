@@ -1,6 +1,6 @@
 # Slack
 
-Reads your DMs, group DMs, the channels you follow, threads you're in and mentions of you. New messages become a signal in Incoming: one per thread, and one per conversation for its top-level messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those messages. Reading them in Slack never takes a signal out of Incoming; only triage here does (confirm, move, dismiss or Seen). Confirming a top-level signal marks it read in Slack. Writes back (through the outbox) mark read, thread replies you type, and reactions.
+Reads your DMs, group DMs, the channels you follow, threads you're in and mentions of you. Every new message becomes part of a signal in Incoming, yours included: one per thread, and one per conversation for its top-level messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those messages. Incoming is where messages get filed to topics, so reading them in Slack changes nothing here; only triage does (confirm, move, dismiss or Seen). Confirming a top-level signal marks it read in Slack. Writes back (through the outbox) mark read, thread replies you type, and reactions.
 
 Alethiometer talks to Slack as **you**, through a small Slack app you create for
 yourself. Nothing is hosted; the app only exists to issue tokens.
@@ -111,13 +111,13 @@ In `settings.json` → `sources`:
 
 ## What is read
 
-**Slack's read marker decides what's new; triage here decides when a signal is done.** Every conversation and every thread has its own "read up to here" marker in Slack (`last_read`). A signal (a *run*) starts with the first message after that marker from someone other than you. From then on, until you triage the item in Alethiometer, every later message in that stream joins it, yours included, and new ones from others bring it back as new. Reading all or part of it in Slack changes nothing here: the item keeps every message. Once you've triaged it, the next message starts a new run.
+**Every message is captured; triage here decides when a signal is done.** Slack's read marker plays no part. A signal (a *run*) holds a stream's messages since its last triaged run, yours included, bounded by `lookback_hours` on the first read. Until you triage it, every new message in that stream joins it and brings it back as new. Once you've triaged it, the next message starts a new run.
 
-- **Top level.** In a DM, group DM or followed channel, the run's top-level messages form one item (`DM · Priya`, `#inc-2291`, `Group DM · alice, bob`; `kind` `message` for one message, else `thread`). A run isn't assumed to be one topic: it's just "since you last looked". After triage the next run is a new item, which the AI classifies on its own.
-- **Threads.** Each thread is one item for good (`#inc-2291 · thread: <first words of the parent>`). After triage, new replies start a new run on the same item: it comes back as new holding only those replies, and since it keeps its topic it shows under that topic as an update (**Seen**).
+- **Top level.** In a DM, group DM or followed channel, the run's top-level messages form one item (`DM · Priya`, `#inc-2291`, `Group DM · alice, bob`; `kind` `message` for one message, else `thread`). A DM or channel mixes topics, so a run isn't assumed to be one topic: the AI assigns topics per message (a split into parts, each with its own topic), seeing the messages before the run and the topics you filed them under as context. The split review is where you correct that.
+- **Threads.** Each thread is one item for good (`#inc-2291 · thread: <first words of the parent>`), and one topic: the parent and every reply belong together. New replies (yours too) start a new run on the same item, which comes back as new holding only those replies; since it keeps its topic, it shows under that topic as an update (**Seen**).
 - **Mentions** of you in channels you don't follow: one item each (`#random · mention`). A mention inside a thread goes to that thread's item. Confirming one marks that channel read in Slack up to the mention (see "What is written").
 - **Context messages.** Each item also stores, faded and before its own messages: for a thread, its first message and up to 3 replies before the run; at top level, up to 3 messages before the run (one extra `conversations.history` call when the item is written). They're never counted in `msg_count`, never split off, and the AI reads them as context only. Mentions have none.
-- A run made only of your own messages isn't stored. Join/leave/topic messages are ignored. Text is converted from Slack markup to plain text with names resolved. Every message keeps the sender's Slack user id (`item_messages.author_id`). Up to 50 messages are kept per item; `msg_count` counts them all.
+- Join/leave/topic messages are ignored. Text is converted from Slack markup to plain text with names resolved. Every message keeps the sender's Slack user id (`item_messages.author_id`). Up to 50 messages are kept per item; `msg_count` counts them all.
 
 **Threads you're in are never too old.** Alethiometer tracks a thread (in its cursor,
 for `thread_days` after its last reply) when it's in a DM or followed channel,
@@ -147,7 +147,7 @@ once Slack has indexed them (usually seconds).
 - **Catch-up** runs when the connection opens (at startup and after any
   disconnect): followed channels, up to `max_dms` DMs, open items, all tracked
   threads and the two searches. A DM costs one `conversations.info`; its
-  history is read only when that reports something unread or new. Slack has no
+  history is read only when that reports something new. Slack has no
   documented call that returns unread state for all conversations at once
   (the Slack client uses undocumented ones, which Alethiometer doesn't), so it's one
   small call per DM.
@@ -157,7 +157,7 @@ once Slack has indexed them (usually seconds).
   wasn't acknowledged a few times and then drops it, and events can be lost in
   a hiccup on Alethiometer's side without the connection dropping. The pass
   stays as cheap as a reconnect: DMs are read only when `conversations.info`
-  reports something unread or new, followed channels from the last day, plus
+  reports something new, followed channels from the last day, plus
   one `conversations.replies` per tracked thread and the two searches. It
   runs on the regular `poll_secs` schedule once due; when it last completed
   is kept in the cursor (`caught_up`).
