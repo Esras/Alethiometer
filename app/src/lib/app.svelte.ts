@@ -83,6 +83,18 @@ export function urgencyColor(minutesLeft: number): string {
   return 'var(--red)';
 }
 
+/** Next-meeting pill in the Topics index: red within 30 min, yellow later today, green on another day. */
+export function meetingPill(start: string): { label: string; weight: 'red' | 'yellow' | 'green' } {
+  const t = new Date(start);
+  const mins = Math.max(0, Math.round((t.getTime() - ui.nowMs) / 60000));
+  if (mins <= 30) return { label: `in ${mins} min`, weight: 'red' };
+  if (t.toDateString() === new Date(ui.nowMs).toDateString()) {
+    return { label: `in ${Math.floor(mins / 60)}h ${mins % 60}m`, weight: 'yellow' };
+  }
+  const day = t.toLocaleDateString('en-US', { weekday: 'short' });
+  return { label: `${day} ${hm(t.getHours() * 60 + t.getMinutes())}`, weight: 'green' };
+}
+
 export function hm(min: number): string {
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);

@@ -16,7 +16,19 @@ struct TopicRow {
     id: i64,
     name: String,
     category: String,
+    obsidian_path: Option<String>,
     new_count: i64,
+    open_count: i64,
+    last_signal_at: Option<String>,
+    last_signal: Option<String>,
+    quiet: bool,
+    next_meeting: Option<Meeting>,
+}
+
+#[derive(Serialize)]
+struct Meeting {
+    start: String,
+    title: String,
 }
 
 #[derive(Serialize)]
@@ -63,7 +75,9 @@ struct Person {
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "list" => list(app),
+        "list" => list(app, args.get("archived").and_then(Value::as_bool).unwrap_or(false)),
+        "archive" => set_archived(app, arg_i64(args, "id")?, true),
+        "unarchive" => set_archived(app, arg_i64(args, "id")?, false),
         "get" => get(app, arg_i64(args, "id")?),
         "create" => create(app, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str)),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
@@ -117,18 +131,81 @@ fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value
     })
 }
 
-fn list(app: &App) -> Result<Value> {
+fn list(app: &App, archived: bool) -> Result<Value> {
+    let now = app.clock.now();
+    let now_s = crate::seed::fmt(now);
     let conn = app.db();
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.category,
-                (SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id
-                  WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0)
-           FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
-    )?;
-    let rows = stmt
-        .query_map([], |r| Ok(TopicRow { id: r.get(0)?, name: r.get(1)?, category: r.get(2)?, new_count: r.get(3)? }))?
+    let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
+    let mine = "tl.topic_id = t.id AND tl.state = 'confirmed'";
+    let mut stmt = conn.prepare(&format!(
+        "SELECT t.id, t.name, t.category, t.obsidian_path,
+                (SELECT count(*) FROM {links} WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0),
+                (SELECT count(*) FROM {links}
+                  WHERE {mine} AND i.kind IN ('task', 'issue', 'email') AND i.owner IS NOT NULL AND i.status = 'open'),
+                (SELECT max(coalesce(i.ended_at, i.occurred_at)) FROM {links} WHERE {mine} AND i.occurred_at <= ?1),
+                (SELECT s.kind FROM {links} JOIN sources s ON s.id = i.source_id WHERE {mine} AND i.occurred_at <= ?1
+                  ORDER BY coalesce(i.ended_at, i.occurred_at) DESC LIMIT 1),
+                (SELECT e.start || char(9) || coalesce(e.title, '') FROM {links} JOIN events e ON e.item_id = i.id
+                  WHERE {mine} AND e.start > ?1 AND e.start <= ?2 ORDER BY e.start LIMIT 1)
+           FROM topics t WHERE (t.archived_at IS NOT NULL) = ?3"
+    ))?;
+    let week = crate::seed::fmt(now + chrono::Duration::days(7));
+    let quiet_before = crate::seed::fmt(now - chrono::Duration::days(app.settings.quiet_days));
+    let mut rows = stmt
+        .query_map(params![now_s, week, archived], |r| {
+            let last: Option<String> = r.get(6)?;
+            let source: Option<String> = r.get(7)?;
+            let meeting: Option<String> = r.get(8)?;
+            Ok(TopicRow {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                category: r.get(2)?,
+                obsidian_path: r.get(3)?,
+                new_count: r.get(4)?,
+                open_count: r.get(5)?,
+                last_signal: last.as_deref().and_then(parse_ts).map(|t| last_label(t, now, source.as_deref())),
+                quiet: last.as_ref().is_none_or(|l| *l < quiet_before),
+                last_signal_at: last,
+                next_meeting: meeting.and_then(|m| {
+                    let (start, title) = m.split_once('\t')?;
+                    Some(Meeting { start: start.into(), title: title.into() })
+                }),
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    // Active first (next meeting soonest, then most recent signal), then quiet.
+    rows.sort_by(|a, b| {
+        let meet = |t: &TopicRow| t.next_meeting.as_ref().map(|m| m.start.clone());
+        (a.quiet, meet(a).is_none(), meet(a))
+            .cmp(&(b.quiet, meet(b).is_none(), meet(b)))
+            .then_with(|| b.last_signal_at.cmp(&a.last_signal_at))
+            .then_with(|| a.name.cmp(&b.name))
+    });
     Ok(json!(rows))
+}
+
+/// "10:41 · Slack" today, then "Yesterday", a weekday within the week, else "Sep 25".
+fn last_label(t: chrono::NaiveDateTime, now: chrono::NaiveDateTime, source: Option<&str>) -> String {
+    match (now.date() - t.date()).num_days() {
+        0 => match source {
+            Some(s) => format!("{} · {}", t.format("%H:%M"), source_label(s)),
+            None => t.format("%H:%M").to_string(),
+        },
+        1 => "Yesterday".into(),
+        2..=6 => t.format("%a").to_string(),
+        _ => t.format("%b %-d").to_string(),
+    }
+}
+
+fn set_archived(app: &App, id: i64, on: bool) -> Result<Value> {
+    let n = app.db().execute(
+        "UPDATE topics SET archived_at = CASE WHEN ?2 THEN datetime('now') END WHERE id = ?1",
+        params![id, on],
+    )?;
+    if n == 0 {
+        return Err(crate::error::msg("no such topic"));
+    }
+    Ok(json!({ "ok": true }))
 }
 
 fn source_label(kind: &str) -> &'static str {
@@ -520,6 +597,26 @@ mod tests {
         assert!(e.contains("unknown category"), "{e}");
         let e = crate::api::call(&app, "topics.create", &json!({ "name": "  " })).unwrap_err().to_string();
         assert!(e.contains("empty"), "{e}");
+    }
+
+    #[test]
+    fn index_rows_and_archive() {
+        let (app, _dir) = app();
+        let list = |archived: bool| crate::api::call(&app, "topics.list", &json!({ "archived": archived })).unwrap();
+        let rows = list(false);
+        let rows = rows.as_array().unwrap();
+        let dd = rows.iter().find(|t| t["name"] == "Datadog renewal").unwrap();
+        assert!(dd["open_count"].as_i64().unwrap() >= 3);
+        assert!(dd["last_signal"].is_string());
+        assert_eq!(dd["obsidian_path"], "Topics/Datadog renewal.md");
+        let quiet_at = rows.iter().position(|t| t["quiet"] == true).unwrap_or(rows.len());
+        assert!(rows[quiet_at..].iter().all(|t| t["quiet"] == true));
+        let id = dd["id"].as_i64().unwrap();
+        crate::api::call(&app, "topics.archive", &json!({ "id": id })).unwrap();
+        assert!(!list(false).as_array().unwrap().iter().any(|t| t["id"] == id));
+        assert!(list(true).as_array().unwrap().iter().any(|t| t["id"] == id));
+        crate::api::call(&app, "topics.unarchive", &json!({ "id": id })).unwrap();
+        assert!(list(false).as_array().unwrap().iter().any(|t| t["id"] == id));
     }
 
     #[test]

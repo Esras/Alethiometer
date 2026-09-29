@@ -16,6 +16,7 @@ export interface AppInfo {
   day_start_hour: number;
   day_end_hour: number;
   life_buffer_min: number;
+  quiet_days: number;
   clock_offset_ms: number;
   ai_label: string;
   incoming_count: number;
@@ -51,6 +52,14 @@ export interface TopicRef {
 
 export interface TopicRow extends TopicRef {
   new_count: number;
+  open_count: number;
+  obsidian_path: string | null;
+  last_signal_at: string | null;
+  /** "10:41 · Slack", "Yesterday", "Mon", "Sep 25". */
+  last_signal: string | null;
+  /** No signal within settings.quiet_days. */
+  quiet: boolean;
+  next_meeting: { start: string; title: string } | null;
 }
 
 /** Source kinds; each has an icon in public/icons/<kind>.png. */

@@ -4,7 +4,7 @@
   // columns scroll independently; z folds the left column. e edits the note in
   // place (topics/NotePane), o opens it in Obsidian.
   import { call } from '../lib/api';
-  import { catColor, category, TABS, ui } from '../lib/app.svelte';
+  import { catColor, category, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { SOURCES, sourceLabel } from '../lib/sources';
   import type { TopicDetail, TopicRow } from '../lib/types';
@@ -13,6 +13,7 @@
   import Pill from '../lib/ui/Pill.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import NotePane from './topics/NotePane.svelte';
+  import TopicsIndex from './topics/TopicsIndex.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
@@ -21,10 +22,7 @@
 
   $effect(() => {
     void ui.rev;
-    call<TopicRow[]>('topics.list').then((t) => {
-      topics = t;
-      if (ui.openTopicId === null && t.length) ui.openTopicId = t[0].id;
-    });
+    call<TopicRow[]>('topics.list').then((t) => (topics = t));
   });
 
   $effect(() => {
@@ -59,7 +57,21 @@
   }
 
   // e (edit here) and o (open in Obsidian) live in the note pane.
+  function toIndex() {
+    ui.openTopicId = null;
+    ui.openedFrom = null;
+    d = null;
+  }
+
+  function back() {
+    const from = ui.openedFrom;
+    toIndex();
+    if (from && from !== 'topics') setTab(from);
+  }
+
   useKeys((e) => {
+    if (ui.openTopicId === null) return;
+    if (plain(e, 'Escape')) return toIndex(), true;
     if (plain(e, 'z')) return fold(), true;
     if (plain(e, '[')) return step(-1), true;
     if (plain(e, ']')) return step(1), true;
@@ -73,7 +85,9 @@
 </script>
 
 <div class="view">
-  {#if d}
+  {#if ui.openTopicId === null}
+    <TopicsIndex />
+  {:else if d}
     {@const cat = catColor(d.topic.category)}
     <div class="content">
       <div class="header" style:background="linear-gradient(90deg, color-mix(in srgb, {cat} 10%, transparent), transparent 55%), var(--bg-panel)">
@@ -83,7 +97,7 @@
             <i class="ph ph-{allFolded ? 'arrows-out-line-vertical' : 'arrows-in-line-vertical'}"></i>
           </button>
           <div class="titles">
-            <div class="crumb"><span>{origin}</span><i class="ph ph-caret-right"></i><span style:color={cat}>{category(d.topic.category).label}</span></div>
+            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span style:color={cat}>{category(d.topic.category).label}</span></div>
             <div class="name">{d.topic.name}</div>
           </div>
           <div class="pills">
@@ -168,7 +182,7 @@
                   <span class="avatar">{p.initials}</span>
                   <div class="min0">
                     <div class="strong">{p.name}</div>
-                    <div class="role ellipsis">{p.role ?? ''}</div>
+                    <div class="role ellipsis" title={p.role ?? ''}>{p.role ?? ''}</div>
                   </div>
                 </div>
               {/each}
@@ -241,6 +255,10 @@
   }
   .titles {
     min-width: 0;
+  }
+  .back:hover {
+    color: var(--tx-2);
+    text-decoration: underline;
   }
   .crumb {
     font-size: 11.5px;

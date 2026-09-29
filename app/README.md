@@ -69,6 +69,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 | `ai.allowed_providers` | Providers covered by a BAA. Anything else fails closed. |
 | `ai.region`, `ai.small`, `ai.large` | Bedrock region and model per tier. Empty model = AI off. See `docs/ai.md`. |
 | `ai.aws_profile` | AWS profile for Bedrock credentials (empty = `AWS_PROFILE`, then `default`). |
+| `quiet_days` | Topics with no signal for this many days go under "Quiet" in the Topics index (default 7). |
 | `ui_scale` | Desktop window zoom (default `1.0`, e.g. `1.15`). Read at startup. |
 | `fake_now` | Dev only: pin the clock to `HH:MM`. |
 | `demo_data` | Fill an empty database with the sample data. Turn off before connecting real sources. |

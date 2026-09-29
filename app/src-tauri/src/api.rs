@@ -50,6 +50,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "day_start_hour": app.settings.day_start_hour,
                 "day_end_hour": app.settings.day_end_hour,
                 "life_buffer_min": app.settings.life_buffer_min,
+                "quiet_days": app.settings.quiet_days,
                 "clock_offset_ms": app.clock.offset_ms(),
                 "ai_label": crate::ai::label(&app.settings.ai),
                 "incoming_count": incoming,

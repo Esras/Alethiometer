@@ -12,10 +12,6 @@ Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title get
 
 Unseen items with a `confirmed` link now show under their topic in Incoming as updates (**Seen** instead of Confirm). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira only counts status/assignee changes by others and @mentions as updates, not plain comments.
 
-### Topics created by the AI will need an archive/cleanup story
-
-Added (see "Resolved" below): the small model can now propose brand-new topics, not just link into existing ones. Nothing prunes topics that turn out to be wrong, near-duplicates, or one-offs that seemed broad enough at the time but weren't — the `topics` table's `archived_at` column exists but nothing sets it anywhere in the codebase. User: "eventually" needed, not now. Revisit once topic volume from AI proposals is visible.
-
 ### `suggest_topics` failures are silently swallowed after every sync
 
 `ai/suggest.rs::suggest_topics` catches its own errors (missing credentials, throttling, etc.) and returns `Ok(Outcome { status: "failed", message })` rather than an `Err` — documented behavior, see `docs/ai.md`'s "Topic suggestions" section: "It never returns an error." `docs/ai.md`'s own suggested scheduling snippet accounts for this by checking `o.status == "failed"` and logging it:
@@ -32,6 +28,10 @@ Repro: sync a source with items and no Bedrock credentials configured. Sync succ
 Fix direction: `suggest_after_sync` should inspect `Outcome.status` (per the doc's own snippet) and surface `"failed"` somewhere durable — at minimum `eprintln`, ideally something the UI/sync-status tab can show, since right now there's no way to distinguish "AI never ran," "AI ran and failed," and "AI ran and had nothing to suggest."
 
 ## Resolved
+
+### Topics created by the AI will need an archive/cleanup story (manual only)
+
+The Topics index (12c) archives by hand: `a` or the row's Archive button, `topics.archive`/`topics.unarchive` set/clear `archived_at`, and the Archived tab brings them back. Every other query already filters `archived_at IS NULL`. No bulk or automatic cleanup (user: never throw data away in bulk); a periodic review of quiet topics is still out of scope.
 
 ### No way to dismiss a signal in Incoming
 

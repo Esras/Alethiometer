@@ -80,6 +80,8 @@ pub struct Settings {
     pub fake_now: String,
     /// Page zoom for the desktop window, e.g. 1.15.
     pub ui_scale: f64,
+    /// Topics with no signal for this many days sit under "Quiet" in the index.
+    pub quiet_days: i64,
     /// Real sources to sync. Empty while running on sample data.
     pub sources: Vec<SourceConfig>,
     /// Fill an empty database with the sample data from the design mocks.
@@ -114,6 +116,7 @@ impl Default for Settings {
             },
             fake_now: String::new(),
             ui_scale: 1.0,
+            quiet_days: 7,
             sources: vec![],
             demo_data: true,
         }

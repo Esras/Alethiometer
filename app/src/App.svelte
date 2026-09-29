@@ -25,7 +25,7 @@
       e.preventDefault();
       return;
     }
-    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect') {
+    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
       ui.searchOpen = true;
       e.preventDefault();
       return;
