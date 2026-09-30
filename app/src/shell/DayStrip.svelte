@@ -332,14 +332,15 @@
   .note {
     width: 150px;
     flex: none;
+    align-self: stretch;
     display: flex;
     gap: 6px;
     align-items: center;
-    padding: 6px 10px;
+    padding: 4px 10px;
     border-radius: var(--r-input);
     border: 1px dashed var(--border-strong);
     font-size: 11px;
-    line-height: 1.35;
+    line-height: 1.25;
     color: var(--tx-muted);
   }
   .note i {
