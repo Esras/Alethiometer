@@ -70,7 +70,12 @@ Every write goes through an `outbox` table: `pending → sent → confirmed`, or
 ---
 
 ## Views
-The window is about 1320×880 in the mocks. The top of every view except Reflect is a tab bar (Incoming, Priorities, Topics, Notes, Reflect, with ⌘K search at the right) and the **day strip**. The chat/ask pane is collapsible.
+**Window size:** 1760×1175 (`tauri.conf.json`), with `ui_scale` **1.15** in `settings.json`. That gives about 1530×1022 of layout space at the mock values. Rounds 7–19 were drawn at 1320×880. Their px values stay as they are, and the zoom does the scaling. See 20a for how the extra width is used:
+- The day strip labels every hour (`ticks="hourly"`). Event blocks are 44px tall (up from 26).
+- Overlapping events split into lanes: 2 lanes of 21px or 3 of 13px, with labels at 10–10.5px. The bar above an overlap is 3px: `#fe8019` where two events overlap and `#fb4934` where three do, over a faint band of the same color. The dashed "tentative" border stays on lanes. For 4+ overlaps (not mocked), show 3 lanes plus a "+N" chip.
+- Signal rows have one action cluster on the title line: that source's actions (Todo, Trash, Unsubscribe / Accept, Decline) come first, then a 1px divider, then Confirm, Wrong topic and Dismiss, right-aligned so Confirm lines up down the list. The second line holds only the snippet, label and status. The panel fills the available width.
+
+Other views can use the spare width as they are, for now. The top of every view except Reflect is a tab bar (Incoming, Priorities, Topics, Notes, Reflect, with ⌘K search at the right) and the **day strip**. The chat/ask pane is collapsible.
 
 ### Day strip (`DayStripGruv.dc.html`, see 7a/7b/11a)
 - A 156px countdown card on the left: "Next · {meeting}" plus a large countdown and a 3px bar. The countdown color is green `#b8bb26` above 15 min, yellow `#fabd2f` from 5 to 15, orange `#fe8019` from 2 to 5, and red `#fb4934` under 2.
@@ -335,6 +340,7 @@ Keyboard-first throughout: `j`/`k` move, `↵` opens, `o` opens in the source ap
 - Type: Inter. 13px base, 15px/1.6 for Notes lines, 10.5px uppercase with .1em tracking for section labels, 17–18px/500 for headings. Tabular numbers for times.
 - Radius 4px on blocks, 6px on inputs and pills, 8px on panels.
 - Buttons are outlined, never filled.
+- **Scale:** all sizes above are CSS px at `ui_scale` 1.0, and the target is 1.15 (so 13px renders at about 15px). Suggested code cleanup: move the ~190 hard-coded `font-size`/`width` values in `app.css` and the Svelte components to rem, with tokens like `--fs-label: .8077rem` (10.5/13) and `--fs-body: 1rem`, and set `html { font-size: 13px }`. Then one root value controls type, and `ui_scale` controls everything else. Until then, `ui_scale` alone is enough.
 
 ## Assets
 `design/icons/`: desaturated app icons supplied by the user (gcal, gmail, jira, marvin, notion, obsidian, protoncal, protonmail, sheets, slack, thunderbird). **Add a GitHub icon in the same style.** Other icons come from Phosphor.
