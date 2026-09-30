@@ -204,6 +204,7 @@ struct Msg {
     ts: String,
     user: Option<String>,
     bot_name: Option<String>,
+    bot_id: Option<String>,
     text: String,
     thread_ts: Option<String>,
     reply_count: i64,
@@ -220,6 +221,9 @@ impl Msg {
         }
         let mut text = s("text").unwrap_or_default();
         if text.trim().is_empty() {
+            text = rich_text(v);
+        }
+        if text.trim().is_empty() {
             if let Some(files) = v.get("files").and_then(Value::as_array) {
                 let names: Vec<&str> = files.iter().filter_map(|f| f.get("name").and_then(Value::as_str)).collect();
                 text = format!("[file] {}", names.join(", "));
@@ -229,6 +233,7 @@ impl Msg {
             ts: s("ts")?,
             user: s("user").filter(|u| !u.is_empty()),
             bot_name: v.pointer("/bot_profile/name").and_then(Value::as_str).map(str::to_owned).or_else(|| s("username")),
+            bot_id: s("bot_id").filter(|b| !b.is_empty()),
             text,
             thread_ts: s("thread_ts"),
             reply_count: v.get("reply_count").and_then(Value::as_i64).unwrap_or(0),
@@ -239,6 +244,63 @@ impl Msg {
     fn is_reply(&self) -> bool {
         matches!(&self.thread_ts, Some(t) if t != &self.ts)
     }
+}
+
+fn rich_text(v: &Value) -> String {
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
+    let mut out: Vec<String> = vec![];
+    for a in v.get("attachments").and_then(Value::as_array).into_iter().flatten() {
+        let before = out.len();
+        out.extend(["pretext", "title", "text"].iter().filter_map(|k| s(a, k)));
+        for f in a.get("fields").and_then(Value::as_array).into_iter().flatten() {
+            match (s(f, "title"), s(f, "value")) {
+                (Some(t), Some(v)) => out.push(format!("{t}: {v}")),
+                (t, v) => out.extend(t.or(v)),
+            }
+        }
+        out.extend(a.get("blocks").map(blocks_text).filter(|t| !t.is_empty()));
+        if out.len() == before {
+            out.extend(s(a, "fallback"));
+        }
+    }
+    out.extend(v.get("blocks").map(blocks_text).filter(|t| !t.is_empty()));
+    out.join("\n")
+}
+
+fn blocks_text(blocks: &Value) -> String {
+    fn walk(v: &Value, out: &mut String) {
+        match v {
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+            Value::Object(o) => {
+                match o.get("type").and_then(Value::as_str) {
+                    Some("user") => return out.push_str(&format!("<@{}>", o.get("user_id").and_then(Value::as_str).unwrap_or(""))),
+                    Some("link") if o.get("text").is_none() => return out.push_str(o.get("url").and_then(Value::as_str).unwrap_or("")),
+                    Some("image") => return,
+                    _ => {}
+                }
+                match o.get("text") {
+                    Some(Value::String(t)) => out.push_str(t),
+                    Some(t) => walk(t, out),
+                    None => {}
+                }
+                for k in ["elements", "fields"] {
+                    if let Some(x) = o.get(k) {
+                        walk(x, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut parts = vec![];
+    for b in blocks.as_array().into_iter().flatten() {
+        let mut t = String::new();
+        walk(b, &mut t);
+        if !t.trim().is_empty() {
+            parts.push(t.trim().to_owned());
+        }
+    }
+    parts.join("\n")
 }
 
 /// Which messages of a stream belong to its run: with an open run, everything
@@ -802,7 +864,7 @@ impl Poller<'_> {
             } else if hit.dm || self.state.follow.contains(&hit.channel) {
                 self.check_conv(&hit.channel)?;
             } else {
-                let msg = Msg { ts: hit.ts, user: Some(hit.user).filter(|u| !u.is_empty()), bot_name: Some(hit.username), text: hit.text, thread_ts: None, reply_count: 0, latest_reply: None };
+                let msg = Msg { ts: hit.ts, user: Some(hit.user).filter(|u| !u.is_empty()), bot_name: Some(hit.username), bot_id: None, text: hit.text, thread_ts: None, reply_count: 0, latest_reply: None };
                 self.mention_item(&hit.channel, hit.channel_name, &msg, hit.permalink)?;
             }
         }
@@ -937,8 +999,24 @@ impl Poller<'_> {
         match (&m.user, &m.bot_name) {
             (Some(u), _) => self.user_name(u),
             (None, Some(b)) if !b.is_empty() => Ok(b.clone()),
-            _ => Ok("bot".into()),
+            _ => match m.bot_id.clone() {
+                Some(id) => self.bot_name(&id),
+                None => Ok("bot".into()),
+            },
         }
+    }
+
+    fn bot_name(&mut self, id: &str) -> anyhow::Result<String> {
+        if let Some(n) = self.users.get(id) {
+            return Ok(n.clone());
+        }
+        let name = match self.client.get("bots.info", &[("bot", id)]) {
+            Ok(v) => v.pointer("/bot/name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or("bot").to_owned(),
+            Err(e) if e.to_string().contains("bot_not_found") => "bot".into(),
+            Err(e) => return Err(e),
+        };
+        self.users.insert(id.to_owned(), name.clone());
+        Ok(name)
     }
 
     fn permalink(&self, channel: &str, ts: &str, thread_ts: Option<&str>) -> Option<String> {
@@ -1070,6 +1148,27 @@ fn truncate(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_text_falls_back_to_attachments_and_blocks() {
+        let dd = json!({ "ts": "1.0", "bot_id": "B0DD", "text": "", "attachments": [{
+            "title": "Triggered: Query Monitor Disabled on uams",
+            "text": "* Validate the query works",
+            "fields": [{ "title": "Tags", "value": "@stack_name:uams" }],
+            "fallback": "ignored"
+        }]});
+        let m = Msg::parse(&dd).unwrap();
+        assert_eq!(m.text, "Triggered: Query Monitor Disabled on uams\n* Validate the query works\nTags: @stack_name:uams");
+        assert_eq!(m.bot_id.as_deref(), Some("B0DD"));
+
+        let blocks = json!({ "ts": "2.0", "text": "", "blocks": [
+            { "type": "header", "text": { "type": "plain_text", "text": "Deploy" } },
+            { "type": "rich_text", "elements": [{ "type": "rich_text_section", "elements": [
+                { "type": "text", "text": "done by " }, { "type": "user", "user_id": "U0ME" }
+            ]}]}
+        ]});
+        assert_eq!(Msg::parse(&blocks).unwrap().text, "Deploy\ndone by <@U0ME>");
+    }
 
     #[test]
     fn marker_ignores_slacks_read_state() {
