@@ -45,7 +45,7 @@ All `config` fields are optional:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `account` | none | Passed to Google as `login_hint`, so consent picks the work account. Also used in links (`mail.google.com/mail/u/<account>/…`), so they open in the right account when you're signed into several. |
+| `account` | none | Passed to Google as `login_hint`, so consent picks the work account. Also used in links (`mail.google.com/mail/?authuser=<account>…`), so they open in the right account when you're signed into several. |
 | `category_labels` | none | Category key → Gmail label name, e.g. `{"customers": "Customers", "vendors": "Vendors"}`. Filing a thread under a topic adds the label of the topic's category. The label must exist in Gmail. Categories without an entry get no label. |
 | `read_only` | `false` | Never write to Gmail (no labels, read state, archive or trash). |
 | `scopes` | `["https://www.googleapis.com/auth/gmail.modify"]` | Don't change this unless you know why. |
@@ -73,7 +73,7 @@ A thread is in the Inbox when one of its messages has the `INBOX` label. It's on
 | author | `From` of the newest message: address as handle, display name (or a name from the address) as the person. Mail a service sends for many people from one address is traced to the person where the headers say who: Google Groups `X-Original-From` / `X-Original-Sender`, Drive shares `Reply-To`, GitHub `X-GitHub-Sender` (handle `github:<login>`). Where they don't (Jira, Docs comments; relay addresses containing `noreply`, `no-reply`, `notification`, or `jira@`/`confluence@`), the handle is the address plus the display name. |
 | messages | every message, oldest first: time, sender name, body. Body is the `text/plain` part if there is one, else the `text/html` part with tags, styles and scripts stripped. Quoted replies ("On … wrote:", `>` lines, Outlook's "Original Message") are cut, whitespace is tidied and each body is clipped to 2,000 characters. Attachments are skipped. |
 | summary | the newest message, first 140 characters |
-| url | `https://mail.google.com/mail/u/<account or 0>/#all/<thread id>` |
+| url | `https://mail.google.com/mail/?authuser=<account or 0>#all/<thread id>` |
 | times | first and newest message (`internalDate`) |
 
 - **New signal:** a new Inbox thread, or a newer message in a known one (bump), yours included. A filed thread comes back under its topic as an update.
@@ -96,5 +96,4 @@ Later, with to-dos: filing will also archive the thread, and a thread that needs
 All tests use recorded-shape fixtures (`src-tauri/tests/fixtures/gmail/`). Against the real account, check:
 
 - consent for `gmail.modify` on the shared client (and that the calendar keeps syncing afterwards);
-- that `#all/<thread id>` links open the thread in Gmail web;
 - header decoding of non-ASCII subjects and senders, and bodies in charsets other than UTF-8.

@@ -234,7 +234,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
         title,
         body: messages.iter().map(|m| format!("{}: {}", m.author, m.text)).collect::<Vec<_>>().join("\n"),
         summary: messages.last().map(|m| clip(&m.text.split_whitespace().collect::<Vec<_>>().join(" "), 140)),
-        url: Some(format!("https://mail.google.com/mail/u/{account}/#all/{id}")),
+        url: Some(format!("https://mail.google.com/mail/?authuser={account}#all/{id}")),
         author: sender(last),
         occurred_at: at(first),
         ended_at: Some(at(last)),
@@ -500,7 +500,7 @@ mod tests {
         let (_, b) = first_sync();
         let a = item(&b, A);
         assert_eq!(a.title, "Acme exec call today");
-        assert_eq!(a.url.clone().unwrap(), format!("https://mail.google.com/mail/u/0/#all/{A}"));
+        assert_eq!(a.url.clone().unwrap(), format!("https://mail.google.com/mail/?authuser=0#all/{A}"));
         let texts: Vec<(&str, &str)> = a.messages.iter().map(|m| (m.author.as_str(), m.text.as_str())).collect();
         // Read or not, every message is in; the quoted reply is cut, plain text wins over HTML.
         assert_eq!(texts.len(), 3);
