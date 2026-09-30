@@ -1,7 +1,7 @@
 <script lang="ts">
   // Pick a topic's category: type to filter, ↑/↓ or ⌃j/⌃k move, ↵ picks, Esc closes.
   import { call } from '../../lib/api';
-  import { useKeys } from '../../lib/keys.svelte';
+  import { pointerMoved, useKeys } from '../../lib/keys.svelte';
   import type { CategoryRow } from '../../lib/types';
 
   let { current, onpick, onclose }: { current: string; onpick: (key: string) => void; onclose: () => void } = $props();
@@ -35,7 +35,7 @@
 <div class="picker" onmousedown={(e) => e.stopPropagation()} role="listbox" tabindex="-1">
   <input bind:this={input} bind:value={q} placeholder="Category…" />
   {#each matches as c, i (c.key)}
-    <button class="opt" class:on={i === sel} onclick={() => onpick(c.key)} onmouseenter={() => (sel = i)}>
+    <button class="opt" class:on={i === sel} onclick={() => onpick(c.key)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
       <span class="sq" style:background={c.color}></span>
       <span class="ellipsis">{c.label}</span>
       {#if c.key === current}<i class="ph ph-check"></i>{/if}

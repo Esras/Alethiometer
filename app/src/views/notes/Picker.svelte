@@ -4,6 +4,7 @@
   // ↑↓ (or Tab) move, ↵ picks, Esc closes.
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
+  import { pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import { KEEP, type EditLine, type Options, type Target } from './types';
 
@@ -61,7 +62,7 @@
   </div>
   <div class="list">
     {#each opts as o, i}
-      <button class="opt" class:on={i === sel} onmousedown={(e) => e.preventDefault()} onclick={() => onpick(o.t)} onmouseenter={() => (sel = i)}>
+      <button class="opt" class:on={i === sel} onmousedown={(e) => e.preventDefault()} onclick={() => onpick(o.t)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
         <span class="ic">
           {#if !o.t}<i class="ph ph-arrow-counter-clockwise"></i>
           {:else if o.t.type === 'topic'}<span class="sq" style:background={catColor(o.t.category ?? 'work')}></span>

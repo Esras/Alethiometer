@@ -42,3 +42,11 @@ export function mod(e: KeyboardEvent): boolean {
 export function plain(e: KeyboardEvent, key: string): boolean {
   return e.key === key && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e);
 }
+
+let pointer = { x: NaN, y: NaN };
+
+export function pointerMoved(e: MouseEvent): boolean {
+  if (e.screenX === pointer.x && e.screenY === pointer.y) return false;
+  pointer = { x: e.screenX, y: e.screenY };
+  return true;
+}

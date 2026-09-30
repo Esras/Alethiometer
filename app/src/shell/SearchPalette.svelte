@@ -1,7 +1,7 @@
 <script lang="ts">
   import { call } from '../lib/api';
   import { catColor, openTopic, ui } from '../lib/app.svelte';
-  import { useKeys } from '../lib/keys.svelte';
+  import { pointerMoved, useKeys } from '../lib/keys.svelte';
   import type { SearchResults } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
 
@@ -66,7 +66,7 @@
   {#if rows.length}
     <div class="results scroll">
       {#each rows as r, i}
-        <button class="row" class:sel={i === sel} onclick={() => choose(r)} onmouseenter={() => (sel = i)}>
+        <button class="row" class:sel={i === sel} onclick={() => choose(r)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
           {#if r.kind === 'topic'}
             <span class="sq" style:background={catColor(r.category ?? '')}></span>
           {:else}

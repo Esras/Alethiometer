@@ -8,7 +8,7 @@
   import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
   import { catColor, meetingPill, refresh, ui } from '../../lib/app.svelte';
-  import { plain, useKeys } from '../../lib/keys.svelte';
+  import { plain, pointerMoved, useKeys } from '../../lib/keys.svelte';
   import type { CategoryRow, TopicRow } from '../../lib/types';
   import CategoryManager from './CategoryManager.svelte';
   import CategoryPicker from './CategoryPicker.svelte';
@@ -16,7 +16,7 @@
   let archived = $state(saved.archived);
   let rows = $state<TopicRow[]>([]);
   let q = $state(saved.q);
-  let sel = $state(0);
+  let selId = $state<number | null>(null);
   let input = $state<HTMLInputElement>();
   let err = $state<string | null>(null);
   let cats = $state<CategoryRow[]>([]);
@@ -48,13 +48,14 @@
   const active = $derived(archived ? matches : matches.filter((t) => !t.quiet));
   const quiet = $derived(archived ? [] : matches.filter((t) => t.quiet));
   const flat = $derived([...active, ...quiet]);
-  const current = $derived(flat[Math.min(sel, flat.length - 1)] ?? null);
+  const sel = $derived(Math.max(0, flat.findIndex((t) => t.id === selId)));
+  const current = $derived(flat[sel] ?? null);
   const canCreate = $derived(!archived && q.trim().length > 0 && !rows.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()));
 
   $effect(() => {
     void q;
     void catFilter;
-    sel = 0;
+    selId = null;
   });
 
   $effect(() => {
@@ -64,8 +65,7 @@
   $effect(() => {
     if (restored || !rows.length) return;
     restored = true;
-    const i = flat.findIndex((t) => t.id === saved.id);
-    if (i >= 0) sel = i;
+    selId = saved.id;
     tick().then(() => body && (body.scrollTop = saved.scroll));
   });
 
@@ -105,6 +105,8 @@
 
   async function toggleArchive(t: TopicRow | null) {
     if (!t) return;
+    const i = flat.findIndex((r) => r.id === t.id);
+    selId = (flat[i + 1] ?? flat[i - 1])?.id ?? null;
     try {
       await call(archived ? 'topics.unarchive' : 'topics.archive', { id: t.id });
       err = null;
@@ -126,8 +128,9 @@
   }
 
   function move(d: number) {
-    sel = Math.max(0, Math.min(flat.length - 1, sel + d));
-    document.querySelector(`[data-topic="${flat[sel]?.id}"]`)?.scrollIntoView({ block: 'nearest' });
+    const next = flat[Math.max(0, Math.min(flat.length - 1, sel + d))];
+    selId = next?.id ?? null;
+    document.querySelector(`[data-topic="${next?.id}"]`)?.scrollIntoView({ block: 'nearest' });
   }
 
   useKeys((e) => {
@@ -155,7 +158,7 @@
 
 {#snippet row(t: TopicRow)}
   {@const i = flat.indexOf(t)}
-  <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} data-topic={t.id} onclick={() => open(t)} onmouseenter={() => (sel = i)} role="presentation">
+  <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} data-topic={t.id} onclick={() => open(t)} onmousemove={(e) => pointerMoved(e) && (selId = t.id)} role="presentation">
     <button class="bar" style:background={catColor(t.category)} title="Category (c)" aria-label="Category" onclick={(e) => (e.stopPropagation(), (picking = t.id))}></button>
     {#if picking === t.id}
       <div class="pick"><CategoryPicker current={t.category} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>

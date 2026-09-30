@@ -3,7 +3,7 @@
   // ↵ to pick, Esc to close. Picking creates a confirmed link.
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
-  import { useKeys } from '../../lib/keys.svelte';
+  import { pointerMoved, useKeys } from '../../lib/keys.svelte';
   import type { TopicRow } from '../../lib/types';
 
   let {
@@ -72,7 +72,7 @@
     <span class="hint">↵ pick · esc</span>
   </div>
   {#each matches as t, i}
-    <button class="opt" class:on={i === sel} onmousedown={(e) => (e.preventDefault(), onpick(t.id))} onmouseenter={() => (sel = i)}>
+    <button class="opt" class:on={i === sel} onmousedown={(e) => (e.preventDefault(), onpick(t.id))} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
       <span class="bar" style:background={catColor(t.category)}></span>
       <span class="ellipsis">{t.name}</span>
     </button>
