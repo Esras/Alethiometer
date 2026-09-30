@@ -157,6 +157,10 @@
   });
 
   $effect(() => {
+    if (selKey !== null) document.querySelector(`[data-topic-key="${selKey}"]`)?.scrollIntoView({ block: 'nearest' });
+  });
+
+  $effect(() => {
     if (selItem === null) return;
     document.querySelector(`[data-item="${selItem}"]`)?.scrollIntoView({ block: 'nearest' });
   });
@@ -308,7 +312,7 @@
     <div class="label head">Topics with new signals</div>
     {#each entries as t (t.key)}
       {#if t.key === 'unsorted'}<div class="fade-rule"></div>{/if}
-      <button class="topic" class:on={t.key === selKey} class:unsorted={t.key === 'unsorted'} onclick={() => selectTopic(t.key)}>
+      <button class="topic" data-topic-key={t.key} class:on={t.key === selKey} class:unsorted={t.key === 'unsorted'} onclick={() => selectTopic(t.key)}>
         <span class="bar" style:background={t.category ? catColor(t.category) : null}></span>
         <span class="name ellipsis" title={t.name}>
           {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{/if}{t.name}
