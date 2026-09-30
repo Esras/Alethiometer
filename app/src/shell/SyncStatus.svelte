@@ -45,7 +45,7 @@
   });
 
   // Sample-data sources never sync; only show ones that have synced or errored.
-  const live = $derived(sources.filter((s) => s.last_sync_at || s.last_error));
+  const live = $derived(sources.filter((s) => s.last_sync_at || s.last_error || s.syncing));
   const failed = $derived(writes.filter((w) => w.state === 'failed'));
   const pending = $derived(writes.filter((w) => w.state === 'pending' || w.state === 'sent'));
   const suggestFailed = $derived(suggest.run?.status === 'failed');
