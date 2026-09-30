@@ -51,13 +51,69 @@
   const hours = $derived.by(() => {
     if (!data) return [];
     const out: number[] = [];
-    for (let m = data.day_start_min; m < data.day_end_min; m += 120) {
+    for (let m = data.day_start_min; m < data.day_end_min; m += 60) {
       if (!leaves.some((l) => m >= l - 50 && m <= l + 25)) out.push(m);
     }
     return out;
   });
 
   const label = (b: Block) => b.end_min - b.start_min >= 30;
+
+  const BH = 44;
+  const MAX_LANES = 3;
+  type Lane = { lane: number; lanes: number };
+  const overlaps = $derived.by(() => {
+    const lanes = new Map<number, Lane>();
+    const hidden: { start: number; blocks: Block[]; lanes: number }[] = [];
+    const bands: { start: number; end: number; depth: number }[] = [];
+    if (!data) return { lanes, hidden, bands };
+    const work = data.blocks.filter((b) => !b.life).sort((a, b) => a.start_min - b.start_min || b.end_min - a.end_min);
+    let cluster: Block[] = [];
+    let clusterEnd = 0;
+    const flush = () => {
+      const ends: number[] = [];
+      const lane = new Map<number, number>();
+      for (const b of cluster) {
+        let i = ends.findIndex((e) => e <= b.start_min);
+        if (i < 0) i = ends.push(0) - 1;
+        ends[i] = b.end_min;
+        lane.set(b.id, i);
+      }
+      const n = Math.min(ends.length, MAX_LANES);
+      for (const b of cluster) lanes.set(b.id, { lane: lane.get(b.id)!, lanes: n });
+      const over = cluster.filter((b) => lane.get(b.id)! >= MAX_LANES);
+      if (over.length) hidden.push({ start: Math.min(...over.map((b) => b.start_min)), blocks: over, lanes: n });
+      const cuts = [...new Set(cluster.flatMap((b) => [b.start_min, b.end_min]))].sort((a, b) => a - b);
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        const depth = Math.min(cluster.filter((b) => b.start_min <= cuts[i] && b.end_min >= cuts[i + 1]).length, MAX_LANES);
+        const last = bands.at(-1);
+        if (depth < 2) continue;
+        if (last && last.end === cuts[i] && last.depth === depth) last.end = cuts[i + 1];
+        else bands.push({ start: cuts[i], end: cuts[i + 1], depth });
+      }
+    };
+    for (const b of work) {
+      if (cluster.length && b.start_min >= clusterEnd) {
+        flush();
+        cluster = [];
+      }
+      cluster.push(b);
+      clusterEnd = cluster.length === 1 ? b.end_min : Math.max(clusterEnd, b.end_min);
+    }
+    if (cluster.length) flush();
+    return { lanes, hidden, bands };
+  });
+
+  const laneH = (n: number) => Math.floor((BH - 2 * (n - 1)) / n);
+  function laneStyle(b: Block): string {
+    const l = overlaps.lanes.get(b.id);
+    if (!l || l.lanes < 2) return '';
+    const h = laneH(l.lanes);
+    return `top:${l.lane * (h + 2)}px;height:${h}px;line-height:${h - (b.tentative ? 2 : 0)}px;padding-top:0;padding-bottom:0;font-size:${h >= 18 ? 10.5 : 10}px;border-radius:3px;`;
+  }
+  const laned = (b: Block) => (overlaps.lanes.get(b.id)?.lanes ?? 1) > 1;
+  const shown = (b: Block) => (overlaps.lanes.get(b.id)?.lane ?? 0) < MAX_LANES;
+  const edge = (b: Block) => (laned(b) ? `inset 2px 0 0 ${catColor(b.category)}` : `inset 0 2px 0 ${catColor(b.category)}`);
 
   function tint(key: string, pctAlpha: number) {
     return `color-mix(in srgb, ${catColor(key)} ${pctAlpha}%, transparent)`;
@@ -102,18 +158,24 @@
 
   <div class="track">
     {#if data}
+      <div class="layer">
+        {#each overlaps.bands as o (o.start)}
+          <div class="band" class:triple={o.depth >= 3} style:left="{pct(o.start)}%" style:width="{pct(o.end) - pct(o.start)}%"></div>
+        {/each}
+      </div>
       <div class="layer faded">
         {#each gaps as g}
           <div class="gap" style:left="{pct(g.start)}%" style:width="{pct(g.end) - pct(g.start)}%"></div>
         {/each}
-        {#each data.blocks.filter((b) => !b.life && !hl(b)) as b (b.id)}
+        {#each data.blocks.filter((b) => !b.life && !hl(b) && shown(b)) as b (b.id)}
           <div
             class="block"
             class:tentative={b.tentative}
+            style={laneStyle(b)}
             style:left="{pct(b.start_min)}%"
             style:width="{pct(b.end_min) - pct(b.start_min)}%"
             style:background={b.tentative ? 'transparent' : tint(b.category, 17)}
-            style:box-shadow={b.tentative ? 'none' : `inset 0 2px 0 ${catColor(b.category)}`}
+            style:box-shadow={b.tentative ? 'none' : edge(b)}
             style:border-color={catColor(b.category)}
             title="{b.title} · {hm(b.start_min)}–{hm(b.end_min)}"
           >
@@ -122,14 +184,28 @@
         {/each}
       </div>
       <div class="layer">
-        {#each data.blocks.filter((b) => !b.life && hl(b)) as b (b.id)}
+        {#each overlaps.hidden as x (x.start)}
+          {@const h = laneH(x.lanes)}
+          <div
+            class="more tnum"
+            style:left="{pct(x.start)}%"
+            style:top="{(MAX_LANES - 1) * (h + 2)}px"
+            style:height="{h}px"
+            style:line-height="{h}px"
+            title={x.blocks.map((b) => `${b.title} · ${hm(b.start_min)}–${hm(b.end_min)}`).join('\n')}
+          >
+            +{x.blocks.length}
+          </div>
+        {/each}
+        {#each data.blocks.filter((b) => !b.life && hl(b) && shown(b)) as b (b.id)}
           <div
             class="block lit"
             class:tentative={b.tentative}
+            style={laneStyle(b)}
             style:left="{pct(b.start_min)}%"
             style:width="{pct(b.end_min) - pct(b.start_min)}%"
             style:background="color-mix(in srgb, {catColor(b.category)} 12%, var(--bg-panel))"
-            style:box-shadow="{b.tentative ? '' : `inset 0 2px 0 ${catColor(b.category)},`} 0 0 0 1.5px var(--aqua)"
+            style:box-shadow="{b.tentative ? '' : `${edge(b)},`} 0 0 0 1.5px var(--aqua)"
             style:border-color={catColor(b.category)}
             title="{b.title} · {hm(b.start_min)}–{hm(b.end_min)}"
           >
@@ -204,6 +280,7 @@
 
 <style>
   .strip {
+    --bh: 44px;
     position: relative;
     flex: none;
     display: flex;
@@ -247,12 +324,12 @@
     flex: 1;
     min-width: 0;
     position: relative;
-    height: 40px;
+    height: calc(var(--bh) + 14px);
   }
   .layer {
     position: absolute;
     inset: 0 0 auto 0;
-    height: 26px;
+    height: var(--bh);
   }
   .layer.faded {
     opacity: 0.5;
@@ -260,10 +337,10 @@
   .block {
     position: absolute;
     top: 0;
-    height: 26px;
+    height: var(--bh);
     border-radius: var(--r-block);
     font-size: 10.5px;
-    padding: 7px 5px 0;
+    padding: calc(var(--bh) / 2 - 6px) 5px 0;
     overflow: hidden;
     white-space: nowrap;
     color: var(--tx-body);
@@ -272,7 +349,36 @@
   }
   .block.tentative {
     border: 1px dashed;
-    padding: 6px 4px 0;
+    padding: calc(var(--bh) / 2 - 7px) 4px 0;
+  }
+  .band {
+    position: absolute;
+    top: 0;
+    height: var(--bh);
+    background: rgba(254, 128, 25, 0.12);
+  }
+  .band::before {
+    content: '';
+    position: absolute;
+    inset: -6px 0 auto 0;
+    height: 3px;
+    border-radius: 1px;
+    background: #fe8019;
+  }
+  .band.triple {
+    background: rgba(251, 73, 52, 0.14);
+  }
+  .band.triple::before {
+    background: #fb4934;
+  }
+  .more {
+    position: absolute;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: var(--tx-body);
+    background: var(--bg-head);
+    border: 1px solid var(--border-strong);
   }
   .block.lit {
     font-weight: 500;
@@ -280,7 +386,7 @@
   .gap {
     position: absolute;
     top: 0;
-    height: 26px;
+    height: var(--bh);
     border-radius: 3px;
     background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.1) 0 3px, transparent 3px 6px);
   }
@@ -304,14 +410,14 @@
   .leave-tick {
     position: absolute;
     top: -4px;
-    height: 34px;
+    height: calc(var(--bh) + 8px);
     width: 0;
     border-left: 1.5px dashed var(--cat-life);
   }
   .now {
     position: absolute;
     top: -4px;
-    height: 34px;
+    height: calc(var(--bh) + 8px);
     width: 2px;
   }
   .axis {
@@ -350,7 +456,7 @@
   .popover {
     position: absolute;
     z-index: 10;
-    top: 38px;
+    top: calc(var(--bh) + 12px);
     width: 290px;
     display: flex;
     flex-direction: column;

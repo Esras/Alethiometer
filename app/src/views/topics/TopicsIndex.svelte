@@ -252,7 +252,7 @@
   }
   .panel {
     flex: 1;
-    max-width: 1060px;
+    max-width: 1200px;
     min-height: 0;
     display: flex;
     flex-direction: column;
