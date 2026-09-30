@@ -29,7 +29,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - **Sync status** shows **Syncing…** per source for background syncs too (`sync.status` reports running sources).
 - Window opens at 1760×1175.
 - **Topics index (12c)** built: filter (`/`; no auto-focus — user uses j/k), Active/Archived, archive (`a`), quiet section (`quiet_days`), next-meeting pills (own thresholds; the strip countdown keeps its 15/5/2 — user: different information), category chips + `c` picker (type-to-filter), New topic (`n`, inline name field), assistant pane scoped to all topics (`ai.ask` scope `topics`). Scroll/selection/filter survive opening a topic.
-- **Categories** are a DB table (`categories`, migration 0004), seeded once from `settings.categories`; managed in Topics index → Categories. `work`/`life` built in; delete refused while in use. The classification model suggests a category for new topics.
+- **Categories**: `settings.json` `categories` (array, UI order) is the source of truth; the `categories` table mirrors it at startup and every change in Topics index → Categories writes the file back (`queries::categories::save`, temp file + rename). The old map form is migrated once (DB wins). `work`/`life` built in; delete refused while in use. The classification model suggests a category for new topics.
 - **Markdown**: `lib/ui/Markdown.svelte`, a small element-building renderer (no `{@html}`) for AI answers and Incoming message text. The ask prompt allows light Markdown.
 - `ui_scale` in settings.json: native webview zoom (`set_zoom`), read at startup; user runs 1.15.
 - `app.open_url` command (backend `platform::Platform::open_url`, `open`/`xdg-open`) wired to `openExternal()` — "open in GitHub"/"open in Obsidian" links actually open something now; `window.open()` is a silent no-op in Tauri's WKWebView without a plugin this app doesn't have.
@@ -63,7 +63,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 1. **Slack**: capture reworked to the user's model: every message (yours too) within the lookback, Slack's read marker ignored; triage closes a run (`slack::close_triaged`); threads are one item and one topic, new replies come back as updates; top-level runs get per-message topics via the AI split, with earlier messages and their filed topics as context (`ai/suggest.rs::context_messages`). Context messages in `item_messages.context`, sender id in `item_messages.author_id`. Next: go live on the work Mac with `lookback_hours: 12`, then the split review UI (15g/15h) and person colours (16c), then the missed-message audit (below).
 2. **Gmail**: done and resynced; the user is triaging it. Next: to-dos, then archive-on-filing (ISSUES.md).
-3. 13b (AI failure panel) exists as a design and relates to the open `suggest_topics` swallowed-failure issue.
+3. 13b (AI failure panel): built in the sync chip; the macOS notification on ok → failed waits for notifications in `platform.rs`.
 
 Slack and Gmail can only be tested with fixtures outside the user's Mac.
 
@@ -71,7 +71,6 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 
 - **Design pass for the bigger window:** the app now opens at 1760×1175 (`tauri.conf.json`, about 80% of the user's screen); the mocks and the design README ("The window is about 1320×880") assume the old size. The user wants to review layouts for the larger space with the design thread.
 - **"Seen" as a verb**: the button on updates (`Incoming.svelte`: `s.update ? 'Seen' : 'Confirm'`) was invented in the build (commit `f16ceeb`), not in the design; the user finds it inconsistent and wants to revisit the wording.
-- **Categories in `settings.json`**: make the file the source of truth, as an array (`[{key, label, color}]`, order = UI order), written back on every create/rename/recolor/delete; accept the old map form once; enable serde_json `preserve_order` so the rest of the file keeps its order; refuse a key change that would orphan topics. Keys are set at creation and never change on rename.
 - Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
