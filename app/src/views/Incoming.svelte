@@ -348,17 +348,20 @@
                       <span class="ghost"><i class="ph ph-eye-slash"></i>{s.source === 'gmail' ? 'Archived' : 'Dismissed'}</span>
                     {/if}
                     <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
-                  {:else if unsorted}
-                    <button class="btn primary" onclick={() => pick(s)}>
-                      {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
-                    </button>
-                    <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
-                    {#if s.source === 'gmail'}<button class="ghost" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                   {:else}
-                    <button class="btn primary" onclick={() => confirm(s)}>{s.update ? 'Seen' : 'Confirm'}</button>
-                    <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
-                    <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
-                    {#if s.source === 'gmail'}<button class="ghost" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
+                    {#if s.source === 'gmail'}
+                      <span class="src-actions"><button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button></span>
+                    {/if}
+                    {#if unsorted}
+                      <button class="btn primary" onclick={() => pick(s)}>
+                        {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
+                      </button>
+                      <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                    {:else}
+                      <button class="btn primary" onclick={() => confirm(s)}>{s.update ? 'Seen' : 'Confirm'}</button>
+                      <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
+                      <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                    {/if}
                   {/if}
                 </div>
               </div>
@@ -595,6 +598,19 @@
   .actions {
     display: flex;
     gap: 6px;
+    align-items: center;
+  }
+  .src-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding-right: 10px;
+    margin-right: 4px;
+    border-right: 1px solid var(--border);
+  }
+  .src-actions .btn {
+    display: flex;
+    gap: 5px;
     align-items: center;
   }
   .ghost {
