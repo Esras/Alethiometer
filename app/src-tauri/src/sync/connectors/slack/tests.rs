@@ -432,6 +432,16 @@ fn ok_false_is_an_error_with_slacks_reason_and_no_token() {
 }
 
 #[test]
+fn all_follows_every_channel_you_are_in() {
+    let http = workspace(HISTORY_INC_1);
+    http.on("GET", "conversations.history?channel=C0RANDOM", 200, r#"{"ok": true, "messages": [], "has_more": false}"#);
+    let b = run_poll(&http, &source_with(1, json!({ "channels": "all", "dms": false, "mentions": false }), None)).unwrap();
+    let state: State = serde_json::from_str(b.cursor.as_deref().unwrap()).unwrap();
+    assert_eq!(state.follow, ["C0INC", "C0RANDOM"]);
+    assert_eq!(count(&http, "conversations.history?channel=C0RANDOM"), 1);
+}
+
+#[test]
 fn unknown_followed_channel_fails_loudly() {
     let http = workspace(HISTORY_INC_1);
     let mut src = source(None);

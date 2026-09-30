@@ -53,6 +53,8 @@ pub const APP_TOKEN: &str = "slack.app_token";
 pub struct Config {
     /// Followed channels: ids ("C0123ABCD") or names ("#inc-2291").
     pub channels: Vec<String>,
+    /// `"channels": "all"`: every channel you're a member of.
+    pub all_channels: bool,
     /// Poll DMs and group DMs.
     pub dms: bool,
     /// Mentions in channels you don't follow (search; needs `search:read`).
@@ -87,6 +89,7 @@ impl Config {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default(),
+            all_channels: v.get("channels").and_then(Value::as_str) == Some("all"),
             dms: b("dms", true),
             mentions: b("mentions", true),
             lookback_hours: i("lookback_hours", 72),

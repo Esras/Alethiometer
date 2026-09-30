@@ -488,6 +488,13 @@ impl Poller<'_> {
                 out.push(conv);
             }
         }
+        if self.cfg.all_channels {
+            for c in convs.iter().filter(|c| matches!(c.kind, ConvKind::Channel { .. }) && c.member) {
+                if !out.iter().any(|o| o.id == c.id) {
+                    out.push(c.clone());
+                }
+            }
+        }
         Ok(out)
     }
 
