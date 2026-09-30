@@ -6,7 +6,7 @@ Helm is a single-user, local-first desktop assistant for one person: a manager m
 This is a personal tool, not a product. Hard-coded choices, a `settings.json` and a short README for setup are all fine. Don't build settings screens, onboarding, multi-user support, telemetry or billing.
 
 ## About the design files
-The files in `design/` are **design references built in HTML**. They're prototypes showing the intended look and behavior, not production code. Recreate them in the stack below. Open `design/Assistant Hub Explorations.dc.html` in a browser (serve the folder locally, e.g. `python3 -m http.server`). It's a pan/zoom canvas of numbered design rounds, **newest at the top**. Earlier rounds are superseded; follow the option IDs listed per view below.
+The files in `design/` are **design references built in HTML**. They're prototypes showing the intended look and behavior, not production code. Recreate them in the stack below. Open `design/Helm Explorations 17-20.dc.html` in a browser (serve the folder locally, e.g. `python3 -m http.server`). The rounds are split into four pan/zoom files (17–20, 13–16, 7–12, 1–6), each with **newest at the top** and a nav bar linking the other three. Earlier rounds are superseded; follow the option IDs listed per view below.
 
 ## Fidelity
 **High-fidelity** for layout, color, type and interaction model. Copy in the mocks is illustrative sample data. Match the colors, density and keyboard model closely.
@@ -129,6 +129,30 @@ Reference: 12c (12b is the same layout before it was checked against the code; 1
 - Every other query already filters `archived_at IS NULL` (suggest, incoming, notes, search, github, obsidian), so archived topics drop out of AI suggestions and pickers with no further changes. This resolves the ISSUES.md "archive/cleanup story" item, though only manually for now.
 
 **Out of scope:** a periodic review of quiet topics (possibly in Reflect), and "Dismiss a signal" in Incoming, which is tracked separately in ISSUES.md.
+
+### Gmail in Incoming (19a rows, 19b todo + archive)
+Reference: 19a/19b, with the row layout from 20a.
+
+**Rows (19a)**
+- Triage (Confirm, Wrong topic, Dismiss) works as for other sources. The Gmail-only actions sit to the left of it, after a divider (see 20a):
+  - **Todo…** (`e`)
+  - **Trash** (`#`): also dismisses the email.
+  - **Unsubscribe** (`⇧U`), only when the email has a one-click unsubscribe header (RFC 8058). It sends the one-click request, then trashes the email.
+- Trash and Unsubscribe act on one email at a time. Both leave the row struck through, with `u` to undo, as Dismiss does.
+- **Labels:** the category chip is the Gmail label, synced both ways. The tag icon means it's linked.
+- **No plain Archive.** Archiving happens only through a todo (19b), so nothing leaves the Gmail inbox without a follow-up.
+- Newsletters stay in the normal list.
+
+**Todo + archive (19b)**
+- `e` opens a small form under the email:
+  - task text, drafted by the AI from the email
+  - an optional due date
+  - the topic, pre-filled from the suggestion
+- A line under the form lists what saving will do: add a task to the topic's Obsidian note (linked back to the email), apply the category's Gmail label, and archive the thread.
+- `⌘↵` queues all three through the outbox, and completes triage too, because the email now has a topic.
+- Afterwards the row reads "Todo in … · archived" and has an **Open task** button.
+
+**Outbox actions:** `gmail.trash`, `gmail.unsubscribe` (one-click POST, then trash), `gmail.label`, `gmail.archive` and `obsidian.append_task`. Each one can be undone until the outbox flushes.
 
 ### Reclassifying a confirmed signal (18c chronology, 18d search)
 Resolves HANDOFF's "Wanted later: topic merge/reclassification" for single signals. Merging topics is still out of scope.
@@ -350,15 +374,20 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `7a-topics.png`, `7b-daystrip-empty.png`
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
-- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`, `17a-new-person.png`, `17b-link-person.png`, `18c-chronology-expand.png`, `18d-search-results.png`
+- `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`, `17a-new-person.png`, `17b-link-person.png`, `18c-chronology-expand.png`, `18d-search-results.png`, `19a-gmail-rows.png`, `19b-gmail-todo.png`
+- At 1760×1175 (`ui_scale` 1.15): `20a-incoming.png`, `20b-topic.png`, `20c-priorities.png`, `20d-notes.png`, `20e-reflect-day.png`, `20f-topics-index.png`. Where these differ from rounds 7–19 on sizing, the day strip or the Incoming row layout, follow round 20.
 
 Caveats:
-- **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
+- **Capture glitches:** a few labels wrap or overlap that don't in a live browser ("Search everything", the Can wait chips, "Marvin · Inbox" in 11a). The 19/20 captures are worse: row titles, "Search everything" and the keyboard footer all wrap onto two lines. In the browser each row title fits on one line (checked in 20a). Where they differ, the HTML is the source of truth; no label in the real app should wrap.
 - **Superseded in earlier rounds:** 7a–9d still show titled personal events on the strip (Physio, Pickup) and personal items in Priorities (e.g. Hetzner, Early pickup). The Work/Life toggle in 8b's header also predates the boundary rules. Follow the **boundary rules** above: on this machine, personal content appears only as untitled Life blocks, as in 10a/11a.
 - **KDE window chrome:** 7a–10a show KDE-style title bars. Use the macOS title bar as in 11a.
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Assistant Hub Explorations.dc.html`: all design rounds. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c, 13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c, 17a, 17b, 18c, 18d** (12a/12b, 15a–15e, 16a/16b, 18a/18b superseded).
+- `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
+- `design/Helm Explorations 13-16.dc.html`: rounds 13–16. Relevant IDs: **13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (15a–15e, 16a/16b superseded).
+- `design/Helm Explorations 7-12.dc.html`: rounds 7–12. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
+- `design/Helm Explorations 1-6.dc.html`: rounds 1–6, early directions, all superseded.
+- The old single `Assistant Hub Explorations.dc.html` has been removed (it ran out of memory in Firefox).
 - `design/DayStripGruv.dc.html`: the day strip component (props: `highlight`, `minutes`, `note`, `life`).
 - `design/support.js`, `design/_ds/…`: runtime needed to open the HTML references. Not for production.
