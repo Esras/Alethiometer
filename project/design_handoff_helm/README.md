@@ -149,10 +149,65 @@ Reference: 19a/19b, with the row layout from 20a.
   - an optional due date
   - the topic, pre-filled from the suggestion
 - A line under the form lists what saving will do: add a task to the topic's Obsidian note (linked back to the email), apply the category's Gmail label, and archive the thread.
-- `⌘↵` queues all three through the outbox, and completes triage too, because the email now has a topic.
+- `⌘↵` **holds** the todo on the signal. Nothing is sent until the signal is confirmed (see Todos, 22c). Confirm then queues the task, the label and the archive through the outbox.
 - Afterwards the row reads "Todo in … · archived" and has an **Open task** button.
+- The form has the Marvin | Jira switch from 22c.
 
 **Outbox actions:** `gmail.trash`, `gmail.unsubscribe` (one-click POST, then trash), `gmail.label`, `gmail.archive` and `obsidian.append_task`. Each one can be undone until the outbox flushes.
+
+### Todos (22a tab, 22b topic tasks, 22c creation, 21e weekly review)
+Marvin holds your todos, and Jira holds work tracked with others. Helm shows both and never merges them. Only Marvin tasks linked to a Helm topic are read, so personal Marvin lists stay off this machine.
+
+**Todos tab (22a)**
+- A new tab between Priorities and Topics, with the open count in its badge.
+- One flat list. There are no topic groups and no rail.
+- Columns:
+  - checkbox
+  - source icon (Marvin or Jira)
+  - title, plus where it came from (`DM · Kim`, `Notes`, `Gmail`), in muted text
+  - Jira status pill
+  - topic tag (category bar and name)
+  - priority: the task's quadrant from Priorities
+  - due date
+- Clicking a column header sorts by it (default: due date, ascending, with undated tasks last). `/` filters by text.
+- Filters: Source (All · Marvin · Jira, with counts), Topic, Priority, Due.
+- The Jira rows are issues assigned to you, plus any created from Helm.
+- **Overdue is quiet:** red date text (`#fb4934`) only, with no badge, re-sort or banner.
+- How it differs from Priorities: only committed tasks, all of them, and nothing folded away.
+
+**Topic view Tasks (22b)**
+- Replaces the Open section from 7a.
+- Tasks are grouped by the Priorities quadrants (Now-ish · Make room · Quick touch · Can wait), with the same reason pills. A task changes group whenever it moves in Priorities. Empty quadrants are hidden.
+- Includes the topic's Jira issues assigned to others, with their assignee. These don't appear in the Todos tab.
+
+**Creating (22c)**
+- `t` on Slack rows, `e` on Gmail rows (19b), lines in Notes, and `t` in Todos or the Topic view.
+- The form has a **Marvin todo | Jira issue** switch (`⌘1`/`⌘2`). You choose each time; nothing is guessed.
+  - Marvin: text (drafted from the source), optional due date.
+  - Jira: summary only. Project, type and assignee fold into one picker ("PLAT · Task · you"), filled from the topic's usual project.
+- The topic is **read-only** and comes from the signal. To change it, use Wrong topic first.
+- **Held until confirmed.** On a signal, Save only holds the todo, and nothing goes to Marvin or Jira yet.
+  - Confirm creates it with the confirmed topic.
+  - Wrong topic moves the held todo to the new topic.
+  - Dismiss discards it, with `u` to undo.
+  - While a todo is held, the row reads "… held until you confirm" and its Confirm button shows "+ create issue" (or "+ create todo").
+  - Held todos don't expire and aren't listed elsewhere, because triage should be quick.
+- On creation, the topic's Obsidian note gets **one link line** only, never the task text.
+- The line above Save lists every effect.
+
+**Completing**
+- `x` or the checkbox.
+- Completing also closes the linked source: the Marvin task is completed, a Jira issue moves to Done, and a Slack Later item is marked complete.
+- The row stays struck through, with "Done · …", until the next refresh. `u` undoes it through the outbox.
+
+**Weekly review (21e)**
+- A "Stale todos" section in Reflect's week view only.
+- Stale means 7 or more days overdue, or 21 or more days open with no date.
+- Each one needs a choice: Keep (`k`), New date (`d`), Done (`x`), or Drop (`⌫`). For a Jira issue, Drop is replaced by Unassign me.
+- The AI doesn't suggest a choice.
+- The day strip shows nothing for todos.
+
+**Outbox actions:** `marvin.create`, `marvin.complete`, `marvin.drop`, `jira.create`, `jira.transition_done`, `jira.unassign`, `slack.later_complete`, `obsidian.append_link`.
 
 ### Reclassifying a confirmed signal (18c chronology, 18d search)
 Resolves HANDOFF's "Wanted later: topic merge/reclassification" for single signals. Merging topics is still out of scope.
@@ -384,6 +439,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
+- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **22a, 22b, 22c, 21e** (21a–21d superseded).
 - `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
 - `design/Helm Explorations 13-16.dc.html`: rounds 13–16. Relevant IDs: **13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (15a–15e, 16a/16b superseded).
 - `design/Helm Explorations 7-12.dc.html`: rounds 7–12. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
