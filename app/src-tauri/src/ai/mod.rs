@@ -179,9 +179,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         // Safe to call after a sync: returns {status: "ai_off"} when not configured.
         "suggest_topics" => {
             let limit = opt_i64(args, "limit").unwrap_or(10).clamp(1, 50) as usize;
-            let out = with_live(app, |d| suggest::suggest_topics(app, d, limit))?;
-            Ok(json!(out))
+            let out = with_live(app, |d| suggest::suggest_topics(app, d, limit));
+            match &out {
+                Ok(o) => suggest::record(&app.db(), o.status, o.message.as_deref(), o.suggested.len())?,
+                Err(e) => suggest::record(&app.db(), "failed", Some(&e.to_string()), 0)?,
+            }
+            Ok(json!(out?))
         }
+        "suggestions" => suggest::last_run(&app.db()),
         "status" => {
             let ai = &app.settings.ai;
             let tier = |t| match check(ai, t) {

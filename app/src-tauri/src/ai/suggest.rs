@@ -36,9 +36,9 @@ use super::context::{clip, note_gist};
 use super::{Deps, Tier};
 use crate::error::Result;
 use crate::state::App;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fmt::Write;
 
 /// Below this the suggestion is noise; the item stays in Unsorted.
@@ -446,6 +446,26 @@ fn apply_split(conn: &Connection, p: &Pending, groups: &[Group]) -> Result<Optio
     Ok(Some((children, suggested)))
 }
 
+pub fn record(conn: &Connection, status: &str, message: Option<&str>, suggested: usize) -> Result<()> {
+    conn.execute(
+        "INSERT INTO ai_suggest_run (id, status, message, suggested, at, last_ok_at)
+         VALUES (1, ?1, ?2, ?3, datetime('now', 'localtime'), CASE ?1 WHEN 'ok' THEN datetime('now', 'localtime') END)
+         ON CONFLICT (id) DO UPDATE SET status = excluded.status, message = excluded.message, suggested = excluded.suggested,
+           at = excluded.at, last_ok_at = coalesce(excluded.last_ok_at, ai_suggest_run.last_ok_at)",
+        params![status, message, suggested as i64],
+    )?;
+    Ok(())
+}
+
+pub fn last_run(conn: &Connection) -> Result<Value> {
+    let run = conn
+        .query_row("SELECT status, message, suggested, at, last_ok_at FROM ai_suggest_run", [], |r| {
+            Ok(json!({ "status": r.get::<_, String>(0)?, "message": r.get::<_, Option<String>>(1)?, "suggested": r.get::<_, i64>(2)?, "at": r.get::<_, String>(3)?, "last_ok_at": r.get::<_, Option<String>>(4)? }))
+        })
+        .optional()?;
+    Ok(json!({ "run": run, "waiting": unsorted(conn, u32::MAX as usize)?.len() }))
+}
+
 pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     // Fail closed before reading anything: not configured means do nothing.
     if let Err(e) = super::check(&app.settings.ai, Tier::Small) {
@@ -505,6 +525,17 @@ mod tests {
     use super::super::context::tests::{app, plant_personal, topic_id};
     use super::super::tests::{fake_creds, no_creds};
     use super::*;
+
+    #[test]
+    fn last_run_keeps_the_last_success_through_failures() {
+        let conn = crate::db::open_in_memory().unwrap();
+        assert_eq!(last_run(&conn).unwrap()["run"], Value::Null);
+        record(&conn, "ok", None, 3).unwrap();
+        record(&conn, "failed", Some("throttled"), 0).unwrap();
+        let r = &last_run(&conn).unwrap()["run"];
+        assert_eq!((r["status"].as_str(), r["message"].as_str()), (Some("failed"), Some("throttled")));
+        assert!(r["last_ok_at"].is_string());
+    }
     use crate::sync::http::FakeHttp;
     use std::time::SystemTime;
 

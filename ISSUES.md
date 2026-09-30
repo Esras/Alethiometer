@@ -20,26 +20,15 @@ Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title get
 
 Unseen items with a `confirmed` link now show under their topic in Incoming as updates (**Seen** instead of Confirm). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira only counts status/assignee changes by others and @mentions as updates, not plain comments.
 
-### `suggest_topics` failures are silently swallowed after every sync
-
-`ai/suggest.rs::suggest_topics` catches its own errors (missing credentials, throttling, etc.) and returns `Ok(Outcome { status: "failed", message })` rather than an `Err` — documented behavior, see `docs/ai.md`'s "Topic suggestions" section: "It never returns an error." `docs/ai.md`'s own suggested scheduling snippet accounts for this by checking `o.status == "failed"` and logging it:
-
-```rust
-let out = crate::ai::with_live(&app, |d| crate::ai::suggest::suggest_topics(&app, d, 10));
-if let Ok(o) = out { if o.status == "failed" { eprintln!("suggest: {:?}", o.message) } }
-```
-
-But the actual wiring in `sync/mod.rs::suggest_after_sync` doesn't do this — it goes through `ai::call(app, "suggest_topics", ...)`, which always wraps `Outcome` (even a `"failed"` one) in `Ok(json!(out))`. So the `if let Err(e)` check in `suggest_after_sync` never fires for this path, and a credentials/throttling failure produces zero output anywhere: not `eprintln`, not `sources.last_error`, not any UI-visible state.
-
-Repro: sync a source with items and no Bedrock credentials configured. Sync succeeds, `topic_links`/`topics` stay empty, nothing in logs, nothing in `ai.status` (which only checks config shape, not live creds).
-
-Fix direction: `suggest_after_sync` should inspect `Outcome.status` (per the doc's own snippet) and surface `"failed"` somewhere durable — at minimum `eprintln`, ideally something the UI/sync-status tab can show, since right now there's no way to distinguish "AI never ran," "AI ran and failed," and "AI ran and had nothing to suggest."
-
 ### Changing `obsidian_vault` strands notes saved in the stand-in vault
 
 With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. Setting `obsidian_vault` later switches every read to the real vault and nothing moves the stand-in's files, so earlier reflections silently disappear from Reflect. Hit when connecting Obsidian on the work Mac: `Reflections/Daily/2026-09-28.md` was copied over by hand (the original is still in the stand-in). Fix direction: on startup, if `obsidian_vault` is set and `<data dir>/vault` has files, offer to copy them over (never overwrite), or at least warn.
 
 ## Resolved
+
+### `suggest_topics` failures were silently swallowed after every sync
+
+`ai::call`'s `suggest_topics` now records every outcome (including `failed` and errors) in `ai_suggest_run`; `ai.suggestions` returns it and the sync chip shows it per design 13b (orange dot, "suggestions failed", popover state, error, Unsorted count, last success, Retry). Not built: the macOS notification on ok → failed (`platform.rs` has no notifications yet).
 
 ### AI-proposed topics always landed in `work`
 

@@ -11,10 +11,12 @@
 
   type Tokens = { calls: number; input: number; output: number; cost: number | null };
   type Usage = { tier: string; today: Tokens; week: Tokens };
+  type Run = { status: 'ok' | 'ai_off' | 'failed'; message: string | null; suggested: number; at: string; last_ok_at: string | null };
 
   let sources = $state<Source[]>([]);
   let usage = $state<Usage[]>([]);
   let writes = $state<Write[]>([]);
+  let suggest = $state<{ run: Run | null; waiting: number }>({ run: null, waiting: 0 });
   let open = $state(false);
   let wrap: HTMLElement;
 
@@ -24,7 +26,12 @@
 
   let synced = '';
   async function load() {
-    [sources, writes, usage] = await Promise.all([call<Source[]>('sync.status'), call<Write[]>('outbox.list'), call<Usage[]>('ai.usage')]);
+    [sources, writes, usage, suggest] = await Promise.all([
+      call<Source[]>('sync.status'),
+      call<Write[]>('outbox.list'),
+      call<Usage[]>('ai.usage'),
+      call<{ run: Run | null; waiting: number }>('ai.suggestions'),
+    ]);
     const key = sources.map((s) => `${s.id}:${s.last_sync_at}`).join();
     if (synced && key !== synced) refresh();
     synced = key;
@@ -41,7 +48,8 @@
   const live = $derived(sources.filter((s) => s.last_sync_at || s.last_error));
   const failed = $derived(writes.filter((w) => w.state === 'failed'));
   const pending = $derived(writes.filter((w) => w.state === 'pending' || w.state === 'sent'));
-  const problem = $derived(live.some((s) => s.last_error) || failed.length > 0);
+  const suggestFailed = $derived(suggest.run?.status === 'failed');
+  const problem = $derived(live.some((s) => s.last_error) || failed.length > 0 || suggestFailed);
   const order = { failed: 0, sent: 1, pending: 1, confirmed: 2 } as const;
   const shownWrites = $derived([...writes].sort((a, b) => order[a.state] - order[b.state]).slice(0, 8));
 
@@ -58,6 +66,26 @@
   const tokens = (t: Tokens) => `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out${t.cost === null ? '' : ` · $${t.cost.toFixed(2)}`}`;
 
   const newest = $derived(live.map((s) => s.last_sync_at).filter(Boolean).sort().at(-1) ?? null);
+
+  function runState(r: Run | null): string {
+    if (!r) return 'not run yet';
+    if (r.status === 'failed') return `failed ${ago(r.at)}`;
+    if (r.status === 'ai_off') return 'off';
+    return r.suggested ? `ok · ${r.suggested} suggested · ${ago(r.at)}` : 'ok · nothing new';
+  }
+
+  let suggesting = $state(false);
+  async function retrySuggest() {
+    suggesting = true;
+    try {
+      await call('ai.suggest_topics', { limit: 10 });
+    } catch {
+    } finally {
+      suggesting = false;
+      await load();
+      refresh();
+    }
+  }
 
   async function retryAll() {
     await call('outbox.retry', {});
@@ -117,6 +145,7 @@
     {#if live.length}synced {ago(newest)}{:else}sample data{/if}
     {#if pending.length}<span class="n">· {pending.length} sending</span>{/if}
     {#if failed.length}<span class="n bad">· {failed.length} failed</span>{/if}
+    {#if suggestFailed}<span class="n bad">· suggestions failed</span>{/if}
   </button>
   {#if open}
     <div class="pop">
@@ -138,6 +167,17 @@
         <div class="muted">No live sources yet. Add them under "sources" in settings.json.</div>
       {/each}
       {#if connectMsg}<div class="muted connect">{connectMsg}</div>{/if}
+      <div class="label">AI · Bedrock</div>
+      <div class="row">
+        <i class="ph ph-sparkle spark"></i>
+        <span class="ellipsis">Topic suggestions</span>
+        <span class="when" class:bad={suggestFailed}>{runState(suggest.run)}</span>
+        <button class="btn primary" onclick={retrySuggest} disabled={suggesting}>{suggesting ? 'Running…' : 'Retry'}</button>
+      </div>
+      {#if suggest.run?.message && suggest.run.status !== 'ok'}<div class="err" class:off={!suggestFailed}>{suggest.run.message}</div>{/if}
+      {#if suggestFailed}
+        <div class="err sub">{suggest.waiting} signals waiting in Unsorted · last success {ago(suggest.run?.last_ok_at ?? null)}</div>
+      {/if}
       {#if usage.length}
         <div class="label">AI tokens</div>
         {#each usage as u (u.tier)}
@@ -238,6 +278,14 @@
   }
   .muted {
     color: var(--tx-label);
+  }
+  .spark {
+    font-size: 14px;
+    color: var(--aqua);
+  }
+  .err.off,
+  .err.sub {
+    color: var(--tx-muted-2);
   }
   .connect {
     word-break: break-all;
