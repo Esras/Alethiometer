@@ -42,6 +42,8 @@
   const failed = $derived(writes.filter((w) => w.state === 'failed'));
   const pending = $derived(writes.filter((w) => w.state === 'pending' || w.state === 'sent'));
   const problem = $derived(live.some((s) => s.last_error) || failed.length > 0);
+  const order = { failed: 0, sent: 1, pending: 1, confirmed: 2 } as const;
+  const shownWrites = $derived([...writes].sort((a, b) => order[a.state] - order[b.state]).slice(0, 8));
 
   function ago(ts: string | null): string {
     if (!ts) return 'never';
@@ -147,12 +149,13 @@
       {/if}
       {#if writes.length}
         <div class="label">Writes</div>
-        {#each writes.slice(0, 8) as w (w.id)}
+        {#each shownWrites as w (w.id)}
           <div class="row w">
             <span class="state {w.state}">{w.state}</span>
             <span class="ellipsis">{w.op}</span>
-            <span class="when ellipsis" title={w.error ?? ''}>{w.error ?? w.source}</span>
+            <span class="when ellipsis">{w.error ? 'error' : w.source}</span>
           </div>
+          {#if w.error}<div class="err">{w.error}</div>{/if}
         {/each}
         {#if failed.length}
           <button class="btn primary retry" onclick={retryAll}>Retry failed <kbd>⌘R</kbd></button>

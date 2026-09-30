@@ -26,7 +26,7 @@ impl Response {
         if (200..300).contains(&self.status) {
             Ok(self)
         } else {
-            let snippet: String = self.body.chars().take(300).collect();
+            let snippet: String = self.body.chars().take(2000).collect();
             anyhow::bail!("HTTP {}: {}", self.status, snippet)
         }
     }
