@@ -1,4 +1,4 @@
-//! `settings.json`: sources, initial categories (then managed in the app), buffers, AI allow-list. Hand-edited; no settings UI.
+//! `settings.json`: sources, categories, buffers, AI allow-list. Hand-edited, except `categories`, which the app also writes back.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -6,8 +6,30 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Category {
+    pub key: String,
     pub label: String,
     pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyCategory {
+    pub label: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum Categories {
+    List(Vec<Category>),
+    Legacy(BTreeMap<String, LegacyCategory>),
+}
+
+impl<'de> Deserialize<'de> for Categories {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        let out = if v.is_array() { serde_json::from_value(v).map(Categories::List) } else { serde_json::from_value(v).map(Categories::Legacy) };
+        out.map_err(|e| serde::de::Error::custom(format!("categories: {e}")))
+    }
 }
 
 /// One configured source. `kind` picks the connector; `name` must be unique per
@@ -71,9 +93,8 @@ pub struct AiSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Category key -> label and color. Topics and calendar blocks reference keys.
-    /// Change colors here; the UI reads them at startup.
-    pub categories: BTreeMap<String, Category>,
+    /// Topic categories in UI order. Topics and calendar blocks reference keys, which never change.
+    pub categories: Categories,
     /// Day strip range, whole hours.
     pub day_start_hour: u32,
     pub day_end_hour: u32,
@@ -99,15 +120,15 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let cat = |label: &str, color: &str| Category { label: label.into(), color: color.into() };
-        let mut categories = BTreeMap::new();
-        categories.insert("work".into(), cat("Important · Work", "#fabd2f"));
-        categories.insert("life".into(), cat("Personal · Life", "#83a598"));
-        categories.insert("jobs".into(), cat("Jobs", "#b8bb26"));
-        categories.insert("self".into(), cat("Self-hold", "#d3869b"));
-        categories.insert("alert".into(), cat("Alerts", "#fb4934"));
+        let cat = |key: &str, label: &str, color: &str| Category { key: key.into(), label: label.into(), color: color.into() };
         Settings {
-            categories,
+            categories: Categories::List(vec![
+                cat("work", "Important · Work", "#fabd2f"),
+                cat("life", "Personal · Life", "#83a598"),
+                cat("jobs", "Jobs", "#b8bb26"),
+                cat("self", "Self-hold", "#d3869b"),
+                cat("alert", "Alerts", "#fb4934"),
+            ]),
             day_start_hour: 8,
             day_end_hour: 19,
             life_buffer_min: 15,

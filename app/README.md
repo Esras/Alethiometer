@@ -61,7 +61,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 
 | Field | Meaning |
 |---|---|
-| `categories` | Initial categories, key → `{label, color}`, copied into the database on first run. After that they're managed in the Topics index (Categories); edits here are ignored. `work` (default) and `life` (Life blocks) are built in. |
+| `categories` | Array of `{key, label, color}`, in UI order. The source of truth: read at startup, and every create, rename, recolor or delete in the Topics index (Categories) writes it back (the rest of the file keeps its content and order). Keys never change. `work` (default) and `life` (Life blocks) are built in; removing one of those, or a key topics or calendar blocks still use, keeps it and writes it back. The old key → `{label, color}` map is accepted once: the database's categories win and the file is rewritten as the array. Edits while the app runs take effect on restart, and the app's next category change overwrites them. |
 | `day_start_hour`, `day_end_hour` | Day strip range (default 8–19). |
 | `life_buffer_min` | Default travel buffer before a Life block (press `b` on a block to override one). |
 | `obsidian_vault` | Absolute path to the work vault. |

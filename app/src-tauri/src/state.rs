@@ -52,7 +52,9 @@ impl App {
             platform: std::sync::Arc::new(FileSecrets::new(data_dir)),
             settings,
         };
-        crate::queries::categories::seed_if_empty(&app.db(), &app.settings.categories)?;
+        if crate::queries::categories::load(&app.db(), &app.settings.categories)? {
+            crate::queries::categories::save(&app.db(), &data_dir.join("settings.json"))?;
+        }
         crate::sync::register_sources(&app.db(), &app.settings.sources)?;
         if app.settings.demo_data {
             crate::seed::seed_if_empty(&app)?;
