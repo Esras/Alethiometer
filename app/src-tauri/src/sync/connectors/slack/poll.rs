@@ -822,7 +822,12 @@ impl Poller<'_> {
             attach_to: thread.map(|t| t.0.to_owned()),
             ..Default::default()
         });
-        if matches!(&conv.kind, ConvKind::Channel { name } if self.cfg.is_muted(&conv.id, name)) {
+        let muted = match &conv.kind {
+            ConvKind::Channel { name } => self.cfg.is_muted(&conv.id, name),
+            ConvKind::Im { user } => self.cfg.is_muted(&conv.id, user),
+            ConvKind::Mpim { name } => self.cfg.is_muted(&conv.id, name),
+        };
+        if muted {
             self.seen.push(id.clone());
         }
         self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone() });

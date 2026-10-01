@@ -103,7 +103,7 @@ In `settings.json` → `sources`:
 | Config | Default | Meaning |
 |---|---|---|
 | `channels` | `[]` | Channels you follow: `#name` (a channel you're in) or channel id (also works for a public channel you haven't joined). An unknown name fails the sync with a clear error. `"all"` follows every channel you're a member of (the list is refreshed on each catch-up). Each followed channel costs a `conversations.info` and a `conversations.history` per catch-up, so with ~100 channels a catch-up takes a few minutes at Slack's Tier 3 limit; use the `xapp-` token so that only reconnects and the `catchup_hours` pass do that. |
-| `muted` | `[]` | Channels (`#name` or id) still read and stored like any other, but never new in Incoming: their items arrive already seen, so no AI triage and no mark read in Slack. Applies to everything in the channel, threads and mentions of you included. Find them with search. |
+| `muted` | `[]` | Channels (`#name` or id), or DMs/group DMs (the other person's Slack user id, or an Mpim's name): still read and stored like any other, but never new in Incoming: their items arrive already seen, so no AI triage and no mark read in Slack. Applies to everything, threads and mentions of you included. Find a channel with search; find a user id via their Slack profile (… menu → Copy member ID). |
 | `dms` | `true` | Read your DMs and group DMs. |
 | `mentions` | `true` | Use `search.messages` (needs `search:read`) on catch-up: mentions of you in channels you don't follow, and threads you replied in that Alethiometer doesn't know yet. |
 | `lookback_hours` | `72` | The furthest back anything is read: bounds the first sync, a catch-up after Alethiometer was off, and a channel you haven't read for weeks. |

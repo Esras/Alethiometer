@@ -85,7 +85,7 @@ pub struct Config {
     pub channels: Vec<String>,
     /// `"channels": "all"`: every channel you're a member of.
     pub all_channels: bool,
-    /// Muted channels, ids or names: still read and stored, never new in Incoming.
+    /// Muted channels, ids/names, or a DM's other user id/an Mpim's name: still read, never new.
     pub muted: Vec<String>,
     /// Poll DMs and group DMs.
     pub dms: bool,
