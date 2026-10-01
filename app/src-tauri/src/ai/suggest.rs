@@ -539,7 +539,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
                 let cat = reply_json(&reply)
                     .and_then(|v| v.get("new_topic_category")?.as_str().map(str::to_owned))
                     .filter(|k| crate::queries::categories::exists(&conn, k).unwrap_or(false))
-                    .unwrap_or_else(|| "work".into());
+                    .unwrap_or_default();
                 crate::queries::topics::find_or_create(&conn, &name, &cat)?
             }
         };
@@ -667,7 +667,7 @@ mod tests {
             cat
         };
         assert_eq!(category_of("Recruiting pipeline for backend", "jobs"), "jobs");
-        assert_eq!(category_of("Vendor security questionnaires", "nonsense"), "work");
+        assert_eq!(category_of("Vendor security questionnaires", "nonsense"), "", "an unknown category leaves it uncategorized");
     }
 
     #[test]

@@ -7,7 +7,7 @@
   // (in the filter: ↑/↓ or ⌃j/⌃k move, ↵ opens, Esc leaves).
   import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
-  import { catColor, meetingPill, refresh, ui } from '../../lib/app.svelte';
+  import { catColor, category, meetingPill, refresh, ui, UNCATEGORIZED } from '../../lib/app.svelte';
   import { plain, pointerMoved, useKeys } from '../../lib/keys.svelte';
   import type { CategoryRow, TopicRow } from '../../lib/types';
   import CategoryManager from './CategoryManager.svelte';
@@ -207,13 +207,18 @@
           <span class="sq" style:background={c.color}></span>{c.label}
         </button>
       {/each}
+      {#if rows.some((t) => !t.category)}
+        <button class="chip" class:on={catFilter === ''} onclick={() => (catFilter = catFilter === '' ? null : '')}>
+          <span class="sq" style:background={UNCATEGORIZED.color}></span>{UNCATEGORIZED.label}
+        </button>
+      {/if}
     </div>
     <div class="cols label"><span></span><span>Topic</span><span>Open</span><span>Last signal</span><span>Next meeting</span></div>
     {#if naming !== null}
       <div class="naming">
         <i class="ph ph-plus"></i>
         <input bind:this={nameInput} bind:value={naming} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)} />
-        {#if catFilter}<span class="in">in {cats.find((c) => c.key === catFilter)?.label}</span>{/if}
+        {#if catFilter !== null}<span class="in">in {category(catFilter).label}</span>{/if}
         <span class="hint">↵ create · esc</span>
       </div>
     {/if}

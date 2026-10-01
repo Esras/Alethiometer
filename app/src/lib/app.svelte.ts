@@ -52,7 +52,10 @@ export function nowMinute(): number {
   return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
 }
 
+export const UNCATEGORIZED: Category = { label: 'Uncategorized', color: '#504945' };
+
 export function category(key: string): Category {
+  if (!key) return UNCATEGORIZED;
   return ui.info?.categories[key] ?? { label: key, color: '#a89984' };
 }
 

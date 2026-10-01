@@ -101,9 +101,9 @@ fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
     if name.is_empty() {
         return Err(crate::error::msg("Topic name can't be empty"));
     }
-    let category = category.unwrap_or("work");
+    let category = category.unwrap_or(super::categories::UNCATEGORIZED);
     let conn = app.db();
-    if !super::categories::exists(&conn, category)? {
+    if category != super::categories::UNCATEGORIZED && !super::categories::exists(&conn, category)? {
         return Err(crate::error::msg(format!("unknown category '{category}'")));
     }
     if find_by_name(&conn, name)?.is_some() {
@@ -610,6 +610,8 @@ mod tests {
         let r = crate::api::call(&app, "topics.create", &json!({ "name": "New thing" })).unwrap();
         let id = r["id"].as_i64().unwrap();
         assert_eq!(topic_id(&app, "New thing"), id);
+        let cat: String = app.db().query_row("SELECT category FROM topics WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(cat, "", "new topics start uncategorized");
         let e = crate::api::call(&app, "topics.create", &json!({ "name": "new thing" })).unwrap_err().to_string();
         assert!(e.contains("already exists"), "{e}");
         let e = crate::api::call(&app, "topics.create", &json!({ "name": "Datadog renewal" })).unwrap_err().to_string();

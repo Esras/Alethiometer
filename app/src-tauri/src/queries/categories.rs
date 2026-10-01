@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 const BUILT_IN: [&str; 2] = ["work", "life"];
+pub const UNCATEGORIZED: &str = "";
 
 pub fn load(conn: &Connection, from: &Categories) -> Result<bool> {
     let rows = match from {
