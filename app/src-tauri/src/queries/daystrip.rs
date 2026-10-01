@@ -77,10 +77,12 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    // 7b: when the current topic has nothing today, name its next linked meeting.
+    // 7b: when the current topic has nothing (left) today, name its next linked meeting.
     let mut note = None;
     if let Some(tid) = topic_id {
-        if !blocks.iter().any(|b| b.topic_ids.contains(&tid)) {
+        let linked = |b: &&Block| b.topic_ids.contains(&tid);
+        let earlier = blocks.iter().any(|b| linked(&b));
+        if !blocks.iter().filter(linked).any(|b| b.end_min > minute_of_day(now)) {
             let next: Option<String> = conn
                 .query_row(
                     "SELECT e.start FROM events e JOIN topic_links tl ON tl.item_id = e.item_id
@@ -91,8 +93,8 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
                 )
                 .ok();
             note = Some(match next.as_deref().and_then(parse_ts) {
-                Some(t) => format!("No linked meetings today · next {}", when_label(t, now, true)),
-                None => "No linked meetings today".to_string(),
+                Some(t) => format!("No {}linked meetings today · next {}", if earlier { "more " } else { "" }, when_label(t, now, true)),
+                None => format!("No {}linked meetings today", if earlier { "more " } else { "" }),
             });
         }
     }

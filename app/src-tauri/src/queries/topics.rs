@@ -763,8 +763,22 @@ mod tests {
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": id })).unwrap();
         assert!(v["note"].as_str().unwrap().starts_with("No linked meetings today · next"));
         let dd = topic_id(&app, "Datadog renewal");
+        let today = app.clock.now().date().format("%Y-%m-%d").to_string();
+        let set = |start: &str, end: &str| {
+            app.db()
+                .execute(
+                    "UPDATE events SET start = ?2 || ?3, end = ?2 || ?4
+                      WHERE substr(start, 1, 10) = ?2 AND item_id IN (SELECT item_id FROM topic_links WHERE topic_id = ?1)",
+                    rusqlite::params![dd, today, start, end],
+                )
+                .unwrap()
+        };
+        assert!(set("T00:01:00", "T23:59:59") > 0);
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": dd })).unwrap();
-        assert!(v["note"].is_null());
+        assert!(v["note"].is_null(), "a linked meeting still to come today");
+        set("T00:01:00", "T00:02:00");
+        let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": dd })).unwrap();
+        assert!(v["note"].as_str().unwrap().starts_with("No more linked meetings today"), "{}", v["note"]);
     }
 
     #[test]
