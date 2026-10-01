@@ -33,6 +33,13 @@
   let linking = $state<TopicPerson | null>(null);
   // Picking the topic to merge this one into (m).
   let merging = $state(false);
+  // Renaming the open topic (r); the draft name, or null when not renaming.
+  let renaming = $state<string | null>(null);
+  let renameInput = $state<HTMLInputElement>();
+  let renameErr = $state('');
+  $effect(() => {
+    if (renaming !== null) renameInput?.focus();
+  });
 
   // Staged merges are written when you leave the screen: the index for a
   // topic, one topic for another, or the Topics tab.
@@ -102,8 +109,26 @@
     if (from && from !== 'topics') setTab(from);
   }
 
+  async function commitRename(name: string | null) {
+    const trimmed = name?.trim() ?? '';
+    renaming = null;
+    if (!d || !trimmed || trimmed === d.topic.name) return;
+    try {
+      await call('topics.rename', { id: d.topic.id, name: trimmed });
+      renameErr = '';
+      refresh();
+    } catch (e) {
+      renameErr = String((e as Error).message ?? e);
+    }
+  }
+
   useKeys((e) => {
     if (ui.openTopicId === null || linking || merging) return;
+    if (renaming !== null && e.target === renameInput) {
+      if (e.key === 'Enter') return void commitRename(renaming), true;
+      if (e.key === 'Escape') return (renaming = null), true;
+      return;
+    }
     if (plain(e, 'Escape')) return toIndex(), true;
     if (plain(e, 'c')) return (picking = true), true;
     if (plain(e, 'z')) return fold(), true;
@@ -111,6 +136,7 @@
     if (plain(e, ']')) return step(1), true;
     if (plain(e, 'f')) return cycleFilter(), true;
     if (plain(e, 'm')) return (merging = true), true;
+    if (plain(e, 'r')) return d && (renaming = d.topic.name), true;
     if (plain(e, 'u') && d && pendingMerge(d.topic.id)) return cancelMerge(d.topic.id), true;
   });
 
@@ -133,11 +159,17 @@
           </button>
           <div class="titles">
             <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
-            <div class="name" class:merged={!!pendingMerge(d.topic.id)}>{d.topic.name}</div>
+            {#if renaming !== null}
+              <input class="name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
+            {:else}
+              <button class="name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
+            {/if}
             {#if pendingMerge(d.topic.id)}
               <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <span class="u">u</span> undo</div>
             {:else if merges.err}
               <div class="merging err"><i class="ph ph-warning"></i>{merges.err}</div>
+            {:else if renameErr}
+              <div class="merging err"><i class="ph ph-warning"></i>{renameErr}</div>
             {/if}
           </div>
           <div class="pills">
@@ -330,10 +362,35 @@
     align-items: center;
   }
   .name {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    font: inherit;
     font-size: 24px;
     font-weight: 500;
     letter-spacing: -0.015em;
     margin-top: 3px;
+    color: var(--tx-title);
+  }
+  .name:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--tx-disabled);
+  }
+  .name-input {
+    display: block;
+    width: 100%;
+    margin-top: 3px;
+    padding: 0 0 1px;
+    border: none;
+    border-bottom: 1px solid var(--aqua);
+    outline: none;
+    background: none;
+    font: inherit;
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
     color: var(--tx-title);
   }
   .name.merged {

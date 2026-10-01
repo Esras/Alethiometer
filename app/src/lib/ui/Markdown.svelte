@@ -30,8 +30,9 @@
       const li = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line);
       if (li) {
         const kind = li[1] ? 'ul' : 'ol';
-        if (last?.kind === kind) last.items.push(li[3]);
-        else out.push({ kind, items: [li[3]] });
+        const t = li[3].replace(/^\[([ xX])\]\s*/, (_, c) => (c === ' ' ? '\u2610 ' : '\u2611 '));
+        if (last?.kind === kind) last.items.push(t);
+        else out.push({ kind, items: [t] });
         continue;
       }
       if (line.trim() === '') {

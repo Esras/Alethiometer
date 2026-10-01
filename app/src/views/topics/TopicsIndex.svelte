@@ -59,6 +59,12 @@
   const sel = $derived(Math.max(0, flat.findIndex((t) => t.id === selId)));
   const current = $derived(flat[sel] ?? null);
   const canCreate = $derived(!archived && q.trim().length > 0 && !rows.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()));
+  // Chip order for [ / ] cycling: All, then categories, then Uncategorized if any.
+  const chipKeys = $derived<(string | null)[]>([null, ...cats.map((c) => c.key), ...(rows.some((t) => !t.category) ? [''] : [])]);
+  function cycleCat(d: number) {
+    const i = chipKeys.indexOf(catFilter);
+    catFilter = chipKeys[(i < 0 ? 0 : i + d + chipKeys.length) % chipKeys.length];
+  }
 
   $effect(() => {
     void q;
@@ -167,6 +173,8 @@
     if (plain(e, 'a')) return toggleArchive(current), true;
     if (plain(e, 'n')) return create(), true;
     if (plain(e, 'c')) return current && (picking = current.id), true;
+    if (plain(e, '[')) return cycleCat(-1), true;
+    if (plain(e, ']')) return cycleCat(1), true;
     if (plain(e, 'm')) return current && !archived && (merging = current), true;
     if (plain(e, 'u')) return cancelMerge(current && pendingMerge(current.id) ? current.id : undefined), true;
     if (plain(e, '/')) return input?.focus(), true;
@@ -273,7 +281,7 @@
     <DockHost left={18} />
     <div class="hints">
       <span>j/k move</span><span>↵ open</span><span>/ filter</span>
-      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>n new topic</span>{#if !archived}<span>m merge</span>{/if}
+      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>[ ] filter chip</span><span>n new topic</span>{#if !archived}<span>m merge</span>{/if}
       {#if merges.list.length}<span>u undo merge</span>{/if}
       {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
     </div>

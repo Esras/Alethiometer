@@ -81,6 +81,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "unarchive" => set_archived(app, arg_i64(args, "id")?, false),
         "get" => get(app, arg_i64(args, "id")?),
         "create" => create(app, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str)),
+        "rename" => rename(app, arg_i64(args, "id")?, &arg_str(args, "name")?),
         "merge" => merge(app, arg_i64(args, "from")?, arg_i64(args, "into")?),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
@@ -103,6 +104,22 @@ fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
         return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
     }
     Ok(json!({ "id": find_or_create(&conn, name, category)? }))
+}
+
+/// Renames in place; the linked Obsidian note keeps its own path (14d).
+fn rename(app: &App, id: i64, name: &str) -> Result<Value> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::msg("Topic name can't be empty"));
+    }
+    let conn = app.db();
+    if let Some(other) = find_by_name(&conn, name)? {
+        if other != id {
+            return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
+        }
+    }
+    conn.execute("UPDATE topics SET name = ?2 WHERE id = ?1", params![id, name])?;
+    Ok(json!({ "ok": true }))
 }
 
 /// Merge topic `from` into `into` (user decisions 2026-10-01). The UI stages
@@ -716,6 +733,21 @@ mod tests {
         assert!(e.contains("unknown category"), "{e}");
         let e = crate::api::call(&app, "topics.create", &json!({ "name": "  " })).unwrap_err().to_string();
         assert!(e.contains("empty"), "{e}");
+    }
+
+    #[test]
+    fn rename_checks_for_duplicates_and_leaves_the_note_path() {
+        let (app, _dir) = app();
+        let r = crate::api::call(&app, "topics.create", &json!({ "name": "New thing" })).unwrap();
+        let id = r["id"].as_i64().unwrap();
+        crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "Renamed thing" })).unwrap();
+        assert_eq!(topic_id(&app, "Renamed thing"), id);
+        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "Datadog renewal" })).unwrap_err().to_string();
+        assert!(e.contains("already exists"), "{e}");
+        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": " " })).unwrap_err().to_string();
+        assert!(e.contains("empty"), "{e}");
+        crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "renamed thing" })).unwrap();
+        assert_eq!(topic_id(&app, "renamed thing"), id, "renaming to its own name (case-only) is fine");
     }
 
     #[test]

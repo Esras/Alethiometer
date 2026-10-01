@@ -703,7 +703,8 @@ impl Poller<'_> {
         let title = match prev.as_ref().map(|t| t.title.clone()).filter(|t| !t.is_empty()) {
             Some(t) => t,
             None => {
-                let words = first_words(&clean_plain(pstr("text").unwrap_or_default()), 6);
+                let cleaned = self.clean(pstr("text").unwrap_or_default())?;
+                let words = first_words(&cleaned, 6);
                 let base = self.base_title(&conv)?;
                 if words.is_empty() { format!("{base} · thread") } else { format!("{base} · thread: {words}") }
             }
@@ -1075,7 +1076,7 @@ impl Poller<'_> {
             out.push_str(&rendered);
         }
         out.push_str(&text[last..]);
-        Ok(unescape(&out))
+        Ok(slack_markup(&unescape(&out)))
     }
 }
 
@@ -1129,7 +1130,7 @@ fn mpim_names(name: &str, me: &str) -> String {
     inner.split("--").filter(|h| *h != me).collect::<Vec<_>>().join(", ")
 }
 
-/// Plain text without resolving names (for thread titles).
+#[cfg(test)]
 fn clean_plain(text: &str) -> String {
     let re = regex::Regex::new(r"<[^|>]*\|([^>]*)>|<[@#!]?([^>]*)>").expect("static regex");
     unescape(&re.replace_all(text, "$1$2"))
@@ -1137,6 +1138,13 @@ fn clean_plain(text: &str) -> String {
 
 fn unescape(s: &str) -> String {
     s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+}
+
+/// Slack's single-star bold and single-tilde strike to GFM's doubled form.
+fn slack_markup(s: &str) -> String {
+    let bold = regex::Regex::new(r"\*([^*\n]+)\*").expect("static regex");
+    let strike = regex::Regex::new(r"~([^~\n]+)~").expect("static regex");
+    strike.replace_all(&bold.replace_all(s, "**$1**"), "~~$1~~").into_owned()
 }
 
 fn first_words(s: &str, n: usize) -> String {
@@ -1208,6 +1216,7 @@ mod tests {
         assert_eq!(first_words("one two three", 2), "one two…");
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert!(looks_like_id("C0123ABCD") && !looks_like_id("inc-2291"));
+        assert_eq!(slack_markup("*bold* and ~gone~ and _italic_ stays"), "**bold** and ~~gone~~ and _italic_ stays");
     }
 
     #[test]
