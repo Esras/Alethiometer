@@ -81,6 +81,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "unarchive" => set_archived(app, arg_i64(args, "id")?, false),
         "get" => get(app, arg_i64(args, "id")?),
         "create" => create(app, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str)),
+        "merge" => merge(app, arg_i64(args, "from")?, arg_i64(args, "into")?),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
@@ -102,6 +103,113 @@ fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
         return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
     }
     Ok(json!({ "id": find_or_create(&conn, name, category)? }))
+}
+
+/// Merge topic `from` into `into` (user decisions 2026-10-01). The UI stages
+/// a merge and only calls this when you leave the screen; until then `u`
+/// cancels it, so nothing here needs undoing.
+/// - Every signal link moves to `into`; where the item already has a link
+///   there, the stronger state wins (confirmed, then suggested, then wrong).
+///   People and repos linked by hand, and Notes lines pointing at `from`,
+///   move too.
+/// - Gmail threads filed under `from` get `into`'s category label when the
+///   categories differ (`gmail.relabel`).
+/// - `from`'s note text (frontmatter left out) is appended to `into`'s note
+///   under "## Merged from <name>", an ordinary note save (outbox or file).
+///   `from`'s note file stays where it is.
+/// - `from` is deleted.
+fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
+    use rusqlite::OptionalExtension;
+    if from == into {
+        return Err(crate::error::msg("a topic can't be merged into itself"));
+    }
+    type Row = (String, String, Option<String>, Option<String>);
+    let row = |conn: &rusqlite::Connection, id: i64| -> Result<Option<Row>> {
+        Ok(conn
+            .query_row("SELECT name, category, obsidian_path, archived_at FROM topics WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .optional()?)
+    };
+    let (from_name, from_path, into_name, into_path) = {
+        let conn = app.db();
+        let a = row(&conn, from)?.ok_or_else(|| crate::error::msg("the topic to merge is gone"))?;
+        let b = row(&conn, into)?.ok_or_else(|| crate::error::msg("the topic to merge into is gone"))?;
+        if b.3.is_some() {
+            return Err(crate::error::msg(format!("'{}' is archived: unarchive it first", b.0)));
+        }
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason, updated_at)
+             SELECT item_id, ?2, state, confidence, reason, updated_at FROM topic_links WHERE topic_id = ?1 AND true
+             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = CASE
+               WHEN 'confirmed' IN (state, excluded.state) THEN 'confirmed'
+               WHEN 'suggested' IN (state, excluded.state) THEN 'suggested'
+               ELSE 'wrong' END",
+            params![from, into],
+        )?;
+        // Gmail threads filed under the old topic, while we still know which.
+        let filed: Vec<i64> = tx
+            .prepare("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed'")?
+            .query_map([from], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for item in filed {
+            super::incoming::relabel_gmail(&tx, item, Some(&a.1), &b.1)?;
+        }
+        tx.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
+        tx.execute("INSERT OR IGNORE INTO topic_people (topic_id, person_id) SELECT ?2, person_id FROM topic_people WHERE topic_id = ?1", params![from, into])?;
+        tx.execute("DELETE FROM topic_people WHERE topic_id = ?1", [from])?;
+        tx.execute("INSERT OR IGNORE INTO topic_repos (topic_id, repo) SELECT ?2, repo FROM topic_repos WHERE topic_id = ?1", params![from, into])?;
+        tx.execute("DELETE FROM topic_repos WHERE topic_id = ?1", [from])?;
+        tx.execute(
+            "UPDATE notes_lines SET target_json = json_set(target_json, '$.id', ?2, '$.label', ?3, '$.category', ?4)
+              WHERE json_extract(target_json, '$.type') = 'topic' AND json_extract(target_json, '$.id') = ?1",
+            params![from, into, b.0, b.1],
+        )?;
+        tx.execute("DELETE FROM topics WHERE id = ?1", [from])?;
+        tx.commit()?;
+        (a.0, a.2, b.0, b.2)
+    };
+    let note = append_merged_note(app, into, &from_name, from_path.as_deref(), &into_name, into_path)?;
+    Ok(json!({ "ok": true, "note": note }))
+}
+
+/// Append the merged topic's note to the surviving topic's note. Returns
+/// `none` (nothing to append), `appended`, `queued` or `conflict`.
+fn append_merged_note(app: &App, into: i64, from_name: &str, from_path: Option<&str>, into_name: &str, into_path: Option<String>) -> Result<&'static str> {
+    let Some(from_path) = from_path else { return Ok("none") };
+    let Some(text) = save::disk_text(app, from_path.trim_start_matches("./").trim_start_matches('/')) else { return Ok("none") };
+    let body = strip_frontmatter(&text).trim();
+    if body.is_empty() {
+        return Ok("none");
+    }
+    let linked = into_path.is_some();
+    let path = into_path.unwrap_or_else(|| default_note_path(into_name));
+    let rel = path.trim_start_matches("./").trim_start_matches('/').to_string();
+    let before = save::disk_text(app, &rel);
+    let mut after = before.clone().unwrap_or_default();
+    if !after.is_empty() {
+        after = format!("{}\n\n", after.trim_end());
+    }
+    after.push_str(&format!("## Merged from {from_name}\n\n{body}\n"));
+    let saved = save::save_note(app, &rel, before.as_deref(), &after)?;
+    if !linked {
+        app.db().execute("UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL", params![into, path])?;
+    }
+    Ok(match saved {
+        save::Saved::Written => "appended",
+        save::Saved::Queued(_) => "queued",
+        save::Saved::Conflict(_) => "conflict",
+    })
+}
+
+fn strip_frontmatter(text: &str) -> &str {
+    let t = text.trim_start_matches('\u{feff}');
+    if let Some(rest) = t.strip_prefix("---\n").or_else(|| t.strip_prefix("---\r\n")) {
+        if let Some(end) = rest.find("\n---") {
+            let after = &rest[end + 4..];
+            return after.strip_prefix('\r').unwrap_or(after).strip_prefix('\n').unwrap_or(after);
+        }
+    }
+    t
 }
 
 pub(crate) fn find_by_name(conn: &rusqlite::Connection, name: &str) -> Result<Option<i64>> {
@@ -577,7 +685,9 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
 mod tests {
     use crate::settings::Settings;
     use crate::state::App;
-    use serde_json::json;
+    use super::strip_frontmatter;
+    use rusqlite::params;
+    use serde_json::{json, Value};
 
     fn app() -> (App, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -626,6 +736,55 @@ mod tests {
         assert!(list(true).as_array().unwrap().iter().any(|t| t["id"] == id));
         crate::api::call(&app, "topics.unarchive", &json!({ "id": id })).unwrap();
         assert!(list(false).as_array().unwrap().iter().any(|t| t["id"] == id));
+    }
+
+    #[test]
+    fn merging_moves_everything_appends_the_note_and_deletes_the_topic() {
+        let (app, _dir) = app();
+        let dd = topic_id(&app, "Datadog renewal");
+        let q4 = topic_id(&app, "Q4 planning");
+        let links = |t: i64| -> i64 { app.db().query_row("SELECT count(*) FROM topic_links WHERE topic_id = ?1", [t], |r| r.get(0)).unwrap() };
+        // An item on both: Datadog's confirmed link beats Q4's wrong one.
+        let both: i64 = app.db().query_row("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1", [dd], |r| r.get(0)).unwrap();
+        app.db().execute("INSERT OR REPLACE INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![both, q4]).unwrap();
+        let (dd_links, q4_links) = (links(dd), links(q4));
+        assert!(dd_links > 0);
+        let conn = app.db();
+        conn.execute("INSERT INTO notes_lines (page_date, position, kind, text, target_json) VALUES ('2026-09-27', 1, 'note', 'x', ?1)", [json!({ "type": "topic", "id": dd, "label": "Datadog renewal" }).to_string()]).unwrap();
+        let q4_note = std::fs::read_to_string(app.vault.join("Topics/Q4 planning.md")).ok();
+        drop(conn);
+
+        let v = crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).unwrap();
+        assert_eq!(v["note"], "appended");
+        assert_eq!(links(dd), 0);
+        assert_eq!(links(q4), dd_links + q4_links - 1, "the shared item counts once");
+        let conn = app.db();
+        let state: String = conn.query_row("SELECT state FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![both, q4], |r| r.get(0)).unwrap();
+        assert_eq!(state, "confirmed");
+        let gone: bool = conn.query_row("SELECT NOT EXISTS (SELECT 1 FROM topics WHERE id = ?1)", [dd], |r| r.get(0)).unwrap();
+        assert!(gone);
+        let people: i64 = conn.query_row("SELECT count(*) FROM topic_people WHERE topic_id = ?1", [q4], |r| r.get(0)).unwrap();
+        assert!(people >= 3, "Kim, Ravi and Ana came along");
+        let repo: i64 = conn.query_row("SELECT count(*) FROM topic_repos WHERE topic_id = ?1", [q4], |r| r.get(0)).unwrap();
+        assert_eq!(repo, 1);
+        let target: String = conn.query_row("SELECT target_json FROM notes_lines WHERE text = 'x'", [], |r| r.get(0)).unwrap();
+        let target: Value = serde_json::from_str(&target).unwrap();
+        assert_eq!((target["id"].as_i64(), target["label"].as_str()), (Some(q4), Some("Q4 planning")));
+        let note = std::fs::read_to_string(app.vault.join("Topics/Q4 planning.md")).unwrap();
+        if let Some(before) = q4_note {
+            assert!(note.starts_with(before.trim_end()), "the surviving note is kept as it was");
+        }
+        assert!(note.contains("## Merged from Datadog renewal\n\n## Where we are"), "{note}");
+        assert!(app.vault.join("Topics/Datadog renewal.md").exists(), "the merged topic's file stays");
+        drop(conn);
+        assert!(crate::api::call(&app, "topics.merge", &json!({ "from": q4, "into": q4 })).is_err());
+        assert!(crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).is_err(), "already gone");
+    }
+
+    #[test]
+    fn frontmatter_is_left_out_of_a_merged_note() {
+        assert_eq!(strip_frontmatter("---\ntags: [x]\n---\n## A\n"), "## A\n");
+        assert_eq!(strip_frontmatter("## A\n"), "## A\n");
     }
 
     #[test]

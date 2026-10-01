@@ -6,6 +6,9 @@
   import { call } from '../lib/api';
   import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
+  import { cancelMerge, commitMerges, mergingAway, merges, pendingMerge, stageMerge } from '../lib/merges.svelte';
+  import { untrack } from 'svelte';
+  import TopicPicker from './incoming/TopicPicker.svelte';
   import { SOURCES, sourceLabel } from '../lib/sources';
   import { personColor } from '../lib/people';
   import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
@@ -28,6 +31,20 @@
   let picking = $state(false);
   // Link to person (17b) for someone in the People panel without a note.
   let linking = $state<TopicPerson | null>(null);
+  // Picking the topic to merge this one into (m).
+  let merging = $state(false);
+
+  // Staged merges are written when you leave the screen: the index for a
+  // topic, one topic for another, or the Topics tab.
+  $effect(() => {
+    void ui.openTopicId;
+    return () => untrack(commitMerges);
+  });
+
+  function mergeInto(into: number, intoName: string) {
+    merging = false;
+    if (d) stageMerge({ from: d.topic.id, fromName: d.topic.name, into, intoName });
+  }
 
   async function setCategory(key: string) {
     picking = false;
@@ -86,13 +103,15 @@
   }
 
   useKeys((e) => {
-    if (ui.openTopicId === null || linking) return;
+    if (ui.openTopicId === null || linking || merging) return;
     if (plain(e, 'Escape')) return toIndex(), true;
     if (plain(e, 'c')) return (picking = true), true;
     if (plain(e, 'z')) return fold(), true;
     if (plain(e, '[')) return step(-1), true;
     if (plain(e, ']')) return step(1), true;
     if (plain(e, 'f')) return cycleFilter(), true;
+    if (plain(e, 'm')) return (merging = true), true;
+    if (plain(e, 'u') && d && pendingMerge(d.topic.id)) return cancelMerge(d.topic.id), true;
   });
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
@@ -114,7 +133,12 @@
           </button>
           <div class="titles">
             <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
-            <div class="name">{d.topic.name}</div>
+            <div class="name" class:merged={!!pendingMerge(d.topic.id)}>{d.topic.name}</div>
+            {#if pendingMerge(d.topic.id)}
+              <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <span class="u">u</span> undo</div>
+            {:else if merges.err}
+              <div class="merging err"><i class="ph ph-warning"></i>{merges.err}</div>
+            {/if}
           </div>
           <div class="pills">
             {#each d.topic.pills as p}<Pill pill={p} />{/each}
@@ -193,6 +217,17 @@
                 </div>
               {/each}
             </div>
+            {#if merging && d}
+              <Dock>
+                <TopicPicker
+                  exclude={d.topic.id}
+                  excludeIds={mergingAway()}
+                  placeholder={`Merge “${d.topic.name}” into…`}
+                  onpick={mergeInto}
+                  onclose={() => (merging = false)}
+                />
+              </Dock>
+            {/if}
             {#if linking?.account}
               <Dock>
                 <PersonPicker
@@ -300,6 +335,24 @@
     letter-spacing: -0.015em;
     margin-top: 3px;
     color: var(--tx-title);
+  }
+  .name.merged {
+    color: var(--tx-label);
+    text-decoration: line-through;
+    text-decoration-color: var(--tx-disabled);
+  }
+  .merging {
+    font-size: 12px;
+    color: var(--tx-label);
+  }
+  .merging .u {
+    color: var(--tx-2);
+  }
+  .merging.err {
+    color: var(--orange);
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
   .pills {
     margin-left: auto;

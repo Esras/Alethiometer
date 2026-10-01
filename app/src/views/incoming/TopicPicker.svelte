@@ -9,12 +9,15 @@
 
   let {
     exclude = null,
+    excludeIds = [],
     placeholder = 'Move to topic…',
     onpick,
     onunsorted,
     onclose,
   }: {
     exclude?: number | null;
+    /** More topics to leave out (e.g. ones staged to merge away). */
+    excludeIds?: number[];
     placeholder?: string;
     /** The topic's name comes along for "moved to X" lines. */
     onpick: (topicId: number, name: string) => void;
@@ -32,7 +35,7 @@
 
   const matches = $derived.by(() => {
     const needle = q.trim().toLowerCase();
-    return all.filter((t) => t.id !== exclude && (!needle || t.name.toLowerCase().includes(needle))).slice(0, 8);
+    return all.filter((t) => t.id !== exclude && !excludeIds.includes(t.id) && (!needle || t.name.toLowerCase().includes(needle))).slice(0, 8);
   });
 
   // The Unsorted row: offered while the query could still mean it.

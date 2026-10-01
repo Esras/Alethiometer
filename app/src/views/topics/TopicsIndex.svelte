@@ -4,11 +4,17 @@
 
 <script lang="ts">
   // Topics index (12c): j/k move, ↵ opens, a archives, c category, n new topic, / filter
-  // (in the filter: ↑/↓ or ⌃j/⌃k move, ↵ opens, Esc leaves).
+  // (in the filter: ↑/↓ or ⌃j/⌃k move, ↵ opens, Esc leaves). m merges the
+  // selected topic into another; it's staged ("merged into B · u undo") and
+  // written when you leave the index (lib/merges.svelte.ts).
   import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
   import { catColor, category, meetingPill, refresh, ui, UNCATEGORIZED } from '../../lib/app.svelte';
   import { plain, pointerMoved, useKeys } from '../../lib/keys.svelte';
+  import { cancelMerge, mergingAway, merges, pendingMerge, stageMerge } from '../../lib/merges.svelte';
+  import Dock from '../../lib/ui/Dock.svelte';
+  import DockHost from '../../lib/ui/DockHost.svelte';
+  import TopicPicker from '../incoming/TopicPicker.svelte';
   import type { CategoryRow, TopicRow } from '../../lib/types';
   import CategoryManager from './CategoryManager.svelte';
   import CategoryPicker from './CategoryPicker.svelte';
@@ -25,6 +31,8 @@
   let restored = false;
   let managing = $state(false);
   let picking = $state<number | null>(null);
+  // Picking the topic to merge the selected one into.
+  let merging = $state<TopicRow | null>(null);
 
   $effect(() => {
     void ui.rev;
@@ -133,7 +141,14 @@
     document.querySelector(`[data-topic="${next?.id}"]`)?.scrollIntoView({ block: 'nearest' });
   }
 
+  function mergeInto(into: number, intoName: string) {
+    const from = merging;
+    merging = null;
+    if (from) stageMerge({ from: from.id, fromName: from.name, into, intoName });
+  }
+
   useKeys((e) => {
+    if (merging) return;
     if (naming !== null && e.target === nameInput) {
       if (e.key === 'Enter') return void create(naming), true;
       if (e.key === 'Escape') return (naming = null), true;
@@ -152,13 +167,16 @@
     if (plain(e, 'a')) return toggleArchive(current), true;
     if (plain(e, 'n')) return create(), true;
     if (plain(e, 'c')) return current && (picking = current.id), true;
+    if (plain(e, 'm')) return current && !archived && (merging = current), true;
+    if (plain(e, 'u')) return cancelMerge(current && pendingMerge(current.id) ? current.id : undefined), true;
     if (plain(e, '/')) return input?.focus(), true;
   });
 </script>
 
 {#snippet row(t: TopicRow)}
   {@const i = flat.indexOf(t)}
-  <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} data-topic={t.id} onclick={() => open(t)} onmousemove={(e) => pointerMoved(e) && (selId = t.id)} role="presentation">
+  {@const merge = pendingMerge(t.id)}
+  <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} class:merged={!!merge} data-topic={t.id} onclick={() => open(t)} onmousemove={(e) => pointerMoved(e) && (selId = t.id)} role="presentation">
     <button class="bar" style:background={catColor(t.category)} title="Category (c)" aria-label="Category" onclick={(e) => (e.stopPropagation(), (picking = t.id))}></button>
     {#if picking === t.id}
       <div class="pick"><CategoryPicker current={t.category} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>
@@ -168,7 +186,9 @@
         <span class="ellipsis" title={t.name}>{t.name}</span>
         {#if t.new_count > 0}<span class="badge tnum">{t.new_count} new</span>{/if}
       </div>
-      {#if t.obsidian_path}<div class="path ellipsis" title={t.obsidian_path}>{t.obsidian_path}</div>{:else}<div class="path none">no note</div>{/if}
+      {#if merge}
+        <div class="path merging">merged into {merge.intoName} · <span class="u">u</span> undo</div>
+      {:else if t.obsidian_path}<div class="path ellipsis" title={t.obsidian_path}>{t.obsidian_path}</div>{:else}<div class="path none">no note</div>{/if}
     </div>
     <span class="cell tnum">{t.open_count ? `${t.open_count} open` : '—'}</span>
     <span class="cell tnum ellipsis" title={t.last_signal ?? ''}>{t.last_signal ?? '—'}</span>
@@ -239,10 +259,23 @@
         {/if}
       {/if}
     </div>
+    {#if merging}
+      <Dock>
+        <TopicPicker
+          exclude={merging.id}
+          excludeIds={mergingAway()}
+          placeholder={`Merge “${merging.name}” into…`}
+          onpick={mergeInto}
+          onclose={() => (merging = null)}
+        />
+      </Dock>
+    {/if}
+    <DockHost left={18} />
     <div class="hints">
       <span>j/k move</span><span>↵ open</span><span>/ filter</span>
-      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>n new topic</span>
-      {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
+      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>n new topic</span>{#if !archived}<span>m merge</span>{/if}
+      {#if merges.list.length}<span>u undo merge</span>{/if}
+      {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
     </div>
   </div>
 </div>
@@ -256,6 +289,7 @@
     padding: 18px 22px;
   }
   .panel {
+    position: relative;
     flex: 1;
     max-width: 1200px;
     min-height: 0;
@@ -425,6 +459,20 @@
   }
   .path.none {
     font-style: italic;
+  }
+  .path.merging {
+    color: var(--tx-label);
+  }
+  .path .u {
+    color: var(--tx-2);
+  }
+  .row.merged {
+    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.025) 0 6px, transparent 6px 12px);
+  }
+  .row.merged .name {
+    color: var(--tx-label);
+    text-decoration: line-through;
+    text-decoration-color: var(--tx-disabled);
   }
   .cell {
     font-size: 12.5px;

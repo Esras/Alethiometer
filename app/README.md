@@ -16,6 +16,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
 | Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
 | People notes (`People/*.md`), person colours, new-person suggestions, link to person, Slack split review | done. See `docs/people.md` |
+| Reclassify a filed signal (chronology 18c, Search view 18d), merge topics | done. See `docs/reclassify-and-merge.md` |
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
 | Sync status (freshness per source, write states) | tab bar |

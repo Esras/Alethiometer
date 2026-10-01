@@ -33,11 +33,13 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - **Markdown**: `lib/ui/Markdown.svelte`, a small element-building renderer (no `{@html}`) for AI answers and Incoming message text. The ask prompt allows light Markdown.
 - `ui_scale` in settings.json: native webview zoom (`set_zoom`), read at startup; user runs 1.15.
 - **People, first pass** (17a/17b, 16c; `app/docs/people.md`): a person is a `People/<Name>.md` note (accounts in frontmatter: `slack`, `email`, `jira`, `github`, optional `color`); `queries/people.rs` mirrors the notes into `people`/`person_accounts` and matches every message and item author at read time. Names everywhere in Incoming are in person colours (palette checked against the 16c mock); unknown senders are dotted-underlined and link to a person on click (17b picker, writes the note through the outbox); a sender in 3+ signals in 7 days gets the New person strip (`p`/`l`/Not now). A topic's People panel lists who wrote in its confirmed signals, coloured; the assistant's topic context gets their note gist, backlinks and other topics. Gmail/Jira/GitHub messages now store `author_id`. Sample data has People notes for everyone but Marco (so the strip shows) and two AI-split Slack signals mirroring 15g/15h.
+- **Reclassify and merge** (`app/docs/reclassify-and-merge.md`): a topic's chronology is keyboard-driven (18c: j/k, ↵ expand, `t` move, `s` split, "moved to X · u undo"); a Search tab (18d, ⌘↵ in ⌘K) with snippets, topic per result and the same keys; `m` merges topics (index or topic detail), staged until you leave the screen. Pickers open in one fixed dock per view.
 - **Slack split review (15g/15h)**: `split` pill and `⋯` gaps on split signals; `s` (only; user's call, ↵ keeps expanding) opens the review in place (By topic / In order, `t` move, `d` dismiss, `u` undo, ↵ confirm groups). Backend: `incoming.family`, `review_move`, `review_dismiss`, `review_confirm`; `split::move_messages`, `split::prune`.
 - `app.open_url` command (backend `platform::Platform::open_url`, `open`/`xdg-open`) wired to `openExternal()` — "open in GitHub"/"open in Obsidian" links actually open something now; `window.open()` is a silent no-op in Tauri's WKWebView without a plugin this app doesn't have.
 
 ## User decisions (don't re-ask)
 
+- **Pickers, reclassify, merge (2026-10-01):** pickers open in one fixed spot per view (bottom of the panel, floating, nothing shifts); reclassify from the chronology and from a Search view; a reclassified signal is filed straight away; merging A into B: from the Topics index or topic detail with `m`, A is deleted, A's note is appended into B's, Gmail threads are relabelled to B's category, and the merge is only written when you leave the screen (`u` cancels before then; no confirm step).
 - **People/split review (2026-10-01):** an emptied split part is deleted (messages never are); the bulk-mail filter on New person stays; Create note names the note after the Slack real name; the Slack app gets `users:read.email`; the review's `t` picker has an Unsorted row; the Link to person picker stays inline (not a floating popover); `s` alone opens the split review.
 
 - **BAA covers all of Bedrock.** Never question this again. US endpoints only.
@@ -83,8 +85,7 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 - UI for remaining writebacks: RSVP on invites in Incoming (designed, 14a/14b, design README "RSVP"), Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 - macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
 - Real-account runs still to do: Slack, Proton ICS.
-- Reclassifying a single signal is designed (18c/18d). The split review it opens with `s` is built; wiring it from the chronology and search isn't.
 - People, not yet: your own Gmail address isn't detected (set `people.me`); an item's author in the meta line (e.g. an invite's organiser) can't be clicked to link, only message names and the New person strip can; two notes describing one person stay separate until you merge them by hand (never automatic, by design).
-- Wanted later: topic merge/reclassification (the Topics assistant can only advise); assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
+- Wanted later: assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
 - Check `ISSUES.md`'s "Open" section before starting connector work.
 
