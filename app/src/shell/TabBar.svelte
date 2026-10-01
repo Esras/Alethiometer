@@ -1,15 +1,20 @@
 <script lang="ts">
-  import { setTab, TABS, ui } from '../lib/app.svelte';
+  import { setTab, TABS, ui, type Tab } from '../lib/app.svelte';
   import CountdownPill from './CountdownPill.svelte';
   import SyncStatus from './SyncStatus.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
+  // While the Search results view (18d) is open it has a tab, after Topics.
+  const tabs = $derived<{ id: Tab; label: string }[]>(
+    ui.tab === 'search' ? [...TABS.slice(0, 3), { id: 'search', label: 'Search' }, ...TABS.slice(3)] : TABS,
+  );
 </script>
 
 <nav class="tabs">
-  {#each TABS as t, i}
-    <button class="tab" class:on={ui.tab === t.id} onclick={() => setTab(t.id)} title="{isMac ? '⌘' : 'Ctrl+'}{i + 1}">
-      {t.label}
+  {#each tabs as t (t.id)}
+    {@const n = TABS.findIndex((x) => x.id === t.id)}
+    <button class="tab" class:on={ui.tab === t.id} onclick={() => setTab(t.id)} title={n < 0 ? '' : `${isMac ? '⌘' : 'Ctrl+'}${n + 1}`}>
+      {#if t.id === 'search'}<i class="ph ph-magnifying-glass"></i>{/if}{t.label}
       {#if t.id === 'incoming' && ui.info}
         <span class="badge" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
       {:else if t.id === 'todos' && ui.info?.todo_count}
@@ -23,7 +28,9 @@
       <CountdownPill />
     {:else}
       <button class="search" onclick={() => (ui.searchOpen = true)}>
-        <i class="ph ph-magnifying-glass"></i>Search everything<span class="hint">{isMac ? '⌘K' : '/'}</span>
+        <i class="ph ph-magnifying-glass"></i><span class="q" class:typed={ui.tab === 'search' && !!ui.searchQuery}
+          >{ui.tab === 'search' && ui.searchQuery ? ui.searchQuery : 'Search everything'}</span
+        ><span class="hint">{isMac ? '⌘K' : '/'}</span>
       </button>
     {/if}
   </span>
@@ -83,6 +90,14 @@
     color: var(--tx-label);
     font-size: 12px;
     white-space: nowrap;
+  }
+  .q {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .q.typed {
+    color: var(--tx-body);
   }
   .hint {
     margin-left: auto;

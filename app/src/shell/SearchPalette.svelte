@@ -1,11 +1,12 @@
 <script lang="ts">
   import { call } from '../lib/api';
-  import { catColor, openTopic, ui } from '../lib/app.svelte';
+  import { catColor, openSearch, openTopic, ui } from '../lib/app.svelte';
   import { pointerMoved, useKeys } from '../lib/keys.svelte';
   import type { SearchResults } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
 
-  let q = $state('');
+  // From the Search results view, `/` comes back here with its query.
+  let q = $state(ui.tab === 'search' ? ui.searchQuery : '');
   let res = $state<SearchResults>({ topics: [], items: [] });
   let sel = $state(0);
   let input: HTMLInputElement;
@@ -53,6 +54,11 @@
       sel = Math.max(sel - 1, 0);
       return true;
     }
+    // ⌘↵ (or ↵ with nothing to pick): every result, in the Search view (18d).
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !rows.length)) {
+      if (q.trim()) openSearch(q.trim());
+      return true;
+    }
     if (e.key === 'Enter') {
       choose(rows[sel]);
       return true;
@@ -78,7 +84,10 @@
       {/each}
     </div>
   {:else if q.trim()}
-    <div class="empty">No matches</div>
+    <div class="empty">No quick matches · ↵ searches everything</div>
+  {/if}
+  {#if q.trim()}
+    <div class="foot"><span>↵ open</span><span>{navigator.platform.toLowerCase().includes('mac') ? '⌘↵' : 'Ctrl+↵'} all results</span><span>esc</span></div>
   {/if}
 </div>
 
@@ -147,6 +156,14 @@
   }
   .empty {
     padding: 12px 14px;
+    color: var(--tx-label);
+  }
+  .foot {
+    display: flex;
+    gap: 14px;
+    padding: 6px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
     color: var(--tx-label);
   }
 </style>

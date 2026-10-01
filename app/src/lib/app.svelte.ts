@@ -4,7 +4,8 @@
 import { call } from './api';
 import type { AppInfo, Category } from './types';
 
-export type Tab = 'incoming' | 'priorities' | 'topics' | 'todos' | 'notes' | 'reflect';
+/** `search` (18d) is a tab only while it's open: it isn't in TABS. */
+export type Tab = 'incoming' | 'priorities' | 'topics' | 'todos' | 'notes' | 'reflect' | 'search';
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'incoming', label: 'Incoming' },
   { id: 'priorities', label: 'Priorities' },
@@ -24,6 +25,9 @@ export const ui = $state({
   openedFrom: null as Tab | null,
   assistantOpen: false,
   searchOpen: false,
+  /** The Search results view's query, and the tab it was opened from (Esc goes back). */
+  searchQuery: '',
+  searchFrom: null as Tab | null,
   /** Bumped after writes so views can reload. */
   rev: 0,
   nowMs: Date.now(),
@@ -68,6 +72,19 @@ export function setTab(tab: Tab) {
   if (tab === ui.tab) return;
   ui.topicId = null;
   ui.tab = tab;
+}
+
+/** ⌘↵ in ⌘K: the full Search results view (18d) for `q`. */
+export function openSearch(q: string) {
+  if (ui.tab !== 'search') ui.searchFrom = ui.tab;
+  ui.searchQuery = q;
+  ui.searchOpen = false;
+  ui.topicId = null;
+  ui.tab = 'search';
+}
+
+export function closeSearch() {
+  setTab(ui.searchFrom && ui.searchFrom !== 'search' ? ui.searchFrom : 'incoming');
 }
 
 export function openTopic(id: number) {

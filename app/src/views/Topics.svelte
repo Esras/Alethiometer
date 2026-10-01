@@ -96,7 +96,7 @@
   });
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
-  const origin = $derived(TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics');
+  const origin = $derived(ui.openedFrom === 'search' ? 'Search' : (TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics'));
 </script>
 
 <div class="view">

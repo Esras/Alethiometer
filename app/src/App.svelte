@@ -9,6 +9,7 @@
   import Incoming from './views/Incoming.svelte';
   import Notes from './views/Notes.svelte';
   import Priorities from './views/Priorities.svelte';
+  import Search from './views/Search.svelte';
   import Reflect from './views/Reflect.svelte';
   import Todos from './views/Todos.svelte';
   import Topics from './views/Topics.svelte';
@@ -60,6 +61,7 @@
       {:else if ui.tab === 'todos'}<Todos />
       {:else if ui.tab === 'topics'}<Topics />
       {:else if ui.tab === 'notes'}<Notes />
+      {:else if ui.tab === 'search'}<Search />
       {:else}<Reflect />{/if}
     </main>
   {/if}
