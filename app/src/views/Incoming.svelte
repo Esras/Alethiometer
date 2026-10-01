@@ -8,7 +8,9 @@
   // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
   // A signal the AI split across topics has a `split` pill and ⋯ where its
   // other parts came in; `s` (or a click on either) opens the split review
-  // (15g/15h). Names are in their person colour (16c);
+  // (15g/15h). `s` also opens it on any Slack signal with more than one
+  // message, split or not (user decision 2026-10-01), so a mixed DM can be
+  // split under its topic without going through Unsorted. Names are in their person colour (16c);
   // someone without a People note is underlined and clicking them links an
   // account to a person (17b); a frequent unknown sender gets a New person
   // strip under the messages (17a: p create note, l link, Not now).
@@ -193,8 +195,11 @@
     if (m) document.querySelector(`[data-msg="${m.id}"]`)?.scrollIntoView({ block: 'nearest' });
   });
 
+  /** The split review applies: an AI-split signal, or any Slack signal with several messages. */
+  const reviewable = (s: Signal | null) => !!s && (s.split || (s.source === 'slack' && s.messages.length > 1));
+
   function review(s: Signal | null) {
-    if (!s?.split || dismissed.has(s.item_id)) return;
+    if (!s || !reviewable(s) || dismissed.has(s.item_id)) return;
     selItem = s.item_id;
     picking = false;
     linking = null;
@@ -602,7 +607,7 @@
           <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
         {#if reviewing === null}
-          {#if current?.split}<span>s review split</span>{/if}
+          {#if current?.split}<span>s review split</span>{:else if reviewable(current)}<span>s split</span>{/if}
           {#if current?.new_person && expanded.has(current.item_id)}<span>p new person</span><span>l link</span>{/if}
           <span>o open</span><span>[ ] topic</span>
         {/if}

@@ -55,7 +55,7 @@ Whoever wrote in the topic's confirmed signals (by how many signals, then how re
 
 A signal is part of a split family when the AI (or a manual split in Unsorted) moved some of its messages to child items (`split.rs`). While another part still holds messages, the signal shows a `split` pill and `⋯` where the other parts' messages came in between.
 
-`s` (or a click on the pill or a `⋯`) opens the review in place:
+`s` (or a click on the pill or a `⋯`) opens the review in place. `s` also works on any Slack signal with more than one message that hasn't been split, under a topic or in Unsorted (user decision 2026-10-01): it opens with one group, and moving messages to another topic makes the split.
 
 - **By topic**: each part's messages in time order, `⋯` where another group's came in between; groups ordered by first message. **In order**: the conversation as it happened, in runs per group. `g` flips; a 1:1 DM opens In order, everything else By topic.
 - Bars cycle yellow, blue, purple, orange, green, aqua, red for this signal only (not topic colours). Names are in their person colour.

@@ -1584,6 +1584,38 @@ mod tests {
     }
 
     #[test]
+    fn an_unsplit_signal_can_be_split_in_the_review() {
+        let (conn, now, _d) = setup();
+        let settings = PeopleSettings::default();
+        let acme = topic_named(&conn, "Acme outage");
+        let q4 = topic_named(&conn, "Q4 headcount");
+        // Under a topic: one part, its suggested topic.
+        let inc: i64 = conn.query_row("SELECT id FROM items WHERE title = '#inc-2291'", [], |r| r.get(0)).unwrap();
+        let f = family(&conn, inc, None, &settings).unwrap();
+        assert_eq!(f.parts.len(), 1);
+        assert_eq!(f.parts[0].topic.as_ref().map(|t| t.id), Some(acme));
+        let marco = f.messages.iter().find(|m| m.author == "Marco R.").unwrap().id;
+        let part = review_move(&conn, inc, &[marco], To::Topic(q4), None).unwrap();
+        assert_ne!(part, inc);
+        assert_eq!(link_state(&conn, part, q4).unwrap().as_deref(), Some("suggested"));
+        assert_eq!(review_confirm(&conn, inc).unwrap(), 2);
+        assert_eq!(link_state(&conn, inc, acme).unwrap().as_deref(), Some("confirmed"));
+        assert_eq!(link_state(&conn, part, q4).unwrap().as_deref(), Some("confirmed"));
+
+        // In Unsorted: the rest stays there.
+        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Priya'", [], |r| r.get(0)).unwrap();
+        let f = family(&conn, dm, None, &settings).unwrap();
+        assert!(f.parts[0].topic.is_none());
+        let first = f.messages[0].id;
+        let v1 = topic_named(&conn, "v1 ingest deprecation");
+        review_move(&conn, dm, &[first], To::Topic(v1), None).unwrap();
+        assert_eq!(review_confirm(&conn, dm).unwrap(), 1);
+        let q = queue(&conn, now).unwrap();
+        assert!(q.unsorted.iter().any(|s| s.item_id == dm && s.messages.len() == 3));
+        assert_eq!(unseen(&conn) as usize, shown(&q));
+    }
+
+    #[test]
     fn confirming_a_review_leaves_the_unsorted_group_in_incoming() {
         let (conn, now, _d) = setup();
         let chan: i64 = conn.query_row("SELECT id FROM items WHERE title = '#acme-incident' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
