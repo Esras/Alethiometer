@@ -478,7 +478,7 @@
     font-size: 12.5px;
     color: var(--tx-muted);
   }
-  .quiet > :not(.bar) {
+  .quiet > :not(.bar):not(.pick) {
     opacity: 0.6;
   }
   .meet {
