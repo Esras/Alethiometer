@@ -1,6 +1,6 @@
 # Gmail (work inbox)
 
-Kind `gmail`, tag `work`. Every thread in your Inbox, read or not, is one signal in Incoming, including on the first sync. A new message in a thread brings it back, even when it's already filed under a topic. A thread that leaves the Inbox in Gmail (archived, trashed, deleted) leaves Incoming. Triage writes back: filing under a topic labels the thread with its category's label and marks it read, **Dismiss** archives it, **Trash** (`#`) trashes it, and undo (`u`) puts it back in the Inbox. A thread is never split across topics.
+Kind `gmail`, tag `work`. Every thread in your Inbox, read or not, is one signal in Incoming, including on the first sync. A new message in a thread brings it back, even when it's already filed under a topic. A thread that leaves the Inbox in Gmail (archived, trashed, deleted) leaves Incoming. Triage writes back: filing under a topic labels the thread with its category's label, marks it read and archives it (with or without a todo; never past mail that arrived after you looked), **Dismiss** archives it, **Trash** (`#`) trashes it, and undo (`u`) puts it back in the Inbox. A thread is never split across topics.
 
 ## 1. Google Cloud project and OAuth client
 
@@ -89,7 +89,7 @@ Payloads carry `thread_id` (the item's external id). Receipts: `{thread_id, hist
 - **`gmail.trash`**: **Trash** (`#`, Gmail items only). `users.threads.trash`; Gmail empties the Trash after 30 days.
 - **`gmail.restore`**: undo (`u`) after Dismiss or Trash. `users.threads.untrash`, then adds `INBOX` back.
 
-Later, with to-dos: filing will also archive the thread, and a thread that needs a follow-up stays in the Inbox until its to-do is done.
+Filing archives the thread whether or not a todo is held on it (user decision 2026-10-01). When newer unread mail arrived after you looked, `gmail.file` neither marks it read nor archives it (the receipt says `left_in_inbox`), so new mail is never archived unseen.
 
 ## Not verified without real credentials
 

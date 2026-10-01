@@ -79,8 +79,17 @@ pub struct Signal {
     pub split: bool,
     /// An unknown sender in this signal worth a People note (17a).
     pub new_person: Option<Suggestion>,
+    /// The item's author as the meta line names it, matched like a message's
+    /// sender (16c colour, 17b link).
+    pub author: Option<Author>,
     #[serde(skip)]
     at: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct Author {
+    pub name: String,
+    pub who: Who,
 }
 
 #[derive(Serialize, Debug)]
@@ -189,6 +198,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         held: None,
         split: false,
         new_person: None,
+        author: None,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -308,6 +318,19 @@ fn new_person(conn: &Connection, look: &Lookup, s: &Signal, author_ids: &[(Strin
     Ok(accounts.iter().filter_map(|a| look.suggest.get(a)).max_by_key(|g| g.signals).cloned())
 }
 
+fn item_author(conn: &Connection, look: &Lookup, s: &Signal) -> Result<Option<Author>> {
+    let row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT p.display_name, h.handle FROM items i JOIN people p ON p.id = i.author_person_id
+               LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = ?2
+              WHERE i.id = ?1",
+            params![s.item_id, s.source],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(name, handle)| Author { who: look.people.who(&s.source, handle.as_deref(), &name), name }))
+}
+
 fn load_messages(conn: &Connection, look: &Lookup, sigs: &mut [Signal]) -> Result<()> {
     for s in sigs {
         let rows = message_rows(conn, look, &s.source, s.item_id)?;
@@ -324,6 +347,7 @@ fn load_messages(conn: &Connection, look: &Lookup, sigs: &mut [Signal]) -> Resul
         s.messages = own.into_iter().map(|r| r.0).collect();
         s.held = super::todos::held(conn, s.item_id)?;
         s.new_person = new_person(conn, look, s, &author_ids)?;
+        s.author = item_author(conn, look, s)?;
     }
     Ok(())
 }
@@ -394,11 +418,10 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     settle_todo(conn, item_id, topic_id)
 }
 
-/// A todo held on the signal is created with the confirmed topic; a Gmail thread then leaves the Inbox (19b).
+/// A todo held on the signal is created with the confirmed topic. (A Gmail
+/// thread leaves the Inbox through filing itself, todo or not: `file_gmail`.)
 fn settle_todo(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
-    if super::todos::settle(conn, item_id, topic_id)? {
-        gmail_op(conn, item_id, "gmail.archive")?;
-    }
+    super::todos::settle(conn, item_id, topic_id)?;
     Ok(())
 }
 
@@ -495,7 +518,8 @@ fn file_gmail(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value], t
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let config: Value = serde_json::from_str(&config).unwrap_or_default();
-    let mut payload = json!({ "thread_id": thread, "message_ids": ids });
+    // Filing archives the thread, with or without a todo (user, 2026-10-01).
+    let mut payload = json!({ "thread_id": thread, "message_ids": ids, "archive": true });
     if let Some(label) = config.pointer(&format!("/category_labels/{category}")).and_then(Value::as_str) {
         payload["label"] = json!(label);
     }
@@ -918,7 +942,14 @@ pub fn reclassify(conn: &Connection, item_id: i64, from: Option<i64>, to: i64) -
         tx.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
         moved.push(m);
     }
-    relabel_gmail(&tx, item_id, from_cat.as_deref(), &to_cat)?;
+    // Still in Incoming (from search): that's filing, so a Gmail thread is
+    // labelled, marked read and archived as Confirm would. Filed already: only
+    // its category label changes.
+    let was_new = moved.iter().any(|m| m.item_id == item_id && !m.seen);
+    match (was_new, settled_family(&tx, item_id)?) {
+        (true, Some((source_id, kind, raws))) if kind == "gmail" => file_gmail(&tx, source_id, item_id, &raws, to)?,
+        _ => relabel_gmail(&tx, item_id, from_cat.as_deref(), &to_cat)?,
+    }
     settle_todo(&tx, item_id, to)?;
     tx.commit()?;
     Ok(moved)
@@ -1436,6 +1467,10 @@ mod tests {
         let np = inc.new_person.as_ref().expect("Marco is in 3 signals today");
         assert_eq!((np.account.as_str(), np.name.as_str(), np.signals), ("U0MARCO", "Marco R.", 3));
         assert_eq!((np.real_name.as_deref(), np.email.as_deref()), (Some("Marco Rossi"), Some("marco.rossi@work.com")));
+        let invite = acme.signals.iter().find(|s| s.source == "gcal").unwrap();
+        let author = invite.author.as_ref().expect("the invite's organiser");
+        assert_eq!((author.name.as_str(), author.who.known), ("Sam", true), "matched like a message sender");
+        assert!(invite.meta.starts_with("Sam · "));
         let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
         assert!(dm.messages[1].who.me, "your own messages are you, in your colour");
         assert_eq!(dm.messages[1].who.color, 0);

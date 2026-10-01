@@ -12,9 +12,9 @@ The Priorities tab (8b) only ever shows sample data: nothing computes quadrants,
 
 `x` on a Jira todo queues `jira.transition` to "Done" (matched by transition name or target status). The DEVOPS project's done status is "Closed", reached only through a couple of intermediate steps, so completing a DEVOPS todo fails in the outbox. Needs a per-project done status and a way to walk the workflow (or open the issue in Jira instead). Creating issues is fine as is.
 
-### Gmail: to-dos, and archive on filing
+### Gmail: what's left
 
-Built: Incoming mirrors the whole Inbox (read or not), filing labels by category (`config.category_labels`) and marks read, Dismiss archives, `#` trashes, `u` restores (docs/sources/gmail.md). Still open: to-dos, after which filing should also archive and follow-ups stay in the Inbox until done; assistant help writing Gmail filters (needs `gmail.settings.basic`); relabeling when an email moves to a topic in another category.
+Built: Incoming mirrors the whole Inbox (read or not), filing labels by category (`config.category_labels`), marks read and archives (todo or not), Dismiss archives, `#` trashes, `u` restores, moving a filed thread to a topic in another category relabels it (docs/sources/gmail.md). Still open: Unsubscribe (19a), the category label chip, assistant help writing Gmail filters (needs `gmail.settings.basic`).
 
 ### Priority: Slack integration
 

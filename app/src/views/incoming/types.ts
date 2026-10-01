@@ -39,6 +39,8 @@ export interface Signal {
   split: boolean;
   /** An unknown sender here is worth a People note (17a). */
   new_person: NewPerson | null;
+  /** The item's author as `meta` names it, matched like a message sender (16c, 17b). */
+  author: { name: string; who: Who } | null;
 }
 
 export interface Held {

@@ -363,6 +363,12 @@
     act('todos.hold', { item_id: s.item_id, target: d.target, text: d.text, due: d.due });
   }
 
+  /** `meta`-style text split at the author's name, so the name can be a PersonName. */
+  function byAuthor(s: Signal, text: string): string | null {
+    const a = s.author;
+    return a && text.startsWith(`${a.name} · `) ? text.slice(a.name.length) : null;
+  }
+
   function info(s: Signal) {
     const shown = new Set(s.meta.split(' · '));
     const extra = (s.summary ?? '').split(' · ').filter((p) => p && !shown.has(p));
@@ -407,6 +413,15 @@
   });
 </script>
 
+{#snippet metaText(s: Signal, text: string)}
+  {@const rest = byAuthor(s, text)}
+  {#if rest !== null && s.author}<span class="who-meta"><PersonName
+        who={s.author.who}
+        name={s.author.name}
+        onlink={s.author.who.account ? () => link(s, s.author!.who.account!, s.author!.name) : undefined}
+      /></span>{rest}{:else}{text}{/if}
+{/snippet}
+
 <div class="view">
   <div class="topics scroll">
     <div class="label head">Topics with new signals</div>
@@ -440,7 +455,7 @@
               <div class="row">
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
-                  {#if !isOpen}<span class="meta tnum">{s.meta}</span>{/if}
+                  {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
                   {#if s.split}
                     <span
                       class="pill split"
@@ -505,7 +520,7 @@
               {#if isOpen}
                 {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
                 <div class="ctx">
-                  <div class="info tnum">{info(s)}</div>
+                  <div class="info tnum">{@render metaText(s, info(s))}</div>
                   {#each s.context as m, ci (m.id)}
                     {#if hidden && ci === 1}
                       <button class="more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
@@ -897,6 +912,9 @@
   }
   .t {
     color: var(--tx-label);
+  }
+  .who-meta :global(.name) {
+    font-weight: 400;
   }
   .pill.split {
     align-self: center;

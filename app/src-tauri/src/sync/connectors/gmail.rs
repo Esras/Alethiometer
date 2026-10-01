@@ -378,7 +378,9 @@ fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     }
     let mut change = json!({});
     if mark_read {
-        change["removeLabelIds"] = json!(["UNREAD"]);
+        // Filing also archives (`archive`), but never past mail you haven't seen.
+        let archive = payload["archive"].as_bool() == Some(true);
+        change["removeLabelIds"] = if archive { json!(["UNREAD", "INBOX"]) } else { json!(["UNREAD"]) };
     }
     if let Some(name) = payload["label"].as_str() {
         let id = label_id(api, name)?.ok_or_else(|| anyhow::anyhow!("no Gmail label named '{name}'; create it in Gmail, then retry"))?;
@@ -387,6 +389,9 @@ fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     let mut receipt = if change.as_object().is_some_and(|o| o.is_empty()) { json!({ "thread_id": thread }) } else { modify(api, payload, change)? };
     if !mark_read {
         receipt["left_unread"] = json!("new mail arrived since");
+        if payload["archive"].as_bool() == Some(true) {
+            receipt["left_in_inbox"] = json!("new mail arrived since");
+        }
     }
     Ok(receipt)
 }
@@ -667,9 +672,16 @@ mod tests {
 
         let http = google();
         http.on("GET", &format!("/threads/{A}?format=minimal"), 200, fixture!("thread_a.json"));
-        let r = send(&http, "gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601"] })).unwrap();
+        let r = send(&http, "gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601"], "archive": true })).unwrap();
         assert!(r["left_unread"].is_string());
+        assert!(r["left_in_inbox"].is_string(), "never archived past unseen mail");
         assert!(posts(&http).is_empty());
+
+        let http = google();
+        http.on("GET", &format!("/threads/{A}?format=minimal"), 200, fixture!("thread_a.json"));
+        http.on("POST", &format!("/threads/{A}/modify"), 200, fixture!("modify.json"));
+        send(&http, "gmail.file", json!({ "thread_id": A, "message_ids": known, "archive": true })).unwrap();
+        assert_eq!(posts(&http), [(format!("{A}/modify"), Some(json!({ "removeLabelIds": ["UNREAD", "INBOX"] })))]);
 
         let http = google();
         http.on("GET", "/labels", 200, r#"{"labels": []}"#);
@@ -759,8 +771,8 @@ mod tests {
                 t("gmail.archive", json!({ "thread_id": C })),
                 t("gmail.restore", json!({ "thread_id": C })),
                 t("gmail.trash", json!({ "thread_id": C })),
-                t("gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"], "label": "Customers" })),
-                t("gmail.file", json!({ "thread_id": B, "message_ids": [B] })),
+                t("gmail.file", json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"], "archive": true, "label": "Customers" })),
+                t("gmail.file", json!({ "thread_id": B, "message_ids": [B], "archive": true })),
             ]
         );
         let tx = conn.unchecked_transaction().unwrap();

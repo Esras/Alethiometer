@@ -9,11 +9,15 @@
 </script>
 
 {#if linkable}
-  <button
+  <!-- A span, not a button: it can sit inside a row's own button (the meta line). -->
+  <span
     class="name unknown ellipsis"
+    role="button"
+    tabindex="-1"
     style:color={personColor(who.color)}
     title="{name} · no People note · link to a person"
-    onclick={(e) => (e.stopPropagation(), onlink?.())}>{name}</button
+    onclick={(e) => (e.stopPropagation(), onlink?.())}
+    onkeydown={() => {}}>{name}</span
   >
 {:else}
   <span class="name ellipsis" style:color={personColor(who.color)} title={who.name && who.name !== name ? `${name} · ${who.name}` : name}>{name}</span>
