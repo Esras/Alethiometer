@@ -20,6 +20,7 @@ export interface AppInfo {
   clock_offset_ms: number;
   ai_label: string;
   incoming_count: number;
+  todo_count: number;
   platform: string;
 }
 

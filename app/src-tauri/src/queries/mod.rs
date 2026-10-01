@@ -9,6 +9,7 @@ pub mod priorities;
 pub mod reflect;
 pub mod search;
 pub mod split;
+pub mod todos;
 pub mod topics;
 
 use crate::error::{msg, Result};

@@ -52,6 +52,8 @@ pub struct Signal {
     pub context: Vec<Message>,
     /// Already filed under this topic: new activity, not a suggestion.
     pub update: bool,
+    /// A todo waiting for this signal to be confirmed.
+    pub held: Option<super::todos::Held>,
     #[serde(skip)]
     at: String,
 }
@@ -129,6 +131,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         messages: vec![],
         context: vec![],
         update: false,
+        held: None,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -189,6 +192,7 @@ fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
         }
         s.context = context.into_iter().map(|r| r.0).collect();
         s.messages = own.into_iter().map(|r| r.0).collect();
+        s.held = super::todos::held(conn, s.item_id)?;
     }
     Ok(())
 }
@@ -251,6 +255,14 @@ pub fn confirm(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
     conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
     confirm_series(conn, item_id, topic_id)?;
     mark_read_remote(conn, item_id, topic_id)?;
+    settle_todo(conn, item_id, topic_id)
+}
+
+/// A todo held on the signal is created with the confirmed topic; a Gmail thread then leaves the Inbox (19b).
+fn settle_todo(conn: &Connection, item_id: i64, topic_id: i64) -> Result<()> {
+    if super::todos::settle(conn, item_id, topic_id)? {
+        gmail_op(conn, item_id, "gmail.archive")?;
+    }
     Ok(())
 }
 
@@ -406,6 +418,7 @@ pub fn dismiss(conn: &Connection, item_id: i64, on: bool) -> Result<()> {
     if conn.execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![item_id, on])? == 0 {
         return Err(msg("no such item"));
     }
+    super::todos::discard(conn, item_id, on)?;
     gmail_op(conn, item_id, if on { "gmail.archive" } else { "gmail.restore" })
 }
 
@@ -439,7 +452,7 @@ pub fn move_to(conn: &Connection, item_id: i64, topic_id: i64, from: Option<i64>
             file_gmail(conn, source_id, item_id, &raws, topic_id)?;
         }
     }
-    Ok(())
+    settle_todo(conn, item_id, topic_id)
 }
 
 // ---------------------------------------------------------------------------

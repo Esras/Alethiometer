@@ -17,6 +17,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "categories" => queries::categories::call(app, name, args),
         "incoming" => queries::incoming::call(app, name, args),
         "priorities" => queries::priorities::call(app, name, args),
+        "todos" => queries::todos::call(app, name, args),
         "notes" => queries::notes::call(app, name, args),
         "reflect" => queries::reflect::call(app, name, args),
         "search" => queries::search::call(app, name, args),
@@ -55,6 +56,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "clock_offset_ms": app.clock.offset_ms(),
                 "ai_label": crate::ai::label(&app.settings.ai),
                 "incoming_count": incoming,
+                "todo_count": queries::todos::list(&app.db(), app.clock.now())?.len(),
                 "platform": std::env::consts::OS,
             }))
         }

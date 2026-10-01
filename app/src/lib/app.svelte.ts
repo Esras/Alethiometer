@@ -4,11 +4,12 @@
 import { call } from './api';
 import type { AppInfo, Category } from './types';
 
-export type Tab = 'incoming' | 'priorities' | 'topics' | 'notes' | 'reflect';
+export type Tab = 'incoming' | 'priorities' | 'topics' | 'todos' | 'notes' | 'reflect';
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'incoming', label: 'Incoming' },
   { id: 'priorities', label: 'Priorities' },
   { id: 'topics', label: 'Topics' },
+  { id: 'todos', label: 'Todos' },
   { id: 'notes', label: 'Notes' },
   { id: 'reflect', label: 'Reflect' },
 ];

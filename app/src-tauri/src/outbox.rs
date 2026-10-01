@@ -35,7 +35,15 @@ pub fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
 }
 
 /// Apply the local side of a confirmed write.
-fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>, receipt: &Value) -> Result<()> {
+fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>, payload: &Value, receipt: &Value) -> Result<()> {
+    if op == "jira.create_issue" && payload.get("assign_me").and_then(Value::as_bool) == Some(true) {
+        crate::queries::todos::issue_created(conn, payload, receipt)?;
+    }
+    if let (Some(id), Some(done)) = (item_id, payload.get("done").and_then(Value::as_bool)) {
+        if op == "jira.transition" || op == "obsidian.toggle_task" {
+            conn.execute("UPDATE items SET status = ?2 WHERE id = ?1", params![id, if done { "done" } else { "open" }])?;
+        }
+    }
     if let Some(id) = item_id {
         match op {
             // The Notes line's Incoming item now points at the new Jira issue.
@@ -85,8 +93,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         Some(c) => {
             let secret = |k: &str| app.platform.secret_get(k);
             let ctx = Ctx { source: &source, http, secret: &secret, now: app.clock.now() };
-            let payload: Value = serde_json::from_str(&payload)?;
-            c.send(&ctx, &op, &payload)
+            c.send(&ctx, &op, &serde_json::from_str(&payload)?)
         }
     };
     let conn = app.db();
@@ -96,7 +103,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
                 "UPDATE outbox SET state = 'confirmed', confirmed_at = datetime('now', 'localtime'), receipt_json = ?2, error = NULL WHERE id = ?1",
                 params![id, receipt.to_string()],
             )?;
-            on_confirmed(&conn, &op, item_id, &receipt)?;
+            on_confirmed(&conn, &op, item_id, &serde_json::from_str(&payload).unwrap_or_default(), &receipt)?;
         }
         Err(e) => {
             conn.execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, e.to_string()])?;
@@ -189,6 +196,16 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 }
 
 #[cfg(test)]
+pub fn tests_on_confirmed(conn: &Connection, op: &str, payload: &Value, receipt: &Value) {
+    on_confirmed(conn, op, None, payload, receipt).unwrap();
+}
+
+#[cfg(test)]
+pub fn tests_on_confirmed_item(conn: &Connection, op: &str, item_id: i64, payload: &Value) {
+    on_confirmed(conn, op, Some(item_id), payload, &json!({})).unwrap();
+}
+
+#[cfg(test)]
 mod integration_tests {
     use crate::settings::Settings;
     use crate::state::App;
@@ -247,7 +264,7 @@ mod integration_tests {
         let (app, _d) = app();
         let conn = app.db();
         let item: i64 = conn.query_row("SELECT id FROM items LIMIT 1", [], |r| r.get(0)).unwrap();
-        super::on_confirmed(&conn, "jira.create_issue", Some(item), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
+        super::on_confirmed(&conn, "jira.create_issue", Some(item), &json!({}), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
         let (url, summary): (String, String) =
             conn.query_row("SELECT url, summary FROM items WHERE id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(url, "https://x/browse/PLAT-9");

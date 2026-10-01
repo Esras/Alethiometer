@@ -18,6 +18,7 @@
 pub mod bedrock;
 pub mod context;
 pub mod creds;
+pub mod estimate;
 pub mod suggest;
 
 use crate::error::{msg, Result};
@@ -185,6 +186,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 Err(e) => suggest::record(&app.db(), "failed", Some(&e.to_string()), 0)?,
             }
             Ok(json!(out?))
+        }
+        "estimate_todos" => {
+            let limit = opt_i64(args, "limit").unwrap_or(10).clamp(1, 50) as usize;
+            Ok(json!(with_live(app, |d| estimate::estimate_todos(app, d, limit))?))
         }
         "suggestions" => suggest::last_run(&app.db()),
         "status" => {

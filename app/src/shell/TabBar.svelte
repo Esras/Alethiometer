@@ -12,6 +12,8 @@
       {t.label}
       {#if t.id === 'incoming' && ui.info}
         <span class="badge" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
+      {:else if t.id === 'todos' && ui.info?.todo_count}
+        <span class="badge" class:on={ui.tab === t.id}>{ui.info.todo_count}</span>
       {/if}
     </button>
   {/each}

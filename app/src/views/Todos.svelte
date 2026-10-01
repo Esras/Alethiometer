@@ -1,0 +1,467 @@
+<script lang="ts">
+  import { call, openExternal } from '../lib/api';
+  import { catColor, refresh, ui } from '../lib/app.svelte';
+  import { plain, useKeys } from '../lib/keys.svelte';
+  import AppIcon from '../lib/ui/AppIcon.svelte';
+  import AssistantPane from '../shell/AssistantPane.svelte';
+  import TodoForm from './todos/TodoForm.svelte';
+  import type { Draft, JiraTarget, Todo, TodosData } from './todos/types';
+
+  const PRIORITY: Record<string, string> = { now: 'Now-ish', make_room: 'Make room', quick: 'Quick touch', can_wait: 'Can wait' };
+  const PRIORITY_RANK: Record<string, number> = { now: 0, make_room: 1, quick: 2, can_wait: 3 };
+  const ICON = { local: 'notes', jira: 'jira', obsidian: 'obsidian' } as const;
+  const SOURCES = [
+    { key: 'all', label: 'All' },
+    { key: 'local', label: 'Alethiometer' },
+    { key: 'jira', label: 'Jira' },
+    { key: 'obsidian', label: 'Obsidian' },
+  ] as const;
+  type SortKey = 'due' | 'title' | 'status' | 'topic' | 'priority' | 'estimate';
+  const SORTS: SortKey[] = ['due', 'priority', 'estimate', 'topic', 'status', 'title'];
+  function parseDur(v: string): number | null | undefined {
+    const t = v.trim().toLowerCase().replace(/\s+/g, '');
+    if (!t) return null;
+    if (/^\d+(\.\d+)?$/.test(t)) return Math.round(Number(t));
+    const m = t.match(/^(?:(\d+(?:\.\d+)?)d)?(?:(\d+(?:\.\d+)?)h)?(?:(\d+)m?)?$/);
+    if (!m || (!m[1] && !m[2] && !m[3])) return undefined;
+    const mins = Math.round(Number(m[1] ?? 0) * DAY + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0));
+    return mins > 0 ? mins : undefined;
+  }
+  const DAY = 480;
+  const dur = (m: number) =>
+    m >= DAY && m % DAY === 0 ? `${m / DAY}d` : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
+  const isEpic = (t: Todo) => t.ext.type === 'jira' && t.ext.issue_type?.toLowerCase() === 'epic';
+
+  let todos = $state<Todo[]>([]);
+  let jira = $state<JiraTarget | null>(null);
+  let struck = $state<Set<number>>(new Set());
+  let source = $state<(typeof SOURCES)[number]['key']>('all');
+  let q = $state('');
+  let sort = $state<{ key: SortKey; asc: boolean }>({ key: 'due', asc: true });
+  let sel = $state<number | null>(null);
+  let creating = $state(false);
+  let err = $state<string | null>(null);
+  let filterEl = $state<HTMLInputElement>();
+  let editing = $state<number | null>(null);
+  let asked = false;
+  const focusEl = (el: HTMLInputElement) => el.select();
+
+  async function load() {
+    const d = await call<TodosData>('todos.list');
+    const kept = todos.filter((t) => struck.has(t.item_id) && !d.todos.some((n) => n.item_id === t.item_id));
+    todos = [...d.todos, ...kept];
+    jira = d.jira;
+    if (!asked && d.todos.some((t) => !t.estimate)) {
+      asked = true;
+      const r = await call<{ estimated: number }>('ai.estimate_todos').catch(() => ({ estimated: 0 }));
+      if (r.estimated) load();
+    }
+  }
+
+  $effect(() => {
+    void ui.rev;
+    load();
+  });
+
+  async function setEstimate(t: Todo, value: string) {
+    const minutes = parseDur(value);
+    if (minutes === undefined) {
+      err = `"${value}" isn't a time: try 45m, 1h30m, 2h or 1d (empty lets the AI guess)`;
+      return;
+    }
+    editing = null;
+    try {
+      await call('todos.estimate', { item_id: t.item_id, minutes });
+      err = null;
+      asked = minutes !== null && asked;
+      load();
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    }
+  }
+
+  const counts = $derived(Object.fromEntries(SOURCES.map((s) => [s.key, todos.filter((t) => s.key === 'all' || t.ext.type === s.key).length])));
+
+  function cmp(a: Todo, b: Todo, key: SortKey): number {
+    const last = (x: unknown) => (x === null || x === undefined ? 1 : 0);
+    switch (key) {
+      case 'due':
+        return last(a.due) - last(b.due) || (a.due ?? '').localeCompare(b.due ?? '');
+      case 'priority':
+        return (PRIORITY_RANK[a.priority ?? ''] ?? 9) - (PRIORITY_RANK[b.priority ?? ''] ?? 9);
+      case 'topic':
+        return last(a.topic) - last(b.topic) || (a.topic?.name ?? '').localeCompare(b.topic?.name ?? '');
+      case 'estimate':
+        return last(a.estimate) - last(b.estimate) || (a.estimate?.minutes ?? 0) - (b.estimate?.minutes ?? 0);
+      case 'status':
+        return (a.ext.type === 'jira' ? a.ext.status : '~').localeCompare(b.ext.type === 'jira' ? b.ext.status : '~');
+      default:
+        return a.title.localeCompare(b.title);
+    }
+  }
+
+  const rows = $derived.by(() => {
+    const needle = q.trim().toLowerCase();
+    const out = todos.filter(
+      (t) =>
+        (source === 'all' || t.ext.type === source) &&
+        (!needle || [t.title, t.from, t.topic?.name].some((s) => s?.toLowerCase().includes(needle))),
+    );
+    return out.sort((a, b) => (sort.asc ? 1 : -1) * cmp(a, b, sort.key) || cmp(a, b, 'due'));
+  });
+
+  $effect(() => {
+    if (!rows.some((t) => t.item_id === sel)) sel = rows[0]?.item_id ?? null;
+  });
+
+  $effect(() => {
+    if (sel !== null) document.querySelector(`[data-todo="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+  });
+
+  const current = $derived(rows.find((t) => t.item_id === sel) ?? null);
+
+  function sortBy(key: SortKey) {
+    sort = sort.key === key ? { key, asc: !sort.asc } : { key, asc: true };
+  }
+
+  function step(d: number) {
+    const i = rows.findIndex((t) => t.item_id === sel);
+    sel = rows[Math.max(0, Math.min(rows.length - 1, i + d))]?.item_id ?? null;
+  }
+
+  async function toggle(t: Todo | null) {
+    if (!t) return;
+    const done = !struck.has(t.item_id);
+    const next = new Set(struck);
+    if (done) next.add(t.item_id);
+    else next.delete(t.item_id);
+    struck = next;
+    try {
+      await call(done ? 'todos.complete' : 'todos.reopen', { item_id: t.item_id });
+      err = null;
+      refresh();
+    } catch (e) {
+      const back = new Set(struck);
+      if (done) back.delete(t.item_id);
+      else back.add(t.item_id);
+      struck = back;
+      err = String((e as Error).message ?? e);
+    }
+  }
+
+  async function create(d: Draft) {
+    try {
+      await call('todos.create', d);
+      creating = false;
+      err = null;
+      refresh();
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    }
+  }
+
+  useKeys((e) => {
+    if (creating || editing !== null) return;
+    if (plain(e, 'e')) return current && !isEpic(current) && (editing = current.item_id), true;
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
+    if (plain(e, 'x') || plain(e, ' ')) return toggle(current), true;
+    if (plain(e, 'u')) return current && struck.has(current.item_id) && toggle(current), true;
+    if (plain(e, 'o')) return current?.url && openExternal(current.url), true;
+    if (plain(e, 'n')) return (creating = true), true;
+    if (plain(e, 's')) return (sort = { key: SORTS[(SORTS.indexOf(sort.key) + 1) % SORTS.length], asc: true }), true;
+    if (plain(e, '/')) return filterEl?.focus(), true;
+  });
+</script>
+
+<div class="view">
+  <div class="main">
+    <div class="bar">
+      <label class="filter">
+        <i class="ph ph-magnifying-glass"></i>
+        <input bind:this={filterEl} bind:value={q} placeholder="Filter todos" onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())} />
+        <span class="k">/</span>
+      </label>
+      <div class="chips">
+        {#each SOURCES as s (s.key)}
+          {#if s.key === 'all' || counts[s.key]}
+            <button class="chip" class:on={source === s.key} onclick={() => (source = s.key)}>{s.label} <span class="tnum">{counts[s.key]}</span></button>
+          {/if}
+        {/each}
+      </div>
+      <span class="grow"></span>
+      <button class="btn" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <span class="k">n</span></button>
+    </div>
+    {#if err}<div class="err">{err}</div>{/if}
+    {#if creating}
+      <TodoForm {jira} choose onsave={create} oncancel={() => (creating = false)} />
+    {/if}
+    <div class="panel">
+      <div class="head row">
+        <span></span>
+        <button onclick={() => sortBy('title')}>Todo{#if sort.key === 'title'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('status')}>Status{#if sort.key === 'status'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('topic')}>Topic{#if sort.key === 'topic'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('priority')}>Priority{#if sort.key === 'priority'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('estimate')}>Est.{#if sort.key === 'estimate'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('due')}>Due{#if sort.key === 'due'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+      </div>
+      <div class="body scroll">
+        {#each rows as t (t.item_id)}
+          {@const done = struck.has(t.item_id)}
+          <div class="row todo" class:sel={t.item_id === sel} class:done style:--topic={t.topic ? catColor(t.topic.category) : null} data-todo={t.item_id} onclick={() => (sel = t.item_id)} ondblclick={() => t.url && openExternal(t.url)} role="presentation">
+            <button class="check" onclick={(e) => (e.stopPropagation(), toggle(t))} aria-label={done ? 'Reopen' : 'Done'}>
+              <i class="ph {done ? 'ph-check-square' : 'ph-square'}"></i>
+            </button>
+            <span class="title-cell">
+              <AppIcon source={ICON[t.ext.type]} size={14} />
+              <span class="title ellipsis" title={t.title}>{t.title}</span>
+              {#if t.from}<span class="from ellipsis">{t.from}</span>{/if}
+            </span>
+            <span>{#if t.ext.type === 'jira'}<span class="status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
+            <span class="topic ellipsis">
+              {#if t.topic}<span class="cbar" style:background={catColor(t.topic.category)}></span>{t.topic.name}{:else}<span class="none">No topic</span>{/if}
+            </span>
+            <span class="muted">{t.priority ? PRIORITY[t.priority] : ''}</span>
+            {#if isEpic(t)}
+              <span class="muted" title="Epics aren't estimated: you track them, the work is in their issues">-</span>
+            {:else if editing === t.item_id}
+              <input
+                class="est-pick"
+                use:focusEl
+                value={t.estimate ? dur(t.estimate.minutes) : ''}
+                placeholder="45m"
+                title="45m, 1h30m, 2h, 1d (8h) · empty lets the AI guess · ↵ save · esc"
+                onblur={() => (editing = null)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') setEstimate(t, e.currentTarget.value);
+                  else if (e.key === 'Escape') editing = null;
+                  else return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              />
+            {:else}
+              <button class="est" class:ai={t.estimate?.by === 'ai'} title={t.estimate?.by === 'ai' ? 'AI guess · e to change' : 'e to change'} onclick={(e) => (e.stopPropagation(), (editing = t.item_id))}>
+                {t.estimate ? `${t.estimate.by === 'ai' ? '~' : ''}${dur(t.estimate.minutes)}` : '—'}
+                {#if t.estimate && t.estimate.minutes > 120}<span class="split" title="Over 2h: worth breaking up?">split?</span>{/if}
+              </button>
+            {/if}
+            <span class="tnum" class:overdue={t.overdue && !done}>{done ? 'Done' : (t.due_label ?? '')}</span>
+          </div>
+        {:else}
+          <div class="empty">{todos.length ? 'Nothing matches.' : 'No todos. Make one from a signal in Incoming (n), or here (n).'}</div>
+        {/each}
+      </div>
+      <div class="hints"><span>j/k todo</span><span>x done</span><span>u undo</span><span>n new todo</span><span>/ filter</span><span>e estimate</span><span>s sort</span><span>o open source</span></div>
+    </div>
+  </div>
+  <AssistantPane topic={current?.topic ?? null} />
+</div>
+
+<style>
+  .view {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    line-height: 1.5;
+  }
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 14px 22px;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 260px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-input);
+    color: var(--tx-label);
+  }
+  .filter input {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: 0;
+    outline: none;
+    font-size: 12.5px;
+    color: var(--tx-body);
+  }
+  .chips {
+    display: flex;
+    gap: 4px;
+  }
+  .chip {
+    padding: 3px 10px;
+    border-radius: var(--r-input);
+    font-size: 12px;
+    color: var(--tx-muted-2);
+  }
+  .chip.on {
+    background: var(--aqua-tint);
+    color: var(--aqua);
+  }
+  .grow {
+    flex: 1;
+  }
+  .k {
+    font-size: 11px;
+    color: var(--tx-label);
+  }
+  .err {
+    margin-bottom: 8px;
+    color: var(--orange);
+    font-size: 12.5px;
+  }
+  .panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--r-panel);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .body {
+    flex: 1;
+    min-height: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 190px 220px 110px 96px 90px;
+    gap: 12px;
+    align-items: center;
+    padding: 7px 16px;
+    font-size: 12.5px;
+  }
+  .head {
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--tx-label);
+  }
+  .head button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    text-align: left;
+    letter-spacing: inherit;
+    text-transform: inherit;
+  }
+  .todo {
+    box-shadow: inset 3px 0 0 var(--topic, transparent);
+  }
+  .todo:hover:not(.sel) {
+    background: rgba(235, 219, 178, 0.03);
+  }
+  .todo.sel {
+    background: var(--aqua-tint-soft);
+    box-shadow:
+      inset 3px 0 0 var(--topic, transparent),
+      inset -2px 0 0 var(--aqua);
+  }
+  .check {
+    color: var(--tx-muted-2);
+    font-size: 15px;
+  }
+  .done .check {
+    color: var(--aqua);
+  }
+  .title-cell {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .title {
+    color: var(--tx-body);
+  }
+  .done .title {
+    text-decoration: line-through;
+    color: var(--tx-label);
+  }
+  .from {
+    flex: none;
+    max-width: 40%;
+    font-size: 12px;
+    color: var(--tx-label);
+  }
+  .status {
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: middle;
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    font-size: 11px;
+    color: var(--tx-muted);
+  }
+  .topic {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--tx-2);
+  }
+  .cbar {
+    flex: none;
+    width: 3px;
+    height: 12px;
+    border-radius: 2px;
+  }
+  .none,
+  .muted {
+    color: var(--tx-muted-2);
+  }
+  .est {
+    text-align: left;
+    color: var(--tx-2);
+  }
+  .est.ai {
+    color: var(--tx-muted-2);
+    font-style: italic;
+  }
+  .split {
+    margin-left: 4px;
+    font-size: 10.5px;
+    font-style: normal;
+    color: var(--tx-label);
+  }
+  .est-pick {
+    width: 100%;
+    padding: 1px 6px;
+    outline: none;
+    background: var(--bg-app);
+    color: var(--tx-body);
+    border: 1px solid var(--aqua);
+    border-radius: var(--r-input);
+    font-size: 12px;
+  }
+  .overdue {
+    color: var(--red);
+  }
+  .empty {
+    padding: 24px 16px;
+    color: var(--tx-muted-2);
+  }
+  .hints {
+    display: flex;
+    gap: 16px;
+    padding: 7px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--tx-label);
+  }
+</style>

@@ -4,6 +4,14 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Priorities: scoring isn't built, and needs design first
+
+The Priorities tab (8b) only ever shows sample data: nothing computes quadrants, scores or reason pills for real items, so with `demo_data: false` it's empty. The design never decided what makes something urgent or important. Inputs worth considering: due date, todo estimates (`todo_estimates`, built), who's asking, Jira status, mentions, an upcoming meeting on the topic. Also open: todos only, or every open signal (as 8b shows). Design pass first, then build.
+
+### Todos: completing a Jira todo assumes a "Done" transition
+
+`x` on a Jira todo queues `jira.transition` to "Done" (matched by transition name or target status). The DEVOPS project's done status is "Closed", reached only through a couple of intermediate steps, so completing a DEVOPS todo fails in the outbox. Needs a per-project done status and a way to walk the workflow (or open the issue in Jira instead). Creating issues is fine as is.
+
 ### Gmail: to-dos, and archive on filing
 
 Built: Incoming mirrors the whole Inbox (read or not), filing labels by category (`config.category_labels`) and marks read, Dismiss archives, `#` trashes, `u` restores (docs/sources/gmail.md). Still open: to-dos, after which filing should also archive and follow-ups stay in the Inbox until done; assistant help writing Gmail filters (needs `gmail.settings.basic`); relabeling when an email moves to a topic in another category.

@@ -485,6 +485,9 @@ pub fn suggest_after_sync(app: &App, source_id: i64) {
     if let Err(e) = crate::ai::call(app, "suggest_topics", &serde_json::json!({ "limit": 10 })) {
         eprintln!("suggest_topics: {e}");
     }
+    if let Err(e) = crate::ai::call(app, "estimate_todos", &serde_json::json!({ "limit": 10 })) {
+        eprintln!("estimate_todos: {e}");
+    }
     let _ = app.db().execute("UPDATE sources SET last_sync_at = datetime('now', 'localtime') WHERE id = ?1", [source_id]);
 }
 

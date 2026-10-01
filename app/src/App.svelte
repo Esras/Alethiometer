@@ -10,6 +10,7 @@
   import Notes from './views/Notes.svelte';
   import Priorities from './views/Priorities.svelte';
   import Reflect from './views/Reflect.svelte';
+  import Todos from './views/Todos.svelte';
   import Topics from './views/Topics.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
 
@@ -25,7 +26,7 @@
       e.preventDefault();
       return;
     }
-    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
+    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && ui.tab !== 'todos' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
       ui.searchOpen = true;
       e.preventDefault();
       return;
@@ -35,7 +36,7 @@
       e.preventDefault();
       return;
     }
-    if (mod(e) && /^[1-5]$/.test(e.key)) {
+    if (mod(e) && /^[1-6]$/.test(e.key)) {
       setTab(TABS[Number(e.key) - 1].id);
       e.preventDefault();
       return;
@@ -56,6 +57,7 @@
     <main>
       {#if ui.tab === 'incoming'}<Incoming />
       {:else if ui.tab === 'priorities'}<Priorities />
+      {:else if ui.tab === 'todos'}<Todos />
       {:else if ui.tab === 'topics'}<Topics />
       {:else if ui.tab === 'notes'}<Notes />
       {:else}<Reflect />{/if}

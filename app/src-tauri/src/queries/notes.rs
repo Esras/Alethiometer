@@ -343,7 +343,7 @@ fn save(app: &App, args: &Value) -> Result<Value> {
 }
 
 /// Local work source that Notes signals come from.
-fn alethiometer_source(conn: &Connection) -> Result<i64> {
+pub(crate) fn alethiometer_source(conn: &Connection) -> Result<i64> {
     let id: Option<i64> = conn.query_row("SELECT id FROM sources WHERE kind = 'notes'", [], |r| r.get(0)).optional()?;
     match id {
         Some(id) => Ok(id),

@@ -330,7 +330,7 @@ fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     }))
 }
 
-/// Notes enqueues `{summary, assignee (a name from "@Name", or null), notes_line_id, item_id}`.
+/// Notes enqueues `{summary, assignee (a name from "@Name", or null), notes_line_id, item_id}`; Todos `{summary, assign_me, due, topic_id}`.
 /// The summary is the user's own line, sent verbatim.
 fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     let summary = text(payload, "summary")?;
@@ -356,6 +356,12 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     // A delegate name only becomes an assignee when it matches exactly one
     // assignable user; otherwise the issue is created unassigned and the receipt says so.
     let mut assignee = payload.get("account_id").and_then(Value::as_str).map(str::to_owned);
+    if assignee.is_none() && payload.get("assign_me").and_then(Value::as_bool) == Some(true) {
+        assignee = api.get("/rest/api/3/myself")?.get("accountId").and_then(Value::as_str).map(str::to_owned);
+    }
+    if let Some(due) = payload.get("due").and_then(Value::as_str) {
+        fields["duedate"] = json!(due);
+    }
     let mut unresolved = None;
     if assignee.is_none() {
         if let Some(name) = payload.get("assignee").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {

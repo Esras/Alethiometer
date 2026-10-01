@@ -26,6 +26,14 @@ export interface Signal {
   context: Message[];
   /** Already filed under this topic: new activity rather than a suggestion. */
   update: boolean;
+  /** A todo waiting for this signal to be confirmed (22c). */
+  held: Held | null;
+}
+
+export interface Held {
+  target: 'local' | 'jira';
+  text: string;
+  due: string | null;
 }
 
 export interface TopicSignals extends TopicRef {

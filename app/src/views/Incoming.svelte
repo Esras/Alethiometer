@@ -16,6 +16,8 @@
   import AssistantPane from '../shell/AssistantPane.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import type { Queue, QueueKey, Signal } from './incoming/types';
+  import TodoForm from './todos/TodoForm.svelte';
+  import type { Draft, JiraTarget, TodosData } from './todos/types';
 
   // Fixed app order so each app's group always sits in the same place.
   const APP_ORDER = ['slack', 'gmail', 'gcal', 'jira', 'github', 'obsidian', 'sheets', 'notion'];
@@ -25,6 +27,9 @@
   let selItem = $state<number | null>(null);
   let expanded = $state<Set<number>>(new Set());
   let fullContext = $state<Set<number>>(new Set());
+  let todoFor = $state<number | null>(null);
+  let jira = $state<JiraTarget | null>(null);
+  call<TodosData>('todos.list').then((d) => (jira = d.jira));
   let picking = $state(false);
   // Message mode (Unsorted): focus is inside the current signal's messages.
   let inMsgs = $state(false);
@@ -274,6 +279,18 @@
     act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: typeof selKey === 'number' ? selKey : null });
   }
 
+  function openTodo(s: Signal | null) {
+    if (!s || dismissed.has(s.item_id)) return;
+    selItem = s.item_id;
+    picking = false;
+    todoFor = s.item_id;
+  }
+
+  function hold(s: Signal, d: Draft) {
+    todoFor = null;
+    act('todos.hold', { item_id: s.item_id, target: d.target, text: d.text, due: d.due });
+  }
+
   function info(s: Signal) {
     const shown = new Set(s.meta.split(' · '));
     const extra = (s.summary ?? '').split(' · ').filter((p) => p && !shown.has(p));
@@ -285,7 +302,7 @@
   }
 
   useKeys((e) => {
-    if (picking) return;
+    if (picking || todoFor !== null) return;
     if (inMsgs && current) {
       if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepMsg(1), true;
       if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepMsg(-1), true;
@@ -302,7 +319,12 @@
     if (plain(e, 'x')) return wrong(current), true;
     if (plain(e, 't')) return pick(current), true;
     if (plain(e, 'd')) return dismiss(current), true;
-    if (plain(e, 'u')) return dismiss(current, false), true;
+    if (plain(e, 'u')) {
+      if (current?.held && !dismissed.has(current.item_id)) act('todos.unhold', { item_id: current.item_id });
+      else dismiss(current, false);
+      return true;
+    }
+    if (plain(e, 'n')) return openTodo(current), true;
     if (plain(e, '#')) return dismiss(current, true, true), true;
     if (plain(e, 'o')) return open(current), true;
   });
@@ -350,22 +372,46 @@
                     {/if}
                     <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
                   {:else}
-                    {#if s.source === 'gmail'}
-                      <span class="src-actions"><button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button></span>
-                    {/if}
+                    <span class="src-actions">
+                      <button class="btn" onclick={() => openTodo(s)}>Todo… <kbd>n</kbd></button>
+                      {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
+                    </span>
                     {#if unsorted}
                       <button class="btn primary" onclick={() => pick(s)}>
                         {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
                       </button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {:else}
-                      <button class="btn primary" onclick={() => confirm(s)}>Confirm</button>
+                      <button class="btn primary" onclick={() => confirm(s)}>Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button>
                       <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {/if}
                   {/if}
                 </div>
               </div>
+              {#if todoFor === s.item_id}
+                <div class="todo-form">
+                  <TodoForm
+                    {jira}
+                    held
+                    topic={unsorted ? null : (queue?.topics.find((t) => t.id === selKey) ?? null)}
+                    gmail={s.source === 'gmail'}
+                    initial={s.held}
+                    onsave={(d) => hold(s, d)}
+                    oncancel={() => (todoFor = null)}
+                  />
+                </div>
+              {:else if s.held && !gone}
+                <div class="held">
+                  <i class="ph ph-hourglass-medium"></i>
+                  <span class="ellipsis">
+                    {s.held.target === 'jira' ? 'Jira issue' : 'Todo'} held until you {unsorted ? 'file the signal' : 'confirm'} ·
+                    <span class="htext">{s.held.text}</span>{#if s.held.due}&nbsp;· due {s.held.due}{/if}{#if s.held.target === 'jira' && jira}&nbsp;· {jira.project} · {jira.issue_type} · you{/if}
+                  </span>
+                  <button class="ghost" onclick={(e) => (e.stopPropagation(), openTodo(s))}>Edit</button>
+                  <button class="ghost" onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}>Discard <kbd>u</kbd></button>
+                </div>
+              {/if}
               {#if isOpen}
                 {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
                 <div class="ctx">
@@ -445,10 +491,10 @@
           <span>↵ collapse</span><span>esc done</span>
         {:else if unsorted}
           <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span>
-          <span>t move to topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
+          <span>t move to topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
         {:else}
           <span>j/k signal</span><span>↵ expand</span>
-          <span>c confirm</span><span>x wrong topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
+          <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
@@ -665,6 +711,24 @@
   }
   .msg.context {
     opacity: 0.5;
+  }
+  .todo-form {
+    padding: 0 16px 4px 38px;
+  }
+  .held {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px 8px 38px;
+    font-size: 12px;
+    color: var(--tx-muted-2);
+  }
+  .held .htext {
+    color: var(--tx-2);
+  }
+  .held .ghost {
+    flex: none;
+    font-size: 12px;
   }
   .more {
     padding: 2px 0 2px 54px;
