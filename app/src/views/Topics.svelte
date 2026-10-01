@@ -10,12 +10,15 @@
   import { personColor } from '../lib/people';
   import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import Dock from '../lib/ui/Dock.svelte';
+  import DockHost from '../lib/ui/DockHost.svelte';
   import Panel from '../lib/ui/Panel.svelte';
   import Pill from '../lib/ui/Pill.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import NotePane from './topics/NotePane.svelte';
   import TopicsIndex from './topics/TopicsIndex.svelte';
   import CategoryPicker from './topics/CategoryPicker.svelte';
+  import Chronology from './topics/Chronology.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
 
   let topics = $state<TopicRow[]>([]);
@@ -93,8 +96,6 @@
   });
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
-  // "Now" divider sits between upcoming/undone (open dots) and what happened.
-  const nowIndex = $derived(entries.findIndex((e) => !e.open));
   const origin = $derived(TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics');
 </script>
 
@@ -123,6 +124,7 @@
       </div>
 
       <div class="cols">
+        <DockHost bottom={16} left={16} />
         <div class="left scroll">
           {#if d.upcoming.length}
             <Panel icon="clock-countdown" iconColor="var(--aqua)" label="Upcoming" count={d.upcoming.length} bind:open={open.up} accent={d.upcoming.some((u) => u.today)}>
@@ -166,28 +168,7 @@
                 {/each}
               </span>
             {/snippet}
-            <div class="timeline">
-              <div class="line"></div>
-              {#each entries as e, i}
-                {#if i === nowIndex && i > 0}
-                  <div class="now-rule"><span class="tick"></span>Now<span class="fade"></span></div>
-                {/if}
-                <div class="entry">
-                  <span
-                    class="dot"
-                    style:background={e.open ? 'var(--bg-panel)' : SOURCES[e.source]?.dot}
-                    style:box-shadow={e.open ? `inset 0 0 0 2px ${SOURCES[e.source]?.dot}` : 'none'}
-                  ></span>
-                  <span class="when nowrap" class:today={e.today}>{e.when}</span>
-                  <span class="icon"><AppIcon source={e.source} /></span>
-                  <div class="min0">
-                    <div>{e.title}{#if e.range}<span class="range">{e.range}</span>{/if}</div>
-                    {#if e.sub}<div class="sub">{e.sub}</div>{/if}
-                  </div>
-                  <span class="right nowrap">{e.right}</span>
-                </div>
-              {/each}
-            </div>
+            <Chronology topicId={d.topic.id} {entries} active={open.chron && !linking && !picking} />
           </Panel>
 
           <Panel icon="users" iconColor="var(--purple)" label="People" count={d.people.length} bind:open={open.people}>
@@ -213,7 +194,7 @@
               {/each}
             </div>
             {#if linking?.account}
-              <div class="link-pick">
+              <Dock>
                 <PersonPicker
                   account={linking.account}
                   name={linking.name}
@@ -221,7 +202,7 @@
                   ondone={() => ((linking = null), refresh())}
                   onclose={() => (linking = null)}
                 />
-              </div>
+              </Dock>
             {/if}
             {#if d.repos.length}
               <div class="repos">
@@ -333,6 +314,7 @@
     color: var(--tx-title);
   }
   .cols {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: grid;
@@ -423,72 +405,6 @@
     color: var(--aqua);
     box-shadow: inset 0 0 0 1px rgba(142, 192, 124, 0.5);
   }
-  .timeline {
-    position: relative;
-    padding: 6px 12px 8px 30px;
-  }
-  .line {
-    position: absolute;
-    left: 17px;
-    top: 16px;
-    bottom: 16px;
-    width: 2px;
-    border-radius: 1px;
-    background: linear-gradient(var(--border-strong), var(--border) 85%, transparent);
-  }
-  .entry {
-    display: grid;
-    grid-template-columns: 62px 22px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: start;
-    padding: 7px 0;
-    position: relative;
-  }
-  .dot {
-    position: absolute;
-    left: -18px;
-    top: 11px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .entry .when {
-    font-size: 11.5px;
-    color: var(--tx-muted-2);
-    padding-top: 1px;
-  }
-  .icon {
-    padding-top: 1px;
-  }
-  .range {
-    font-size: 11.5px;
-    color: var(--tx-label);
-    margin-left: 5px;
-  }
-  .entry .right {
-    font-size: 11px;
-    color: var(--tx-label);
-  }
-  .now-rule {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 4px 0 4px -22px;
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--aqua);
-  }
-  .tick {
-    width: 10px;
-    height: 2px;
-    background: var(--aqua);
-  }
-  .fade {
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(142, 192, 124, 0.5), transparent);
-  }
   .people {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -522,9 +438,7 @@
     text-decoration: underline dotted var(--tx-label);
     text-underline-offset: 3px;
   }
-  .link-pick {
-    padding: 4px 12px 8px;
-  }
+
   .role {
     font-size: 11.5px;
     color: var(--tx-muted-2);

@@ -122,7 +122,6 @@
 <style>
   .card {
     width: 400px;
-    margin: 4px 0;
     display: flex;
     flex-direction: column;
     gap: 8px;

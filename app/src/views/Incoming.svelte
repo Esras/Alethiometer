@@ -19,6 +19,8 @@
   import { sourceLabel } from '../lib/sources';
   import { personColor, type Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import Dock from '../lib/ui/Dock.svelte';
+  import DockHost from '../lib/ui/DockHost.svelte';
   import Markdown from '../lib/ui/Markdown.svelte';
   import PersonName from '../lib/ui/PersonName.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
@@ -204,6 +206,7 @@
     reviewing = null;
     refresh();
   }
+
 
   function link(s: Signal, account: Account, name: string) {
     selItem = s.item_id;
@@ -552,27 +555,6 @@
                   {/if}
                 </div>
               {/if}
-              {#if linking?.item === s.item_id}
-                <div class="pick">
-                  <PersonPicker
-                    account={linking.account}
-                    name={linking.name}
-                    source={sourceLabel(s.source)}
-                    ondone={() => ((linking = null), refresh())}
-                    onclose={() => (linking = null)}
-                  />
-                </div>
-              {/if}
-              {#if sel && picking}
-                <div class="pick">
-                  <TopicPicker
-                    exclude={typeof selKey === 'number' ? selKey : null}
-                    placeholder={unsorted && chosen.size ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…` : 'Move to topic…'}
-                    onpick={moveTo}
-                    onclose={() => (picking = false)}
-                  />
-                </div>
-              {/if}
               {/if}
             </div>
           {/each}
@@ -582,6 +564,28 @@
           {/if}
         {/each}
       </div>
+      {#if linking && current?.item_id === linking.item}
+        <Dock>
+          <PersonPicker
+            account={linking.account}
+            name={linking.name}
+            source={sourceLabel(current.source)}
+            ondone={() => ((linking = null), refresh())}
+            onclose={() => (linking = null)}
+          />
+        </Dock>
+      {/if}
+      {#if picking && current}
+        <Dock>
+          <TopicPicker
+            exclude={typeof selKey === 'number' ? selKey : null}
+            placeholder={unsorted && chosen.size ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…` : 'Move to topic…'}
+            onpick={moveTo}
+            onclose={() => (picking = false)}
+          />
+        </Dock>
+      {/if}
+      <DockHost />
       <div class="hints">
         {#if reviewing !== null}
           <span>j/k message (skips ⋯)</span><span>space select</span><span>t move</span><span>d dismiss</span><span>u undo</span>
@@ -692,6 +696,7 @@
     padding: 14px 22px 14px 8px;
   }
   .panel {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: flex;
@@ -955,9 +960,6 @@
   }
   .links button:hover {
     text-decoration: underline;
-  }
-  .pick {
-    padding: 0 16px 10px 38px;
   }
   .err {
     margin-left: auto;

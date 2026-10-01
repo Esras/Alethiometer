@@ -29,6 +29,7 @@ impl Connector for Gmail {
         match op {
             "gmail.file" | "gmail.mark_read" => file(&api, payload),
             "gmail.archive" => modify(&api, payload, json!({ "removeLabelIds": ["INBOX"] })),
+            "gmail.relabel" => relabel(&api, payload),
             "gmail.trash" => thread_post(&api, payload, "trash"),
             "gmail.restore" => {
                 thread_post(&api, payload, "untrash")?;
@@ -380,14 +381,7 @@ fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
         change["removeLabelIds"] = json!(["UNREAD"]);
     }
     if let Some(name) = payload["label"].as_str() {
-        let labels = api.get(&format!("{API}/labels"))?.ok()?.json()?;
-        let id = labels["labels"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|l| l["name"].as_str() == Some(name))
-            .and_then(|l| l["id"].as_str())
-            .ok_or_else(|| anyhow::anyhow!("no Gmail label named '{name}'; create it in Gmail, then retry"))?;
+        let id = label_id(api, name)?.ok_or_else(|| anyhow::anyhow!("no Gmail label named '{name}'; create it in Gmail, then retry"))?;
         change["addLabelIds"] = json!([id]);
     }
     let mut receipt = if change.as_object().is_some_and(|o| o.is_empty()) { json!({ "thread_id": thread }) } else { modify(api, payload, change)? };
@@ -395,6 +389,30 @@ fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
         receipt["left_unread"] = json!("new mail arrived since");
     }
     Ok(receipt)
+}
+
+fn label_id(api: &Api, name: &str) -> anyhow::Result<Option<String>> {
+    let labels = api.get(&format!("{API}/labels"))?.ok()?.json()?;
+    Ok(labels["labels"].as_array().into_iter().flatten().find(|l| l["name"].as_str() == Some(name)).and_then(|l| l["id"].as_str()).map(str::to_owned))
+}
+
+/// A filed thread moved to a topic in another category (reclassify, merge):
+/// `remove` the old category's label (skipped if it's gone), `add` the new one.
+fn relabel(api: &Api, payload: &Value) -> anyhow::Result<Value> {
+    let mut change = json!({});
+    if let Some(name) = payload["remove"].as_str() {
+        if let Some(id) = label_id(api, name)? {
+            change["removeLabelIds"] = json!([id]);
+        }
+    }
+    if let Some(name) = payload["add"].as_str() {
+        let id = label_id(api, name)?.ok_or_else(|| anyhow::anyhow!("no Gmail label named '{name}'; create it in Gmail, then retry"))?;
+        change["addLabelIds"] = json!([id]);
+    }
+    if change.as_object().is_some_and(|o| o.is_empty()) {
+        return Ok(json!({ "thread_id": thread_id(payload)? }));
+    }
+    modify(api, payload, change)
 }
 
 fn modify(api: &Api, payload: &Value, change: Value) -> anyhow::Result<Value> {
@@ -657,6 +675,27 @@ mod tests {
         http.on("GET", "/labels", 200, r#"{"labels": []}"#);
         let e = send(&http, "gmail.file", json!({ "thread_id": A, "label": "Customers" })).unwrap_err().to_string();
         assert!(e.contains("no Gmail label named 'Customers'"), "{e}");
+    }
+
+    #[test]
+    fn relabel_swaps_category_labels() {
+        let http = google();
+        http.on("GET", "/labels", 200, r#"{"labels": [{"id": "Label_3", "name": "Vendors"}, {"id": "Label_9", "name": "Customers"}]}"#);
+        http.on("POST", &format!("/threads/{A}/modify"), 200, fixture!("modify.json"));
+        send(&http, "gmail.relabel", json!({ "thread_id": A, "remove": "Vendors", "add": "Customers" })).unwrap();
+        // The old label is gone from Gmail: only the add happens.
+        send(&http, "gmail.relabel", json!({ "thread_id": A, "remove": "Gone", "add": "Vendors" })).unwrap();
+        // Nothing to change: no request.
+        send(&http, "gmail.relabel", json!({ "thread_id": A, "remove": "Gone" })).unwrap();
+        assert_eq!(
+            posts(&http),
+            [
+                (format!("{A}/modify"), Some(json!({ "removeLabelIds": ["Label_3"], "addLabelIds": ["Label_9"] }))),
+                (format!("{A}/modify"), Some(json!({ "addLabelIds": ["Label_3"] }))),
+            ]
+        );
+        let e = send(&http, "gmail.relabel", json!({ "thread_id": A, "add": "Nope" })).unwrap_err().to_string();
+        assert!(e.contains("no Gmail label named 'Nope'"), "{e}");
     }
 
     #[test]

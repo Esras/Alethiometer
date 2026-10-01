@@ -11,14 +11,24 @@
   //   current message) to a topic's group straight away (a new topic makes a
   //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, ↵ confirms every group that
   //   has a topic (Unsorted stays in Incoming), Esc goes back.
+  // - `filed` (18c chronology, 18d search): reviewing one filed signal. Only
+  //   its own part and the parts this review makes are shown; a move files
+  //   straight away (confirmed), so ↵ is just Done.
+  import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { useKeys, plain } from '../../lib/keys.svelte';
+  import Dock from '../../lib/ui/Dock.svelte';
   import Markdown from '../../lib/ui/Markdown.svelte';
   import PersonName from '../../lib/ui/PersonName.svelte';
   import TopicPicker from './TopicPicker.svelte';
   import type { Family, Message, Part } from './types';
 
-  let { itemId, onclose }: { itemId: number; onclose: (confirmed: boolean) => void } = $props();
+  let { itemId, filed = false, onclose }: { itemId: number; filed?: boolean; onclose: (changed: boolean) => void } = $props();
+
+  // Filed review: the parts it works on (the signal, plus parts it makes).
+  let scope = $state<number[]>(untrack(() => [itemId]));
+  const scoped = () => (filed ? { parts: scope } : {});
+  let changed = false;
 
   const BARS = ['#fabd2f', '#83a598', '#d3869b', '#fe8019', '#b8bb26', '#8ec07c', '#fb4934'];
   const BIN = -1;
@@ -42,7 +52,7 @@
   let history: number[] = [];
 
   async function load(first = false) {
-    const f = await call<Family>('incoming.family', { item_id: itemId });
+    const f = await call<Family>('incoming.family', { item_id: itemId, ...scoped() });
     const m = new Map(meta);
     for (const id of [...new Set(f.messages.map((x) => x.part!))]) {
       const p = f.parts.find((p) => p.item_id === id)!;
@@ -155,6 +165,7 @@
     try {
       await run();
       err = null;
+      changed = true;
       await load();
     } catch (e) {
       err = String((e as Error).message ?? e);
@@ -181,7 +192,8 @@
         const live = ms.filter((m) => !isGone(m));
         if (!live.length) continue;
         for (const m of live) mark(m, 'moved');
-        await call('incoming.review_move', { item_id: part, message_ids: live.map((m) => m.id), topic_id: topicId });
+        const r = await call<{ item_id: number }>('incoming.review_move', { item_id: part, message_ids: live.map((m) => m.id), topic_id: topicId, ...scoped() });
+        if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       }
       chosen = new Set();
     });
@@ -212,7 +224,8 @@
     const k = id === undefined ? undefined : marks.get(id);
     if (!m || !k) return;
     act(async () => {
-      await call('incoming.review_move', { item_id: m.part, message_ids: [m.id], topic_id: k.undo });
+      const r = await call<{ item_id: number }>('incoming.review_move', { item_id: m.part, message_ids: [m.id], topic_id: k.undo, ...scoped() });
+      if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       const next = new Map(marks);
       next.delete(m.id);
       marks = next;
@@ -240,8 +253,8 @@
     if (plain(e, 'd')) return dismiss(), true;
     if (plain(e, 'u')) return undo(), true;
     if (plain(e, 'g')) return (mode = mode === 'topic' ? 'order' : 'topic'), true;
-    if (plain(e, 'Enter')) return confirmable && confirmAll(), true;
-    if (plain(e, 'Escape')) return onclose(false), true;
+    if (plain(e, 'Enter')) return filed ? onclose(changed) : confirmable && confirmAll(), true;
+    if (plain(e, 'Escape')) return onclose(changed), true;
     // Everything else (tab switches, [ ]) waits until the review is closed.
     return plain(e, e.key) && e.key.length === 1;
   });
@@ -260,7 +273,7 @@
         <button class:on={mode === 'order'} onclick={() => (mode = 'order')}>In order</button>
       </span>
       <span class="key">g</span>
-      <button class="key" onclick={() => onclose(false)}>· esc back</button>
+      <button class="key" onclick={() => onclose(changed)}>· esc back</button>
     </span>
   </div>
 
@@ -313,22 +326,23 @@
                   {/each}
                 </div>
               {/if}
-              {#if picking && m.id === focus}
-                <div class="pick">
-                  <TopicPicker
-                    placeholder={chosen.size > 1 ? `Move ${chosen.size} messages to…` : 'Move to topic…'}
-                    onpick={moveTo}
-                    onunsorted={() => moveTo(null)}
-                    onclose={() => (picking = false)}
-                  />
-                </div>
-              {/if}
             {/if}
           {/each}
         </div>
       </div>
     {/each}
   </div>
+
+  {#if picking}
+    <Dock>
+      <TopicPicker
+        placeholder={chosen.size > 1 ? `Move ${chosen.size} messages to…` : 'Move to topic…'}
+        onpick={moveTo}
+        onunsorted={() => moveTo(null)}
+        onclose={() => (picking = false)}
+      />
+    </Dock>
+  {/if}
 
   <div class="legend">
     {#each legend as g (g.group)}
@@ -341,9 +355,13 @@
     <span class="btns">
       <button class="btn" onclick={() => (picking = !!(chosen.size || current))}>Move… <kbd>t</kbd></button>
       <button class="btn" onclick={dismiss}>Dismiss <kbd>d</kbd></button>
-      <button class="btn primary" onclick={confirmAll} disabled={!confirmable}>
-        Confirm {confirmable} {confirmable === 1 ? 'group' : 'groups'} <kbd>↵</kbd>
-      </button>
+      {#if filed}
+        <button class="btn primary" onclick={() => onclose(changed)}>Done <kbd>↵</kbd></button>
+      {:else}
+        <button class="btn primary" onclick={confirmAll} disabled={!confirmable}>
+          Confirm {confirmable} {confirmable === 1 ? 'group' : 'groups'} <kbd>↵</kbd>
+        </button>
+      {/if}
     </span>
     {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
   </div>
@@ -513,9 +531,6 @@
     line-height: 1;
     letter-spacing: 2px;
     color: var(--tx-disabled);
-  }
-  .pick {
-    padding: 2px 0 6px 54px;
   }
   .legend {
     margin: 10px 16px 12px 38px;

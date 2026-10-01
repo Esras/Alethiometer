@@ -102,7 +102,17 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     let conn = app.db();
     match name {
         "list" => Ok(json!(queue_with(&conn, now, &app.settings.people)?)),
-        "family" => Ok(json!(family(&conn, arg_i64(args, "item_id")?, &app.settings.people)?)),
+        "family" => Ok(json!(family(&conn, arg_i64(args, "item_id")?, scope_arg(args).as_deref(), &app.settings.people)?)),
+        "detail" => Ok(json!(detail(&conn, arg_i64(args, "item_id")?, &app.settings.people)?)),
+        "reclassify" => {
+            let moved = reclassify(&conn, arg_i64(args, "item_id")?, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
+            Ok(json!({ "ok": true, "moved": moved }))
+        }
+        "unreclassify" => {
+            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default()).map_err(|e| msg(format!("bad 'moved': {e}")))?;
+            unreclassify(&conn, &moved, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
+            Ok(json!({ "ok": true }))
+        }
         "review_move" => {
             let to = match (opt_i64(args, "to_item_id"), opt_i64(args, "topic_id")) {
                 (Some(part), _) => To::Part(part),
@@ -110,7 +120,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 // No topic: Unsorted.
                 (None, None) => To::Unsorted,
             };
-            let part = review_move(&conn, arg_i64(args, "item_id")?, &ids_arg(args), to)?;
+            let part = review_move(&conn, arg_i64(args, "item_id")?, &ids_arg(args), to, scope_arg(args).as_deref())?;
             Ok(json!({ "ok": true, "item_id": part }))
         }
         "review_dismiss" => {
@@ -144,6 +154,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         _ => Err(unknown(name)),
     }
+}
+
+/// A split review of filed signals (18c/18d) names the parts it works on; Incoming's doesn't.
+fn scope_arg(args: &Value) -> Option<Vec<i64>> {
+    args.get("parts").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect())
 }
 
 fn ids_arg(args: &Value) -> Vec<i64> {
@@ -639,8 +654,9 @@ fn live_topic(conn: &Connection, item_id: i64) -> Result<Option<PartTopic>> {
 }
 
 /// The parts of `item_id`'s family the review works on: those still in
-/// Incoming, plus the family's dismissed messages.
-fn review_parts(conn: &Connection, item_id: i64) -> Result<(i64, Vec<Part>)> {
+/// Incoming (or, reviewing filed signals, the parts in `scope`), plus the
+/// family's dismissed messages.
+fn review_parts(conn: &Connection, item_id: i64, scope: Option<&[i64]>) -> Result<(i64, Vec<Part>)> {
     let (root, ids) = super::split::family(conn, item_id)?;
     let mut parts = vec![];
     for id in ids {
@@ -650,15 +666,19 @@ fn review_parts(conn: &Connection, item_id: i64) -> Result<(i64, Vec<Part>)> {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         let dismissed = is_dismissed_part(conn, id)?;
-        if (dismissed && has) || (!dismissed && !seen) {
+        let wanted = match scope {
+            Some(parts) => parts.contains(&id),
+            None => !seen,
+        };
+        if (dismissed && has) || (!dismissed && wanted) {
             parts.push(Part { item_id: id, topic: if dismissed { None } else { live_topic(conn, id)? }, dismissed });
         }
     }
     Ok((root, parts))
 }
 
-pub fn family(conn: &Connection, item_id: i64, settings: &PeopleSettings) -> Result<Family> {
-    let (root, parts) = review_parts(conn, item_id)?;
+pub fn family(conn: &Connection, item_id: i64, scope: Option<&[i64]>, settings: &PeopleSettings) -> Result<Family> {
+    let (root, parts) = review_parts(conn, item_id, scope)?;
     let (title, source, url, raw): (String, String, Option<String>, String) = conn.query_row(
         "SELECT i.title, s.kind, i.url, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
         [item_id],
@@ -706,8 +726,10 @@ fn settle_parts(conn: &Connection, parts: &[i64]) -> Result<()> {
     Ok(())
 }
 
-/// Move messages of one part to another part, a topic or Unsorted. Returns the part they're in now.
-pub fn review_move(conn: &Connection, from: i64, ids: &[i64], to: To) -> Result<i64> {
+/// Move messages of one part to another part, a topic or Unsorted. Returns
+/// the part they're in now. Reviewing filed signals (`scope`), a new part is
+/// filed straight away (confirmed), not suggested.
+pub fn review_move(conn: &Connection, from: i64, ids: &[i64], to: To, scope: Option<&[i64]>) -> Result<i64> {
     let tx = conn.unchecked_transaction()?;
     let target = match to {
         To::Part(part) => part,
@@ -716,11 +738,11 @@ pub fn review_move(conn: &Connection, from: i64, ids: &[i64], to: To) -> Result<
                 To::Topic(t) => Some(t),
                 _ => None,
             };
-            let (_, parts) = review_parts(&tx, from)?;
+            let (_, parts) = review_parts(&tx, from, scope)?;
             match parts.iter().find(|p| !p.dismissed && p.topic.as_ref().map(|t| t.id) == topic) {
                 Some(p) => p.item_id,
                 None => {
-                    let child = new_part(&tx, from, ids, topic)?;
+                    let child = new_part(&tx, from, ids, topic, scope.is_some())?;
                     tx.commit()?;
                     return Ok(child);
                 }
@@ -735,15 +757,19 @@ pub fn review_move(conn: &Connection, from: i64, ids: &[i64], to: To) -> Result<
     Ok(target)
 }
 
-/// A new part of the family holding `ids`, suggested to `topic` (None: Unsorted).
-fn new_part(conn: &Connection, from: i64, ids: &[i64], topic: Option<i64>) -> Result<i64> {
+/// A new part of the family holding `ids`, linked to `topic` (None:
+/// Unsorted): suggested in Incoming's review, confirmed (`filed`) when
+/// reclassifying a filed signal.
+fn new_part(conn: &Connection, from: i64, ids: &[i64], topic: Option<i64>, filed: bool) -> Result<i64> {
     let child = super::split::carve(conn, from, ids, true)?;
-    conn.execute("UPDATE items SET raw_json = json_remove(raw_json, '$.dismissed'), seen = 0 WHERE id = ?1", [child])?;
+    let seen = filed && topic.is_some();
+    conn.execute("UPDATE items SET raw_json = json_remove(raw_json, '$.dismissed'), seen = ?2 WHERE id = ?1", params![child, seen])?;
     if let Some(t) = topic {
+        let state = if filed { "confirmed" } else { "suggested" };
         conn.execute(
-            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'suggested', 1.0, 'picked by you')
-             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = 'suggested', confidence = 1.0, reason = 'picked by you', updated_at = datetime('now')",
-            params![child, t],
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
+             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3, confidence = 1.0, reason = 'picked by you', updated_at = datetime('now')",
+            params![child, t, state],
         )?;
     }
     settle_parts(conn, &[from, child])?;
@@ -783,7 +809,7 @@ pub fn review_dismiss(conn: &Connection, from: i64, ids: &[i64]) -> Result<i64> 
 /// Confirm every part in the review that has a topic. Unsorted stays in Incoming.
 pub fn review_confirm(conn: &Connection, item_id: i64) -> Result<usize> {
     let tx = conn.unchecked_transaction()?;
-    let (_, parts) = review_parts(&tx, item_id)?;
+    let (_, parts) = review_parts(&tx, item_id, None)?;
     let mut n = 0;
     for p in parts.iter().filter(|p| !p.dismissed) {
         if let Some(t) = &p.topic {
@@ -793,6 +819,157 @@ pub fn review_confirm(conn: &Connection, item_id: i64) -> Result<usize> {
     }
     tx.commit()?;
     Ok(n)
+}
+
+// ---------------------------------------------------------------------------
+// Reclassifying a filed signal (18c chronology, 18d search).
+
+/// One item a reclassify touched and its links' states before (None: no link),
+/// so `unreclassify` can put them back exactly.
+#[derive(Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct Moved {
+    pub item_id: i64,
+    pub from_state: Option<String>,
+    pub to_state: Option<String>,
+    pub seen: bool,
+}
+
+/// The items moving together: a recurring event's whole series, else the item.
+fn series_of(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
+    let mut ids: Vec<i64> = conn
+        .prepare(
+            "SELECT o.id FROM items i JOIN items o ON o.source_id = i.source_id
+               AND json_extract(o.raw_json, '$.recurringEventId') = json_extract(i.raw_json, '$.recurringEventId')
+             WHERE i.id = ?1",
+        )?
+        .query_map([item_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    if !ids.contains(&item_id) {
+        ids.push(item_id);
+    }
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+fn category_of(conn: &Connection, topic: i64) -> Result<String> {
+    Ok(conn.query_row("SELECT category FROM topics WHERE id = ?1", [topic], |r| r.get(0))?)
+}
+
+/// A Gmail thread filed under a topic of another category: swap its category
+/// label (`config.category_labels`), through the outbox.
+pub fn relabel_gmail(conn: &Connection, item_id: i64, from_category: Option<&str>, to_category: &str) -> Result<()> {
+    if from_category == Some(to_category) {
+        return Ok(());
+    }
+    let row: Option<(i64, String, String, String)> = conn
+        .query_row(
+            "SELECT s.id, s.kind, s.config_json, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((source_id, kind, config, raw)) = row else { return Ok(()) };
+    if kind != "gmail" || crate::outbox::read_only(conn, source_id)?.is_some() {
+        return Ok(());
+    }
+    let raw: Value = serde_json::from_str(&raw).unwrap_or_default();
+    let Some(thread) = raw.get("thread_id").and_then(Value::as_str) else { return Ok(()) };
+    let config: Value = serde_json::from_str(&config).unwrap_or_default();
+    let label = |c: &str| config.pointer(&format!("/category_labels/{c}")).and_then(Value::as_str).map(str::to_owned);
+    let (remove, add) = (from_category.and_then(label), label(to_category));
+    if remove.is_none() && add.is_none() {
+        return Ok(());
+    }
+    crate::outbox::enqueue(conn, source_id, "gmail.relabel", &json!({ "thread_id": thread, "remove": remove, "add": add }), Some(item_id))?;
+    Ok(())
+}
+
+fn set_link(conn: &Connection, item_id: i64, topic_id: i64, state: Option<&str>) -> Result<()> {
+    match state {
+        None => conn.execute("DELETE FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![item_id, topic_id])?,
+        Some(st) => conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
+             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3, updated_at = datetime('now')",
+            params![item_id, topic_id, st],
+        )?,
+    };
+    Ok(())
+}
+
+/// Move a signal to another topic (`t` in the chronology or search). One
+/// topic per signal: the old link becomes `wrong`, the new one `confirmed`,
+/// filed straight away. Nothing is written to the source, except a Gmail
+/// thread's category label when the category changes. Returns what to undo.
+pub fn reclassify(conn: &Connection, item_id: i64, from: Option<i64>, to: i64) -> Result<Vec<Moved>> {
+    if from == Some(to) {
+        return Ok(vec![]);
+    }
+    let tx = conn.unchecked_transaction()?;
+    let from_cat = from.map(|f| category_of(&tx, f)).transpose()?;
+    let to_cat = category_of(&tx, to)?;
+    let mut moved = vec![];
+    for id in series_of(&tx, item_id)? {
+        let seen: bool = tx.query_row("SELECT seen FROM items WHERE id = ?1", [id], |r| r.get(0))?;
+        let m = Moved { item_id: id, from_state: from.map(|f| link_state(&tx, id, f)).transpose()?.flatten(), to_state: link_state(&tx, id, to)?, seen };
+        if let (Some(f), Some(_)) = (from, &m.from_state) {
+            set_link(&tx, id, f, Some("wrong"))?;
+        }
+        set_link(&tx, id, to, Some("confirmed"))?;
+        tx.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
+        moved.push(m);
+    }
+    relabel_gmail(&tx, item_id, from_cat.as_deref(), &to_cat)?;
+    settle_todo(&tx, item_id, to)?;
+    tx.commit()?;
+    Ok(moved)
+}
+
+/// `u` after a reclassify: every link back as it was.
+pub fn unreclassify(conn: &Connection, moved: &[Moved], from: Option<i64>, to: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for m in moved {
+        set_link(&tx, m.item_id, to, m.to_state.as_deref())?;
+        if let Some(f) = from {
+            set_link(&tx, m.item_id, f, m.from_state.as_deref())?;
+        }
+        tx.execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![m.item_id, m.seen])?;
+    }
+    if let Some(first) = moved.first() {
+        let from_cat = from.map(|f| category_of(&tx, f)).transpose()?;
+        if let Some(fc) = from_cat {
+            relabel_gmail(&tx, first.item_id, Some(&category_of(&tx, to)?), &fc)?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// An entry expanded in place (18c, 18d): its messages with who wrote them,
+/// the one context message before them, and whether it can be split.
+#[derive(Serialize, Debug)]
+pub struct Detail {
+    pub item_id: i64,
+    pub source: String,
+    pub url: Option<String>,
+    pub summary: Option<String>,
+    pub msg_count: Option<i64>,
+    pub messages: Vec<Message>,
+    /// The last context message before the signal, faded.
+    pub context: Option<Message>,
+}
+
+pub fn detail(conn: &Connection, item_id: i64, settings: &PeopleSettings) -> Result<Detail> {
+    let (source, url, summary, msg_count): (String, Option<String>, Option<String>, Option<i64>) = conn
+        .query_row(
+            "SELECT s.kind, i.url, i.summary, i.msg_count FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1 AND s.tag = 'work'",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?
+        .ok_or_else(|| msg("no such item"))?;
+    let look = Lookup { people: Resolver::load(conn, settings)?, suggest: HashMap::new() };
+    let (own, mut context) = nest(message_rows(conn, &look, &source, item_id)?);
+    Ok(Detail { item_id, source, url, summary, msg_count, messages: own.into_iter().map(|(m, _)| m).collect(), context: context.pop() })
 }
 
 // ---------------------------------------------------------------------------
@@ -1286,7 +1463,7 @@ mod tests {
         let acme = topic_named(&conn, "Acme outage");
         let q4 = topic_named(&conn, "Q4 headcount");
         let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
-        let f = family(&conn, dm, &settings).unwrap();
+        let f = family(&conn, dm, None, &settings).unwrap();
         assert_eq!((f.conv, f.root, f.messages.len()), ("dm", dm, 11));
         let topics: Vec<Option<i64>> = f.parts.iter().map(|p| p.topic.as_ref().map(|t| t.id)).collect();
         assert_eq!(topics, [Some(acme), Some(q4), None]);
@@ -1295,31 +1472,31 @@ mod tests {
         assert!(f.messages.iter().all(|m| m.part.is_some()));
 
         // t to a topic that has a group: straight into that part; u moves it back.
-        assert_eq!(review_move(&conn, uns, &[at("10:04")], To::Topic(acme)).unwrap(), dm);
-        assert_eq!(family(&conn, dm, &settings).unwrap().messages.iter().find(|m| m.time == "10:04").unwrap().part, Some(dm));
-        review_move(&conn, dm, &[at("10:04")], To::Part(uns)).unwrap();
+        assert_eq!(review_move(&conn, uns, &[at("10:04")], To::Topic(acme), None).unwrap(), dm);
+        assert_eq!(family(&conn, dm, None, &settings).unwrap().messages.iter().find(|m| m.time == "10:04").unwrap().part, Some(dm));
+        review_move(&conn, dm, &[at("10:04")], To::Part(uns), None).unwrap();
 
         // A topic with no group yet: a new part, suggested to it.
         let career = topic_named(&conn, "Career");
-        let part = review_move(&conn, uns, &[at("10:02")], To::Topic(career)).unwrap();
+        let part = review_move(&conn, uns, &[at("10:02")], To::Topic(career), None).unwrap();
         assert!(part != uns && part != dm);
         assert_eq!(link_state(&conn, part, career).unwrap().as_deref(), Some("suggested"));
         // d: dismissed in place, into the family's seen part; a second one joins it.
         let bin = review_dismiss(&conn, uns, &[at("10:03")]).unwrap();
         assert_eq!(review_dismiss(&conn, uns, &[at("10:04")]).unwrap(), bin);
-        let f2 = family(&conn, dm, &settings).unwrap();
+        let f2 = family(&conn, dm, None, &settings).unwrap();
         assert!(f2.parts.iter().any(|p| p.item_id == bin && p.dismissed));
         assert_eq!(f2.messages.len(), 11, "dismissed messages stay in the review, struck through");
         assert!(!exists(&conn, uns), "the emptied Unsorted part is pruned");
         // u: back to Unsorted, which is made again.
-        let uns2 = review_move(&conn, bin, &[at("10:04")], To::Unsorted).unwrap();
-        assert_eq!(review_move(&conn, bin, &[at("10:03")], To::Unsorted).unwrap(), uns2);
+        let uns2 = review_move(&conn, bin, &[at("10:04")], To::Unsorted, None).unwrap();
+        assert_eq!(review_move(&conn, bin, &[at("10:03")], To::Unsorted, None).unwrap(), uns2);
         assert!(!exists(&conn, bin), "the dismissed part goes once it's empty");
         let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [uns2], |r| r.get(0)).unwrap();
         assert!(!seen);
         // Moving every message out of a part removes it.
         let career_msgs = super::super::split::message_ids(&conn, part).unwrap();
-        review_move(&conn, part, &career_msgs, To::Unsorted).unwrap();
+        review_move(&conn, part, &career_msgs, To::Unsorted, None).unwrap();
         assert!(!exists(&conn, part));
         assert_eq!(super::super::split::message_ids(&conn, uns2).unwrap().len(), 3);
 
@@ -1333,16 +1510,84 @@ mod tests {
         // Moving Unsorted's messages into a confirmed part files them there:
         // the family is settled and the conversation is marked read once.
         let rest = super::super::split::message_ids(&conn, uns2).unwrap();
-        review_move(&conn, uns2, &rest, To::Part(dm)).unwrap();
+        review_move(&conn, uns2, &rest, To::Part(dm), None).unwrap();
         let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
         assert_eq!(marks, 0, "a move isn't a confirm");
+    }
+
+    #[test]
+    fn reclassify_moves_a_filed_signal_and_undo_puts_every_link_back() {
+        let (conn, _now, _d) = setup();
+        let acme = topic_named(&conn, "Acme outage");
+        let webhook = topic_named(&conn, "Webhook reliability");
+        let item: i64 = conn
+            .query_row("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1", [acme], |r| r.get(0))
+            .unwrap();
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![item, webhook]).unwrap();
+        let moved = reclassify(&conn, item, Some(acme), webhook).unwrap();
+        assert_eq!(moved, [Moved { item_id: item, from_state: Some("confirmed".into()), to_state: Some("wrong".into()), seen: true }]);
+        assert_eq!(link_state(&conn, item, acme).unwrap().as_deref(), Some("wrong"), "one topic per signal");
+        assert_eq!(link_state(&conn, item, webhook).unwrap().as_deref(), Some("confirmed"), "filed straight away");
+        unreclassify(&conn, &moved, Some(acme), webhook).unwrap();
+        assert_eq!(link_state(&conn, item, acme).unwrap().as_deref(), Some("confirmed"));
+        assert_eq!(link_state(&conn, item, webhook).unwrap().as_deref(), Some("wrong"));
+        // A signal with no topic (from search) just gets one; undo removes it.
+        let pr: i64 = conn.query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| r.get(0)).unwrap();
+        let moved = reclassify(&conn, pr, None, webhook).unwrap();
+        assert_eq!(link_state(&conn, pr, webhook).unwrap().as_deref(), Some("confirmed"));
+        unreclassify(&conn, &moved, None, webhook).unwrap();
+        assert_eq!(link_state(&conn, pr, webhook).unwrap(), None);
+        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0)).unwrap();
+        assert!(!seen, "back in Incoming as it was");
+    }
+
+    #[test]
+    fn reclassifying_a_gmail_thread_swaps_its_category_label() {
+        let (conn, _now, _d) = setup();
+        conn.execute("UPDATE sources SET config_json = '{\"category_labels\": {\"work\": \"Work\", \"jobs\": \"Jobs\"}}' WHERE kind = 'gmail'", []).unwrap();
+        let career = topic_named(&conn, "Career");
+        let acme = topic_named(&conn, "Acme outage");
+        let mail: i64 = conn.query_row("SELECT id FROM items WHERE title LIKE 'Lee%calibration%'", [], |r| r.get(0)).unwrap();
+        conn.execute("UPDATE items SET raw_json = '{\"thread_id\": \"t1\"}' WHERE id = ?1", [mail]).unwrap();
+        confirm(&conn, mail, career).unwrap();
+        conn.execute("DELETE FROM outbox", []).unwrap();
+        reclassify(&conn, mail, Some(career), acme).unwrap();
+        let payload: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'gmail.relabel'", [], |r| r.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({ "thread_id": "t1", "remove": "Jobs", "add": "Work" }));
+    }
+
+    #[test]
+    fn a_filed_signals_review_files_moves_straight_away() {
+        let (conn, _now, _d) = setup();
+        let settings = PeopleSettings::default();
+        let acme = topic_named(&conn, "Acme outage");
+        let webhook = topic_named(&conn, "Webhook reliability");
+        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
+        review_confirm(&conn, dm).unwrap();
+        // Reviewing just this filed signal: only its own part (and nothing from Incoming).
+        let f = family(&conn, dm, Some(&[dm]), &settings).unwrap();
+        assert_eq!(f.parts.len(), 1);
+        assert_eq!(f.parts[0].topic.as_ref().map(|t| t.id), Some(acme));
+        assert_eq!(f.messages.len(), 5);
+        let last = f.messages.last().unwrap().id;
+        let part = review_move(&conn, dm, &[last], To::Topic(webhook), Some(&[dm])).unwrap();
+        assert_eq!(link_state(&conn, part, webhook).unwrap().as_deref(), Some("confirmed"));
+        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [part], |r| r.get(0)).unwrap();
+        assert!(seen, "filed, not back in Incoming");
+        let f = family(&conn, dm, Some(&[dm, part]), &settings).unwrap();
+        assert_eq!(f.parts.len(), 2);
+        // u: back to its old group by topic.
+        assert_eq!(review_move(&conn, part, &[last], To::Topic(acme), Some(&[dm, part])).unwrap(), dm);
+        assert!(!exists(&conn, part));
+        let d = detail(&conn, dm, &settings).unwrap();
+        assert_eq!((d.messages.len(), d.source.as_str()), (5, "slack"));
     }
 
     #[test]
     fn confirming_a_review_leaves_the_unsorted_group_in_incoming() {
         let (conn, now, _d) = setup();
         let chan: i64 = conn.query_row("SELECT id FROM items WHERE title = '#acme-incident' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
-        let f = family(&conn, chan, &PeopleSettings::default()).unwrap();
+        let f = family(&conn, chan, None, &PeopleSettings::default()).unwrap();
         assert_eq!(f.conv, "channel");
         assert_eq!(f.messages[0].replies.len(), 4);
         let uns = f.parts.iter().find(|p| p.topic.is_none()).unwrap().item_id;
@@ -1351,7 +1596,7 @@ mod tests {
         assert!(q.unsorted.iter().any(|s| s.item_id == uns));
         let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
         assert_eq!(marks, 0, "not marked read while part of it is still in Incoming");
-        assert!(review_move(&conn, uns, &[9999], To::Part(chan)).is_err());
+        assert!(review_move(&conn, uns, &[9999], To::Part(chan), None).is_err());
     }
 
     #[test]

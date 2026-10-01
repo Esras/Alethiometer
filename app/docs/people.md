@@ -63,6 +63,6 @@ A signal is part of a split family when the AI (or a manual split in Unsorted) m
 - `d` dismisses in place: the messages go to the family's one dismissed part (seen, no topic; `incoming.review_dismiss`) and stay in the review struck through.
 - `u` undoes the current message's move or dismiss (else the latest): it goes back to its old group's topic, or Unsorted, recreated if it was pruned.
 - ↵ confirms every part that has a topic (`incoming.review_confirm`); Unsorted stays in Incoming. Esc goes back.
-- A part left with no messages is deleted (`split::prune`) unless it's the root, has a confirmed link or a held todo. Messages and their keys stay in the family, so the next Slack sync doesn't re-add moved messages.
+- A part left with no messages is deleted (`split::prune`) unless it's the root, has a held todo, or something else (an outbox row) still points at it. Messages and their keys stay in the family, so the next Slack sync doesn't re-add moved messages.
 
 Not built: the review from a topic's chronology or search (18c/18d `s`); showing an orphan thread item of the same channel inside its channel's review (threads now attach to their parent message, so this only matters for threads whose parent is older than the lookback).

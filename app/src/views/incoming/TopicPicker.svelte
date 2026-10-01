@@ -16,7 +16,8 @@
   }: {
     exclude?: number | null;
     placeholder?: string;
-    onpick: (topicId: number) => void;
+    /** The topic's name comes along for "moved to X" lines. */
+    onpick: (topicId: number, name: string) => void;
     onunsorted?: () => void;
     onclose: () => void;
   } = $props();
@@ -47,7 +48,7 @@
     creating = true;
     try {
       const r = await call<{ id: number }>('topics.create', { name });
-      onpick(r.id);
+      onpick(r.id, name);
     } finally {
       creating = false;
     }
@@ -71,7 +72,7 @@
     if (e.key === 'Enter') {
       if (showUnsorted && sel === 0) return onunsorted?.(), true;
       const t = matches[sel - offset];
-      if (t) onpick(t.id);
+      if (t) onpick(t.id, t.name);
       else if (canCreate) void create();
       return true;
     }
@@ -94,7 +95,7 @@
     <button
       class="opt"
       class:on={i + offset === sel}
-      onmousedown={(e) => (e.preventDefault(), onpick(t.id))}
+      onmousedown={(e) => (e.preventDefault(), onpick(t.id, t.name))}
       onmousemove={(e) => pointerMoved(e) && (sel = i + offset)}
     >
       <span class="bar" style:background={catColor(t.category)}></span>
@@ -113,7 +114,6 @@
 
 <style>
   .picker {
-    margin: 2px 0 4px;
     width: 320px;
     border-radius: var(--r-input);
     border: 1px solid var(--border-strong);

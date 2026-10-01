@@ -302,14 +302,14 @@ pub fn move_messages(conn: &Connection, from: i64, message_ids: &[i64], to: i64)
     Ok(n)
 }
 
-/// Remove a child part the split review emptied: no messages left, nothing
-/// confirmed to it, no todo held on it. The root is never removed, and neither
-/// is anything another table still points at. Returns whether it went.
+/// Remove a child part the split review emptied: no messages left and no
+/// todo held on it (its topic link goes with it; the messages now live in
+/// another part). The root is never removed, and neither is anything another
+/// table still points at (an outbox row, say). Returns whether it went.
 pub fn prune(conn: &Connection, item_id: i64) -> Result<bool> {
     let removable: bool = conn.query_row(
         "SELECT i.parent_id IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM item_messages WHERE item_id = i.id)
-            AND NOT EXISTS (SELECT 1 FROM topic_links WHERE item_id = i.id AND state = 'confirmed')
             AND NOT EXISTS (SELECT 1 FROM held_todos WHERE item_id = i.id)
            FROM items i WHERE i.id = ?1",
         [item_id],
