@@ -19,7 +19,7 @@
   });
 
   const span = $derived(data ? data.day_end_min - data.day_start_min : 660);
-  const pct = (min: number) => (data ? ((min - data.day_start_min) / span) * 100 : 0);
+  const pct = (min: number) => (data ? Math.max(0, Math.min(100, ((min - data.day_start_min) / span) * 100)) : 0);
   const now = $derived.by(() => {
     void ui.nowMs;
     return nowMinute();
@@ -429,6 +429,8 @@
   }
   .axis span {
     position: absolute;
+    padding-left: 3px;
+    border-left: 1px solid var(--border-strong);
   }
   .axis .leave {
     color: var(--cat-life);
