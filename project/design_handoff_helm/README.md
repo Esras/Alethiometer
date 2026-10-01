@@ -209,6 +209,42 @@ Marvin holds your todos, and Jira holds work tracked with others. Helm shows bot
 
 **Outbox actions:** `marvin.create`, `marvin.complete`, `marvin.drop`, `jira.create`, `jira.transition_done`, `jira.unassign`, `slack.later_complete`, `obsidian.append_link`.
 
+### Delegated asks (24a capture, 24b list, 24c by person, 24d topic + Reflect)
+Small things you've asked someone else to do: not engineering work (that stays in Jira) and not your own todos. Reference: round 24 (round 23 is superseded).
+
+**Model:** a new `asks` table (`person_id, text, due, from_item, topic_id, state open|done|dropped, created_at`). Asks stay in Alethiometer and are never sent to Marvin or Jira. Jira issues assigned to other people stay in Jira. There's no status beyond open or done, and no nudge count.
+
+**Glyph:** the red triangle (`ph-triangle`, `#fb4934`) from Notes `^@name`, wherever an ask is listed.
+
+**Capturing (24a)**
+- **Suggestions are conservative and opt-in.** The AI suggests an ask only when your own message is a direct request to a named person; hedged or conditional wording gets nothing. The suggestion is a dashed strip under the messages.
+- **Confirming the signal never tracks a suggestion.** Only `a` tracks it. `⇧A` marks it not an ask. An untracked suggestion goes away when the signal leaves Incoming.
+- **Form:** the todo form gains a third target, **Ask someone**, with a Who field (the People picker), the ask text, a due date and the topic from the signal. Like a held todo, it's created when the signal is confirmed. The form never sends a message; sending belongs to the reply flow.
+- **Form keys:** `⌥1 / ⌥2 / ⌥3` switch Todo / Jira issue / Ask. ⌘1–⌘6 are the global tabs, so TodoForm's current ⌘1/⌘2 must move too.
+- **Replies:** when the person you asked writes in the same DM or thread after the ask, the signal shows a line naming the ask. That's a lookup, not an AI judgement. **The AI never closes an ask**; only `⇧C` (or `x` in Todos) does.
+- Email asks come only from threads already in Incoming. Sent mail isn't read.
+
+**Todos list (24b)**
+- One list. Asks are a **Delegated** filter chip next to the source chips, not a separate mode.
+- Row: checkbox, then the triangle (in place of the source icon), then **Who** as a fixed-width column (76px, person colour), then the title. Who is empty on your own todos, so titles line up. The topic colour is the 3px left edge, as in Todos.svelte.
+- Status, Priority and Est. are blank or `-` for asks.
+- Ages are numbers only (`40m`, `2h`, `8d`); never mix them with words like "today" in one place.
+- Detail pane: who and role, "due {date} · asked {age}", the message you asked in (`o` opens it), and an AI-drafted nudge for the same DM or thread. The nudge is never sent without `⌘↵`. Then: Add to 1:1 agenda, Take back as your todo, Drop.
+- **Keys** (new; no clash with j/k x u n / e s o): `r` nudge (edit the draft), `a` add to 1:1 agenda, `b` take back, `⇧X` drop.
+
+**By person (24c)**
+- `g` groups the Delegated list by person, as a grid of cards that all share one layout: name, role and next 1:1 (from Calendar) in the header, then **You asked**, then **Waiting on you** (your todos whose source signal came from them; "nothing" when empty). The cards have no buttons.
+- Navigation: `j`/`k` moves row by row in reading order and carries on into the next card. `⇥`/`⇧⇥` jumps between people. The focused card has the aqua outline. The list keys act on the focused row; `⇧A` adds all of that person's asks to their 1:1 agenda.
+- The 1:1 agenda is an Obsidian write through the outbox.
+
+**Topic and Reflect (24d)**
+- A topic's Tasks gets a **Delegated** group under the priority quadrants.
+- Weekly Reflect: **Delegated, gone quiet** next to Stale todos, for asks 3d+ past due or 10d+ old with no due date. Each one offers Nudge (`r`), Take back (`b`) or Drop (`⇧X`).
+
+**Open:** what a Notes `^@name` line does today is unclear. notes.rs has a path that offers a Jira task for the person named, but it isn't known to work in practice. Revisit it with asks: turning the line into an ask is the obvious candidate.
+
+**Outbox actions:** `slack.reply` / `gmail.reply` (nudge, only on ⌘↵), `obsidian.append` (1:1 agenda).
+
 ### Reclassifying a confirmed signal (18c chronology, 18d search)
 Resolves HANDOFF's "Wanted later: topic merge/reclassification" for single signals. Merging topics is still out of scope.
 - **One topic per signal.** Reclassifying moves a signal. It never adds a second topic, and it never writes to the source; writebacks don't depend on topics.
@@ -439,7 +475,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **22a, 22b, 22c, 21e** (21a–21d superseded).
+- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
 - `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
 - `design/Helm Explorations 13-16.dc.html`: rounds 13–16. Relevant IDs: **13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (15a–15e, 16a/16b superseded).
 - `design/Helm Explorations 7-12.dc.html`: rounds 7–12. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
