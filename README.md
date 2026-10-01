@@ -8,7 +8,7 @@ A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported t
 
 **Read the chat transcripts first.** There are 2 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
 
-**Read `project/Assistant Hub Explorations.dc.html` in full.** The user had this file open when they triggered the handoff, so it's almost certainly the primary design they want built. Read it top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+**Read the design explorations in full.** They are split by round into `project/Helm Explorations 1-6.dc.html`, `7-12`, `13-16`, `17-20` and `21-24` (the old single `Assistant Hub Explorations.dc.html` ran out of memory in Firefox). Rounds 1–6 are all superseded; `project/design_handoff_helm/README.md` ("Files") lists which IDs in each file are current. Read them top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
 
 **If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
 
