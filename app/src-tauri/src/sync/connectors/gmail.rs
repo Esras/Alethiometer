@@ -6,7 +6,7 @@ use crate::sync::{local_from_unix, Batch, Connector, Ctx, Handle, ItemUpsert, Me
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 const QUERY: &str = "in:inbox";
@@ -88,6 +88,7 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     let n = cur.queue.len().min(FETCH_PER_POLL);
     let now: Vec<String> = cur.queue.drain(..n).collect();
     let account = ctx.source.config.get("account").and_then(Value::as_str).unwrap_or("0");
+    let label_cat = if now.is_empty() { HashMap::new() } else { category_by_label(&api, &ctx.source.config)? };
     for (i, t) in now.iter().enumerate() {
         let resp = api.get(&format!("{API}/threads/{}?format=full", enc(t)))?;
         if rate_limited(&resp) {
@@ -95,7 +96,7 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             break;
         }
         let thread = if resp.status == 404 { None } else { Some(resp.ok()?.json()?) };
-        match thread.and_then(|th| map_thread(t, &th, account, cur.tracked.get(t).copied())) {
+        match thread.and_then(|th| map_thread(t, &th, account, cur.tracked.get(t).copied(), &label_cat)) {
             Some((item, last)) => {
                 cur.tracked.insert(t.clone(), last);
                 batch.items.push(item);
@@ -109,6 +110,21 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     }
     batch.cursor = Some(serde_json::to_string(&cur)?);
     Ok(batch)
+}
+
+fn category_by_label(api: &Api, config: &Value) -> anyhow::Result<HashMap<String, String>> {
+    let Some(map) = config.get("category_labels").and_then(Value::as_object) else { return Ok(HashMap::new()) };
+    if map.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let by_name: HashMap<&str, &str> = map.iter().filter_map(|(k, v)| Some((v.as_str()?, k.as_str()))).collect();
+    let labels = api.get(&format!("{API}/labels"))?.ok()?.json()?;
+    Ok(labels["labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| Some((l["id"].as_str()?.to_string(), (*by_name.get(l["name"].as_str()?)?).to_string())))
+        .collect())
 }
 
 fn rate_limited(resp: &crate::sync::http::Response) -> bool {
@@ -209,7 +225,7 @@ fn header<'a>(m: &'a Value, name: &str) -> Option<&'a str> {
 }
 
 /// The item (every message, read or not) and its newest message time; `None` when the thread isn't in the Inbox.
-fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<(ItemUpsert, i64)> {
+fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>, label_cat: &HashMap<String, String>) -> Option<(ItemUpsert, i64)> {
     let all = th["messages"].as_array()?;
     let mut msgs: Vec<&Value> = all.iter().filter(|m| kept(m)).collect();
     if !msgs.iter().any(|m| labeled(m, "INBOX")) {
@@ -233,6 +249,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
             }
         })
         .collect();
+    let category = msgs.iter().flat_map(|m| m["labelIds"].as_array().into_iter().flatten()).filter_map(Value::as_str).find_map(|id| label_cat.get(id).cloned());
     let title = header(&all[0], "Subject").map(str::trim).filter(|s| !s.is_empty()).unwrap_or("(no subject)").to_string();
     let item = ItemUpsert {
         external_id: id.to_string(),
@@ -250,6 +267,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
             "thread_id": id,
             "last_ms": last_ms,
             "msgs": msgs.iter().filter_map(|m| m["id"].as_str()).collect::<Vec<_>>(),
+            "category": category,
         }),
         messages,
         bump: prev.is_none_or(|p| last_ms > p),
@@ -543,6 +561,27 @@ mod tests {
         assert_eq!((author.handle.as_str(), author.display_name.as_str()), ("sam.lee@acme.com", "Lee, Sam"));
         assert_eq!(a.raw_json["msgs"], json!(["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]));
         assert_eq!(a.summary.as_deref(), Some("I can take it at 16:15."));
+    }
+
+    #[test]
+    fn thread_category_comes_from_a_configured_gmail_label() {
+        let http = google();
+        let src = Source { id: 1, kind: "gmail".into(), tag: "work".into(), name: "Work mail".into(), config: json!({ "category_labels": { "vendors": "Vendors" } }), cursor: None };
+        let secret = secrets;
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::sync::connectors::gcal::tests::now() };
+        http.on("GET", "/users/me/profile", 200, fixture!("profile.json"));
+        http.on("GET", "/threads?q=", 200, fixture!("threads_page1.json"));
+        http.on("GET", "pageToken=09876543210987654321", 200, fixture!("threads_page2.json"));
+        http.on("GET", "/labels", 200, r#"{"labels": [{"id": "Label_3", "name": "Vendors"}]}"#);
+        let mut a: Value = serde_json::from_str(fixture!("thread_a.json")).unwrap();
+        a["messages"][2]["labelIds"] = json!(["Label_3", "INBOX"]);
+        http.on("GET", &format!("/threads/{A}?"), 200, a.to_string());
+        http.on("GET", &format!("/threads/{B}?"), 200, fixture!("thread_b.json"));
+        http.on("GET", &format!("/threads/{C}?"), 200, fixture!("thread_c.json"));
+        let b = poll_with(&ctx, &TokenCache::new()).unwrap();
+        assert_eq!(item(&b, A).raw_json["category"], "vendors");
+        assert_eq!(item(&b, B).raw_json["category"], Value::Null);
+        assert!(gets(&http).contains(&format!("{API}/labels")));
     }
 
     #[test]

@@ -16,7 +16,7 @@
   // strip under the messages (17a: p create note, l link, Not now).
   import { call, openExternal } from '../lib/api';
   import { untrack } from 'svelte';
-  import { catColor, refresh, ui } from '../lib/app.svelte';
+  import { catColor, category, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
@@ -456,6 +456,9 @@
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
                   {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
+                  {#if s.category}
+                    <span class="pill cat" style:background={`color-mix(in oklch, ${catColor(s.category)} 22%, transparent)`} style:color={catColor(s.category)} title="Labeled {category(s.category).label} in Gmail">{category(s.category).label}</span>
+                  {/if}
                   {#if s.split}
                     <span
                       class="pill split"
@@ -928,6 +931,13 @@
   }
   .who-meta :global(.name) {
     font-weight: 400;
+  }
+  .pill.cat {
+    align-self: center;
+    flex: none;
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 9px;
   }
   .pill.split {
     align-self: center;
