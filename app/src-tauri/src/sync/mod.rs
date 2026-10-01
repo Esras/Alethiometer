@@ -108,6 +108,10 @@ pub struct ItemUpsert {
     /// Remove this item's calendar block if it has one (declined, or now all-day).
     /// The item itself stays. Ignored when `event` is set.
     pub drop_event: bool,
+    /// A thread: the key of its parent message. Unless this item already exists,
+    /// when another item holds the parent its messages are stored there as the
+    /// parent's replies (that item bumps instead) and this item is never created.
+    pub attach_to: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +217,27 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
         let keys = crate::queries::split::keys(&it.raw_json, &tuples);
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
+        if let Some(parent) = &it.attach_to {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM items WHERE source_id = ?1 AND external_id = ?2)",
+                params![source.id, it.external_id],
+                |r| r.get(0),
+            )?;
+            let channel = it.raw_json.get("channel").and_then(Value::as_str);
+            if let (false, Some(holder)) = (exists, crate::queries::split::holder(&tx, source.id, channel, parent)?) {
+                for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| *k != parent) {
+                    tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent])?;
+                    tx.execute(
+                        "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+                        params![holder, m.at, m.author, m.text, key, m.author_id, parent],
+                    )?;
+                }
+                if bump {
+                    new_signal += tx.execute("UPDATE items SET seen = 0 WHERE id = ?1", [holder])?;
+                }
+                continue;
+            }
+        }
         let existing: Option<i64> = tx
             .query_row(
                 "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
@@ -259,7 +284,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             }
         };
         if !it.messages.is_empty() {
-            tx.execute("DELETE FROM item_messages WHERE item_id = ?1", [item_id])?;
+            tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL", [item_id])?;
             for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)) {
                 tx.execute(
                     "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",

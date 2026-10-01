@@ -6,6 +6,8 @@ export interface Message {
   time: string;
   author: string;
   text: string;
+  /** Thread replies to this message; they move with it. */
+  replies?: Message[];
 }
 
 export interface Signal {

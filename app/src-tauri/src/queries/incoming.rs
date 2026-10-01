@@ -29,6 +29,9 @@ pub struct Message {
     pub time: String,
     pub author: String,
     pub text: String,
+    /// Thread replies to this message, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replies: Vec<Message>,
 }
 
 #[derive(Serialize, Debug)]
@@ -161,7 +164,7 @@ fn meta(title: &str, at: &str, ended: Option<&str>, msgs: Option<i64>, author: O
 }
 
 fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT id, at, author, text, context FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
+    let mut stmt = conn.prepare("SELECT id, at, author, text, context, ext_key, reply_to FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
     for s in sigs {
         let rows = stmt
             .query_map([s.item_id], |r| {
@@ -171,11 +174,19 @@ fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
                     time: parse_ts(&at).map(|t| t.format("%H:%M").to_string()).unwrap_or(at),
                     author: r.get(2)?,
                     text: r.get(3)?,
+                    replies: vec![],
                 };
-                Ok((m, r.get::<_, bool>(4)?))
+                Ok((m, r.get::<_, bool>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let (context, own): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1);
+        let (replies, rows): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.3.is_some());
+        let (context, mut own): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1);
+        for r in replies {
+            match own.iter_mut().find(|o| o.2 == r.3) {
+                Some(parent) => parent.0.replies.push(r.0),
+                None => own.push(r),
+            }
+        }
         s.context = context.into_iter().map(|r| r.0).collect();
         s.messages = own.into_iter().map(|r| r.0).collect();
     }

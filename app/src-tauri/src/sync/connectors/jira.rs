@@ -261,6 +261,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, 
         messages,
         ended_at: None,
         drop_event: false,
+        attach_to: None,
         event: None,
     })
 }

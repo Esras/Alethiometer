@@ -13,7 +13,8 @@
 //! `plan` decides whether that is a real split, and if so the item is split
 //! (`queries::split`): the group holding the newest message stays on the item,
 //! every other group becomes a child item, each with its own `suggested` link
-//! (or none: then it sits in Unsorted). Guardrails, all in `plan`:
+//! (or none: then it sits in Unsorted). A message's thread replies are shown
+//! under it, unnumbered, and move with it. Guardrails, all in `plan`:
 //! - a group counts only when its confidence is at least `SPLIT_CONFIDENCE`,
 //!   and a one-message group only at `SINGLE_CONFIDENCE`; messages in weaker
 //!   groups (or left out) stay with the message before them, so short replies
@@ -53,6 +54,8 @@ pub const MAX_GROUPS: usize = 4;
 const MAX_SPLIT_MSGS: usize = 30;
 /// Messages shown for items that can't be split (children, long runs).
 const CONTEXT_MSGS: usize = 10;
+/// Latest thread replies shown under each message.
+const REPLIES_SHOWN: usize = 5;
 /// The answer is ~30 tokens (a few groups: ~150). The headroom is for a small
 /// tier set to a model that thinks by default (Sonnet 5), whose thinking
 /// counts against this cap.
@@ -159,13 +162,32 @@ fn wrong_topics(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// (id, at, author, text), oldest first.
+/// (id, at, author, text), oldest first. Thread replies aren't listed: they
+/// go with their parent (`replies`).
 fn item_messages(conn: &Connection, item_id: i64) -> Result<Vec<(i64, String, String, String)>> {
-    let mut stmt = conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at, id")?;
+    let mut stmt =
+        conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id")?;
     let rows = stmt
         .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Thread replies by parent message id: (at, author, text), oldest first.
+type Replies = std::collections::HashMap<i64, Vec<(String, String, String)>>;
+
+fn replies(conn: &Connection, item_id: i64) -> Result<Replies> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT p.id, r.at, r.author, r.text FROM item_messages r
+           JOIN item_messages p ON p.item_id = r.item_id AND p.ext_key = r.reply_to AND p.reply_to IS NULL AND p.context = 0
+          WHERE r.item_id = ?1 ORDER BY r.at, r.id",
+    )?;
+    let mut out = Replies::new();
+    for row in stmt.query_map([item_id], |r| Ok((r.get::<_, i64>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?))))? {
+        let (parent, m) = row?;
+        out.entry(parent).or_default().push(m);
+    }
+    Ok(out)
 }
 
 fn context_messages(conn: &Connection, item_id: i64) -> Result<Vec<(String, String, String, Option<String>)>> {
@@ -195,6 +217,13 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
         let wrong = wrong_topics(conn, item_id)?;
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
         let msgs = item_messages(conn, item_id)?;
+        let threads = replies(conn, item_id)?;
+        let thread_of = |p: &mut String, id: i64| {
+            let rs = threads.get(&id).map(Vec::as_slice).unwrap_or_default();
+            for (at, author, text) in &rs[rs.len().saturating_sub(REPLIES_SHOWN)..] {
+                let _ = writeln!(p, "    reply {} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+            }
+        };
         let earlier = context_messages(conn, item_id)?;
         let splittable = parent.is_none() && kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
         let mut p = format!("Item\nSource: {source} {kind}\nTitle: {}\n", clip(&title, 300));
@@ -209,14 +238,16 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
             }
         }
         if splittable {
-            p.push_str("\nMessages (numbered, oldest first):\n");
-            for (i, (_, at, author, text)) in msgs.iter().enumerate() {
+            p.push_str("\nMessages (numbered, oldest first; a message's thread replies are indented under it and go with it):\n");
+            for (i, (id, at, author, text)) in msgs.iter().enumerate() {
                 let _ = writeln!(p, "{}. {} {}: {}", i + 1, at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                thread_of(&mut p, *id);
             }
         } else if !msgs.is_empty() {
             p.push_str("\nRecent messages:\n");
-            for (_, at, author, text) in &msgs[msgs.len().saturating_sub(CONTEXT_MSGS)..] {
+            for (id, at, author, text) in &msgs[msgs.len().saturating_sub(CONTEXT_MSGS)..] {
                 let _ = writeln!(p, "{} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                thread_of(&mut p, *id);
             }
         }
         let not_about: Vec<&str> = all.iter().filter(|t| wrong.contains(&t.id)).map(|t| t.name.as_str()).collect();

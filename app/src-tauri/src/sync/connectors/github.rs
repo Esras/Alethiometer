@@ -463,6 +463,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         event: None,
         bump,
         drop_event: false,
+        attach_to: None,
     }))
 }
 

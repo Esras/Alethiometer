@@ -272,7 +272,8 @@ fn reading_in_slack_never_clears_incoming() {
     assert!(b2.items.is_empty() && b2.seen.is_empty(), "{:?}", ids(&b2));
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
     apply(&conn, &src, &b2).unwrap();
-    assert_eq!(unseen(&conn).len(), 5);
+    // The #inc-2291 thread is stored under its parent, in the channel's run.
+    assert_eq!(unseen(&conn).len(), 4);
     assert_eq!(State::parse(b2.cursor.as_deref()).open.len(), 5);
 }
 
@@ -281,7 +282,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
-    conn.execute("UPDATE items SET seen = 1 WHERE external_id IN ('C0INC/1789960000.000100', 'C0INC/thread/1789990000.000200')", []).unwrap();
+    conn.execute("UPDATE items SET seen = 1 WHERE external_id = 'C0INC/1789960000.000100'", []).unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
     src.cursor = close_triaged(&conn, &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
@@ -304,10 +305,18 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     assert_eq!(context(thread)[0], "Backoff patch is up, needs a second reviewer.");
     assert_eq!(context(thread).len(), 3);
 
+    // The new reply lands under its parent and brings the triaged run back.
     apply(&conn, &src, &b).unwrap();
-    assert!(unseen(&conn).contains(&"C0INC/1789999000.001000".to_owned()));
-    assert!(unseen(&conn).contains(&"C0INC/thread/1789990000.000200".to_owned()));
-    assert!(!unseen(&conn).contains(&"C0INC/1789960000.000100".to_owned()));
+    assert_eq!(unseen(&conn), ["C0INC/1789960000.000100", "C0INC/1789999000.001000", "C0RANDOM/mention/1789998000.000900", "C0RANDOM/thread/1789000000.000100", "D0PRIYA/1789997000.000800"]);
+    let replies: Vec<(String, String)> = conn
+        .prepare("SELECT m.text, m.reply_to FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.reply_to IS NOT NULL ORDER BY m.at")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(replies.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291", "Merged."]);
+    assert!(replies.iter().all(|r| r.1 == "1789990000.000200"));
 }
 
 fn with_new_message(user: &str, text: &str) -> String {

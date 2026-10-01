@@ -8,6 +8,7 @@
 //!   hangs the new child off the same root). It shows in Incoming and in a
 //!   topic's chronology like any other item.
 //! - Messages are moved, not copied (`item_messages.item_id` changes).
+//!   A thread reply (`reply_to` = its parent's key) moves with its parent.
 //! - Each message has a key (`item_messages.ext_key`): the connector's id when
 //!   `raw_json.msgs` lists one per message (Slack's ts), else a content hash.
 //!   `sync::apply` skips keys a child owns, so the next sync of the parent never
@@ -60,11 +61,27 @@ pub fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Resul
     Ok(keys)
 }
 
+/// The item holding message `key` of `channel` as its own (not context, not
+/// a reply): where that message's thread replies go.
+pub fn holder(conn: &Connection, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT m.item_id FROM item_messages m JOIN items i ON i.id = m.item_id
+              WHERE m.ext_key = ?2 AND m.context = 0 AND m.reply_to IS NULL AND i.source_id = ?1
+                AND json_extract(i.raw_json, '$.channel') IS ?3
+              ORDER BY m.id DESC LIMIT 1",
+            params![source_id, key, channel],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
 /// (id, at, author, text, ext_key), oldest first: the order Incoming shows.
+/// Replies aren't listed: they belong to (and move with) their parent.
 type Row = (i64, String, String, String, Option<String>);
 
 fn messages(conn: &Connection, item_id: i64) -> Result<Vec<Row>> {
-    let mut stmt = conn.prepare_cached("SELECT id, at, author, text, ext_key FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at, id")?;
+    let mut stmt = conn.prepare_cached("SELECT id, at, author, text, ext_key FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id")?;
     let rows = stmt
         .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -197,6 +214,11 @@ pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result
     for id in &wanted {
         conn.execute("UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3", params![child, id, item_id])?;
     }
+    conn.execute(
+        "UPDATE item_messages SET item_id = ?1 WHERE item_id = ?2
+            AND reply_to IN (SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL)",
+        params![child, item_id],
+    )?;
     conn.execute(
         "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
          SELECT ?1, topic_id, 'wrong', confidence, reason FROM topic_links WHERE item_id = ?2 AND state = 'wrong'",
@@ -359,6 +381,57 @@ mod tests {
             .unwrap();
         assert_eq!((n, seen), (0, 1));
         assert_eq!(texts(&conn, child), ["msg 10"]);
+    }
+
+    /// Replies to message `parent` of D1, as the Slack connector sends a thread.
+    fn thread(parent: &str, ts: &[&str], bump: bool) -> ItemUpsert {
+        let all: Vec<&str> = std::iter::once(parent).chain(ts.iter().copied()).collect();
+        let mut it = run(&all, bump);
+        it.external_id = format!("D1/thread/{parent}");
+        it.messages[0].context = true;
+        it.raw_json = json!({ "channel": "D1", "thread_ts": parent, "msgs": all });
+        it.attach_to = Some(parent.into());
+        it
+    }
+
+    #[test]
+    fn a_thread_is_stored_under_its_parent_and_moves_with_it() {
+        let (conn, src) = slack();
+        apply(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], true), thread("11", &["20", "21"], true)], ..Default::default() }).unwrap();
+        let dm = item_id(&conn, "D1/100.01");
+        let n: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "no thread item");
+        let under = |item: i64| -> Vec<String> {
+            conn.prepare("SELECT text FROM item_messages WHERE item_id = ?1 AND reply_to = '11' ORDER BY at")
+                .unwrap()
+                .query_map([item], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(under(dm), ["msg 20", "msg 21"]);
+        assert_eq!(texts(&conn, dm), ["msg 10", "msg 11", "msg 12"], "replies aren't top-level messages");
+
+        // The run re-synced keeps the replies; a new reply after triage brings it back.
+        conn.execute("UPDATE items SET seen = 1", []).unwrap();
+        apply(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], false)], ..Default::default() }).unwrap();
+        assert_eq!(apply(&conn, &src, &Batch { items: vec![thread("11", &["20", "21", "22"], true)], ..Default::default() }).unwrap(), 1);
+        assert_eq!(under(dm), ["msg 20", "msg 21", "msg 22"]);
+        let seen: i64 = conn.query_row("SELECT seen FROM items WHERE id = ?1", [dm], |r| r.get(0)).unwrap();
+        assert_eq!(seen, 0);
+
+        // Splitting the parent off takes its replies; the next reply follows it there.
+        let ids = message_ids(&conn, dm).unwrap();
+        let child = split_off(&conn, dm, &[ids[1]]).unwrap();
+        assert!(under(dm).is_empty());
+        apply(&conn, &src, &Batch { items: vec![thread("11", &["20", "21", "22", "23"], true)], ..Default::default() }).unwrap();
+        assert_eq!(under(child), ["msg 20", "msg 21", "msg 22", "msg 23"]);
+
+        // Parent never captured: the thread is its own item, and stays one.
+        apply(&conn, &src, &Batch { items: vec![thread("05", &["30"], true)], ..Default::default() }).unwrap();
+        let orphan = item_id(&conn, "D1/thread/05");
+        apply(&conn, &src, &Batch { items: vec![run(&["05"], true), thread("05", &["30", "31"], true)], ..Default::default() }).unwrap();
+        assert_eq!(texts(&conn, orphan), ["msg 30", "msg 31"]);
     }
 
     #[test]

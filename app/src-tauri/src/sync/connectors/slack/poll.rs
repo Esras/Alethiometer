@@ -15,8 +15,15 @@
 //! Until the item is triaged every new message in the stream joins it and bumps
 //! it back to new. Triage (the item is seen) closes the run before the next
 //! poll (`close_triaged`); the next message starts a new one. Each item also
-//! carries context messages: a thread's first message and the few before the
-//! run, never counted or classified.
+//! carries context messages, never counted or classified: the few before a
+//! top-level run; for a thread, its first message and every earlier reply.
+//!
+//! **A thread attaches to its parent.** When Alethiometer holds the parent as a
+//! message of some item (a top-level run, triaged or not, or the split part it
+//! went to), the thread's messages are stored there as the parent's replies and
+//! new ones bring that item back (`ItemUpsert::attach_to`, applied in `sync`).
+//! The thread item above exists only when the parent was never captured (older
+//! than the lookback, a channel you don't follow), or from before this rule.
 //!
 //! **Per-message ids.** `raw_json.msgs` lists each stored message's ts in the
 //! same order as the item's messages, so a later "split by topic" can move a
@@ -716,7 +723,7 @@ impl Poller<'_> {
         self.state.threads.insert(key.clone(), ThreadState { seen, title: title.clone(), checked: self.now });
         let start = msgs.iter().position(|m| marker.unread(&m.ts)).unwrap_or(msgs.len());
         let mut context: Vec<Msg> = parent.and_then(Msg::parse).into_iter().collect();
-        context.extend(msgs[..start].iter().skip(start.saturating_sub(CONTEXT_MSGS)).cloned());
+        context.extend(msgs[..start].iter().skip(start.saturating_sub(MAX_MSGS)).cloned());
         let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
         self.emit(&conv, Some((thread_ts, &title)), &key, &unread, prev_seen.as_deref(), Some(context))
     }
@@ -803,6 +810,7 @@ impl Poller<'_> {
             raw_json: raw,
             messages,
             bump,
+            attach_to: thread.map(|t| t.0.to_owned()),
             ..Default::default()
         });
         self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone() });

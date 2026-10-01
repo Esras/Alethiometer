@@ -11,6 +11,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005_message_context.sql"),
     include_str!("../migrations/0006_ai_usage.sql"),
     include_str!("../migrations/0007_ai_suggest_run.sql"),
+    include_str!("../migrations/0008_replies.sql"),
 ];
 
 pub fn open(path: &Path) -> anyhow::Result<Connection> {

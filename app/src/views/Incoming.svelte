@@ -24,6 +24,7 @@
   let selKey = $state<QueueKey | null>(null);
   let selItem = $state<number | null>(null);
   let expanded = $state<Set<number>>(new Set());
+  let fullContext = $state<Set<number>>(new Set());
   let picking = $state(false);
   // Message mode (Unsorted): focus is inside the current signal's messages.
   let inMsgs = $state(false);
@@ -366,14 +367,22 @@
                 </div>
               </div>
               {#if isOpen}
+                {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
                 <div class="ctx">
                   <div class="info tnum">{info(s)}</div>
-                  {#each s.context as m (m.id)}
-                    <div class="msg context">
-                      <span class="t tnum">{m.time}</span>
-                      <span class="who ellipsis" title={m.author}>{m.author}</span>
-                      <div class="txt"><Markdown text={m.text} /></div>
-                    </div>
+                  {#each s.context as m, ci (m.id)}
+                    {#if hidden && ci === 1}
+                      <button class="more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                        … {hidden} earlier
+                      </button>
+                    {/if}
+                    {#if !hidden || ci === 0 || ci > hidden}
+                      <div class="msg context">
+                        <span class="t tnum">{m.time}</span>
+                        <span class="who ellipsis" title={m.author}>{m.author}</span>
+                        <div class="txt"><Markdown text={m.text} /></div>
+                      </div>
+                    {/if}
                   {/each}
                   {#if s.messages.length}
                     {#each s.messages as m, mi (m.id)}
@@ -392,6 +401,13 @@
                         <span class="who ellipsis" title={m.author}>{m.author}</span>
                         <div class="txt"><Markdown text={m.text} /></div>
                       </div>
+                      {#each m.replies ?? [] as r (r.id)}
+                        <div class="msg reply" class:chosen={sel && chosen.has(m.id)}>
+                          <span class="t tnum">{r.time}</span>
+                          <span class="who ellipsis" title={r.author}>{r.author}</span>
+                          <div class="txt"><Markdown text={r.text} /></div>
+                        </div>
+                      {/each}
                     {/each}
                   {/if}
                   {#if s.url}
@@ -649,6 +665,19 @@
   }
   .msg.context {
     opacity: 0.5;
+  }
+  .more {
+    padding: 2px 0 2px 54px;
+    font-size: 12px;
+    color: var(--tx-muted-2);
+  }
+  .more:hover {
+    color: var(--aqua);
+  }
+  .msg.reply {
+    margin-left: 10px;
+    padding-left: 16px;
+    border-left: 1px solid var(--border);
   }
   .msg.pickable {
     cursor: pointer;

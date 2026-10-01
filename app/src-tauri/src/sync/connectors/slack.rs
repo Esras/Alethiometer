@@ -24,9 +24,16 @@ pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) 
     let Some(cursor) = source.cursor.as_deref() else { return Ok(None) };
     let mut state = State::parse(Some(cursor));
     let mut seen = conn.prepare("SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2")?;
+    let mut by_id = conn.prepare("SELECT seen FROM items WHERE id = ?1")?;
     let mut done = vec![];
     for (key, o) in &state.open {
-        let triaged: Option<bool> = seen.query_row(rusqlite::params![source.id, o.id], |r| r.get(0)).optional()?;
+        let mut triaged: Option<bool> = seen.query_row(rusqlite::params![source.id, o.id], |r| r.get(0)).optional()?;
+        // A thread attached to its parent closes with the item holding the parent.
+        if let (None, Some((channel, parent))) = (triaged, key.split_once('/')) {
+            if let Some(h) = crate::queries::split::holder(conn, source.id, Some(channel), parent)? {
+                triaged = by_id.query_row([h], |r| r.get(0)).optional()?;
+            }
+        }
         if triaged == Some(true) {
             done.push((key.clone(), o.last.clone()));
         }
