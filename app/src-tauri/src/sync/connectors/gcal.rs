@@ -726,13 +726,13 @@ pub(crate) mod tests {
         let next = poll(&http, src.config.clone(), src.cursor.clone());
         // moved invite + new invite + cancelled lunch
         assert_eq!(crate::sync::apply(&conn, &src, &next).unwrap(), 3);
-        let (status, blocks): (String, i64) = conn
+        let (status, summary, blocks): (String, String, i64) = conn
             .query_row(
-                "SELECT status, (SELECT count(*) FROM events e WHERE e.item_id = i.id) FROM items i WHERE external_id = '2b9vlunch0928'",
+                "SELECT status, summary, (SELECT count(*) FROM events e WHERE e.item_id = i.id) FROM items i WHERE external_id = '2b9vlunch0928'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-        assert_eq!((status.as_str(), blocks), ("done", 0));
+        assert_eq!((status.as_str(), summary.as_str(), blocks), ("done", "cancelled", 0));
     }
 }

@@ -578,6 +578,10 @@ pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, n
         .prepare("SELECT kind, account FROM person_snoozes WHERE until > ?1")?
         .query_map([&now_s], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
+    let bots: HashSet<(String, String)> = conn
+        .prepare("SELECT kind, account FROM account_profiles WHERE is_bot = 1")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare(
         "SELECT s.kind, m.author_id, m.author, coalesce(i.parent_id, i.id), m.at
            FROM item_messages m JOIN items i ON i.id = m.item_id JOIN sources s ON s.id = i.source_id
@@ -597,7 +601,7 @@ pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, n
     })? {
         let (source, handle, name, root, at) = row?;
         let Some(acct) = account_of(&source, &handle) else { continue };
-        if r.is_me(&acct.0, &acct.1) || r.is_known(&acct.0, &acct.1) || snoozed.contains(&acct) || bulk(&acct) {
+        if r.is_me(&acct.0, &acct.1) || r.is_known(&acct.0, &acct.1) || snoozed.contains(&acct) || bots.contains(&acct) || bulk(&acct) {
             continue;
         }
         let e = seen.entry(acct).or_insert_with(|| (HashSet::new(), String::new(), String::new(), source.clone()));
@@ -1160,6 +1164,8 @@ mod tests {
         let r2 = Resolver::load(&conn, &s).unwrap();
         let m = &suggestions(&conn, &r2, &s, now).unwrap()[&("slack".to_string(), "U0MARCO".to_string())];
         assert_eq!((m.real_name.as_deref(), m.email.as_deref(), m.color), (Some("Marco Rossi"), Some("marco@work.com"), hash_color("marco@work.com")));
+        conn.execute("UPDATE account_profiles SET is_bot = 1 WHERE account = 'U0MARCO'", []).unwrap();
+        assert!(suggestions(&conn, &r2, &s, now).unwrap().is_empty(), "bots are never suggested");
         s.suggest_after = 3;
         assert!(suggestions(&conn, &r, &s, now).unwrap().is_empty());
         s.suggest_after = 2;

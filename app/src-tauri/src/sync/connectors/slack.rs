@@ -62,6 +62,8 @@ pub struct Config {
     pub channels: Vec<String>,
     /// `"channels": "all"`: every channel you're a member of.
     pub all_channels: bool,
+    /// Muted channels, ids or names: still read and stored, never new in Incoming.
+    pub muted: Vec<String>,
     /// Poll DMs and group DMs.
     pub dms: bool,
     /// Mentions in channels you don't follow (search; needs `search:read`).
@@ -86,6 +88,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn is_muted(&self, id: &str, name: &str) -> bool {
+        self.muted.iter().any(|m| m == id || m == name)
+    }
+
     pub fn from_json(v: &Value) -> Config {
         let b = |k: &str, d: bool| v.get(k).and_then(Value::as_bool).unwrap_or(d);
         let i = |k: &str, d: i64| v.get(k).and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(d);
@@ -97,6 +103,11 @@ impl Config {
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default(),
             all_channels: v.get("channels").and_then(Value::as_str) == Some("all"),
+            muted: v
+                .get("muted")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(|c| c.trim().trim_start_matches('#').to_owned()).collect())
+                .unwrap_or_default(),
             dms: b("dms", true),
             mentions: b("mentions", true),
             lookback_hours: i("lookback_hours", 72),

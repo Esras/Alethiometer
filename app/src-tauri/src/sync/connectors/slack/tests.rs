@@ -459,6 +459,18 @@ fn all_follows_every_channel_you_are_in() {
 }
 
 #[test]
+fn muted_channels_are_stored_but_never_new() {
+    let conn = db();
+    let mut src = crate::sync::load_source(&conn, 1).unwrap();
+    src.config = json!({ "channels": ["#inc-2291"], "muted": ["#inc-2291"] });
+    let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
+    assert!(b.items.iter().any(|i| i.external_id.starts_with("C0INC/")));
+    apply(&conn, &src, &b).unwrap();
+    assert!(unseen(&conn).iter().all(|id| !id.starts_with("C0INC/")), "{:?}", unseen(&conn));
+    assert!(!unseen(&conn).is_empty());
+}
+
+#[test]
 fn unknown_followed_channel_fails_loudly() {
     let http = workspace(HISTORY_INC_1);
     let mut src = source(None);

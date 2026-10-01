@@ -41,7 +41,7 @@ The backend hands out indices; `lib/people.ts` owns the palette (checked against
 
 ## New person (17a) and Link to person (17b)
 
-- An unknown sender seen in `people.suggest_after` (3) or more signals within `people.suggest_days` (7) days gets a dashed **New person?** strip under an expanded signal's messages. A split family counts once. You, known people and mail from lists or systems (`news@`, `noreply…`, `billing@`…) never do.
+- An unknown sender seen in `people.suggest_after` (3) or more signals within `people.suggest_days` (7) days gets a dashed **New person?** strip under an expanded signal's messages. A split family counts once. You, known people, Slack bot users (Jira, Opsgenie…, per `users.info`) and mail from lists or systems (`news@`, `noreply…`, `billing@`…) never do.
 - The strip shows the Slack profile's real name and email when there are some. **Create note** (`p`) writes `People/<real name>.md` (the display name when there's no real name) with the display name as an alias, the account, and the profile email. **Link to…** (`l`) opens the picker. **Not now** hides the suggestion for that account for 7 days (`person_snoozes`).
 - Unknown names have a dotted underline in their hash colour; clicking one (in Incoming or a topic's People panel) opens the picker. It matches note names and aliases; ↵ adds the account to that note's frontmatter, keeping the rest of the note as written (a missing key is added, a value becomes a list, a list grows). The last row creates a new person.
 - Writes go through `obsidian::save` like any note edit: the outbox (`obsidian.replace`, refused if the note changed meanwhile) or the file when no Obsidian source reads the vault. While a write is queued, the account is recorded locally so colours follow right away; the next scan has the final word.
@@ -62,7 +62,7 @@ A signal is part of a split family when the AI (or a manual split in Unsorted) m
 - `j`/`k` move, space selects, shift+`j`/`k` selects a range like text (back toward where it started shrinks it; rows picked with space stay), `t` moves the selection (or the current message) to a topic: into that topic's group if there is one, else a new part suggested to it (`incoming.review_move`). The picker's first row, **Unsorted**, moves it to the Unsorted group (made if there isn't one). Thread replies move with their first message.
 - `d` dismisses in place: the messages go to the family's one dismissed part (seen, no topic; `incoming.review_dismiss`) and stay in the review struck through.
 - `u` undoes the current message's move or dismiss (else the latest): it goes back to its old group's topic, or Unsorted, recreated if it was pruned.
-- ↵ confirms every part that has a topic (`incoming.review_confirm`); Unsorted stays in Incoming. Esc goes back.
+- c confirms every part that has a topic (`incoming.review_confirm`); Unsorted stays in Incoming. Esc goes back.
 - A part left with no messages is deleted (`split::prune`) unless it's the root, has a held todo, or something else (an outbox row) still points at it. Messages and their keys stay in the family, so the next Slack sync doesn't re-add moved messages.
 
 Not built: showing an orphan thread item of the same channel inside its channel's review (threads now attach to their parent message, so this only matters for threads whose parent is older than the lookback).

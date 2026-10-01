@@ -532,12 +532,16 @@ pub fn adf_text(adf: &Value) -> String {
             Some("text") => out.push_str(n.get("text").and_then(Value::as_str).unwrap_or("")),
             Some("mention") | Some("emoji") => out.push_str(n.pointer("/attrs/text").and_then(Value::as_str).unwrap_or("")),
             Some("hardBreak") => out.push('\n'),
+            Some("media") | Some("mediaInline") => {
+                let name = n.pointer("/attrs/alt").and_then(Value::as_str).unwrap_or("");
+                out.push_str(&format!("[attachment] {name}"));
+            }
             _ => {}
         }
         for c in n.get("content").and_then(Value::as_array).into_iter().flatten() {
             walk(c, out);
         }
-        if matches!(n.get("type").and_then(Value::as_str), Some("paragraph" | "heading" | "codeBlock" | "blockquote" | "listItem")) {
+        if matches!(n.get("type").and_then(Value::as_str), Some("paragraph" | "heading" | "codeBlock" | "blockquote" | "listItem" | "mediaSingle" | "mediaGroup")) {
             out.push('\n');
         }
     }
@@ -913,6 +917,15 @@ mod tests {
         http.on("POST", "/rest/api/3/issue", 400, r#"{"errorMessages":[],"errors":{"issuetype":"Specify a valid issue type"}}"#);
         let err = send("jira.create_issue", json!({ "summary": "x" }), &http).unwrap_err().to_string();
         assert_eq!(err, "Jira 400: issuetype: Specify a valid issue type");
+    }
+
+    #[test]
+    fn adf_media_shows_as_an_attachment() {
+        let doc = json!({ "type": "doc", "content": [
+            { "type": "paragraph", "content": [{ "type": "text", "text": "See:" }] },
+            { "type": "mediaSingle", "content": [{ "type": "media", "attrs": { "type": "file", "id": "x", "alt": "trace.png" } }] },
+        ] });
+        assert_eq!(adf_text(&doc), "See:\n[attachment] trace.png");
     }
 
     #[test]

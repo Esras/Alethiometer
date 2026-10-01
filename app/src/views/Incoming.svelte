@@ -624,7 +624,7 @@
       <div class="hints">
         {#if reviewing !== null}
           <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
-          <span>↵ confirm groups</span><span>g by topic / in order</span><span>esc back</span>
+          <span>c confirm groups</span><span>g by topic / in order</span><span>esc back</span>
         {:else if unsorted && inMsgs}
           <span>j/k message</span><span>space select</span><span>⇧j/k select range</span>
           <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>

@@ -84,6 +84,7 @@ pub struct Profile {
     pub account: String,
     pub real_name: Option<String>,
     pub email: Option<String>,
+    pub is_bot: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -329,15 +330,15 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext], |r| r.get(0))
             .optional()?;
         if let Some(id) = id {
-            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0 WHERE id = ?1 AND status != 'done'", [id])?;
+            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0, summary = 'cancelled' WHERE id = ?1 AND status != 'done'", [id])?;
             tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
     }
     for p in &batch.profiles {
         tx.execute(
-            "INSERT INTO account_profiles (kind, account, real_name, email) VALUES (?1, ?2, ?3, lower(?4))
-             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), updated_at = datetime('now')",
-            params![p.kind, p.account, p.real_name, p.email],
+            "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
+             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = datetime('now')",
+            params![p.kind, p.account, p.real_name, p.email, p.is_bot],
         )?;
     }
     for ext in &batch.seen {
@@ -662,7 +663,7 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();
         let src = load_source(&conn, 1).unwrap();
-        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned) };
+        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned), is_bot: false };
         apply(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
         apply(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
         let got: (String, String) = conn.query_row("SELECT real_name, email FROM account_profiles", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
