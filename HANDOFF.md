@@ -55,7 +55,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 - Name: Alethiometer.
 - **Reading anything in its own app never removes it from Incoming. This applies to every source.** Gmail's exception is *leaving the Inbox*: if the user archives or trashes a thread in Gmail, it wasn't worth filing, so it leaves Incoming. Reading in Gmail changes nothing.
 - Gmail: the Inbox is what's in Incoming, all of it, read or not. Mail filtered out of the Inbox or deleted never needs to reach Alethiometer. Threads move together (never split across topics). Filing to a topic labels the thread with its category's label (`category_labels`, nested labels as `Parent/Child`) and marks it read; **once to-dos exist, filing also archives**, and a thread that needs a follow-up stays in the Inbox until its to-do is done. Dismiss archives (not delete); trash is its own action (`#`).
-- **Incoming is where everything gets viewed.** No message is marked seen automatically. An update on a filed item stays in Incoming until the user acts on it here (Seen, Move or Dismiss).
+- **Incoming is where everything gets viewed.** No message is marked seen automatically. An update on a filed item stays in Incoming until the user acts on it here (Confirm, Move or Dismiss; updates use Confirm too, never "Seen").
 
 ## In flight / next
 
@@ -70,7 +70,6 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 **Also open:**
 
 - **Design pass for the bigger window:** the app now opens at 1760×1175 (`tauri.conf.json`, about 80% of the user's screen); the mocks and the design README ("The window is about 1320×880") assume the old size. The user wants to review layouts for the larger space with the design thread.
-- **"Seen" as a verb**: the button on updates (`Incoming.svelte`: `s.update ? 'Seen' : 'Confirm'`) was invented in the build (commit `f16ceeb`), not in the design; the user finds it inconsistent and wants to revisit the wording.
 - Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.

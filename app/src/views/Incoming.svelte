@@ -359,7 +359,7 @@
                       </button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {:else}
-                      <button class="btn primary" onclick={() => confirm(s)}>{s.update ? 'Seen' : 'Confirm'}</button>
+                      <button class="btn primary" onclick={() => confirm(s)}>Confirm</button>
                       <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {/if}
@@ -448,7 +448,7 @@
           <span>t move to topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
         {:else}
           <span>j/k signal</span><span>↵ expand</span>
-          <span>{current?.update ? 'c seen' : 'c confirm'}</span><span>x wrong topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
+          <span>c confirm</span><span>x wrong topic</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
         <span>o open</span><span>[ ] topic</span>
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}

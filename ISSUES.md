@@ -18,7 +18,7 @@ Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title get
 
 ### Slack messages as "updates" on filed items
 
-Unseen items with a `confirmed` link now show under their topic in Incoming as updates (**Seen** instead of Confirm). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira only counts status/assignee changes by others and @mentions as updates, not plain comments.
+Unseen items with a `confirmed` link now show under their topic in Incoming as updates (with Confirm, like any signal). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira only counts status/assignee changes by others and @mentions as updates, not plain comments.
 
 ### Changing `obsidian_vault` strands notes saved in the stand-in vault
 
