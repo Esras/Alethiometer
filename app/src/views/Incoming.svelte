@@ -4,7 +4,7 @@
   // Confirm links the signal for good; Wrong topic only records that the link was
   // wrong (the item drops into Unsorted, nothing is deleted, no reason asked).
   // Unsorted only: ↵ on a signal with several messages enters its message list
-  // (j/k move, space selects, t files the selected messages under a topic as a
+  // (j/k move, space selects, shift+j/k selects a range like text, t files the selected messages under a topic as a
   // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
   // A signal the AI split across topics has a `split` pill and ⋯ where its
   // other parts came in; `s` (or a click on either) opens the split review
@@ -18,6 +18,7 @@
   import { untrack } from 'svelte';
   import { catColor, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
+  import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
   import { personColor, type Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
@@ -136,8 +137,12 @@
   function leaveMsgs() {
     inMsgs = false;
     msgIdx = 0;
+    run = null;
     if (chosen.size) chosen = new Set();
   }
+
+  // A shift+j/k run in Unsorted's message mode; any other key ends it.
+  let run: Range | null = null;
 
   function enterMsgs(s: Signal, idx = 0) {
     if (selItem !== s.item_id) leaveMsgs();
@@ -147,12 +152,20 @@
     msgIdx = idx;
   }
 
-  function stepMsg(d: number) {
+  function stepMsg(d: number, extending = false) {
     if (!current) return;
-    msgIdx = Math.max(0, Math.min(current.messages.length - 1, msgIdx + d));
+    const to = Math.max(0, Math.min(current.messages.length - 1, msgIdx + d));
+    if (extending) {
+      const ids = current.messages.map((m) => m.id);
+      const r = extend(ids, run, ids[msgIdx], ids[to], chosen);
+      run = r.run;
+      chosen = r.chosen;
+    } else run = null;
+    msgIdx = to;
   }
 
   function choose(id: number) {
+    run = null;
     const next = new Set(chosen);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -363,6 +376,8 @@
   useKeys((e) => {
     if (picking || todoFor !== null || linking || reviewing !== null) return;
     if (inMsgs && current) {
+      const shift = shiftStep(e);
+      if (shift) return stepMsg(shift, true), true;
       if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepMsg(1), true;
       if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepMsg(-1), true;
       if (plain(e, ' ')) return current.messages[msgIdx] && choose(current.messages[msgIdx].id), true;
@@ -593,10 +608,10 @@
       <DockHost />
       <div class="hints">
         {#if reviewing !== null}
-          <span>j/k message (skips ⋯)</span><span>space select</span><span>t move</span><span>d dismiss</span><span>u undo</span>
+          <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
           <span>↵ confirm groups</span><span>g by topic / in order</span><span>esc back</span>
         {:else if unsorted && inMsgs}
-          <span>j/k message</span><span>space select</span>
+          <span>j/k message</span><span>space select</span><span>⇧j/k select range</span>
           <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
           <span>↵ collapse</span><span>esc done</span>
         {:else if unsorted}

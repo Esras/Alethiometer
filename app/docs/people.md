@@ -59,7 +59,7 @@ A signal is part of a split family when the AI (or a manual split in Unsorted) m
 
 - **By topic**: each part's messages in time order, `⋯` where another group's came in between; groups ordered by first message. **In order**: the conversation as it happened, in runs per group. `g` flips; a 1:1 DM opens In order, everything else By topic.
 - Bars cycle yellow, blue, purple, orange, green, aqua, red for this signal only (not topic colours). Names are in their person colour.
-- `j`/`k` move, space selects, `t` moves the selection (or the current message) to a topic: into that topic's group if there is one, else a new part suggested to it (`incoming.review_move`). The picker's first row, **Unsorted**, moves it to the Unsorted group (made if there isn't one). Thread replies move with their first message.
+- `j`/`k` move, space selects, shift+`j`/`k` selects a range like text (back toward where it started shrinks it; rows picked with space stay), `t` moves the selection (or the current message) to a topic: into that topic's group if there is one, else a new part suggested to it (`incoming.review_move`). The picker's first row, **Unsorted**, moves it to the Unsorted group (made if there isn't one). Thread replies move with their first message.
 - `d` dismisses in place: the messages go to the family's one dismissed part (seen, no topic; `incoming.review_dismiss`) and stay in the review struck through.
 - `u` undoes the current message's move or dismiss (else the latest): it goes back to its old group's topic, or Unsorted, recreated if it was pruned.
 - ↵ confirms every part that has a topic (`incoming.review_confirm`); Unsorted stays in Incoming. Esc goes back.

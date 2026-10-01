@@ -7,7 +7,8 @@
   //   (a 1:1 DM opens In order; everything else By topic). Not remembered.
   // - Bars cycle through the Gruvbox brights for this signal only; they're
   //   not topic colours. Names are in their person colour.
-  // - j/k move (⋯ isn't a row), space selects, t moves the selection (or the
+  // - j/k move (⋯ isn't a row), space selects, shift+j/k selects a range
+  //   (like text: back toward where it started shrinks it), t moves the selection (or the
   //   current message) to a topic's group straight away (a new topic makes a
   //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, ↵ confirms every group that
   //   has a topic (Unsorted stays in Incoming), Esc goes back.
@@ -17,6 +18,7 @@
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { useKeys, plain } from '../../lib/keys.svelte';
+  import { extend, shiftStep, type Range } from '../../lib/range';
   import Dock from '../../lib/ui/Dock.svelte';
   import Markdown from '../../lib/ui/Markdown.svelte';
   import PersonName from '../../lib/ui/PersonName.svelte';
@@ -138,13 +140,29 @@
     if (focus !== null) document.querySelector(`[data-review-msg="${focus}"]`)?.scrollIntoView({ block: 'nearest' });
   });
 
-  function step(d: number) {
+  // A shift+j/k run in progress; any other key ends it.
+  let run: Range | null = null;
+
+  function step(d: number, extending = false) {
     if (!flat.length) return;
     const i = flat.findIndex((m) => m.id === focus);
-    focus = flat[Math.max(0, Math.min(flat.length - 1, (i < 0 ? 0 : i) + d))].id;
+    const to = flat[Math.max(0, Math.min(flat.length - 1, (i < 0 ? 0 : i) + d))].id;
+    if (extending && focus !== null) {
+      const r = extend(
+        flat.map((m) => m.id),
+        run,
+        focus,
+        to,
+        chosen,
+      );
+      run = r.run;
+      chosen = r.chosen;
+    } else run = null;
+    focus = to;
   }
 
   function toggleChosen(id: number) {
+    run = null;
     const next = new Set(chosen);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -196,6 +214,7 @@
         if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       }
       chosen = new Set();
+      run = null;
     });
   }
 
@@ -215,6 +234,7 @@
         await call('incoming.review_dismiss', { item_id: part, message_ids: live.map((m) => m.id) });
       }
       chosen = new Set();
+      run = null;
     });
   }
 
@@ -246,6 +266,8 @@
 
   useKeys((e) => {
     if (picking) return false;
+    const shift = shiftStep(e);
+    if (shift) return step(shift, true), true;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
     if (plain(e, ' ')) return focus !== null && toggleChosen(focus), true;
