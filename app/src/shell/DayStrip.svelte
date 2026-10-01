@@ -330,6 +330,10 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: var(--bh);
+    pointer-events: none;
+  }
+  .layer > * {
+    pointer-events: auto;
   }
   .layer.faded {
     opacity: 0.5;

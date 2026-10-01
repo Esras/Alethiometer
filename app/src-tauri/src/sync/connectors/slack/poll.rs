@@ -87,6 +87,9 @@ pub struct State {
     /// "https://acme.slack.com/", for permalinks.
     #[serde(default)]
     pub team_url: String,
+    /// "T0123ABCD", for slack:// links.
+    #[serde(default)]
+    pub team_id: String,
     /// Resolved ids of followed channels (the live socket filters on these).
     #[serde(default)]
     pub follow: Vec<String>,
@@ -390,12 +393,13 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
 
 impl Poller<'_> {
     fn run(&mut self) -> anyhow::Result<()> {
-        if self.state.me.is_empty() || self.state.team_url.is_empty() {
+        if self.state.me.is_empty() || self.state.team_url.is_empty() || self.state.team_id.is_empty() {
             let v = self.client.get("auth.test", &[])?;
             let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
             self.state.me = s("user_id");
             self.state.me_name = s("user");
             self.state.team_url = s("url");
+            self.state.team_id = s("team_id");
         }
         // Live, but the last full pass is `catchup_hours` old: do one now.
         // Socket Mode is best-effort, so events can be lost while connected.
@@ -1073,7 +1077,17 @@ impl Poller<'_> {
                     None => self.user_name(uid)?,
                 })
             } else if let Some(cid) = target.strip_prefix('#') {
-                format!("#{}", label.map(str::to_owned).or_else(|| self.channel_names.get(cid).cloned()).unwrap_or_else(|| cid.to_owned()))
+                let name = match label {
+                    Some(l) => l.to_owned(),
+                    None => {
+                        if !self.channel_names.contains_key(cid) && self.info(cid).is_err() {
+                            // Private or deleted: keep the id, and don't ask again this poll.
+                            self.channel_names.insert(cid.to_owned(), cid.to_owned());
+                        }
+                        self.channel_names.get(cid).cloned().unwrap_or_else(|| cid.to_owned())
+                    }
+                };
+                format!("#{name}")
             } else if let Some(special) = target.strip_prefix('!') {
                 match label {
                     Some(l) => l.to_owned(),

@@ -120,6 +120,7 @@ In `settings.json` → `sources`:
 - **Top level.** In a DM, group DM or followed channel, the run's top-level messages form one item (`DM · Priya`, `#inc-2291`, `Group DM · alice, bob`; `kind` `message` for one message, else `thread`). A DM or channel mixes topics, so a run isn't assumed to be one topic: the AI assigns topics per message (a split into parts, each with its own topic), seeing the messages before the run and the topics you filed them under as context. The split review is where you correct that.
 - **Threads.** Each thread is one item for good (`#inc-2291 · thread: <first words of the parent>`), and one topic: the parent and every reply belong together. New replies (yours too) start a new run on the same item, which comes back as new holding only those replies; since it keeps its topic, it shows under that topic as an update (**Seen**).
 - **Mentions** of you in channels you don't follow: one item each (`#random · mention`). A mention inside a thread goes to that thread's item. Confirming one marks that channel read in Slack up to the mention (see "What is written").
+- **Threads under a triaged parent.** A thread whose parent is in a top-level item has its replies stored there, nested under the parent. A new reply brings that item back; what it held when you triaged it is shown faded (`item_messages.read`), and more than 3 earlier replies collapse to the last 2 behind "… N earlier replies".
 - **Context messages.** Each item also stores, faded and before its own messages: for a thread, its first message and up to 3 replies before the run; at top level, up to 3 messages before the run (one extra `conversations.history` call when the item is written). They're never counted in `msg_count`, never split off, and the AI reads them as context only. Mentions have none.
 - Join/leave/topic messages are ignored. Text is converted from Slack markup to plain text with names resolved. Messages with no `text` (Datadog and other integrations) use their attachments (pretext, title, text, `Title: value` fields, else the fallback) and Block Kit blocks. A bot without a name on the message is named with `bots.info`. Every message keeps the sender's Slack user id (`item_messages.author_id`). Up to 50 messages are kept per item; `msg_count` counts them all.
 
@@ -176,6 +177,8 @@ topic (AI triage, or selecting messages in Unsorted) can move some of them to
 a child item `<external id>#<n>`; later syncs don't bring moved messages back.
 A child keeps `mark_ts` only if it holds the newest message, and a split
 item's conversation is marked read only once every part has left Incoming.
+
+Item urls are Slack's web permalinks; opening one from Alethiometer rewrites it to `slack://channel?team=…&id=…&message=…` (plus `thread_ts` for replies) so it opens in the desktop app. The team id comes from `auth.test`, kept in the cursor. `message` and `thread_ts` aren't in Slack's documented `slack://` scheme; if a client ignores them, the link still opens the channel.
 
 The cursor stores only timestamps, ids and thread titles, never message text:
 per-conversation newest ts, tracked threads, open items, the last message of each stream's newest triaged run (`closed`) and the search positions. Before each sync, open items you've triaged since are moved from `open` to `closed`. Upgrading from the first version of this connector resets it; old

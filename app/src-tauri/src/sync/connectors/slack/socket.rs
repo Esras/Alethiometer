@@ -115,6 +115,11 @@ pub fn finish(source_id: i64, plan: &Plan, ok: bool) {
     })
 }
 
+/// `None` until the socket has been tried for this source.
+pub fn connected(source_id: i64) -> Option<bool> {
+    LIVE.lock().unwrap_or_else(|e| e.into_inner()).get(&source_id).map(|l| l.connected)
+}
+
 fn set_connected(source_id: i64, connected: bool) {
     with(source_id, |l| {
         if connected && !l.connected {

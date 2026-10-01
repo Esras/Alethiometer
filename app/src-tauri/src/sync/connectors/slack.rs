@@ -48,6 +48,29 @@ pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) 
     Ok(Some(serde_json::to_string(&state)?))
 }
 
+/// A Slack web permalink as a slack:// link for the desktop app, when a Slack
+/// source knows that workspace's team id. `message` and `thread_ts` aren't in
+/// Slack's documented scheme; without them it still opens the channel.
+pub fn deep_link(conn: &rusqlite::Connection, url: &str) -> Option<String> {
+    let re = regex::Regex::new(r"^(https://[^/]+)/archives/([A-Z0-9]+)/p(\d{7,})(?:\?(.*))?$").expect("static regex");
+    let cap = re.captures(url)?;
+    let (base, channel, p) = (&cap[1], &cap[2], &cap[3]);
+    let mut cursors = conn.prepare("SELECT cursor FROM sources WHERE kind = 'slack' AND cursor IS NOT NULL").ok()?;
+    let team = cursors
+        .query_map([], |r| r.get::<_, String>(0))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|c| State::parse(Some(&c)))
+        .find(|s| s.team_url.trim_end_matches('/') == base && !s.team_id.is_empty())?
+        .team_id;
+    let (secs, micros) = p.split_at(p.len() - 6);
+    let mut link = format!("slack://channel?team={team}&id={channel}&message={secs}.{micros}");
+    if let Some(t) = cap.get(4).and_then(|q| q.as_str().split('&').find_map(|kv| kv.strip_prefix("thread_ts="))) {
+        link.push_str(&format!("&thread_ts={t}"));
+    }
+    Some(link)
+}
+
 pub struct Slack;
 
 /// Default secret names; override per source with `config.user_token_secret`

@@ -6,7 +6,7 @@
   import { useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
 
-  type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean };
+  type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null };
   type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
 
   type Tokens = { calls: number; input: number; output: number; cost: number | null };
@@ -16,7 +16,7 @@
   let sources = $state<Source[]>([]);
   let usage = $state<Usage[]>([]);
   let writes = $state<Write[]>([]);
-  let suggest = $state<{ run: Run | null; waiting: number }>({ run: null, waiting: 0 });
+  let suggest = $state<{ run: Run | null; waiting: number; running?: boolean }>({ run: null, waiting: 0 });
   let open = $state(false);
   let wrap: HTMLElement;
 
@@ -30,7 +30,7 @@
       call<Source[]>('sync.status'),
       call<Write[]>('outbox.list'),
       call<Usage[]>('ai.usage'),
-      call<{ run: Run | null; waiting: number }>('ai.suggestions'),
+      call<{ run: Run | null; waiting: number; running?: boolean }>('ai.suggestions'),
     ]);
     const key = sources.map((s) => `${s.id}:${s.last_sync_at}`).join();
     if (synced && key !== synced) refresh();
@@ -154,7 +154,14 @@
         <div class="row">
           <AppIcon source={s.kind} size={14} />
           <span class="ellipsis">{s.name}</span>
-          <span class="when" class:bad={!!s.last_error} title={s.last_error ?? ''}>{s.last_error ? 'error' : ago(s.last_sync_at)}</span>
+          <span class="when" class:bad={!!s.last_error} title={s.last_error ?? ''}
+            >{#if s.live != null}<span
+                class="mode"
+                class:on={s.live}
+                title={s.live ? 'Live socket connected: new messages arrive within seconds; a full catch-up runs every few hours' : 'Socket down: polling on a timer'}
+                >{s.live ? 'live' : 'polling'}</span
+              > · {/if}{s.last_error ? 'error' : ago(s.last_sync_at)}</span
+          >
           {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
             <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
           {:else}
@@ -171,8 +178,8 @@
       <div class="row">
         <i class="ph ph-sparkle spark"></i>
         <span class="ellipsis">Topic suggestions</span>
-        <span class="when" class:bad={suggestFailed}>{runState(suggest.run)}</span>
-        <button class="btn primary" onclick={retrySuggest} disabled={suggesting}>{suggesting ? 'Running…' : 'Retry'}</button>
+        <span class="when" class:bad={suggestFailed && !suggest.running}>{suggest.running ? 'running…' : runState(suggest.run)}</span>
+        <button class="btn primary" onclick={retrySuggest} disabled={suggesting || suggest.running}>{suggesting || suggest.running ? 'Running…' : 'Retry'}</button>
       </div>
       {#if suggest.run?.message && suggest.run.status !== 'ok'}<div class="err" class:off={!suggestFailed}>{suggest.run.message}</div>{/if}
       {#if suggestFailed}
@@ -265,6 +272,9 @@
   }
   .tok {
     max-width: none;
+  }
+  .mode.on {
+    color: var(--aqua);
   }
   .when {
     font-size: 11.5px;

@@ -543,6 +543,7 @@
                       {/if}
                       <div
                         class="msg"
+                        class:context={m.read}
                         class:pickable={canPick}
                         class:focus={sel && inMsgs && mi === msgIdx}
                         class:chosen={sel && chosen.has(m.id)}
@@ -555,8 +556,16 @@
                         <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
                         <div class="txt"><Markdown text={m.text} /></div>
                       </div>
-                      {#each m.replies ?? [] as r (r.id)}
-                        <div class="msg reply" class:chosen={sel && chosen.has(m.id)}>
+                      {@const replies = m.replies ?? []}
+                      {@const readReplies = replies.filter((r) => r.read).length}
+                      {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
+                      {#if hiddenReplies}
+                        <button class="more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                          … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
+                        </button>
+                      {/if}
+                      {#each replies.filter((r, ri) => !r.read || ri >= hiddenReplies) as r (r.id)}
+                        <div class="msg reply" class:context={r.read} class:chosen={sel && chosen.has(m.id)}>
                           <span class="t tnum">{r.time}</span>
                           <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
                           <div class="txt"><Markdown text={r.text} /></div>
@@ -882,6 +891,10 @@
   }
   .more:hover {
     color: var(--aqua);
+  }
+  .reply-more {
+    margin-left: 10px;
+    padding-left: 70px;
   }
   .msg.reply {
     margin-left: 10px;

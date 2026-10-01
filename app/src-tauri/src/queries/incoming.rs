@@ -53,6 +53,9 @@ pub struct Message {
     /// Thread replies to this message, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<Message>,
+    /// Already there when you last triaged the item: shown faded.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -253,7 +256,7 @@ type MsgRow = (Message, bool, Option<String>, Option<String>, Option<String>, St
 
 fn message_rows(conn: &Connection, look: &Lookup, source: &str, item_id: i64) -> Result<Vec<MsgRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, at, author, text, context, ext_key, reply_to, author_id FROM item_messages WHERE item_id = ?1 ORDER BY at, id",
+        "SELECT id, at, author, text, context, ext_key, reply_to, author_id, read FROM item_messages WHERE item_id = ?1 ORDER BY at, id",
     )?;
     let rows = stmt
         .query_map([item_id], |r| {
@@ -269,6 +272,7 @@ fn message_rows(conn: &Connection, look: &Lookup, source: &str, item_id: i64) ->
                 gap: false,
                 part: None,
                 replies: vec![],
+                read: r.get(8)?,
             };
             Ok((m, r.get::<_, bool>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?, author_id, at))
         })?

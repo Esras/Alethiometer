@@ -17,6 +17,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0011_people.sql"),
     include_str!("../migrations/0012_account_profiles.sql"),
     include_str!("../migrations/0013_bot_accounts.sql"),
+    include_str!("../migrations/0014_message_read.sql"),
 ];
 
 pub fn open(path: &Path) -> anyhow::Result<Connection> {

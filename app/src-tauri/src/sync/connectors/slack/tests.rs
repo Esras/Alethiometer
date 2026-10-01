@@ -325,6 +325,15 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
         .unwrap();
     assert_eq!(replies.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291", "Merged."]);
     assert!(replies.iter().all(|r| r.1 == "1789990000.000200"));
+    // What you'd triaged comes back read (faded); only the new reply is new.
+    let read: Vec<(String, bool)> = conn
+        .prepare("SELECT m.text, m.read FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.context = 0 ORDER BY m.at")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(read.iter().all(|(t, r)| *r == (t != "Merged.")), "{read:?}");
 }
 
 fn with_new_message(user: &str, text: &str) -> String {
@@ -352,6 +361,15 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
     let b3 = run_poll(&workspace(&with_new_message("U0ME", "Confirmed, thanks all.")), &src).unwrap();
     assert_eq!(ids(&b3), vec!["C0INC/1789960000.000100"]);
     assert!(b3.items[0].bump);
+}
+
+#[test]
+fn channel_mentions_without_a_label_resolve_to_names() {
+    let http = workspace(&with_new_message("U0JORDAN", "Ask in <#C0RANDOM> or <#C0SECRET>"));
+    http.on("GET", "conversations.info?channel=C0SECRET", 200, r#"{"ok": false, "error": "channel_not_found"}"#);
+    let b = run_poll(&http, &source(None)).unwrap();
+    let inc = find(&b, "C0INC/1789960000.000100");
+    assert!(texts(inc).contains(&"Ask in #random or #C0SECRET"), "{:?}", texts(inc));
 }
 
 #[test]
@@ -680,4 +698,20 @@ fn send_failures_carry_slacks_error() {
     let err = send_op(&http, "slack.mark_read", json!({ "channel": "C0NEW", "ts": "1.0" })).unwrap_err();
     assert_eq!(err.to_string(), "Slack conversations.mark: not_in_channel");
     assert!(send_op(&http, "slack.delete", json!({})).is_err());
+}
+
+#[test]
+fn web_permalinks_open_in_the_desktop_app() {
+    let conn = db();
+    let src = crate::sync::load_source(&conn, 1).unwrap();
+    let link = |u: &str| crate::sync::connectors::slack::deep_link(&conn, u);
+    assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100"), None, "no team id before the first sync");
+    apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100").as_deref(), Some("slack://channel?team=T0ACME&id=C0INC&message=1789960000.000100"));
+    assert_eq!(
+        link("https://acme.slack.com/archives/C0INC/p1789990000000300?thread_ts=1789990000.000200&cid=C0INC").as_deref(),
+        Some("slack://channel?team=T0ACME&id=C0INC&message=1789990000.000300&thread_ts=1789990000.000200")
+    );
+    assert_eq!(link("https://other.slack.com/archives/C0INC/p1789960000000100"), None, "another workspace");
+    assert_eq!(link("https://github.com/acme/x/pull/1"), None);
 }

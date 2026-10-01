@@ -15,6 +15,7 @@ export interface Message {
   part?: number;
   /** Thread replies to this message; they move with it. */
   replies?: Message[];
+  read?: boolean;
 }
 
 export interface Signal {
