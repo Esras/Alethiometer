@@ -566,7 +566,7 @@ fn bulk((kind, account): &(String, String)) -> bool {
         "notifications", "notify", "alerts", "alert", "digest", "marketing", "mailer", "mailer-daemon", "postmaster", "bounce",
         "calendar", "drive-shares-dm-noreply", "do-not-reply", "donotreply", "admin", "security", "jobs", "careers", "events",
     ];
-    kind == "email" && account.split('@').next().is_some_and(|l| LOCAL.contains(&l) || l.starts_with("noreply") || l.contains("no-reply") || l.contains("bounce"))
+    kind == "email" && account.split('@').next().is_some_and(|l| LOCAL.contains(&l) || l.contains("noreply") || l.contains("no-reply") || l.contains("bounce"))
 }
 
 /// Unknown senders seen in at least `suggest_after` signals within `suggest_days`,
@@ -1042,6 +1042,7 @@ mod tests {
         assert_eq!(account_of("obsidian", "x"), None);
         assert!(bulk(&("email".into(), "newsletter@acme.com".into())));
         assert!(bulk(&("email".into(), "bounce-123@lists.x.com".into())));
+        assert!(bulk(&("email".into(), "google-workspace-alerts-noreply@google.com".into())), "noreply as a suffix, no hyphen");
         assert!(!bulk(&("email".into(), "dana@acme.com".into())));
         assert!(!bulk(&("slack".into(), "news".into())));
     }
