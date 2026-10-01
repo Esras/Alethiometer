@@ -429,7 +429,13 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
                 others_commented = true;
             }
             if let Some(at) = cm.get("created_at").and_then(Value::as_str).and_then(local_ts) {
-                messages.push(Message { at, author: login.to_string(), text: cm.get("body").and_then(Value::as_str).unwrap_or("").to_string(), ..Default::default() });
+                messages.push(Message {
+                    at,
+                    author: login.to_string(),
+                    text: cm.get("body").and_then(Value::as_str).unwrap_or("").to_string(),
+                    author_id: (!login.is_empty() && login != "?").then(|| login.to_string()),
+                    ..Default::default()
+                });
             }
         }
     }

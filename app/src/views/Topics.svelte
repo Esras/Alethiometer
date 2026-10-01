@@ -7,7 +7,8 @@
   import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { SOURCES, sourceLabel } from '../lib/sources';
-  import type { TopicDetail, TopicRow } from '../lib/types';
+  import { personColor } from '../lib/people';
+  import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Panel from '../lib/ui/Panel.svelte';
   import Pill from '../lib/ui/Pill.svelte';
@@ -15,12 +16,15 @@
   import NotePane from './topics/NotePane.svelte';
   import TopicsIndex from './topics/TopicsIndex.svelte';
   import CategoryPicker from './topics/CategoryPicker.svelte';
+  import PersonPicker from './incoming/PersonPicker.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
   let filter = $state<string | null>(null);
   let open = $state({ up: true, open: true, chron: true, people: true });
   let picking = $state(false);
+  // Link to person (17b) for someone in the People panel without a note.
+  let linking = $state<TopicPerson | null>(null);
 
   async function setCategory(key: string) {
     picking = false;
@@ -79,7 +83,7 @@
   }
 
   useKeys((e) => {
-    if (ui.openTopicId === null) return;
+    if (ui.openTopicId === null || linking) return;
     if (plain(e, 'Escape')) return toIndex(), true;
     if (plain(e, 'c')) return (picking = true), true;
     if (plain(e, 'z')) return fold(), true;
@@ -188,16 +192,37 @@
 
           <Panel icon="users" iconColor="var(--purple)" label="People" count={d.people.length} bind:open={open.people}>
             <div class="people">
-              {#each d.people as p}
+              {#each d.people as p (p.id ?? `${p.name}-${p.account?.id ?? ''}`)}
                 <div class="person">
-                  <span class="avatar">{p.initials}</span>
+                  <span class="avatar" style:background={personColor(p.color)}>{p.initials}</span>
                   <div class="min0">
-                    <div class="strong">{p.name}</div>
-                    <div class="role ellipsis" title={p.role ?? ''}>{p.role ?? ''}</div>
+                    {#if !p.known && p.account}
+                      <button class="strong unknown ellipsis" style:color={personColor(p.color)} title="No People note: link to a person" onclick={() => (linking = p)}
+                        >{p.name}</button
+                      >
+                    {:else}
+                      <div class="strong ellipsis" title={p.name}>{p.name}</div>
+                    {/if}
+                    {#if p.role}
+                      <div class="role ellipsis" title={p.role}>{p.role}</div>
+                    {:else if p.signals}
+                      <div class="role ellipsis">{p.signals} {p.signals === 1 ? 'signal' : 'signals'}{#if p.last}&nbsp;· {p.last}{/if}</div>
+                    {/if}
                   </div>
                 </div>
               {/each}
             </div>
+            {#if linking?.account}
+              <div class="link-pick">
+                <PersonPicker
+                  account={linking.account}
+                  name={linking.name}
+                  source={linking.account.kind === 'email' ? 'Email' : sourceLabel(linking.account.kind)}
+                  ondone={() => ((linking = null), refresh())}
+                  onclose={() => (linking = null)}
+                />
+              </div>
+            {/if}
             {#if d.repos.length}
               <div class="repos">
                 {#each d.repos as r}
@@ -487,7 +512,18 @@
     align-items: center;
     justify-content: center;
     font-size: 10px;
-    color: var(--tx-title);
+    font-weight: 600;
+    color: var(--bg-app);
+  }
+  .unknown {
+    display: block;
+    max-width: 100%;
+    text-align: left;
+    text-decoration: underline dotted var(--tx-label);
+    text-underline-offset: 3px;
+  }
+  .link-pick {
+    padding: 4px 12px 8px;
   }
   .role {
     font-size: 11.5px;

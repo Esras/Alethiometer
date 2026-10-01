@@ -11,9 +11,21 @@
 //! - Split (Unsorted only, `t` with messages selected): the selected messages
 //!   move to a child item (`split.rs`) confirmed to the picked topic, as `t`
 //!   does for a whole item; the rest stays in Unsorted.
+//! - Split review (15g/15h): a signal the AI split across topics shows a
+//!   `split` pill and ⋯ where its other parts' messages came in between.
+//!   `family` lists every part still in Incoming with its messages; the review
+//!   moves messages between parts (`review_move`, a new topic makes a new part),
+//!   dismisses single messages into one seen part of the family
+//!   (`review_dismiss`), and confirms every part that has a topic
+//!   (`review_confirm`). Parts left empty are pruned (`split::prune`).
+//! - Every message carries who wrote it (`people::Who`: person colour, People
+//!   note), and a signal from an unknown sender seen often enough carries a
+//!   new-person suggestion (17a).
 
+use super::people::{self, Resolver, Suggestion, Who};
 use super::{arg_i64, opt_i64, parse_ts, when_label};
 use crate::api::unknown;
+use crate::settings::PeopleSettings;
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
@@ -21,6 +33,7 @@ use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 #[derive(Serialize, Debug)]
 pub struct Message {
@@ -29,6 +42,14 @@ pub struct Message {
     pub time: String,
     pub author: String,
     pub text: String,
+    /// Person colour and People note (16c, 17a).
+    pub who: Who,
+    /// Messages of another part of this split came in just before this one (⋯).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub gap: bool,
+    /// The split part holding it (`family` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<i64>,
     /// Thread replies to this message, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<Message>,
@@ -54,6 +75,10 @@ pub struct Signal {
     pub update: bool,
     /// A todo waiting for this signal to be confirmed.
     pub held: Option<super::todos::Held>,
+    /// One part of a split whose other parts still hold messages (15g).
+    pub split: bool,
+    /// An unknown sender in this signal worth a People note (17a).
+    pub new_person: Option<Suggestion>,
     #[serde(skip)]
     at: String,
 }
@@ -76,7 +101,23 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     let now = app.clock.now();
     let conn = app.db();
     match name {
-        "list" => Ok(json!(queue(&conn, now)?)),
+        "list" => Ok(json!(queue_with(&conn, now, &app.settings.people)?)),
+        "family" => Ok(json!(family(&conn, arg_i64(args, "item_id")?, &app.settings.people)?)),
+        "review_move" => {
+            let to = match (opt_i64(args, "to_item_id"), opt_i64(args, "topic_id")) {
+                (Some(part), _) => To::Part(part),
+                (None, Some(topic)) => To::Topic(topic),
+                // No topic: Unsorted.
+                (None, None) => To::Unsorted,
+            };
+            let part = review_move(&conn, arg_i64(args, "item_id")?, &ids_arg(args), to)?;
+            Ok(json!({ "ok": true, "item_id": part }))
+        }
+        "review_dismiss" => {
+            let part = review_dismiss(&conn, arg_i64(args, "item_id")?, &ids_arg(args))?;
+            Ok(json!({ "ok": true, "item_id": part }))
+        }
+        "review_confirm" => Ok(json!({ "ok": true, "confirmed": review_confirm(&conn, arg_i64(args, "item_id")?)? })),
         "confirm" => {
             confirm(&conn, arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?)?;
             Ok(json!({ "ok": true }))
@@ -98,16 +139,15 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "ok": true }))
         }
         "split" => {
-            let ids: Vec<i64> = args
-                .get("message_ids")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_i64).collect())
-                .unwrap_or_default();
-            let child = split_to(&conn, arg_i64(args, "item_id")?, &ids, arg_i64(args, "topic_id")?)?;
+            let child = split_to(&conn, arg_i64(args, "item_id")?, &ids_arg(args), arg_i64(args, "topic_id")?)?;
             Ok(json!({ "ok": true, "item_id": child }))
         }
         _ => Err(unknown(name)),
     }
+}
+
+fn ids_arg(args: &Value) -> Vec<i64> {
+    args.get("message_ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default()
 }
 
 const SIGNAL_COLS: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurred_at, i.ended_at, i.msg_count,
@@ -132,6 +172,8 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         context: vec![],
         update: false,
         held: None,
+        split: false,
+        new_person: None,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -166,39 +208,118 @@ fn meta(title: &str, at: &str, ended: Option<&str>, msgs: Option<i64>, author: O
     }
 }
 
-fn load_messages(conn: &Connection, sigs: &mut [Signal]) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT id, at, author, text, context, ext_key, reply_to FROM item_messages WHERE item_id = ?1 ORDER BY at, id")?;
-    for s in sigs {
-        let rows = stmt
-            .query_map([s.item_id], |r| {
-                let at: String = r.get(1)?;
-                let m = Message {
-                    id: r.get(0)?,
-                    time: parse_ts(&at).map(|t| t.format("%H:%M").to_string()).unwrap_or(at),
-                    author: r.get(2)?,
-                    text: r.get(3)?,
-                    replies: vec![],
-                };
-                Ok((m, r.get::<_, bool>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let (replies, rows): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.3.is_some());
-        let (context, mut own): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1);
-        for r in replies {
-            match own.iter_mut().find(|o| o.2 == r.3) {
-                Some(parent) => parent.0.replies.push(r.0),
-                None => own.push(r),
-            }
+/// What message rows need besides their own columns: who wrote them, and
+/// which unknown senders are worth a People note.
+pub struct Lookup {
+    pub people: Resolver,
+    pub suggest: HashMap<(String, String), Suggestion>,
+}
+
+impl Lookup {
+    pub fn load(conn: &Connection, settings: &PeopleSettings, now: NaiveDateTime) -> Result<Lookup> {
+        let people = Resolver::load(conn, settings)?;
+        let suggest = people::suggestions(conn, &people, settings, now)?;
+        Ok(Lookup { people, suggest })
+    }
+}
+
+/// (message, context, ext_key, reply_to, author_id, at) for an item, oldest first.
+type MsgRow = (Message, bool, Option<String>, Option<String>, Option<String>, String);
+
+fn message_rows(conn: &Connection, look: &Lookup, source: &str, item_id: i64) -> Result<Vec<MsgRow>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, at, author, text, context, ext_key, reply_to, author_id FROM item_messages WHERE item_id = ?1 ORDER BY at, id",
+    )?;
+    let rows = stmt
+        .query_map([item_id], |r| {
+            let at: String = r.get(1)?;
+            let author: String = r.get(2)?;
+            let author_id: Option<String> = r.get(7)?;
+            let m = Message {
+                id: r.get(0)?,
+                time: parse_ts(&at).map(|t| t.format("%H:%M").to_string()).unwrap_or_else(|| at.clone()),
+                who: look.people.who(source, author_id.as_deref(), &author),
+                author,
+                text: r.get(3)?,
+                gap: false,
+                part: None,
+                replies: vec![],
+            };
+            Ok((m, r.get::<_, bool>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?, author_id, at))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Top-level messages with their replies nested, and the context messages.
+fn nest(rows: Vec<MsgRow>) -> (Vec<(Message, String)>, Vec<Message>) {
+    let (replies, rows): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.3.is_some());
+    let (context, mut own): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1);
+    for r in replies {
+        match own.iter_mut().find(|o| o.2 == r.3) {
+            Some(parent) => parent.0.replies.push(r.0),
+            None => own.push(r),
         }
-        s.context = context.into_iter().map(|r| r.0).collect();
+    }
+    (own.into_iter().map(|r| (r.0, r.5)).collect(), context.into_iter().map(|r| r.0).collect())
+}
+
+/// Times of the top-level messages the other parts of an item's split family hold.
+fn sibling_times(conn: &Connection, item_id: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached(
+        "WITH root AS (SELECT coalesce(parent_id, id) AS id FROM items WHERE id = ?1)
+         SELECT m.at FROM item_messages m
+          WHERE m.item_id IN (SELECT id FROM root UNION SELECT i.id FROM items i, root WHERE i.parent_id = root.id)
+            AND m.item_id != ?1 AND m.context = 0 AND m.reply_to IS NULL",
+    )?;
+    let times = stmt.query_map([item_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(times)
+}
+
+/// The best new-person suggestion among a signal's senders and its author.
+fn new_person(conn: &Connection, look: &Lookup, s: &Signal, author_ids: &[(String, String)]) -> Result<Option<Suggestion>> {
+    if look.suggest.is_empty() {
+        return Ok(None);
+    }
+    let mut accounts: Vec<(String, String)> = author_ids.iter().filter_map(|(_, h)| people::account_of(&s.source, h)).collect();
+    let handle: Option<String> = conn
+        .query_row(
+            "SELECT h.handle FROM items i JOIN person_handles h ON h.person_id = i.author_person_id AND h.source_kind = ?2 WHERE i.id = ?1",
+            params![s.item_id, s.source],
+            |r| r.get(0),
+        )
+        .optional()?;
+    accounts.extend(handle.and_then(|h| people::account_of(&s.source, &h)));
+    Ok(accounts.iter().filter_map(|a| look.suggest.get(a)).max_by_key(|g| g.signals).cloned())
+}
+
+fn load_messages(conn: &Connection, look: &Lookup, sigs: &mut [Signal]) -> Result<()> {
+    for s in sigs {
+        let rows = message_rows(conn, look, &s.source, s.item_id)?;
+        let author_ids: Vec<(String, String)> =
+            rows.iter().filter(|r| !r.1).filter_map(|r| r.4.clone().map(|id| (r.0.author.clone(), id))).collect();
+        let (mut own, context) = nest(rows);
+        let others = sibling_times(conn, s.item_id)?;
+        s.split = !others.is_empty();
+        for i in 1..own.len() {
+            let (prev, at) = (own[i - 1].1.clone(), own[i].1.clone());
+            own[i].0.gap = others.iter().any(|t| *t > prev && *t < at);
+        }
+        s.context = context;
         s.messages = own.into_iter().map(|r| r.0).collect();
         s.held = super::todos::held(conn, s.item_id)?;
+        s.new_person = new_person(conn, look, s, &author_ids)?;
     }
     Ok(())
 }
 
 /// Topics with new signals (most recent signal first), then Unsorted.
 pub fn queue(conn: &Connection, now: NaiveDateTime) -> Result<Queue> {
+    queue_with(conn, now, &PeopleSettings::default())
+}
+
+pub fn queue_with(conn: &Connection, now: NaiveDateTime, settings: &PeopleSettings) -> Result<Queue> {
+    let look = Lookup::load(conn, settings, now)?;
     let mut stmt = conn.prepare(&format!(
         "SELECT {SIGNAL_COLS}, t.id, t.name, t.category, tl.state = 'confirmed'
            FROM topic_links tl
@@ -223,7 +344,7 @@ pub fn queue(conn: &Connection, now: NaiveDateTime) -> Result<Queue> {
     // Most recent signal first (rows arrive newest first, so push order already is).
     topics.sort_by(|a, b| b.signals[0].at.cmp(&a.signals[0].at));
     for t in &mut topics {
-        load_messages(conn, &mut t.signals)?;
+        load_messages(conn, &look, &mut t.signals)?;
     }
 
     let mut stmt = conn.prepare(&format!(
@@ -234,7 +355,7 @@ pub fn queue(conn: &Connection, now: NaiveDateTime) -> Result<Queue> {
           ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
     ))?;
     let mut unsorted = stmt.query_map([], |r| row_to_signal(r, now))?.collect::<rusqlite::Result<Vec<_>>>()?;
-    load_messages(conn, &mut unsorted)?;
+    load_messages(conn, &look, &mut unsorted)?;
     Ok(Queue { topics, unsorted })
 }
 
@@ -456,6 +577,225 @@ pub fn move_to(conn: &Connection, item_id: i64, topic_id: i64, from: Option<i64>
 }
 
 // ---------------------------------------------------------------------------
+// Split review (15g, 15h).
+
+#[derive(Serialize, Debug)]
+pub struct PartTopic {
+    pub id: i64,
+    pub name: String,
+    pub category: String,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Part {
+    pub item_id: i64,
+    /// The part's live topic (suggested or confirmed); None is Unsorted.
+    pub topic: Option<PartTopic>,
+    /// The family's dismissed messages (`review_dismiss`).
+    pub dismissed: bool,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Family {
+    pub root: i64,
+    pub title: String,
+    pub source: String,
+    pub url: Option<String>,
+    /// `dm` (1:1, opens In order), `group`, `channel`, `thread` or `other`.
+    pub conv: &'static str,
+    pub parts: Vec<Part>,
+    /// Every part's top-level messages in time order, each with its `part`.
+    pub messages: Vec<Message>,
+}
+
+fn conv_kind(title: &str, raw: &Value) -> &'static str {
+    if raw.get("thread_ts").is_some() {
+        "thread"
+    } else if title.starts_with("DM ·") {
+        "dm"
+    } else if title.starts_with("Group DM") {
+        "group"
+    } else if raw.get("channel").is_some() {
+        "channel"
+    } else {
+        "other"
+    }
+}
+
+fn is_dismissed_part(conn: &Connection, item_id: i64) -> Result<bool> {
+    Ok(conn.query_row("SELECT coalesce(json_extract(raw_json, '$.dismissed'), 0) FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
+}
+
+fn live_topic(conn: &Connection, item_id: i64) -> Result<Option<PartTopic>> {
+    Ok(conn
+        .query_row(
+            "SELECT t.id, t.name, t.category FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
+              WHERE tl.item_id = ?1 AND tl.state IN ('suggested', 'confirmed') AND t.archived_at IS NULL
+              ORDER BY tl.updated_at DESC, tl.rowid DESC LIMIT 1",
+            [item_id],
+            |r| Ok(PartTopic { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? }),
+        )
+        .optional()?)
+}
+
+/// The parts of `item_id`'s family the review works on: those still in
+/// Incoming, plus the family's dismissed messages.
+fn review_parts(conn: &Connection, item_id: i64) -> Result<(i64, Vec<Part>)> {
+    let (root, ids) = super::split::family(conn, item_id)?;
+    let mut parts = vec![];
+    for id in ids {
+        let (seen, has): (bool, bool) = conn.query_row(
+            "SELECT seen, EXISTS (SELECT 1 FROM item_messages WHERE item_id = ?1 AND context = 0) FROM items WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let dismissed = is_dismissed_part(conn, id)?;
+        if (dismissed && has) || (!dismissed && !seen) {
+            parts.push(Part { item_id: id, topic: if dismissed { None } else { live_topic(conn, id)? }, dismissed });
+        }
+    }
+    Ok((root, parts))
+}
+
+pub fn family(conn: &Connection, item_id: i64, settings: &PeopleSettings) -> Result<Family> {
+    let (root, parts) = review_parts(conn, item_id)?;
+    let (title, source, url, raw): (String, String, Option<String>, String) = conn.query_row(
+        "SELECT i.title, s.kind, i.url, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
+        [item_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    let look = Lookup { people: Resolver::load(conn, settings)?, suggest: HashMap::new() };
+    let mut all: Vec<(Message, String)> = vec![];
+    for p in &parts {
+        let (own, _) = nest(message_rows(conn, &look, &source, p.item_id)?);
+        all.extend(own.into_iter().map(|(m, at)| (Message { part: Some(p.item_id), ..m }, at)));
+    }
+    all.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.id.cmp(&b.0.id)));
+    let raw: Value = serde_json::from_str(&raw).unwrap_or_default();
+    Ok(Family { root, conv: conv_kind(&title, &raw), title, source, url, parts, messages: all.into_iter().map(|(m, _)| m).collect() })
+}
+
+/// Where `review_move` sends messages: another part of the family, a topic
+/// (its part in the review, else a new part suggested to it), or Unsorted
+/// (the review's part with no topic, else a new one). Undo goes by topic or
+/// Unsorted, since the part a message came from may have been pruned.
+#[derive(Clone, Copy)]
+pub enum To {
+    Part(i64),
+    Topic(i64),
+    Unsorted,
+}
+/// After a review edit: a part with messages is in Incoming (unless already
+/// filed or it holds dismissed messages), an emptied child goes away.
+fn settle_parts(conn: &Connection, parts: &[i64]) -> Result<()> {
+    for &id in parts {
+        let (has, filed): (bool, bool) = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM item_messages WHERE item_id = ?1 AND context = 0),
+                    EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state = 'confirmed')",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if !has {
+            super::split::prune(conn, id)?;
+        } else if is_dismissed_part(conn, id)? {
+            conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
+        } else if !filed {
+            conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [id])?;
+        }
+    }
+    Ok(())
+}
+
+/// Move messages of one part to another part, a topic or Unsorted. Returns the part they're in now.
+pub fn review_move(conn: &Connection, from: i64, ids: &[i64], to: To) -> Result<i64> {
+    let tx = conn.unchecked_transaction()?;
+    let target = match to {
+        To::Part(part) => part,
+        To::Topic(_) | To::Unsorted => {
+            let topic = match to {
+                To::Topic(t) => Some(t),
+                _ => None,
+            };
+            let (_, parts) = review_parts(&tx, from)?;
+            match parts.iter().find(|p| !p.dismissed && p.topic.as_ref().map(|t| t.id) == topic) {
+                Some(p) => p.item_id,
+                None => {
+                    let child = new_part(&tx, from, ids, topic)?;
+                    tx.commit()?;
+                    return Ok(child);
+                }
+            }
+        }
+    };
+    if target != from {
+        super::split::move_messages(&tx, from, ids, target)?;
+        settle_parts(&tx, &[target, from])?;
+    }
+    tx.commit()?;
+    Ok(target)
+}
+
+/// A new part of the family holding `ids`, suggested to `topic` (None: Unsorted).
+fn new_part(conn: &Connection, from: i64, ids: &[i64], topic: Option<i64>) -> Result<i64> {
+    let child = super::split::carve(conn, from, ids, true)?;
+    conn.execute("UPDATE items SET raw_json = json_remove(raw_json, '$.dismissed'), seen = 0 WHERE id = ?1", [child])?;
+    if let Some(t) = topic {
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'suggested', 1.0, 'picked by you')
+             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = 'suggested', confidence = 1.0, reason = 'picked by you', updated_at = datetime('now')",
+            params![child, t],
+        )?;
+    }
+    settle_parts(conn, &[from, child])?;
+    Ok(child)
+}
+
+/// Dismiss single messages in place: they join the family's dismissed part
+/// (made on first use), which never shows in Incoming. Returns that part.
+pub fn review_dismiss(conn: &Connection, from: i64, ids: &[i64]) -> Result<i64> {
+    let tx = conn.unchecked_transaction()?;
+    let (_, family) = super::split::family(&tx, from)?;
+    let mut bin = None;
+    for id in family {
+        if is_dismissed_part(&tx, id)? {
+            bin = Some(id);
+            break;
+        }
+    }
+    let bin = match bin {
+        Some(b) if b != from => {
+            super::split::move_messages(&tx, from, ids, b)?;
+            b
+        }
+        Some(b) => b,
+        None => {
+            let child = super::split::carve(&tx, from, ids, true)?;
+            tx.execute("UPDATE items SET raw_json = json_set(raw_json, '$.dismissed', json('true')) WHERE id = ?1", [child])?;
+            tx.execute("UPDATE topic_links SET state = 'wrong' WHERE item_id = ?1 AND state != 'wrong'", [child])?;
+            child
+        }
+    };
+    settle_parts(&tx, &[bin, from])?;
+    tx.commit()?;
+    Ok(bin)
+}
+
+/// Confirm every part in the review that has a topic. Unsorted stays in Incoming.
+pub fn review_confirm(conn: &Connection, item_id: i64) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let (_, parts) = review_parts(&tx, item_id)?;
+    let mut n = 0;
+    for p in parts.iter().filter(|p| !p.dismissed) {
+        if let Some(t) = &p.topic {
+            confirm(&tx, p.item_id, t.id)?;
+            n += 1;
+        }
+    }
+    tx.commit()?;
+    Ok(n)
+}
+
+// ---------------------------------------------------------------------------
 // Sample data (work-only). Now is ~10:52 in the mocks.
 
 pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
@@ -484,12 +824,13 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     );
     for (t, who, text) in [
         ("09:05", "Jordan", "Root cause looks like a retry storm from the v2 delivery workers."),
-        ("09:31", "Marco", "Backoff patch is up, needs a second reviewer."),
+        ("09:31", "Marco R.", "Backoff patch is up, needs a second reviewer."),
         ("10:02", "Sam", "Acme is asking for an exec on a call today."),
         ("10:40", "Jordan", "Fix ETA 14:00. Backlog is draining."),
     ] {
-        ctx.message(inc, &ctx.at(0, t), who, text);
+        ctx.slack(inc, &ctx.at(0, t), who, text);
     }
+    seed_splits(ctx)?;
     suggest(
         ItemSeed {
             source: "gmail",
@@ -654,8 +995,117 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         ("09:16", "Different thing: Lee asked me for data eng hiring numbers for the Q4 model."),
         ("09:20", "Can you look at the offsite agenda before Thursday?"),
     ] {
-        ctx.message(dm, &ctx.at(0, t), "Priya", text);
+        ctx.slack(dm, &ctx.at(0, t), "Priya", text);
     }
+    // Marco's third signal this week, so Incoming suggests a People note for him (17a).
+    let eng = new(ItemSeed {
+        source: "slack",
+        kind: "message",
+        title: "#platform-eng".into(),
+        summary: Some("Anyone seen the staging deploy hang on migrations?".into()),
+        url: Some("slack://channel?team=T0&id=C0PLAT".into()),
+        occurred_at: ctx.at(0, "08:12"),
+        msg_count: Some(1),
+        ..Default::default()
+    });
+    ctx.slack(eng, &ctx.at(0, "08:12"), "Marco R.", "Anyone seen the staging deploy hang on migrations?");
+    Ok(())
+}
+
+/// Two Slack signals the AI split across topics (15g: a DM; 15h: a channel
+/// with a thread). The root keeps the Acme outage part; the others are split
+/// children, one suggested to Q4 headcount and one left in Unsorted.
+fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum G {
+        Acme,
+        Q4,
+        Unsorted,
+    }
+    /// (time, sender, text, group, thread replies as (time, sender, text)).
+    type Msg<'a> = (&'a str, &'a str, &'a str, G, &'a [(&'a str, &'a str, &'a str)]);
+    let family = |title: &str, channel: &str, msgs: &[Msg]| -> anyhow::Result<()> {
+        let first = msgs.first().map(|m| m.0).unwrap_or("09:00");
+        let last = msgs.last().map(|m| m.0).unwrap_or(first);
+        let keys: Vec<String> = msgs.iter().enumerate().map(|(i, _)| format!("{channel}.{i}")).collect();
+        let root = ctx.item(ItemSeed {
+            source: "slack",
+            kind: "thread",
+            title: title.into(),
+            url: Some(format!("slack://channel?team=T0&id={channel}")),
+            occurred_at: ctx.at(0, first),
+            ended_at: Some(ctx.at(0, last)),
+            msg_count: Some(msgs.len() as i64),
+            seen: false,
+            ..Default::default()
+        });
+        ctx.conn.execute(
+            "UPDATE items SET raw_json = ?2 WHERE id = ?1",
+            params![root, json!({ "channel": channel, "msgs": keys, "mark_ts": keys.last() }).to_string()],
+        )?;
+        let mut groups: Vec<(G, Vec<i64>)> = vec![];
+        for ((t, who, text, g, replies), key) in msgs.iter().zip(&keys) {
+            let id = ctx.slack_keyed(root, &ctx.at(0, t), who, text, Some(key), None);
+            for (i, (rt, rwho, rtext)) in replies.iter().enumerate() {
+                ctx.slack_keyed(root, &ctx.at(0, rt), rwho, rtext, Some(&format!("{key}.r{i}")), Some(key));
+            }
+            match groups.iter_mut().find(|x| x.0 == *g) {
+                Some(x) => x.1.push(id),
+                None => groups.push((*g, vec![id])),
+            }
+        }
+        super::split::recount(ctx.conn, root, 0)?;
+        for (g, ids) in groups {
+            let item = if g == G::Acme { root } else { super::split::split_off(ctx.conn, root, &ids)? };
+            match g {
+                G::Acme => ctx.link(item, "Acme outage", "suggested"),
+                G::Q4 => ctx.link(item, "Q4 headcount", "suggested"),
+                G::Unsorted => {}
+            }
+        }
+        Ok(())
+    };
+    use G::*;
+    family(
+        "DM · Jordan",
+        "D0JORDAN",
+        &[
+            ("09:12", "Jordan", "Retry storm is contained, backlog is down to 3k.", Acme, &[]),
+            ("09:13", "Zach", "Nice. Who's writing the RCA?", Acme, &[]),
+            ("09:14", "Jordan", "Also, can we talk about the SRE req before Wed?", Q4, &[]),
+            ("09:15", "Jordan", "Priya said it might move to Q1.", Q4, &[]),
+            ("09:16", "Zach", "Yes. Tue 15:00?", Q4, &[]),
+            ("09:40", "Jordan", "Acme wants the RCA by Friday. I can draft it.", Acme, &[]),
+            ("09:41", "Jordan", "Who should review, you or Marco?", Acme, &[]),
+            ("10:02", "Jordan", "lunch?", Unsorted, &[]),
+            ("10:03", "Zach", "can't today, tomorrow?", Unsorted, &[]),
+            ("10:04", "Jordan", "Also the Acme dashboards are still red.", Unsorted, &[]),
+            ("10:30", "Jordan", "Fix is deployed, watching error rates.", Acme, &[]),
+        ],
+    )?;
+    family(
+        "#acme-incident",
+        "C0ACME",
+        &[
+            (
+                "09:05",
+                "Sam",
+                "Error rate on ingest is back above 2%. Anyone on it?",
+                Acme,
+                &[
+                    ("09:07", "Jordan", "Looking. Same retry pattern as yesterday."),
+                    ("09:09", "Zach", "Page Marco if it passes 5%."),
+                    ("09:20", "Jordan", "Contained, backlog down to 3k."),
+                    ("09:22", "Sam", "Thanks. I'll tell Acme."),
+                ],
+            ),
+            ("09:30", "Priya", "Unrelated, but is the SRE req still on for Q4?", Q4, &[]),
+            ("09:31", "Zach", "Yes, let's take it to our 1:1.", Q4, &[]),
+            ("09:48", "Marco R.", "anyone else's VPN flaky today?", Unsorted, &[]),
+            ("10:15", "Jordan", "Fix is deployed, watching error rates.", Acme, &[]),
+            ("10:40", "Sam", "🎉 status page is green", Unsorted, &[]),
+        ],
+    )?;
     Ok(())
 }
 
@@ -690,8 +1140,8 @@ mod tests {
         let names: Vec<_> = q.topics.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["Acme outage", "Alerting · P2", "Q4 headcount", "v1 ingest deprecation", "Career"]);
         let acme = &q.topics[0];
-        assert_eq!(acme.signals.len(), 3);
-        let slack = acme.signals.iter().find(|s| s.source == "slack").unwrap();
+        assert_eq!(acme.signals.len(), 5, "inc-2291, the two split Slack signals (15g, 15h), mail, invite");
+        let slack = acme.signals.iter().find(|s| s.title == "#inc-2291").unwrap();
         assert_eq!(slack.meta, "42 new · 09:05–10:40");
         assert_eq!(slack.messages.len(), 4);
         let cal = acme.signals.iter().find(|s| s.source == "gcal").unwrap();
@@ -700,7 +1150,7 @@ mod tests {
         assert_eq!(mail.meta, "10:22");
         let alerts: i64 = q.topics[1].signals.iter().filter_map(|s| s.msg_count).sum();
         assert_eq!(alerts, 214);
-        assert_eq!(q.unsorted.len(), 6);
+        assert_eq!(q.unsorted.len(), 9, "6 items, the Unsorted parts of both splits, #platform-eng");
         assert!(q.unsorted.iter().any(|s| s.source == "github"));
         assert!(q.unsorted.iter().any(|s| s.source == "jira"));
         // The tab badge (unseen items) matches what the queue shows.
@@ -716,7 +1166,7 @@ mod tests {
         confirm(&conn, item, t.id).unwrap();
         assert_eq!(link_state(&conn, item, t.id).unwrap().as_deref(), Some("confirmed"));
         let q2 = queue(&conn, now).unwrap();
-        assert_eq!(q2.topics[topic(&q2, "Acme outage").unwrap()].signals.len(), 2);
+        assert_eq!(q2.topics[topic(&q2, "Acme outage").unwrap()].signals.len(), 4);
         assert!(!q2.unsorted.iter().any(|s| s.item_id == item));
         assert_eq!(unseen(&conn) as usize, shown(&q2));
     }
@@ -776,12 +1226,125 @@ mod tests {
         move_to(&conn, pr, target, None).unwrap();
         assert_eq!(link_state(&conn, pr, target).unwrap().as_deref(), Some("confirmed"));
         let q2 = queue(&conn, now).unwrap();
-        assert_eq!(q2.unsorted.len(), 5);
+        assert_eq!(q2.unsorted.len(), 8);
         assert_eq!(unseen(&conn) as usize, shown(&q2));
     }
 
     fn topic_named(conn: &Connection, name: &str) -> i64 {
         conn.query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+    }
+
+    fn exists(conn: &Connection, item: i64) -> bool {
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1)", [item], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn messages_carry_people_and_unknown_senders_get_a_suggestion() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let acme = &q.topics[topic(&q, "Acme outage").unwrap()];
+        let inc = acme.signals.iter().find(|s| s.title == "#inc-2291").unwrap();
+        let jordan = &inc.messages[0].who;
+        assert!(jordan.known && jordan.name.as_deref() == Some("Jordan"));
+        assert_eq!(jordan.color, people::hash_color("jordan.lee@work.com"));
+        let marco = &inc.messages[1].who;
+        assert!(!marco.known);
+        assert_eq!(marco.account.as_ref().map(|a| a.id.as_str()), Some("U0MARCO"));
+        let np = inc.new_person.as_ref().expect("Marco is in 3 signals today");
+        assert_eq!((np.account.as_str(), np.name.as_str(), np.signals), ("U0MARCO", "Marco R.", 3));
+        let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
+        assert!(dm.messages[1].who.me, "your own messages are you, in your colour");
+        assert_eq!(dm.messages[1].who.color, 0);
+        assert!(dm.new_person.is_none());
+    }
+
+    #[test]
+    fn a_split_signal_shows_where_its_other_parts_came_in() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let acme = &q.topics[topic(&q, "Acme outage").unwrap()];
+        let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
+        assert!(dm.split);
+        let times: Vec<(&str, bool)> = dm.messages.iter().map(|m| (m.time.as_str(), m.gap)).collect();
+        assert_eq!(times, [("09:12", false), ("09:13", false), ("09:40", true), ("09:41", false), ("10:30", true)]);
+        assert!(!acme.signals.iter().find(|s| s.title == "#inc-2291").unwrap().split);
+        let chan = acme.signals.iter().find(|s| s.title == "#acme-incident").unwrap();
+        assert_eq!(chan.messages[0].replies.len(), 4, "the thread rides with its first message");
+    }
+
+    #[test]
+    fn split_review_moves_dismisses_and_confirms_parts() {
+        let (conn, now, _d) = setup();
+        let settings = PeopleSettings::default();
+        let acme = topic_named(&conn, "Acme outage");
+        let q4 = topic_named(&conn, "Q4 headcount");
+        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
+        let f = family(&conn, dm, &settings).unwrap();
+        assert_eq!((f.conv, f.root, f.messages.len()), ("dm", dm, 11));
+        let topics: Vec<Option<i64>> = f.parts.iter().map(|p| p.topic.as_ref().map(|t| t.id)).collect();
+        assert_eq!(topics, [Some(acme), Some(q4), None]);
+        let uns = f.parts[2].item_id;
+        let at = |t: &str| f.messages.iter().find(|m| m.time == t).unwrap().id;
+        assert!(f.messages.iter().all(|m| m.part.is_some()));
+
+        // t to a topic that has a group: straight into that part; u moves it back.
+        assert_eq!(review_move(&conn, uns, &[at("10:04")], To::Topic(acme)).unwrap(), dm);
+        assert_eq!(family(&conn, dm, &settings).unwrap().messages.iter().find(|m| m.time == "10:04").unwrap().part, Some(dm));
+        review_move(&conn, dm, &[at("10:04")], To::Part(uns)).unwrap();
+
+        // A topic with no group yet: a new part, suggested to it.
+        let career = topic_named(&conn, "Career");
+        let part = review_move(&conn, uns, &[at("10:02")], To::Topic(career)).unwrap();
+        assert!(part != uns && part != dm);
+        assert_eq!(link_state(&conn, part, career).unwrap().as_deref(), Some("suggested"));
+        // d: dismissed in place, into the family's seen part; a second one joins it.
+        let bin = review_dismiss(&conn, uns, &[at("10:03")]).unwrap();
+        assert_eq!(review_dismiss(&conn, uns, &[at("10:04")]).unwrap(), bin);
+        let f2 = family(&conn, dm, &settings).unwrap();
+        assert!(f2.parts.iter().any(|p| p.item_id == bin && p.dismissed));
+        assert_eq!(f2.messages.len(), 11, "dismissed messages stay in the review, struck through");
+        assert!(!exists(&conn, uns), "the emptied Unsorted part is pruned");
+        // u: back to Unsorted, which is made again.
+        let uns2 = review_move(&conn, bin, &[at("10:04")], To::Unsorted).unwrap();
+        assert_eq!(review_move(&conn, bin, &[at("10:03")], To::Unsorted).unwrap(), uns2);
+        assert!(!exists(&conn, bin), "the dismissed part goes once it's empty");
+        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [uns2], |r| r.get(0)).unwrap();
+        assert!(!seen);
+        // Moving every message out of a part removes it.
+        let career_msgs = super::super::split::message_ids(&conn, part).unwrap();
+        review_move(&conn, part, &career_msgs, To::Unsorted).unwrap();
+        assert!(!exists(&conn, part));
+        assert_eq!(super::super::split::message_ids(&conn, uns2).unwrap().len(), 3);
+
+        // ↵ confirms every part with a topic; Unsorted stays.
+        assert_eq!(review_confirm(&conn, dm).unwrap(), 2);
+        assert_eq!(link_state(&conn, dm, acme).unwrap().as_deref(), Some("confirmed"));
+        let q = queue(&conn, now).unwrap();
+        assert!(!q.topics.iter().flat_map(|t| &t.signals).any(|s| s.title == "DM · Jordan"));
+        assert!(q.unsorted.iter().any(|s| s.item_id == uns2));
+        assert_eq!(unseen(&conn) as usize, shown(&q));
+        // Moving Unsorted's messages into a confirmed part files them there:
+        // the family is settled and the conversation is marked read once.
+        let rest = super::super::split::message_ids(&conn, uns2).unwrap();
+        review_move(&conn, uns2, &rest, To::Part(dm)).unwrap();
+        let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        assert_eq!(marks, 0, "a move isn't a confirm");
+    }
+
+    #[test]
+    fn confirming_a_review_leaves_the_unsorted_group_in_incoming() {
+        let (conn, now, _d) = setup();
+        let chan: i64 = conn.query_row("SELECT id FROM items WHERE title = '#acme-incident' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
+        let f = family(&conn, chan, &PeopleSettings::default()).unwrap();
+        assert_eq!(f.conv, "channel");
+        assert_eq!(f.messages[0].replies.len(), 4);
+        let uns = f.parts.iter().find(|p| p.topic.is_none()).unwrap().item_id;
+        assert_eq!(review_confirm(&conn, chan).unwrap(), 2);
+        let q = queue(&conn, now).unwrap();
+        assert!(q.unsorted.iter().any(|s| s.item_id == uns));
+        let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        assert_eq!(marks, 0, "not marked read while part of it is still in Incoming");
+        assert!(review_move(&conn, uns, &[9999], To::Part(chan)).is_err());
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "priorities" => queries::priorities::call(app, name, args),
         "todos" => queries::todos::call(app, name, args),
         "notes" => queries::notes::call(app, name, args),
+        "people" => queries::people::call(app, name, args),
         "reflect" => queries::reflect::call(app, name, args),
         "search" => queries::search::call(app, name, args),
         "sync" => crate::sync::call(app, name, args),

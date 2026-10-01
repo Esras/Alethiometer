@@ -17,6 +17,8 @@ use std::path::Path;
 pub const BUDGET: usize = 24_000;
 /// Share of the budget the topic note may take.
 const NOTE_CAP: usize = 6_000;
+/// Share of the budget the topic's people may take.
+const PEOPLE_CAP: usize = 2_500;
 const BODY_CAP: usize = 600;
 const MSG_CAP: usize = 300;
 const MSGS_PER_ITEM: usize = 6;
@@ -140,6 +142,11 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
     ctx.push(&format!("Topic: {name}\n"), None);
     if !note.trim().is_empty() {
         ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(&note, NOTE_CAP)), None);
+    }
+    let now = chrono::Local::now().naive_local();
+    let people = crate::queries::people::agent_context(conn, vault, topic_id, now)?;
+    if !people.is_empty() {
+        ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
     }
     let mut stmt = conn.prepare(&format!(
         "SELECT {ITEM_COLS}
@@ -338,6 +345,8 @@ pub mod tests {
         assert!(ctx.text.contains("[item "));
         assert!(!ctx.used.is_empty());
         assert!(ctx.text.len() <= BUDGET);
+        assert!(ctx.text.contains("People on this topic"));
+        assert!(ctx.text.contains("- Kim (Procurement), note People/Kim.md"), "{}", ctx.text);
     }
 
     #[test]

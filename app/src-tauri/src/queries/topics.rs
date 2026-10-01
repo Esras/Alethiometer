@@ -65,14 +65,6 @@ struct Entry {
     open: bool,
 }
 
-#[derive(Serialize)]
-struct Person {
-    id: i64,
-    name: String,
-    role: Option<String>,
-    initials: String,
-}
-
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "list" => list(app, args.get("archived").and_then(Value::as_bool).unwrap_or(false)),
@@ -396,16 +388,10 @@ fn get(app: &App, id: i64) -> Result<Value> {
         }
     }
 
-    let people = conn
-        .prepare(
-            "SELECT p.id, p.display_name, p.role FROM topic_people tp JOIN people p ON p.id = tp.person_id
-              WHERE tp.topic_id = ?1 ORDER BY p.display_name",
-        )?
-        .query_map([id], |r| {
-            let name: String = r.get(1)?;
-            Ok(Person { id: r.get(0)?, initials: name.chars().take(2).collect::<String>().to_uppercase(), name, role: r.get(2)? })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let people = {
+        let r = super::people::Resolver::load(&conn, &app.settings.people)?;
+        super::people::for_topic(&conn, &r, id, now, 9)?
+    };
 
     let repos = conn
         .prepare("SELECT repo FROM topic_repos WHERE topic_id = ?1 ORDER BY repo")?

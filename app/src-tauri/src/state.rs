@@ -59,6 +59,8 @@ impl App {
         if app.settings.demo_data {
             crate::seed::seed_if_empty(&app)?;
         }
+        // People notes may have changed while the app was closed.
+        crate::queries::people::scan(&app.db(), &app.vault)?;
         Ok(app)
     }
 

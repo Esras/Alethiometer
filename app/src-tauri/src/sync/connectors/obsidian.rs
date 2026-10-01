@@ -565,6 +565,13 @@ pub fn after_apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<
         }
     }
     tx.commit()?;
+    // People notes (queries::people) changed, appeared or went away.
+    if let Ok(vault) = vault_root(&source.config) {
+        let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(batch.cursor.as_deref()));
+        let gone = old.files.keys().filter(|p| !new.files.contains_key(*p)).map(String::as_str);
+        let read = batch.items.iter().filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
+        crate::queries::people::scan_if_touched(conn, &vault, read.chain(gone), baseline)?;
+    }
     Ok(quieted)
 }
 

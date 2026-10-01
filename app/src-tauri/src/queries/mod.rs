@@ -5,6 +5,7 @@ pub mod categories;
 pub mod daystrip;
 pub mod incoming;
 pub mod notes;
+pub mod people;
 pub mod priorities;
 pub mod reflect;
 pub mod search;

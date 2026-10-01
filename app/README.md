@@ -15,6 +15,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
 | Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
+| People notes (`People/*.md`), person colours, new-person suggestions, link to person, Slack split review | done. See `docs/people.md` |
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
 | Sync status (freshness per source, write states) | tab bar |
@@ -73,6 +74,9 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 | `ui_scale` | Desktop window zoom (default `1.0`, e.g. `1.15`). Read at startup. |
 | `fake_now` | Dev only: pin the clock to `HH:MM`. |
 | `demo_data` | Fill an empty database with the sample data. Turn off before connecting real sources. |
+| `people.my_color` | Your person colour: index into the 256-colour palette (default `0`, Gruvbox red). See `docs/people.md`. |
+| `people.me` | Your own accounts besides your Slack user id, as `kind:account` (`email:me@work.com`, `jira:…`, `github:…`). |
+| `people.suggest_after`, `people.suggest_days` | Suggest a People note for an unknown sender seen in this many signals (default 3) within this many days (default 7). |
 
 ## Architecture
 

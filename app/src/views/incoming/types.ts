@@ -1,4 +1,5 @@
 // Shapes returned by incoming.list (src-tauri/src/queries/incoming.rs).
+import type { NewPerson, Who } from '../../lib/people';
 import type { SourceKind, TopicRef } from '../../lib/types';
 
 export interface Message {
@@ -6,6 +7,12 @@ export interface Message {
   time: string;
   author: string;
   text: string;
+  /** Person colour and People note (16c, 17a). */
+  who: Who;
+  /** Another part of this split came in just before this message (⋯). */
+  gap?: boolean;
+  /** The split part holding it (`incoming.family` only). */
+  part?: number;
   /** Thread replies to this message; they move with it. */
   replies?: Message[];
 }
@@ -28,6 +35,10 @@ export interface Signal {
   update: boolean;
   /** A todo waiting for this signal to be confirmed (22c). */
   held: Held | null;
+  /** One part of a split whose other parts still hold messages (15g). */
+  split: boolean;
+  /** An unknown sender here is worth a People note (17a). */
+  new_person: NewPerson | null;
 }
 
 export interface Held {
@@ -47,3 +58,23 @@ export interface Queue {
 
 /** A topic id, or Unsorted. */
 export type QueueKey = number | 'unsorted';
+
+/** One part of a split family in the review (15g/15h). */
+export interface Part {
+  item_id: number;
+  /** Its topic; null is Unsorted. */
+  topic: { id: number; name: string; category: string } | null;
+  /** The family's dismissed messages. */
+  dismissed: boolean;
+}
+
+/** `incoming.family`: every part still in Incoming, messages in time order. */
+export interface Family {
+  root: number;
+  title: string;
+  source: SourceKind;
+  url: string | null;
+  conv: 'dm' | 'group' | 'channel' | 'thread' | 'other';
+  parts: Part[];
+  messages: Message[];
+}

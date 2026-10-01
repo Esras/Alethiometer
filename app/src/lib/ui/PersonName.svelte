@@ -1,0 +1,33 @@
+<script lang="ts">
+  // A sender's name in their person colour (16c). Someone without a People
+  // note gets a dotted underline in their hash colour (17a); clicking it opens
+  // Link to person (17b) when the caller offers it.
+  import { personColor, type Who } from '../people';
+
+  let { who, name, onlink }: { who: Who; name: string; onlink?: () => void } = $props();
+  const linkable = $derived(!who.known && !!who.account && !!onlink);
+</script>
+
+{#if linkable}
+  <button
+    class="name unknown ellipsis"
+    style:color={personColor(who.color)}
+    title="{name} · no People note · link to a person"
+    onclick={(e) => (e.stopPropagation(), onlink?.())}>{name}</button
+  >
+{:else}
+  <span class="name ellipsis" style:color={personColor(who.color)} title={who.name && who.name !== name ? `${name} · ${who.name}` : name}>{name}</span>
+{/if}
+
+<style>
+  .name {
+    font-weight: 500;
+    text-align: left;
+    min-width: 0;
+  }
+  .unknown {
+    text-decoration: underline dotted var(--tx-label);
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+</style>

@@ -85,6 +85,10 @@ A task's id is its note's path plus a hash of its words, so adding a due date ke
 - **A topic's own note** (`topics.obsidian_path`) and every task in it are linked to that topic as confirmed and marked seen. You put them there, so there's nothing to triage. A link you've marked Wrong stays wrong.
 - **Removed tasks** (checked off, edited or deleted), and every item from a deleted or renamed file, are set to `done`. Nothing is ever deleted from Alethiometer. After a rename the note comes back as a new item, and links you confirmed on the old one stay on the old one.
 
+### People notes
+
+`People/*.md` are also read as People (their frontmatter lists each person's accounts and colour), whenever a sync touches `People/` and at startup. Creating a person or linking an account from Incoming writes the note with `obsidian.replace`. See `docs/people.md`.
+
 ## What is written (outbox ops)
 
 Every op reads the note first and computes the new text itself; none of them merges or guesses.

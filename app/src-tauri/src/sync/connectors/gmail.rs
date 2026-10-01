@@ -220,11 +220,16 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>) -> Option<
     let at = |m: &Value| local_from_unix(internal_ms(m) as f64 / 1000.0).unwrap_or_default();
     let messages: Vec<Message> = msgs
         .iter()
-        .map(|m| Message {
-            at: at(m),
-            author: sender(m).map(|h| h.display_name).unwrap_or_else(|| "unknown".into()),
-            text: body_text(m),
-            ..Default::default()
+        .map(|m| {
+            let from = sender(m);
+            Message {
+                at: at(m),
+                author: from.as_ref().map(|h| h.display_name.clone()).unwrap_or_else(|| "unknown".into()),
+                text: body_text(m),
+                // The sender's address (or relay handle): what People notes match (queries::people).
+                author_id: from.map(|h| h.handle),
+                ..Default::default()
+            }
         })
         .collect();
     let title = header(&all[0], "Subject").map(str::trim).filter(|s| !s.is_empty()).unwrap_or("(no subject)").to_string();

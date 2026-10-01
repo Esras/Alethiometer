@@ -80,6 +80,23 @@ impl<'a> Ctx<'a> {
             .expect("seed link");
     }
 
+    /// A Slack message: its author id is `U0` and the name's first word in
+    /// capitals (`slack_id`), which the sample People notes list.
+    pub fn slack(&self, item_id: i64, at: &str, author: &str, text: &str) -> i64 {
+        self.slack_keyed(item_id, at, author, text, None, None)
+    }
+
+    /// `slack` with the message's key (Slack ts) and, for a thread reply, its parent's key.
+    pub fn slack_keyed(&self, item_id: i64, at: &str, author: &str, text: &str, key: Option<&str>, reply_to: Option<&str>) -> i64 {
+        self.conn
+            .execute(
+                "INSERT INTO item_messages (item_id, at, author, text, author_id, ext_key, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![item_id, at, author, text, slack_id(author), key, reply_to],
+            )
+            .expect("seed message");
+        self.conn.last_insert_rowid()
+    }
+
     pub fn message(&self, item_id: i64, at: &str, author: &str, text: &str) {
         self.conn
             .execute(
@@ -160,6 +177,15 @@ impl Default for ItemSeed {
     }
 }
 
+/// Sample Slack user id for a name: "Marco R." → "U0MARCO".
+pub fn slack_id(name: &str) -> String {
+    let first = name.split_whitespace().next().unwrap_or("");
+    format!("U0{}", first.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_uppercase())
+}
+
+/// Your Slack user id in the sample data (the Slack source's `me`).
+pub const ME: &str = "Zach";
+
 pub fn fmt(t: NaiveDateTime) -> String {
     t.format("%Y-%m-%dT%H:%M:%S").to_string()
 }
@@ -173,6 +199,55 @@ pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     seed(&tx, app.clock.now().date(), &app.vault)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// People notes (17a/17b) for the sample people, in the stand-in vault, and
+/// the rows `queries::people::scan` would make from them. Marco has none, so
+/// Incoming can suggest one for him.
+fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMap<&'static str, i64>) -> anyhow::Result<()> {
+    let notes: [(&str, Option<&str>, Option<&str>, &str); 8] = [
+        ("Jordan", Some("jordan.lee@work.com"), Some("jlee-work"), "[[Platform]]"),
+        ("Priya", Some("priya.n@work.com"), None, "[[Data eng]]"),
+        ("Sam", Some("sam.k@work.com"), None, "[[Accounts]]"),
+        ("Kim", Some("kim@work.com"), None, "[[Procurement]]"),
+        ("Lee", Some("lee.h@work.com"), None, "[[People team]]"),
+        ("Ana", Some("ana@work.com"), None, "[[Finance]]"),
+        ("Ravi", Some("ravi@datadoghq.com"), None, ""),
+        ("Dana", Some("dana@acme.com"), None, ""),
+    ];
+    let dir = vault.join(crate::queries::people::PEOPLE_DIR);
+    std::fs::create_dir_all(&dir)?;
+    for (name, email, github, team) in notes {
+        let id = people[name];
+        let role: Option<String> = conn.query_row("SELECT role FROM people WHERE id = ?1", [id], |r| r.get(0))?;
+        let slack = slack_id(name);
+        let mut text = format!("---\naliases: []\nslack: {slack}\n");
+        if let Some(e) = email {
+            text.push_str(&format!("email: [{e}]\n"));
+        }
+        if let Some(g) = github {
+            text.push_str(&format!("github: {g}\n"));
+        }
+        if let Some(r) = &role {
+            text.push_str(&format!("role: {r}\n"));
+        }
+        if !team.is_empty() {
+            text.push_str(&format!("team: \"{team}\"\n"));
+        }
+        text.push_str("---\n");
+        let path = dir.join(format!("{name}.md"));
+        if !path.exists() {
+            std::fs::write(&path, text)?;
+        }
+        let rel = format!("{}/{name}.md", crate::queries::people::PEOPLE_DIR);
+        conn.execute("UPDATE people SET note_path = ?2 WHERE id = ?1", params![id, rel])?;
+        for (kind, acct) in [("slack", Some(slack.as_str())), ("email", email), ("github", github)] {
+            if let Some(a) = acct {
+                conn.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, a, id])?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -209,6 +284,8 @@ pub fn seed(conn: &Connection, today: NaiveDate, vault: &std::path::Path) -> any
         conn.execute("INSERT INTO people (display_name, role) VALUES (?1, ?2)", params![name, role])?;
         people.insert(name, conn.last_insert_rowid());
     }
+    seed_people_notes(conn, vault, &people)?;
+    conn.execute("UPDATE sources SET cursor = ?1 WHERE kind = 'slack'", [serde_json::json!({ "me": slack_id(ME) }).to_string()])?;
 
     let mut topics = HashMap::new();
     for (name, category, path) in [

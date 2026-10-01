@@ -122,12 +122,17 @@ fn clip(s: &str, n: usize) -> String {
 /// Bring an item's derived fields in line with the messages it holds after
 /// `removed` of them went to a child: times, count, summary, body and the
 /// per-message fields in `raw_json`. With no messages left it is marked seen
-/// (nothing of its own is new); it is never deleted.
+/// (nothing of its own is new); it is never deleted here (see `prune`).
 pub fn recount(conn: &Connection, item_id: i64, removed: usize) -> Result<()> {
+    recount_by(conn, item_id, -(removed as i64))
+}
+
+/// `recount`, with the message count changed by `delta` (negative: moved out).
+fn recount_by(conn: &Connection, item_id: i64, delta: i64) -> Result<()> {
     let rows = messages(conn, item_id)?;
     let (count, raw): (Option<i64>, String) =
         conn.query_row("SELECT msg_count, raw_json FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let count = (count.unwrap_or(0) - removed as i64).max(rows.len() as i64);
+    let count = (count.unwrap_or(0) + delta).max(rows.len() as i64);
     let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
         conn.execute("UPDATE items SET msg_count = ?2, seen = 1 WHERE id = ?1", params![item_id, count])?;
         return Ok(());
@@ -158,6 +163,12 @@ pub fn recount(conn: &Connection, item_id: i64, removed: usize) -> Result<()> {
 /// no topic link except inherited `wrong` ones; the caller links it. Run inside
 /// a transaction.
 pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result<i64> {
+    carve(conn, item_id, message_ids, false)
+}
+
+/// `split_off`, optionally taking every message (the split review moves whole
+/// parts; the item left empty is marked seen by `recount`).
+pub fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) -> Result<i64> {
     let (source_id, parent_id, raw, kind): (i64, Option<i64>, String, String) = conn
         .query_row("SELECT source_id, parent_id, raw_json, kind FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .optional()?
@@ -174,7 +185,7 @@ pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result
     if !wanted.iter().all(|id| rows.iter().any(|r| r.0 == *id)) {
         return Err(msg("those messages aren't in this item"));
     }
-    if wanted.len() == rows.len() {
+    if wanted.len() == rows.len() && !allow_all {
         return Err(msg("that's every message: move the whole item instead"));
     }
     ensure_keys(conn, &raw, &mut rows)?;
@@ -227,6 +238,101 @@ pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result
     recount(conn, child, 0)?;
     recount(conn, item_id, moved)?;
     Ok(child)
+}
+
+/// The root of an item's split family and every part (root first, then
+/// children in the order they were made).
+pub fn family(conn: &Connection, item_id: i64) -> Result<(i64, Vec<i64>)> {
+    let parent: Option<i64> = conn
+        .query_row("SELECT parent_id FROM items WHERE id = ?1", [item_id], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| msg("no such item"))?;
+    let root = parent.unwrap_or(item_id);
+    let parts = conn
+        .prepare_cached("SELECT id FROM items WHERE id = ?1 OR parent_id = ?1 ORDER BY id = ?1 DESC, id")?
+        .query_map([root], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<i64>>>()?;
+    Ok((root, parts))
+}
+
+/// Move messages (and their thread replies) from one part of a split family to
+/// another, both sides recounted. The read marker (`mark_ts`) is kept within
+/// reach: the part receiving messages takes the giver's when it's newer, so the
+/// family's newest marker survives `prune`. Returns how many moved.
+pub fn move_messages(conn: &Connection, from: i64, message_ids: &[i64], to: i64) -> Result<usize> {
+    if from == to {
+        return Ok(0);
+    }
+    let (root, _) = family(conn, from)?;
+    if family(conn, to)?.0 != root {
+        return Err(msg("those items aren't parts of one signal"));
+    }
+    let raw_of = |id: i64| -> Result<Value> {
+        let s: String = conn.query_row("SELECT raw_json FROM items WHERE id = ?1", [id], |r| r.get(0))?;
+        Ok(serde_json::from_str(&s).unwrap_or_else(|_| json!({})))
+    };
+    let from_raw = raw_of(from)?;
+    let mut rows = messages(conn, from)?;
+    ensure_keys(conn, &from_raw, &mut rows)?;
+    let wanted: HashSet<i64> = message_ids.iter().copied().collect();
+    if wanted.is_empty() || !wanted.iter().all(|id| rows.iter().any(|r| r.0 == *id)) {
+        return Err(msg("those messages aren't in that part"));
+    }
+    for id in &wanted {
+        conn.execute("UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3", params![to, id, from])?;
+    }
+    conn.execute(
+        "UPDATE item_messages SET item_id = ?1 WHERE item_id = ?2
+            AND reply_to IN (SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL)",
+        params![to, from],
+    )?;
+    let ts = |v: &Value| v.get("mark_ts").and_then(Value::as_str).map(|t| (t.parse::<f64>().unwrap_or(0.0), t.to_owned()));
+    if let Some((n, t)) = ts(&from_raw) {
+        let mut to_raw = raw_of(to)?;
+        if ts(&to_raw).is_none_or(|(m, _)| m < n) {
+            if let Some(o) = to_raw.as_object_mut() {
+                o.insert("mark_ts".into(), json!(t));
+                conn.execute("UPDATE items SET raw_json = ?2 WHERE id = ?1", params![to, to_raw.to_string()])?;
+            }
+        }
+    }
+    let n = wanted.len();
+    recount_by(conn, to, n as i64)?;
+    recount_by(conn, from, -(n as i64))?;
+    Ok(n)
+}
+
+/// Remove a child part the split review emptied: no messages left, nothing
+/// confirmed to it, no todo held on it. The root is never removed, and neither
+/// is anything another table still points at. Returns whether it went.
+pub fn prune(conn: &Connection, item_id: i64) -> Result<bool> {
+    let removable: bool = conn.query_row(
+        "SELECT i.parent_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM item_messages WHERE item_id = i.id)
+            AND NOT EXISTS (SELECT 1 FROM topic_links WHERE item_id = i.id AND state = 'confirmed')
+            AND NOT EXISTS (SELECT 1 FROM held_todos WHERE item_id = i.id)
+           FROM items i WHERE i.id = ?1",
+        [item_id],
+        |r| r.get(0),
+    )?;
+    if !removable {
+        return Ok(false);
+    }
+    conn.execute_batch("SAVEPOINT prune")?;
+    let gone = conn
+        .execute("DELETE FROM topic_links WHERE item_id = ?1", [item_id])
+        .and_then(|_| conn.execute("DELETE FROM items WHERE id = ?1", [item_id]));
+    match gone {
+        Ok(_) => {
+            conn.execute_batch("RELEASE prune")?;
+            Ok(true)
+        }
+        // Something else still refers to it (foreign keys): it stays, empty and seen.
+        Err(_) => {
+            conn.execute_batch("ROLLBACK TO prune; RELEASE prune")?;
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(test)]

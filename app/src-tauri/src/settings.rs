@@ -116,6 +116,28 @@ pub struct Settings {
     /// Fill an empty database with the sample data from the design mocks.
     /// Turn off once real sources are connected.
     pub demo_data: bool,
+    /// People notes, person colours and new-person suggestions.
+    pub people: PeopleSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PeopleSettings {
+    /// Your own colour: an index into the 256-colour person palette (0 is Gruvbox red).
+    pub my_color: u8,
+    /// Your own accounts, as `kind:account` (`email:me@work.com`, `jira:5f2c…`,
+    /// `github:me`). Your Slack user id comes from the Slack source itself.
+    pub me: Vec<String>,
+    /// Suggest a People note for an unknown sender seen in this many signals…
+    pub suggest_after: i64,
+    /// …within this many days.
+    pub suggest_days: i64,
+}
+
+impl Default for PeopleSettings {
+    fn default() -> Self {
+        PeopleSettings { my_color: 0, me: vec![], suggest_after: 3, suggest_days: 7 }
+    }
 }
 
 impl Default for Settings {
@@ -149,6 +171,7 @@ impl Default for Settings {
             quiet_days: 7,
             sources: vec![],
             demo_data: true,
+            people: PeopleSettings::default(),
         }
     }
 }

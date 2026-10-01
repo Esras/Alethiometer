@@ -230,6 +230,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, 
                 at: to_local(c.get("created")?.as_str()?)?,
                 author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
                 text: adf_text(c.get("body")?),
+                author_id: c.pointer("/author/accountId").and_then(Value::as_str).map(str::to_owned),
                 ..Default::default()
             })
         })

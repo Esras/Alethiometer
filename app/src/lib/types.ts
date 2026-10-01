@@ -97,7 +97,8 @@ export interface TopicDetail {
     open: boolean;
   }[];
   filters: { source: SourceKind; count: number }[];
-  people: { id: number; name: string; role: string | null; initials: string }[];
+  /** Whoever wrote in its confirmed signals, plus anyone linked by hand (`people::for_topic`). */
+  people: TopicPerson[];
   repos: string[];
   note: { path: string; abs_path: string; text: string } | null;
 }
@@ -105,4 +106,18 @@ export interface TopicDetail {
 export interface SearchResults {
   topics: (TopicRef & { type: 'topic'; title: string })[];
   items: { type: 'item'; id: number; title: string; source: SourceKind; at: string; topic_id: number | null }[];
+}
+
+export interface TopicPerson {
+  /** The People note's person; null for someone without a note. */
+  id: number | null;
+  name: string;
+  initials: string;
+  role: string | null;
+  /** Person palette index (16c). */
+  color: number;
+  known: boolean;
+  account: import('./people').Account | null;
+  signals: number;
+  last: string | null;
 }

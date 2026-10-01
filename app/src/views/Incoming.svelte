@@ -6,16 +6,26 @@
   // Unsorted only: ↵ on a signal with several messages enters its message list
   // (j/k move, space selects, t files the selected messages under a topic as a
   // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
+  // A signal the AI split across topics has a `split` pill and ⋯ where its
+  // other parts came in; `s` (or ↵ once expanded, or a click on either) opens
+  // the split review (15g/15h). Names are in their person colour (16c);
+  // someone without a People note is underlined and clicking them links an
+  // account to a person (17b); a frequent unknown sender gets a New person
+  // strip under the messages (17a: p create note, l link, Not now).
   import { call, openExternal } from '../lib/api';
   import { untrack } from 'svelte';
   import { catColor, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { sourceLabel } from '../lib/sources';
+  import { personColor, type Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Markdown from '../lib/ui/Markdown.svelte';
+  import PersonName from '../lib/ui/PersonName.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
+  import PersonPicker from './incoming/PersonPicker.svelte';
+  import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
-  import type { Queue, QueueKey, Signal } from './incoming/types';
+  import type { Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
@@ -31,6 +41,10 @@
   let jira = $state<JiraTarget | null>(null);
   call<TodosData>('todos.list').then((d) => (jira = d.jira));
   let picking = $state(false);
+  // Split review (15g/15h) open on this item.
+  let reviewing = $state<number | null>(null);
+  // Link to person (17b) open on this signal for this account.
+  let linking = $state<{ item: number; account: Account; name: string } | null>(null);
   // Message mode (Unsorted): focus is inside the current signal's messages.
   let inMsgs = $state(false);
   let msgIdx = $state(0);
@@ -151,6 +165,7 @@
   // in the messages → collapse and leave.
   function enter(s: Signal | null) {
     if (!s) return;
+    if (s.split && expanded.has(s.item_id) && !inMsgs) return review(s);
     if (!splittable(s)) return toggle(s.item_id);
     if (inMsgs) {
       leaveMsgs();
@@ -176,6 +191,42 @@
     const m = current.messages[msgIdx];
     if (m) document.querySelector(`[data-msg="${m.id}"]`)?.scrollIntoView({ block: 'nearest' });
   });
+
+  function review(s: Signal | null) {
+    if (!s?.split || dismissed.has(s.item_id)) return;
+    selItem = s.item_id;
+    picking = false;
+    linking = null;
+    leaveMsgs();
+    reviewing = s.item_id;
+  }
+
+  function endReview() {
+    reviewing = null;
+    refresh();
+  }
+
+  function link(s: Signal, account: Account, name: string) {
+    selItem = s.item_id;
+    picking = false;
+    linking = { item: s.item_id, account, name };
+  }
+
+  function linkFrom(s: Signal, m: Message) {
+    if (m.who.account) link(s, m.who.account, m.author);
+  }
+
+  function newPersonNote(s: Signal | null) {
+    const np = s?.new_person;
+    if (!s || !np || !expanded.has(s.item_id)) return;
+    act('people.create', { name: np.name, alias: np.name, kind: np.kind, account: np.account });
+  }
+
+  function newPersonLink(s: Signal | null) {
+    const np = s?.new_person;
+    if (!s || !np || !expanded.has(s.item_id)) return;
+    link(s, { kind: np.kind, id: np.account }, np.name);
+  }
 
   function selectTopic(key: QueueKey) {
     if (key === selKey) return;
@@ -302,7 +353,7 @@
   }
 
   useKeys((e) => {
-    if (picking || todoFor !== null) return;
+    if (picking || todoFor !== null || linking || reviewing !== null) return;
     if (inMsgs && current) {
       if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepMsg(1), true;
       if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepMsg(-1), true;
@@ -327,6 +378,9 @@
     if (plain(e, 'n')) return openTodo(current), true;
     if (plain(e, '#')) return dismiss(current, true, true), true;
     if (plain(e, 'o')) return open(current), true;
+    if (plain(e, 's')) return review(current), true;
+    if (plain(e, 'p')) return newPersonNote(current), true;
+    if (plain(e, 'l')) return newPersonLink(current), true;
   });
 </script>
 
@@ -357,10 +411,23 @@
             {@const isOpen = expanded.has(s.item_id)}
             {@const gone = dismissed.has(s.item_id)}
             <div class="sig" class:sel class:gone data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+              {#if reviewing === s.item_id}
+                <SplitReview itemId={s.item_id} onclose={endReview} />
+              {:else}
               <div class="row">
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
                   {#if !isOpen}<span class="meta tnum">{s.meta}</span>{/if}
+                  {#if s.split}
+                    <span
+                      class="pill split"
+                      role="button"
+                      tabindex="-1"
+                      title="Split across topics: review it (s)"
+                      onclick={(e) => (e.stopPropagation(), review(s))}
+                      onkeydown={() => {}}><i class="ph ph-git-fork"></i>split</span
+                    >
+                  {/if}
                   {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
                 </button>
                 <div class="actions">
@@ -425,7 +492,7 @@
                     {#if !hidden || ci === 0 || ci > hidden}
                       <div class="msg context">
                         <span class="t tnum">{m.time}</span>
-                        <span class="who ellipsis" title={m.author}>{m.author}</span>
+                        <PersonName who={m.who} name={m.author} />
                         <div class="txt"><Markdown text={m.text} /></div>
                       </div>
                     {/if}
@@ -433,6 +500,9 @@
                   {#if s.messages.length}
                     {#each s.messages as m, mi (m.id)}
                       {@const canPick = splittable(s)}
+                      {#if m.gap}
+                        <button class="gap" title="Other topics' messages came in here: review the split (s)" onclick={(e) => (e.stopPropagation(), review(s))}>⋯</button>
+                      {/if}
                       <div
                         class="msg"
                         class:pickable={canPick}
@@ -444,17 +514,33 @@
                       >
                         {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                         <span class="t tnum">{m.time}</span>
-                        <span class="who ellipsis" title={m.author}>{m.author}</span>
+                        <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
                         <div class="txt"><Markdown text={m.text} /></div>
                       </div>
                       {#each m.replies ?? [] as r (r.id)}
                         <div class="msg reply" class:chosen={sel && chosen.has(m.id)}>
                           <span class="t tnum">{r.time}</span>
-                          <span class="who ellipsis" title={r.author}>{r.author}</span>
+                          <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
                           <div class="txt"><Markdown text={r.text} /></div>
                         </div>
                       {/each}
                     {/each}
+                  {/if}
+                  {#if s.new_person && !gone}
+                    {@const np = s.new_person}
+                    <div class="new-person">
+                      <i class="ph ph-user-plus"></i>
+                      <span class="q">New person?</span>
+                      <span class="np-name" style:color={personColor(np.color)}>{np.name}</span>
+                      <span class="np-info ellipsis">
+                        {sourceLabel(np.source)}{#if np.kind === 'email' || np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
+                      </span>
+                      <span class="np-actions">
+                        <button class="btn primary" onclick={(e) => (e.stopPropagation(), newPersonNote(s))}>Create note <kbd>p</kbd></button>
+                        <button class="btn" onclick={(e) => (e.stopPropagation(), newPersonLink(s))}>Link to… <kbd>l</kbd></button>
+                        <button class="btn" onclick={(e) => (e.stopPropagation(), act('people.snooze', { kind: np.kind, account: np.account }))}>Not now</button>
+                      </span>
+                    </div>
                   {/if}
                   {#if s.url}
                     <div class="links">
@@ -464,6 +550,17 @@
                       <button class="app" onclick={() => open(s)}>Open in {sourceLabel(s.source)}</button>
                     </div>
                   {/if}
+                </div>
+              {/if}
+              {#if linking?.item === s.item_id}
+                <div class="pick">
+                  <PersonPicker
+                    account={linking.account}
+                    name={linking.name}
+                    source={sourceLabel(s.source)}
+                    ondone={() => ((linking = null), refresh())}
+                    onclose={() => (linking = null)}
+                  />
                 </div>
               {/if}
               {#if sel && picking}
@@ -476,6 +573,7 @@
                   />
                 </div>
               {/if}
+              {/if}
             </div>
           {/each}
         {:else}
@@ -485,7 +583,10 @@
         {/each}
       </div>
       <div class="hints">
-        {#if unsorted && inMsgs}
+        {#if reviewing !== null}
+          <span>j/k message (skips ⋯)</span><span>space select</span><span>t move</span><span>d dismiss</span><span>u undo</span>
+          <span>↵ confirm groups</span><span>g by topic / in order</span><span>esc back</span>
+        {:else if unsorted && inMsgs}
           <span>j/k message</span><span>space select</span>
           <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
           <span>↵ collapse</span><span>esc done</span>
@@ -496,7 +597,11 @@
           <span>j/k signal</span><span>↵ expand</span>
           <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
-        <span>o open</span><span>[ ] topic</span>
+        {#if reviewing === null}
+          {#if current?.split}<span>s review split</span>{/if}
+          {#if current?.new_person && expanded.has(current.item_id)}<span>p new person</span><span>l link</span>{/if}
+          <span>o open</span><span>[ ] topic</span>
+        {/if}
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
       </div>
     </div>
@@ -768,9 +873,65 @@
   .t {
     color: var(--tx-label);
   }
-  .who {
+  .pill.split {
+    align-self: center;
+    flex: none;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: rgba(142, 192, 124, 0.18);
+    color: var(--aqua);
+    cursor: pointer;
+  }
+  .pill.split i {
+    font-size: 11px;
+  }
+  .gap {
+    display: block;
+    height: 14px;
+    padding: 0 8px;
+    margin: 0 -8px;
+    font-size: 12px;
+    line-height: 14px;
+    letter-spacing: 2px;
+    color: var(--tx-disabled);
+  }
+  .gap:hover {
+    color: var(--aqua);
+  }
+  .new-person {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 8px 0 4px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-panel);
+    border: 1px dashed var(--border-strong);
+    font-size: 12px;
+  }
+  .new-person > i {
+    font-size: 14px;
+    color: var(--tx-muted-2);
+  }
+  .new-person .q {
     color: var(--tx-body);
+  }
+  .np-name {
     font-weight: 500;
+  }
+  .np-info {
+    color: var(--tx-label);
+    min-width: 0;
+  }
+  .np-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
   }
   .txt {
     color: var(--tx-2);
