@@ -331,6 +331,7 @@
   }
   .pick {
     position: absolute;
+    z-index: 30;
     left: 10px;
     top: calc(100% - 6px);
   }
