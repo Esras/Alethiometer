@@ -4,7 +4,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 ## Where things are
 
-- **`main` now holds all work** (app + design handoff; design updates land there too). `claude/helm-ui-shell` is stale at `291d96f`; `claude/people-split-review` is a mirror of `main` at `cbcd1b2` (the 2026-10-01 session's staging branch) and can be deleted. Work on `main` — an earlier session silently ran on an out-of-date checkout, check `git status`/`git log` first.
+- **`main` now holds all work** (app + design handoff; design updates land there too). `claude/helm-ui-shell` is stale at `291d96f`; `claude/people-split-review` (the 2026-10-01 session's staging branch) only mirrors `main` and can be deleted. Work on `main` — an earlier session silently ran on an out-of-date checkout, check `git status`/`git log` first.
 - App: `app/` (Tauri 2, Rust core in `app/src-tauri`, Svelte 5 UI in `app/src`).
 - **Devshell**: `flake.nix`/`devshell.toml`/`.envrc` at repo root (numtide/devshell, same pattern as `k8s-iac`). `direnv allow` once, then `cargo`/`node`/`pkg-config`/`openssl` resolve inside the repo — nothing installed system-wide. `language.rust` module handles Darwin `*-sys` crate linking (frameworks, `xcbuild` toolchain on PATH).
 - Checks: `cd app/src-tauri && cargo test --no-default-features` (≈279 tests), `cargo build` (desktop; needs WebKitGTK dev libs on Linux, nothing extra on macOS), `cd app && npx svelte-check --tsconfig ./tsconfig.json`.
