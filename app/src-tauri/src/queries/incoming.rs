@@ -1009,6 +1009,11 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         ..Default::default()
     });
     ctx.slack(eng, &ctx.at(0, "08:12"), "Marco R.", "Anyone seen the staging deploy hang on migrations?");
+    // His Slack profile (users.info), so the strip reads as in 17a.
+    ctx.conn.execute(
+        "INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', ?1, 'Marco Rossi', 'marco.rossi@work.com')",
+        [crate::seed::slack_id("Marco R.")],
+    )?;
     Ok(())
 }
 
@@ -1250,8 +1255,10 @@ mod tests {
         let marco = &inc.messages[1].who;
         assert!(!marco.known);
         assert_eq!(marco.account.as_ref().map(|a| a.id.as_str()), Some("U0MARCO"));
+        assert_eq!(marco.color, people::hash_color("marco.rossi@work.com"), "coloured by his profile email");
         let np = inc.new_person.as_ref().expect("Marco is in 3 signals today");
         assert_eq!((np.account.as_str(), np.name.as_str(), np.signals), ("U0MARCO", "Marco R.", 3));
+        assert_eq!((np.real_name.as_deref(), np.email.as_deref()), (Some("Marco Rossi"), Some("marco.rossi@work.com")));
         let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
         assert!(dm.messages[1].who.me, "your own messages are you, in your colour");
         assert_eq!(dm.messages[1].who.color, 0);

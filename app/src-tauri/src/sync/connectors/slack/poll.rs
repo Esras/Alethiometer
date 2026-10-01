@@ -49,7 +49,7 @@
 use super::api::{ts_after, ts_secs, Client};
 use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
-use crate::sync::{local_from_unix, Batch, Ctx, Handle, ItemUpsert, Message};
+use crate::sync::{local_from_unix, Batch, Ctx, Handle, ItemUpsert, Message, Profile};
 use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -353,6 +353,7 @@ pub struct Poller<'a> {
     done_convs: BTreeSet<String>,
     done_threads: BTreeSet<String>,
     items: Vec<ItemUpsert>,
+    profiles: Vec<Profile>,
 }
 
 pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
@@ -377,11 +378,12 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         done_convs: BTreeSet::new(),
         done_threads: BTreeSet::new(),
         items: vec![],
+        profiles: vec![],
     };
     let result = p.run();
     socket::finish(ctx.source.id, &plan, result.is_ok());
     result?;
-    Ok(Batch { items: p.items, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
+    Ok(Batch { items: p.items, profiles: p.profiles, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
 }
 
 impl Poller<'_> {
@@ -988,12 +990,14 @@ impl Poller<'_> {
         }
         let name = match self.client.get("users.info", &[("user", id)]) {
             Ok(v) => {
-                let s = |p: &str| v.pointer(p).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-                s("/user/profile/display_name")
-                    .or_else(|| s("/user/profile/real_name"))
-                    .or_else(|| s("/user/real_name"))
-                    .or_else(|| s("/user/name"))
-                    .unwrap_or_else(|| id.to_owned())
+                let s = |p: &str| v.pointer(p).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+                // Real name and email (`users:read.email`) for People (queries::people).
+                let real_name = s("/user/profile/real_name").or_else(|| s("/user/real_name"));
+                let email = s("/user/profile/email");
+                if real_name.is_some() || email.is_some() {
+                    self.profiles.push(Profile { kind: "slack".into(), account: id.to_owned(), real_name: real_name.clone(), email });
+                }
+                s("/user/profile/display_name").or(real_name).or_else(|| s("/user/name")).unwrap_or_else(|| id.to_owned())
             }
             // Deleted or foreign users: show the id rather than failing the poll.
             Err(e) if e.to_string().contains("user_not_found") => id.to_owned(),

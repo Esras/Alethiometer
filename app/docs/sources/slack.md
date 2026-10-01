@@ -28,6 +28,7 @@ oauth_config:
       - im:read            # list your DMs
       - mpim:read
       - users:read         # show names instead of user ids
+      - users:read.email   # profile emails: match senders to People notes, colour by email
       - search:read        # mentions in channels you don't follow
       - channels:write     # mark read (conversations.mark)
       - groups:write
@@ -56,6 +57,8 @@ settings:
 
 Your workspace may require an admin to approve the app before you can install it.
 If **Install** turns into **Request to Install**, an admin has to approve it first.
+
+**Already installed?** Adding `users:read.email` means adding it under **OAuth & Permissions → User Token Scopes** and choosing **Reinstall to Workspace**; the user token (`xoxp-…`) can change, so store it again. Without the scope Slack senders still work, matched and coloured by user id (see `docs/people.md`).
 
 Skip anything you don't want: without `search:read` set `"mentions": false`;
 without the write scopes the matching outbox ops fail visibly; without the

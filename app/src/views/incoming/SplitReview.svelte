@@ -9,7 +9,7 @@
   //   not topic colours. Names are in their person colour.
   // - j/k move (⋯ isn't a row), space selects, t moves the selection (or the
   //   current message) to a topic's group straight away (a new topic makes a
-  //   new group), d dismisses in place, u undoes, ↵ confirms every group that
+  //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, ↵ confirms every group that
   //   has a topic (Unsorted stays in Incoming), Esc goes back.
   import { call } from '../../lib/api';
   import { useKeys, plain } from '../../lib/keys.svelte';
@@ -171,7 +171,8 @@
     history = [...history.filter((id) => id !== m.id), m.id];
   }
 
-  function moveTo(topicId: number) {
+  /** `topicId` null: Unsorted. */
+  function moveTo(topicId: number | null) {
     picking = false;
     const by = targets();
     if (!by.size) return;
@@ -317,6 +318,7 @@
                   <TopicPicker
                     placeholder={chosen.size > 1 ? `Move ${chosen.size} messages to…` : 'Move to topic…'}
                     onpick={moveTo}
+                    onunsorted={() => moveTo(null)}
                     onclose={() => (picking = false)}
                   />
                 </div>

@@ -83,13 +83,16 @@ fn workspace(inc_page1: &str) -> FakeHttp {
     for (id, display, real) in [
         ("U0ME", "me", "Me Myself"),
         ("U0JORDAN", "Jordan", "Jordan Lee"),
-        ("U0MARCO", "", "Marco Rossi"),
         ("U0SAM", "Sam", "Sam Okafor"),
         ("U0PRIYA", "Priya", "Priya Nair"),
         ("U0ALICE", "alice", "Alice Moreau"),
     ] {
         http.on("GET", &format!("users.info?user={id}"), 200, user(id, display, real));
     }
+    // With `users:read.email` the profile carries the address.
+    let mut marco: serde_json::Value = serde_json::from_str(&user("U0MARCO", "", "Marco Rossi")).unwrap();
+    marco["user"]["profile"]["email"] = json!("Marco.Rossi@acme.com");
+    http.on("GET", "users.info?user=U0MARCO", 200, &marco.to_string());
     http
 }
 
@@ -177,6 +180,11 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert_eq!(texts(inc)[2], "Incident acknowledged by @Jordan");
     assert!(context(inc).is_empty(), "nothing older in the channel");
     assert_eq!(inc.messages[0].author_id.as_deref(), Some("U0SAM"));
+    // Profiles for People: real name always, email when the token may read it.
+    let marco = b.profiles.iter().find(|p| p.account == "U0MARCO").unwrap();
+    assert_eq!((marco.kind.as_str(), marco.real_name.as_deref(), marco.email.as_deref()), ("slack", Some("Marco Rossi"), Some("Marco.Rossi@acme.com")));
+    assert_eq!(b.profiles.iter().find(|p| p.account == "U0SAM").and_then(|p| p.email.clone()), None);
+    assert_eq!(b.profiles.iter().filter(|p| p.account == "U0SAM").count(), 1, "one per user per poll");
     assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&latest=1789960000.000100&inclusive=false&limit=12")));
     assert_eq!(inc.author.as_ref().map(|h| h.handle.as_str()), Some("U0JORDAN"));
     assert_eq!(inc.url.as_deref(), Some("https://acme.slack.com/archives/C0INC/p1789995600000500"));

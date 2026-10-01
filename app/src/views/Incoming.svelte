@@ -7,8 +7,8 @@
   // (j/k move, space selects, t files the selected messages under a topic as a
   // new item, the rest stays; Esc leaves). Triage elsewhere is unchanged.
   // A signal the AI split across topics has a `split` pill and ⋯ where its
-  // other parts came in; `s` (or ↵ once expanded, or a click on either) opens
-  // the split review (15g/15h). Names are in their person colour (16c);
+  // other parts came in; `s` (or a click on either) opens the split review
+  // (15g/15h). Names are in their person colour (16c);
   // someone without a People note is underlined and clicking them links an
   // account to a person (17b); a frequent unknown sender gets a New person
   // strip under the messages (17a: p create note, l link, Not now).
@@ -165,7 +165,6 @@
   // in the messages → collapse and leave.
   function enter(s: Signal | null) {
     if (!s) return;
-    if (s.split && expanded.has(s.item_id) && !inMsgs) return review(s);
     if (!splittable(s)) return toggle(s.item_id);
     if (inMsgs) {
       leaveMsgs();
@@ -219,7 +218,8 @@
   function newPersonNote(s: Signal | null) {
     const np = s?.new_person;
     if (!s || !np || !expanded.has(s.item_id)) return;
-    act('people.create', { name: np.name, alias: np.name, kind: np.kind, account: np.account });
+    // The note is named after the profile's real name when the source has one.
+    act('people.create', { name: np.real_name ?? np.name, alias: np.name, kind: np.kind, account: np.account });
   }
 
   function newPersonLink(s: Signal | null) {
@@ -531,9 +531,9 @@
                     <div class="new-person">
                       <i class="ph ph-user-plus"></i>
                       <span class="q">New person?</span>
-                      <span class="np-name" style:color={personColor(np.color)}>{np.name}</span>
+                      <span class="np-name" style:color={personColor(np.color)}>{np.real_name ?? np.name}</span>
                       <span class="np-info ellipsis">
-                        {sourceLabel(np.source)}{#if np.kind === 'email' || np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
+                        {sourceLabel(np.source)}{#if np.email}&nbsp;· {np.email}{:else if np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
                       </span>
                       <span class="np-actions">
                         <button class="btn primary" onclick={(e) => (e.stopPropagation(), newPersonNote(s))}>Create note <kbd>p</kbd></button>

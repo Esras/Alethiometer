@@ -11,7 +11,9 @@
 //!   `People/`, and after the app writes a People note itself.
 //! - Authors are matched at read time (`Resolver`): a message's `author_id`
 //!   or an item's author handle, mapped to an account (`account_of`), then
-//!   through `person_accounts`. Editing a note in Obsidian recolours past and
+//!   through `person_accounts`. A Slack account whose profile has an email
+//!   (`account_profiles`, `users:read.email`) also matches a note by that
+//!   email, and is coloured by it. Editing a note in Obsidian recolours past and
 //!   future signals alike. Authors with no id (bots, seed data) fall back to
 //!   a note's name or aliases.
 //! - Never automatic: people are only created, and accounts only linked, by
@@ -247,8 +249,9 @@ pub fn add_to_frontmatter(text: &str, key: &str, value: &str) -> Option<String> 
     Some(out)
 }
 
-/// A new person's note: aliases plus the one account it was created from.
-pub fn stub_note(name: &str, alias: Option<&str>, account: Option<(&str, &str)>) -> String {
+/// A new person's note: aliases plus the account it was created from (and,
+/// for Slack, the profile's email).
+pub fn stub_note(name: &str, alias: Option<&str>, account: Option<(&str, &str)>, email: Option<&str>) -> String {
     let mut s = String::from("---\n");
     match alias.map(str::trim).filter(|a| !a.is_empty() && *a != name) {
         Some(a) => s.push_str(&format!("aliases: [{}]\n", yaml_value(a))),
@@ -260,6 +263,9 @@ pub fn stub_note(name: &str, alias: Option<&str>, account: Option<(&str, &str)>)
         } else {
             s.push_str(&format!("{kind}: {}\n", yaml_value(acct)));
         }
+    }
+    if let (Some(e), false) = (email, account.is_some_and(|(k, _)| k == "email")) {
+        s.push_str(&format!("email: [{}]\n", yaml_value(e)));
     }
     s.push_str("---\n");
     s
@@ -386,6 +392,8 @@ pub struct Account {
 
 pub struct Resolver {
     by_account: HashMap<(String, String), i64>,
+    /// Source profiles: (kind, account) → (real name, email).
+    profiles: HashMap<(String, String), (Option<String>, Option<String>)>,
     by_name: HashMap<String, i64>,
     people: HashMap<i64, Person>,
     me: HashSet<(String, String)>,
@@ -453,7 +461,29 @@ impl Resolver {
             let key = keys.get(&p.id).and_then(|(e, a)| e.clone().or_else(|| a.clone())).unwrap_or_else(|| p.name.to_lowercase());
             p.color = colors.get(&p.id).copied().flatten().unwrap_or_else(|| hash_color(&key));
         }
-        Ok(Resolver { by_account, by_name, people, me: my_accounts(conn, settings)?, my_color: settings.my_color })
+        let profiles = conn
+            .prepare("SELECT kind, account, real_name, email FROM account_profiles")?
+            .query_map([], |r| Ok(((r.get::<_, String>(0)?, r.get::<_, String>(1)?), (r.get(2)?, r.get(3)?))))?
+            .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+        Ok(Resolver { by_account, profiles, by_name, people, me: my_accounts(conn, settings)?, my_color: settings.my_color })
+    }
+
+    /// The email a source's profile gives for an account (Slack), if any.
+    pub fn profile_email(&self, kind: &str, account: &str) -> Option<&str> {
+        self.profiles.get(&(kind.to_string(), account.to_string())).and_then(|p| p.1.as_deref()).filter(|e| !e.is_empty())
+    }
+
+    /// The real name a source's profile gives for an account (Slack), if any.
+    pub fn profile_name(&self, kind: &str, account: &str) -> Option<&str> {
+        self.profiles.get(&(kind.to_string(), account.to_string())).and_then(|p| p.0.as_deref()).filter(|n| !n.is_empty())
+    }
+
+    /// The note person an account belongs to: listed directly, or through its profile email.
+    fn person_of(&self, kind: &str, account: &str) -> Option<i64> {
+        self.by_account
+            .get(&(kind.to_string(), account.to_string()))
+            .or_else(|| self.profile_email(kind, account).and_then(|e| self.by_account.get(&("email".to_string(), e.to_string()))))
+            .copied()
     }
 
     pub fn person(&self, id: i64) -> Option<&Person> {
@@ -466,10 +496,11 @@ impl Resolver {
 
     pub fn is_me(&self, kind: &str, account: &str) -> bool {
         self.me.contains(&(kind.to_string(), account.to_string()))
+            || self.profile_email(kind, account).is_some_and(|e| self.me.contains(&("email".to_string(), e.to_string())))
     }
 
     pub fn is_known(&self, kind: &str, account: &str) -> bool {
-        self.by_account.contains_key(&(kind.to_string(), account.to_string()))
+        self.person_of(kind, account).is_some()
     }
 
     /// The author of a message (`author_id` as the source stores it) or of an item (its handle).
@@ -481,7 +512,7 @@ impl Resolver {
             }
         }
         let pid = match &account {
-            Some(a) => self.by_account.get(a).copied(),
+            Some((k, a)) => self.person_of(k, a),
             // No id at all (bots, sample data): a note's name or alias.
             None if author_id.is_none() => self.by_name.get(&author.trim().to_lowercase()).copied(),
             None => None,
@@ -489,7 +520,11 @@ impl Resolver {
         if let Some(p) = pid.and_then(|id| self.people.get(&id)) {
             return Who { color: p.color, known: true, me: false, person_id: Some(p.id), name: Some(p.name.clone()), account: None };
         }
-        let key = account.as_ref().map(|(_, a)| a.clone()).unwrap_or_else(|| author.trim().to_lowercase());
+        // The email when the source gives one, else the account id (16c).
+        let key = match &account {
+            Some((k, a)) => self.profile_email(k, a).map(str::to_owned).unwrap_or_else(|| a.clone()),
+            None => author.trim().to_lowercase(),
+        };
         Who {
             color: hash_color(&key),
             known: false,
@@ -513,6 +548,10 @@ pub struct Suggestion {
     pub account: String,
     /// Latest display name seen for the account.
     pub name: String,
+    /// The source profile's real name (Slack), for the strip and the new note's name.
+    pub real_name: Option<String>,
+    /// The account's email: itself for mail, the profile's for Slack.
+    pub email: Option<String>,
     /// Source kind it was seen in, for the label ("Slack").
     pub source: String,
     /// Signals (split families count once) it was in within the window.
@@ -573,7 +612,17 @@ pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, n
         .into_iter()
         .filter(|(_, v)| v.0.len() as i64 >= settings.suggest_after)
         .map(|((kind, account), (roots, name, _, source))| {
-            let s = Suggestion { color: hash_color(&account), kind: kind.clone(), account: account.clone(), name, source, signals: roots.len() as i64 };
+            let email = if kind == "email" { Some(account.clone()) } else { r.profile_email(&kind, &account).map(str::to_owned) };
+            let s = Suggestion {
+                color: hash_color(email.as_deref().unwrap_or(&account)),
+                real_name: r.profile_name(&kind, &account).map(str::to_owned),
+                email,
+                kind: kind.clone(),
+                account: account.clone(),
+                name,
+                source,
+                signals: roots.len() as i64,
+            };
             ((kind, account), s)
         })
         .collect())
@@ -884,7 +933,11 @@ pub fn create(app: &App, name: &str, alias: Option<&str>, account: Option<(Strin
     if app.vault.join(&rel).exists() {
         return Err(msg(format!("{rel} already exists: use Link to… instead")));
     }
-    let text = stub_note(&name, alias, account.as_ref().map(|(k, a)| (k.as_str(), a.as_str())));
+    let email = match &account {
+        Some((k, a)) if k != "email" => resolver(app)?.profile_email(k, a).map(str::to_owned),
+        _ => None,
+    };
+    let text = stub_note(&name, alias, account.as_ref().map(|(k, a)| (k.as_str(), a.as_str())), email.as_deref());
     let saved = save_note(app, &rel, None, &text)?;
     after_write(app, saved, &rel, &name, account.as_ref())
 }
@@ -964,11 +1017,15 @@ mod tests {
 
     #[test]
     fn stub_and_names() {
-        assert_eq!(stub_note("Marco Rossi", Some("Marco R."), Some(("slack", "U04MARCO"))), "---\naliases: [Marco R.]\nslack: U04MARCO\n---\n");
-        assert_eq!(stub_note("Sam", None, Some(("email", "sam@x.com"))), "---\naliases: []\nemail: [sam@x.com]\n---\n");
+        assert_eq!(stub_note("Marco Rossi", Some("Marco R."), Some(("slack", "U04MARCO")), None), "---\naliases: [Marco R.]\nslack: U04MARCO\n---\n");
+        assert_eq!(
+            stub_note("Marco Rossi", Some("Marco R."), Some(("slack", "U04MARCO")), Some("marco@work.com")),
+            "---\naliases: [Marco R.]\nslack: U04MARCO\nemail: [marco@work.com]\n---\n"
+        );
+        assert_eq!(stub_note("Sam", None, Some(("email", "sam@x.com")), Some("x@y.z")), "---\naliases: []\nemail: [sam@x.com]\n---\n");
         assert_eq!(note_name("Marco R."), "Marco R");
         assert_eq!(note_name(" a/b:c "), "abc");
-        let f = parse_frontmatter(&stub_note("X", Some("@weird: name"), None));
+        let f = parse_frontmatter(&stub_note("X", Some("@weird: name"), None, None));
         assert_eq!(field(&f, "aliases"), ["@weird: name"]);
     }
 
@@ -1043,6 +1100,30 @@ mod tests {
     }
 
     #[test]
+    fn a_slack_profile_email_matches_a_note_and_colours_by_email() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db();
+        write(dir.path(), "Marco Rossi", "---\nemail: [marco@work.com]\n---\n");
+        scan(&conn, dir.path()).unwrap();
+        let s = PeopleSettings { me: vec!["email:zach@work.com".into()], ..Default::default() };
+        let unknown = Resolver::load(&conn, &s).unwrap().who("slack", Some("U0MARCO"), "Marco R.");
+        assert!(!unknown.known);
+        assert_eq!(unknown.color, hash_color("U0MARCO"), "no profile yet: keyed by the user id");
+        for (id, email) in [("U0MARCO", "marco@work.com"), ("U0NEW", "new.person@work.com"), ("U0ZACH", "zach@work.com")] {
+            conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', ?1, 'X', ?2)", params![id, email]).unwrap();
+        }
+        let r = Resolver::load(&conn, &s).unwrap();
+        let marco = r.who("slack", Some("U0MARCO"), "Marco R.");
+        assert!(marco.known, "matched through the profile email");
+        assert_eq!(marco.color, hash_color("marco@work.com"));
+        assert_eq!(marco, r.who("gmail", Some("marco@work.com"), "Marco"), "one person, one colour");
+        let new = r.who("slack", Some("U0NEW"), "New");
+        assert!(!new.known);
+        assert_eq!(new.color, hash_color("new.person@work.com"), "unknown, but keyed by the email the source gave");
+        assert!(r.who("slack", Some("U0ZACH"), "zach").me, "you, by your email");
+    }
+
+    #[test]
     fn suggests_unknown_senders_seen_often_enough() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db();
@@ -1074,6 +1155,11 @@ mod tests {
         assert_eq!(got.len(), 1, "known people and you are never suggested");
         let m = &got[&("slack".to_string(), "U0MARCO".to_string())];
         assert_eq!((m.signals, m.name.as_str()), (2, "Marco R."), "the one from 10 days ago is out of the window");
+        assert_eq!((m.real_name.as_deref(), m.email.as_deref()), (None, None));
+        conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', 'U0MARCO', 'Marco Rossi', 'marco@work.com')", []).unwrap();
+        let r2 = Resolver::load(&conn, &s).unwrap();
+        let m = &suggestions(&conn, &r2, &s, now).unwrap()[&("slack".to_string(), "U0MARCO".to_string())];
+        assert_eq!((m.real_name.as_deref(), m.email.as_deref(), m.color), (Some("Marco Rossi"), Some("marco@work.com"), hash_color("marco@work.com")));
         s.suggest_after = 3;
         assert!(suggestions(&conn, &r, &s, now).unwrap().is_empty());
         s.suggest_after = 2;
@@ -1102,10 +1188,11 @@ mod tests {
     #[test]
     fn create_and_link_write_the_note_and_match_right_away() {
         let (app, _dir) = crate::ai::context::tests::app();
+        app.db().execute("INSERT OR REPLACE INTO account_profiles (kind, account, real_name, email) VALUES ('slack', 'U0MARCO', 'Marco Rossi', 'marco.rossi@work.com')", []).unwrap();
         let v = create(&app, "Marco R.", Some("Marco R."), Some(("slack".into(), "U0MARCO".into()))).unwrap();
         assert_eq!(v["path"], "People/Marco R.md");
         let text = std::fs::read_to_string(app.vault.join("People/Marco R.md")).unwrap();
-        assert_eq!(text, "---\naliases: [Marco R.]\nslack: U0MARCO\n---\n");
+        assert_eq!(text, "---\naliases: [Marco R.]\nslack: U0MARCO\nemail: [marco.rossi@work.com]\n---\n");
         assert!(create(&app, "Marco R", None, None).is_err(), "never overwrites a note");
         let r = resolver(&app).unwrap();
         let who = r.who("slack", Some("U0MARCO"), "Marco R.");
@@ -1113,7 +1200,7 @@ mod tests {
         link(&app, who.person_id.unwrap(), "email", "marco@work.com").unwrap();
         let r = resolver(&app).unwrap();
         assert_eq!(r.who("gcal", Some("Marco@work.com"), "marco").person_id, who.person_id);
-        assert_eq!(r.who("gcal", Some("Marco@work.com"), "marco").color, hash_color("marco@work.com"));
+        assert_eq!(r.who("gcal", Some("Marco@work.com"), "marco").color, hash_color("marco.rossi@work.com"), "keyed by the note's first email");
         let unchanged = link(&app, who.person_id.unwrap(), "email", "marco@work.com").unwrap();
         assert_eq!(unchanged["state"], "unchanged");
     }

@@ -29,7 +29,12 @@ export interface Who {
 export interface NewPerson {
   kind: Account['kind'];
   account: string;
+  /** Latest display name the source used. */
   name: string;
+  /** The source profile's real name (Slack): the new note's name. */
+  real_name: string | null;
+  /** The address itself for mail, the profile's email for Slack. */
+  email: string | null;
   source: string;
   signals: number;
   color: number;

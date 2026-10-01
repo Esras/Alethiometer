@@ -27,7 +27,7 @@ Free notes…
 
 ## Matching authors
 
-Every message author (`item_messages.author_id`) and item author (`person_handles`) maps to an account: Slack user id, Gmail/Calendar sender address (a Gmail relay like a GitHub notification maps to its GitHub login; other relays to nothing), Jira accountId, GitHub login. The account is looked up in `person_accounts` at read time, so editing a note in Obsidian recolours past and future signals alike. Authors with no id at all (bots, the sample data) fall back to a note's name or aliases.
+Every message author (`item_messages.author_id`) and item author (`person_handles`) maps to an account: Slack user id (and, with the `users:read.email` scope, the email on that user's Slack profile, kept in `account_profiles` with their real name), Gmail/Calendar sender address (a Gmail relay like a GitHub notification maps to its GitHub login; other relays to nothing), Jira accountId, GitHub login. The account is looked up in `person_accounts` at read time (a Slack account also through its profile email, so a note that only lists an email still claims that person's Slack messages), so editing a note in Obsidian recolours past and future signals alike. Authors with no id at all (bots, the sample data) fall back to a note's name or aliases.
 
 Gmail, Jira and GitHub messages now store `author_id` too (it was Slack only). Rows stored before this change have none and are matched by name only.
 
@@ -35,14 +35,14 @@ Gmail, Jira and GitHub messages now store `author_id` too (it was Slack only). R
 
 ## Colours (16c)
 
-256 colours interpolated in OKLCH through the Gruvbox brights (red, orange, yellow, green, aqua, blue, purple, back to red) at lightness 0.65. A person's colour is their note's `color`, else `fnv1a(key) % 256` (32-bit FNV-1a), where the key is their first email when the note lists one, otherwise their first account, otherwise their name. An unknown sender is hashed by their account id (or name). Colours are not spread apart; some people land in the grey stretch between green and aqua, by design.
+256 colours interpolated in OKLCH through the Gruvbox brights (red, orange, yellow, green, aqua, blue, purple, back to red) at lightness 0.65. A person's colour is their note's `color`, else `fnv1a(key) % 256` (32-bit FNV-1a), where the key is their first email when the note lists one, otherwise their first account, otherwise their name. An unknown sender is hashed by their email when the source gives one (mail, or a Slack profile), otherwise by their account id (or name). Colours are not spread apart; some people land in the grey stretch between green and aqua, by design.
 
 The backend hands out indices; `lib/people.ts` owns the palette (checked against all 256 values in the 16c mock).
 
 ## New person (17a) and Link to person (17b)
 
 - An unknown sender seen in `people.suggest_after` (3) or more signals within `people.suggest_days` (7) days gets a dashed **New person?** strip under an expanded signal's messages. A split family counts once. You, known people and mail from lists or systems (`news@`, `noreply…`, `billing@`…) never do.
-- **Create note** (`p`) writes `People/<name>.md` with the display name as an alias and the account. **Link to…** (`l`) opens the picker. **Not now** hides the suggestion for that account for 7 days (`person_snoozes`).
+- The strip shows the Slack profile's real name and email when there are some. **Create note** (`p`) writes `People/<real name>.md` (the display name when there's no real name) with the display name as an alias, the account, and the profile email. **Link to…** (`l`) opens the picker. **Not now** hides the suggestion for that account for 7 days (`person_snoozes`).
 - Unknown names have a dotted underline in their hash colour; clicking one (in Incoming or a topic's People panel) opens the picker. It matches note names and aliases; ↵ adds the account to that note's frontmatter, keeping the rest of the note as written (a missing key is added, a value becomes a list, a list grows). The last row creates a new person.
 - Writes go through `obsidian::save` like any note edit: the outbox (`obsidian.replace`, refused if the note changed meanwhile) or the file when no Obsidian source reads the vault. While a write is queued, the account is recorded locally so colours follow right away; the next scan has the final word.
 - Nothing is automatic: no auto-create, auto-link or auto-merge.
@@ -55,14 +55,14 @@ Whoever wrote in the topic's confirmed signals (by how many signals, then how re
 
 A signal is part of a split family when the AI (or a manual split in Unsorted) moved some of its messages to child items (`split.rs`). While another part still holds messages, the signal shows a `split` pill and `⋯` where the other parts' messages came in between.
 
-`s` (or ↵ once expanded, or a click on the pill or a `⋯`) opens the review in place:
+`s` (or a click on the pill or a `⋯`) opens the review in place:
 
 - **By topic**: each part's messages in time order, `⋯` where another group's came in between; groups ordered by first message. **In order**: the conversation as it happened, in runs per group. `g` flips; a 1:1 DM opens In order, everything else By topic.
 - Bars cycle yellow, blue, purple, orange, green, aqua, red for this signal only (not topic colours). Names are in their person colour.
-- `j`/`k` move, space selects, `t` moves the selection (or the current message) to a topic: into that topic's group if there is one, else a new part suggested to it (`incoming.review_move`). Thread replies move with their first message.
+- `j`/`k` move, space selects, `t` moves the selection (or the current message) to a topic: into that topic's group if there is one, else a new part suggested to it (`incoming.review_move`). The picker's first row, **Unsorted**, moves it to the Unsorted group (made if there isn't one). Thread replies move with their first message.
 - `d` dismisses in place: the messages go to the family's one dismissed part (seen, no topic; `incoming.review_dismiss`) and stay in the review struck through.
 - `u` undoes the current message's move or dismiss (else the latest): it goes back to its old group's topic, or Unsorted, recreated if it was pruned.
 - ↵ confirms every part that has a topic (`incoming.review_confirm`); Unsorted stays in Incoming. Esc goes back.
 - A part left with no messages is deleted (`split::prune`) unless it's the root, has a confirmed link or a held todo. Messages and their keys stay in the family, so the next Slack sync doesn't re-add moved messages.
 
-Not built: the review from a topic's chronology or search (18c/18d `s`); showing an orphan thread item of the same channel inside its channel's review (threads now attach to their parent message, so this only matters for threads whose parent is older than the lookback); a picker entry for moving to Unsorted (undo goes there).
+Not built: the review from a topic's chronology or search (18c/18d `s`); showing an orphan thread item of the same channel inside its channel's review (threads now attach to their parent message, so this only matters for threads whose parent is older than the lookback).

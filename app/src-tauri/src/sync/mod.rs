@@ -72,6 +72,18 @@ pub struct Batch {
     /// marker moved past them): marked seen, nothing else changes. Never new
     /// signal. Unknown ids are ignored.
     pub seen: Vec<String>,
+    /// What the source said about the accounts it saw (Slack profiles):
+    /// stored in `account_profiles`, newest wins.
+    pub profiles: Vec<Profile>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Profile {
+    /// Account kind as `queries::people` names it (`slack`).
+    pub kind: String,
+    pub account: String,
+    pub real_name: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -196,7 +208,7 @@ pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
 
 /// Write a batch. Returns the number of items that became new signal.
 pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
-    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty()) {
+    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty() || !batch.profiles.is_empty()) {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
             source.name
@@ -320,6 +332,13 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0 WHERE id = ?1 AND status != 'done'", [id])?;
             tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
+    }
+    for p in &batch.profiles {
+        tx.execute(
+            "INSERT INTO account_profiles (kind, account, real_name, email) VALUES (?1, ?2, ?3, lower(?4))
+             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), updated_at = datetime('now')",
+            params![p.kind, p.account, p.real_name, p.email],
+        )?;
     }
     for ext in &batch.seen {
         tx.execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext])?;
@@ -636,6 +655,18 @@ mod tests {
         // One person per handle.
         let people: i64 = conn.query_row("SELECT count(*) FROM people", [], |r| r.get(0)).unwrap();
         assert_eq!(people, 1);
+    }
+
+    #[test]
+    fn profiles_are_stored_newest_wins() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();
+        let src = load_source(&conn, 1).unwrap();
+        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned) };
+        apply(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
+        apply(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
+        let got: (String, String) = conn.query_row("SELECT real_name, email FROM account_profiles", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(got, ("Ann Lee".into(), "ann.lee@x.com".into()));
     }
 
     #[test]

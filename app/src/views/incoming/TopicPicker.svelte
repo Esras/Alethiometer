@@ -1,6 +1,7 @@
 <script lang="ts">
   // Inline "move to topic" picker (t). Type to filter, ↑/↓ or ⌃j/⌃k to move,
-  // ↵ to pick, Esc to close. Picking creates a confirmed link.
+  // ↵ to pick, Esc to close. Picking creates a confirmed link. With
+  // `onunsorted` (the split review), a first "Unsorted" row moves there.
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
   import { pointerMoved, useKeys } from '../../lib/keys.svelte';
@@ -10,8 +11,15 @@
     exclude = null,
     placeholder = 'Move to topic…',
     onpick,
+    onunsorted,
     onclose,
-  }: { exclude?: number | null; placeholder?: string; onpick: (topicId: number) => void; onclose: () => void } = $props();
+  }: {
+    exclude?: number | null;
+    placeholder?: string;
+    onpick: (topicId: number) => void;
+    onunsorted?: () => void;
+    onclose: () => void;
+  } = $props();
 
   let all = $state<TopicRow[]>([]);
   let q = $state('');
@@ -25,6 +33,10 @@
     const needle = q.trim().toLowerCase();
     return all.filter((t) => t.id !== exclude && (!needle || t.name.toLowerCase().includes(needle))).slice(0, 8);
   });
+
+  // The Unsorted row: offered while the query could still mean it.
+  const showUnsorted = $derived(!!onunsorted && 'unsorted'.startsWith(q.trim().toLowerCase()));
+  const offset = $derived(showUnsorted ? 1 : 0);
 
   const canCreate = $derived(q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()));
   let creating = $state(false);
@@ -49,7 +61,7 @@
   useKeys((e) => {
     if (e.key === 'Escape') return onclose(), true;
     if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) {
-      sel = Math.min(sel + 1, matches.length - 1);
+      sel = Math.min(sel + 1, matches.length - 1 + offset);
       return true;
     }
     if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) {
@@ -57,7 +69,8 @@
       return true;
     }
     if (e.key === 'Enter') {
-      const t = matches[sel];
+      if (showUnsorted && sel === 0) return onunsorted?.(), true;
+      const t = matches[sel - offset];
       if (t) onpick(t.id);
       else if (canCreate) void create();
       return true;
@@ -71,8 +84,19 @@
     <input bind:this={input} bind:value={q} {placeholder} onblur={onclose} />
     <span class="hint">↵ pick · esc</span>
   </div>
+  {#if showUnsorted}
+    <button class="opt unsorted" class:on={sel === 0} onmousedown={(e) => (e.preventDefault(), onunsorted?.())} onmousemove={(e) => pointerMoved(e) && (sel = 0)}>
+      <span class="bar dashed"></span>
+      <span class="ellipsis"><i class="ph ph-shuffle"></i>Unsorted</span>
+    </button>
+  {/if}
   {#each matches as t, i}
-    <button class="opt" class:on={i === sel} onmousedown={(e) => (e.preventDefault(), onpick(t.id))} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
+    <button
+      class="opt"
+      class:on={i + offset === sel}
+      onmousedown={(e) => (e.preventDefault(), onpick(t.id))}
+      onmousemove={(e) => pointerMoved(e) && (sel = i + offset)}
+    >
       <span class="bar" style:background={catColor(t.category)}></span>
       <span class="ellipsis">{t.name}</span>
     </button>
@@ -136,6 +160,16 @@
   .bar {
     align-self: stretch;
     border-radius: 0 2px 2px 0;
+  }
+  .bar.dashed {
+    background: repeating-linear-gradient(180deg, var(--tx-label) 0 3px, transparent 3px 6px);
+  }
+  .opt.unsorted {
+    color: var(--tx-muted);
+  }
+  .opt.unsorted i {
+    margin-right: 8px;
+    color: var(--tx-label);
   }
   .opt.create {
     grid-template-columns: 16px minmax(0, 1fr);
