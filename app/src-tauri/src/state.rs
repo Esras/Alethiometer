@@ -21,6 +21,8 @@ pub struct App {
     /// Re-read from `settings.json` on every change (`crate::settings::live`).
     settings: RwLock<Arc<Settings>>,
     pub hooks: OnceLock<Hooks>,
+    /// Local embeddings (`embed`): the model once loaded, and its status.
+    pub embed: crate::embed::Engine,
     settings_state: Mutex<crate::settings::live::State>,
     /// Set by `shared`, so code holding `&App` can start background work.
     this: OnceLock<std::sync::Weak<App>>,
@@ -66,6 +68,7 @@ impl App {
             platform: std::sync::Arc::new(FileSecrets::new(data_dir)),
             settings: RwLock::new(Arc::new(settings)),
             hooks: OnceLock::new(),
+            embed: Default::default(),
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };

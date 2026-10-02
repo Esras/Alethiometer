@@ -49,6 +49,8 @@ export interface SourceRow {
   status: { id: number; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null } | null;
   secrets: Secret[];
   attention: boolean;
+  /** Glean: calls made today. */
+  used_today?: number | null;
 }
 
 export interface Kind {
@@ -74,6 +76,27 @@ export interface Page {
   dev: boolean;
   path: string;
   tag_rules: string;
+  embed: EmbedStatus;
+}
+
+export interface EmbedStatus {
+  status: { state: 'missing' | 'downloading' | 'loading' | 'ready' | 'failed'; done?: number; total?: number | null; error?: string };
+  model: string;
+  indexed: number;
+  items: number;
+  dir: string;
+}
+
+export function embedLine(e: EmbedStatus): string {
+  const s = e.status;
+  if (s.state === 'ready') return `ready · ${e.indexed.toLocaleString()} of ${e.items.toLocaleString()} items indexed`;
+  if (s.state === 'downloading') {
+    const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
+    return `downloading · ${mb(s.done ?? 0)}${s.total ? ` of ${mb(s.total)}` : ''}`;
+  }
+  if (s.state === 'loading') return 'loading the model';
+  if (s.state === 'failed') return s.error ?? 'failed';
+  return 'not downloaded yet';
 }
 
 export type Edit = { op?: 'set' | 'remove' | 'push'; path: Seg[]; value?: unknown };

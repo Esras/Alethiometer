@@ -66,6 +66,8 @@ fn get(app: &App) -> Result<Value> {
         values["sources"] = s.clone();
     }
     let status = crate::sync::call(app, "status", &json!({}))?;
+    let glean_used = crate::glean::used_today(&app.db()).unwrap_or(0);
+    let embed = crate::embed::call(app, "status", &json!({}))?;
     let settings = app.settings();
     let conn = app.db();
     let mut srcs = vec![];
@@ -90,6 +92,7 @@ fn get(app: &App) -> Result<Value> {
             "secrets": secrets,
             // The red dot: a required secret missing, or the last sync failed.
             "attention": s.enabled && (missing || error.is_some()),
+            "used_today": if s.kind == "glean" { json!(glean_used) } else { Value::Null },
         }));
     }
     let usage: Vec<Value> = conn
@@ -114,6 +117,7 @@ fn get(app: &App) -> Result<Value> {
         "dev": cfg!(debug_assertions),
         "path": app.settings_path(),
         "tag_rules": tag_rules,
+        "embed": embed,
     }))
 }
 

@@ -1,0 +1,363 @@
+{
+ "results": [
+  {
+   "document": {
+    "id": "gdrive_32331",
+    "datasource": "gdrive",
+    "docType": "Document",
+    "title": "Datadog order form v2",
+    "url": "https://docs.google.com/document/d/dd-order-form-v2",
+    "metadata": {
+     "datasource": "gdrive",
+     "objectType": "Document",
+     "container": "Procurement",
+     "mimeType": "application/vnd.google-apps.document",
+     "createTime": "2026-09-26T15:10:00Z",
+     "updateTime": "2026-09-26T15:10:00Z",
+     "owner": {
+      "name": "Kim Lee",
+      "obfuscatedId": "kimlee01",
+      "metadata": {
+       "email": "kim.lee@acme.com",
+       "title": "",
+       "department": ""
+      }
+     },
+     "updatedBy": {
+      "name": "Kim Lee",
+      "obfuscatedId": "kimlee01",
+      "metadata": {
+       "email": "kim.lee@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "Datadog order form v2",
+   "url": "https://docs.google.com/document/d/dd-order-form-v2",
+   "snippets": [
+    {
+     "snippet": "SSO listed as a paid add-on; 3-year term at 12% off.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "jira_80726",
+    "datasource": "jira",
+    "docType": "Issue",
+    "title": "PROC-418 Vendor security review: Datadog",
+    "url": "https://acme.atlassian.net/browse/PROC-418",
+    "metadata": {
+     "datasource": "jira",
+     "objectType": "Issue",
+     "container": "PROC",
+     "mimeType": "",
+     "createTime": "2026-09-18T10:00:00Z",
+     "updateTime": "2026-09-18T10:00:00Z",
+     "author": {
+      "name": "Kim Lee",
+      "obfuscatedId": "kimlee01",
+      "metadata": {
+       "email": "kim.lee@acme.com",
+       "title": "",
+       "department": ""
+      }
+     },
+     "assignedTo": {
+      "name": "Tom Price",
+      "obfuscatedId": "tomprice01",
+      "metadata": {
+       "email": "tom@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "PROC-418 Vendor security review: Datadog",
+   "url": "https://acme.atlassian.net/browse/PROC-418",
+   "snippets": [
+    {
+     "snippet": "Security review for the Datadog renewal; SOC 2 report attached.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "confluence_85523",
+    "datasource": "confluence",
+    "docType": "Page",
+    "title": "Multi-year renewal policy",
+    "url": "https://acme.atlassian.net/wiki/spaces/PROC/pages/88/Multi-year+renewal+policy",
+    "metadata": {
+     "datasource": "confluence",
+     "objectType": "Page",
+     "container": "Procurement",
+     "mimeType": "",
+     "createTime": "2026-08-02T09:00:00Z",
+     "updateTime": "2026-08-02T09:00:00Z",
+     "author": {
+      "name": "Lena Ortiz",
+      "obfuscatedId": "lenaortiz01",
+      "metadata": {
+       "email": "lena@acme.com",
+       "title": "",
+       "department": ""
+      }
+     },
+     "updatedBy": {
+      "name": "Kim Lee",
+      "obfuscatedId": "kimlee01",
+      "metadata": {
+       "email": "kim.lee@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "Multi-year renewal policy",
+   "url": "https://acme.atlassian.net/wiki/spaces/PROC/pages/88/Multi-year+renewal+policy",
+   "snippets": [
+    {
+     "snippet": "Multi-year terms need sign-off from the budget owner on the risk.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "jira_23715",
+    "datasource": "jira",
+    "docType": "Issue",
+    "title": "PROC-412 Renewal approval",
+    "url": "https://jira.example.com/browse/PROC-412",
+    "metadata": {
+     "datasource": "jira",
+     "objectType": "Issue",
+     "container": "PROC",
+     "mimeType": "",
+     "createTime": "2026-09-25T14:40:00Z",
+     "updateTime": "2026-09-25T14:40:00Z",
+     "author": {
+      "name": "Kim Lee",
+      "obfuscatedId": "kimlee01",
+      "metadata": {
+       "email": "kim.lee@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "PROC-412 Renewal approval",
+   "url": "https://jira.example.com/browse/PROC-412",
+   "snippets": [
+    {
+     "snippet": "In review \u00b7 Finance. Budget owner approval pending.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "microsoftteams_82525",
+    "datasource": "microsoftteams",
+    "docType": "Meeting",
+    "title": "Finance sync \u00b7 renewal notes",
+    "url": "https://teams.microsoft.com/l/meeting/finance-sync-renewal",
+    "metadata": {
+     "datasource": "microsoftteams",
+     "objectType": "Meeting",
+     "container": "Finance",
+     "mimeType": "",
+     "createTime": "2026-09-27T16:00:00Z",
+     "updateTime": "2026-09-27T16:00:00Z",
+     "author": {
+      "name": "Ana Silva",
+      "obfuscatedId": "anasilva01",
+      "metadata": {
+       "email": "ana@work.com",
+       "title": "",
+       "department": ""
+      }
+     },
+     "mentionedPeople": [
+      {
+       "name": "Kim Lee",
+       "obfuscatedId": "kimlee01",
+       "metadata": {
+        "email": "kim.lee@acme.com",
+        "title": "",
+        "department": ""
+       }
+      }
+     ]
+    }
+   },
+   "title": "Finance sync \u00b7 renewal notes",
+   "url": "https://teams.microsoft.com/l/meeting/finance-sync-renewal",
+   "snippets": [
+    {
+     "snippet": "Ana: logs are 18% over committed spend; Kim to confirm the walk-away number.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "o365sharepoint_43184",
+    "datasource": "o365sharepoint",
+    "docType": "Document",
+    "title": "Renewal: Adobe Creative Cloud",
+    "url": "https://acme.sharepoint.com/sites/it/Shared%20Documents/adobe-renewal.docx",
+    "metadata": {
+     "datasource": "o365sharepoint",
+     "objectType": "Document",
+     "container": "IT",
+     "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "createTime": "2026-10-01T08:00:00Z",
+     "updateTime": "2026-10-01T08:00:00Z",
+     "author": {
+      "name": "Tom Price",
+      "obfuscatedId": "tomprice01",
+      "metadata": {
+       "email": "tom@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "Renewal: Adobe Creative Cloud",
+   "url": "https://acme.sharepoint.com/sites/it/Shared%20Documents/adobe-renewal.docx",
+   "snippets": [
+    {
+     "snippet": "Adobe CC renewal for 140 seats, quote attached.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "o365sharepoint_38651",
+    "datasource": "o365sharepoint",
+    "docType": "Spreadsheet",
+    "title": "FY27 vendor renewals.xlsx",
+    "url": "https://acme.sharepoint.com/sites/finance/fy27-vendor-renewals.xlsx",
+    "metadata": {
+     "datasource": "o365sharepoint",
+     "objectType": "Spreadsheet",
+     "container": "Finance",
+     "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     "createTime": "2026-09-29T11:00:00Z",
+     "updateTime": "2026-09-29T11:00:00Z",
+     "author": {
+      "name": "Ana Silva",
+      "obfuscatedId": "anasilva01",
+      "metadata": {
+       "email": "ana@work.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "FY27 vendor renewals.xlsx",
+   "url": "https://acme.sharepoint.com/sites/finance/fy27-vendor-renewals.xlsx",
+   "snippets": [
+    {
+     "snippet": "Datadog, Adobe, Payroll vendor \u2014 renewal dates and owners.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "microsoftteams_19378",
+    "datasource": "microsoftteams",
+    "docType": "Meeting",
+    "title": "Payroll vendor renewal sync",
+    "url": "https://teams.microsoft.com/l/meeting/payroll-renewal",
+    "metadata": {
+     "datasource": "microsoftteams",
+     "objectType": "Meeting",
+     "container": "HR",
+     "mimeType": "",
+     "createTime": "2026-09-28T13:00:00Z",
+     "updateTime": "2026-09-28T13:00:00Z",
+     "author": {
+      "name": "Tom Price",
+      "obfuscatedId": "tomprice01",
+      "metadata": {
+       "email": "tom@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "Payroll vendor renewal sync",
+   "url": "https://teams.microsoft.com/l/meeting/payroll-renewal",
+   "snippets": [
+    {
+     "snippet": "Payroll renewal timing with HR.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  },
+  {
+   "document": {
+    "id": "confluence_34098",
+    "datasource": "confluence",
+    "docType": "Page",
+    "title": "Datadog cutover plan (2024)",
+    "url": "https://acme.atlassian.net/wiki/spaces/OPS/pages/12/cutover",
+    "metadata": {
+     "datasource": "confluence",
+     "objectType": "Page",
+     "container": "OPS",
+     "mimeType": "",
+     "createTime": "2024-07-01T09:00:00Z",
+     "updateTime": "2024-07-01T09:00:00Z",
+     "author": {
+      "name": "Lena Ortiz",
+      "obfuscatedId": "lenaortiz01",
+      "metadata": {
+       "email": "lena@acme.com",
+       "title": "",
+       "department": ""
+      }
+     }
+    }
+   },
+   "title": "Datadog cutover plan (2024)",
+   "url": "https://acme.atlassian.net/wiki/spaces/OPS/pages/12/cutover",
+   "snippets": [
+    {
+     "snippet": "Old migration plan from the 2024 renewal.",
+     "ranges": []
+    }
+   ],
+   "trackingToken": "t"
+  }
+ ],
+ "trackingToken": "tok",
+ "hasMoreResults": false,
+ "facetResults": [],
+ "metadata": {
+  "searchedQuery": "renewal"
+ }
+}

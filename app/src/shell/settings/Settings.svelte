@@ -12,6 +12,7 @@
     get,
     GROUP_LABELS,
     GROUP_ORDER,
+    embedLine,
     loadPage,
     patch,
     SECTIONS,
@@ -176,8 +177,7 @@
   }
 
   function gleanUsed(s: SourceRow): string {
-    void s;
-    return '';
+    return s.used_today != null ? `${s.used_today} used today` : '';
   }
 
   const groups = $derived.by(() => {
@@ -607,6 +607,20 @@
             {/each}
           </div>
         {/each}
+        {#if section === 'ai'}
+          <div class="glabel">Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span></div>
+          <div class="card">
+            <div class="row">
+              <div class="text">
+                <div class="lbl mono">{page.embed.model}</div>
+                <div class="desc" class:warnline={page.embed.status.state === 'failed'}>{embedLine(page.embed)}</div>
+              </div>
+              {#if page.embed.status.state === 'failed' || page.embed.status.state === 'missing'}
+                <button class="btn" onclick={() => call('embed.download').then(load)}>{page.embed.status.state === 'failed' ? 'Retry' : 'Download'}</button>
+              {/if}
+            </div>
+          </div>
+        {/if}
         {#if section === 'developer' && page.dev}
           <div class="glabel">Files</div>
           <div class="card"><div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div></div>
@@ -927,6 +941,9 @@
     margin-top: 3px;
     color: var(--tx-muted-2);
     font-size: 0.9231rem;
+  }
+  .warnline {
+    color: var(--orange);
   }
   .row.kind {
     gap: 12px;

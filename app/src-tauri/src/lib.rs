@@ -2,7 +2,9 @@ pub mod ai;
 pub mod api;
 pub mod clock;
 pub mod db;
+pub mod embed;
 pub mod error;
+pub mod glean;
 pub mod outbox;
 pub mod platform;
 pub mod queries;
@@ -30,6 +32,7 @@ mod desktop {
         crate::sync::start(app.clone());
         crate::outbox::start(app.clone());
         crate::settings::live::watch(app.clone());
+        crate::embed::start(app.clone());
         let scale = app.settings().ui_scale.clamp(0.5, 3.0);
         let core = app.clone();
         tauri::Builder::default()

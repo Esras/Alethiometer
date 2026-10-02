@@ -24,6 +24,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "search" => queries::search::call(app, name, args),
         "sync" => crate::sync::call(app, name, args),
         "settings" => crate::settings::api::call(app, name, args),
+        "embed" => crate::embed::call(app, name, args),
         "outbox" => crate::outbox::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
         "ai" => {

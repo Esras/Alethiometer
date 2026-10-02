@@ -12,12 +12,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "query" => query(app, &arg_str(args, "q")?),
         "results" => results(app, &arg_str(args, "q")?),
+        "hydrated" | "feedback" => crate::glean::hydrate::call(app, name, args),
         _ => Err(unknown(name)),
     }
 }
 
 /// Quote each word so user input can't be parsed as FTS syntax; prefix-match the last.
-fn fts_query(q: &str) -> Option<String> {
+pub fn fts_query(q: &str) -> Option<String> {
     let words: Vec<String> = q
         .split_whitespace()
         .map(|w| format!("\"{}\"", w.replace('"', "")))

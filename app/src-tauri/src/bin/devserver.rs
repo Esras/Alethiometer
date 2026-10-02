@@ -10,6 +10,7 @@ fn main() -> anyhow::Result<()> {
     let app = App::shared(App::open(&dir)?);
     alethiometer_lib::sync::start(app.clone());
     alethiometer_lib::settings::live::watch(app.clone());
+    alethiometer_lib::embed::start(app.clone());
     alethiometer_lib::outbox::start(app.clone());
     let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;
