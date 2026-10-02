@@ -28,6 +28,8 @@ export const ui = $state({
   settingsOpen: false,
   /** The Search results view's query, and the tab it was opened from (Esc goes back). */
   searchQuery: '',
+  /** Whether ⌘K had asked Glean (⌥↵) when it opened the Search view. */
+  searchGlean: false,
   searchFrom: null as Tab | null,
   /** Bumped after writes so views can reload. */
   rev: 0,

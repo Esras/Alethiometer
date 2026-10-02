@@ -449,7 +449,9 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
         "protoncal" => check::<ProtoncalConfig>(config),
         "glean" => {
             let c: GleanConfig = serde_json::from_value(config.clone()).map_err(|e| anyhow::anyhow!("config: {e}"))?;
-            if !c.server_url.is_empty() && !c.server_url.starts_with("https://") {
+            // Plain http only to this machine (a local stand-in during development).
+            let loopback = ["http://127.0.0.1", "http://localhost"].iter().any(|p| c.server_url.starts_with(p));
+            if !c.server_url.is_empty() && !c.server_url.starts_with("https://") && !loopback {
                 anyhow::bail!("config.server_url must start with https://");
             }
             Ok(())

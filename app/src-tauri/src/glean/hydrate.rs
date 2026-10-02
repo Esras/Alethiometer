@@ -47,6 +47,8 @@ pub struct Row {
     pub pinned: bool,
     /// Where it lives ("PROC", "#finops").
     pub container: String,
+    /// Top-level messages (local items; the split review needs two).
+    pub msgs: i64,
     /// People the result names (for "who owns this").
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub people: Vec<super::Who>,
@@ -197,11 +199,15 @@ fn source_label(kind: &str) -> &'static str {
 }
 
 /// Local work items matching `q`, best match first.
-fn local(conn: &Connection, q: &str, limit: usize) -> Result<Vec<(i64, String, Option<String>, String, String, Option<String>, String)>> {
+type LocalHit = (i64, String, Option<String>, String, String, Option<String>, String, i64);
+
+/// Snippets mark matches with `search::HIT_START`/`HIT_END`, as in 18d.
+fn local(conn: &Connection, q: &str, limit: usize) -> Result<Vec<LocalHit>> {
     let Some(fq) = crate::queries::search::fts_query(q) else { return Ok(vec![]) };
     let mut stmt = conn.prepare(
         "SELECT i.id, i.title, i.url, s.kind, coalesce(i.ended_at, i.occurred_at), coalesce(i.summary, ''),
-                snippet(items_fts, 1, '', '', '…', 14)
+                snippet(items_fts, 1, char(1), char(2), '…', 14),
+                (SELECT count(*) FROM item_messages m WHERE m.item_id = i.id AND m.context = 0 AND m.reply_to IS NULL)
            FROM items_fts f JOIN items i ON i.id = f.rowid JOIN sources s ON s.id = i.source_id
           WHERE items_fts MATCH ?1 AND s.tag = 'work'
           ORDER BY rank LIMIT ?2",
@@ -209,7 +215,7 @@ fn local(conn: &Connection, q: &str, limit: usize) -> Result<Vec<(i64, String, O
     let rows = stmt.query_map(rusqlite::params![fq, limit as i64], |r| {
         let summary: String = r.get(5)?;
         let snip: String = r.get(6)?;
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, Some(summary).filter(|s| !s.is_empty()), snip))
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, Some(summary).filter(|s| !s.is_empty()), snip, r.get(7)?))
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
@@ -238,7 +244,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     let mut by_url: HashMap<String, usize> = HashMap::new();
     {
         let conn = app.db();
-        for (rank, (id, title, url, kind, at, summary, snip)) in local(&conn, query.q, query.limit)?.into_iter().enumerate() {
+        for (rank, (id, title, url, kind, at, summary, snip, msgs)) in local(&conn, query.q, query.limit)?.into_iter().enumerate() {
             let topic = topic_of(&conn, id);
             if let Some(u) = &url {
                 by_url.insert(norm_url(u), rows.len());
@@ -252,8 +258,9 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
                 routes: vec!["local"],
                 when: when(Some(&at), now),
                 at: Some(at),
-                snippet: if snip.trim().is_empty() { summary.unwrap_or_default() } else { snip },
+                snippet: if snip.contains(crate::queries::search::HIT_START) || summary.is_none() { snip } else { summary.unwrap_or_default() },
                 item_id: Some(id),
+                msgs,
                 topic,
                 kept: true,
                 reason: String::new(),
@@ -300,6 +307,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
             at: h.updated.clone(),
             snippet: h.snippet.clone(),
             item_id: None,
+            msgs: 0,
             topic: None,
             kept: true,
             reason: String::new(),
