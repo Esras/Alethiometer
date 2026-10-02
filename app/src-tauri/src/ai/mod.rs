@@ -87,7 +87,7 @@ pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
     let env = |k: &str| std::env::var(k).ok();
     let secret = |k: &str| app.platform.secret_get(k);
     let resolve = || {
-        creds::resolve(&creds::Lookup { env: &env, secret: &secret, home: dirs::home_dir(), profile: &app.settings.ai.aws_profile })
+        creds::resolve(&creds::Lookup { env: &env, secret: &secret, home: dirs::home_dir(), profile: &app.settings().ai.aws_profile })
     };
     f(&Deps { http: &http, creds: &resolve, time: SystemTime::now() })
 }
@@ -95,7 +95,7 @@ pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
 /// One system + user prompt to a tier; returns the model's text. Every answered call's token counts go to
 /// `ai_usage`. Checks the allow-list before touching credentials or the network.
 pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, max_tokens: u32) -> Result<String> {
-    let ai = &app.settings.ai;
+    let ai = &app.settings().ai;
     let t = check(ai, tier)?;
     match t.provider.as_str() {
         "bedrock" => {
@@ -148,7 +148,7 @@ pub struct Answer {
 /// otherwise (or with `scope: "today"`) it uses today's work calendar and items.
 pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope: Option<&str>) -> Result<Answer> {
     // Fail closed before reading any work data.
-    check(&app.settings.ai, Tier::Large)?;
+    check(&app.settings().ai, Tier::Large)?;
     let question = question.trim();
     if question.is_empty() {
         return Err(msg("Ask a question first"));
@@ -193,7 +193,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "suggestions" => suggest::last_run(&app.db()),
         "status" => {
-            let ai = &app.settings.ai;
+            let ai = &app.settings().ai;
             let tier = |t| match check(ai, t) {
                 Ok(c) => json!({ "ok": true, "provider": c.provider, "model": c.model }),
                 Err(e) => json!({ "ok": false, "error": e.to_string() }),
@@ -216,7 +216,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     out.push(json!({ "tier": tier, "today": zero, "week": zero }));
                 }
                 let u = out.iter_mut().find(|u| u["tier"] == tier.as_str()).expect("just pushed");
-                let cost = app.settings.ai.prices.get(&model).map(|p| (input as f64 * p.input + output as f64 * p.output) / 1e6);
+                let cost = app.settings().ai.prices.get(&model).map(|p| (input as f64 * p.input + output as f64 * p.output) / 1e6);
                 for w in if today { vec!["today", "week"] } else { vec!["week"] } {
                     let t = &mut u[w];
                     t["calls"] = json!(t["calls"].as_i64().unwrap_or(0) + calls);
@@ -254,8 +254,8 @@ pub mod tests {
         anyhow::bail!("{}", creds::missing_message("default"))
     }
 
-    fn configured(app: &mut App) {
-        app.settings.ai.large.model = "us.anthropic.claude-opus-5-5".into();
+    fn configured(app: &App) {
+        app.update_settings(|s| s.ai.large.model = "us.anthropic.claude-opus-5-5".into());
     }
 
     fn ok_http() -> FakeHttp {
@@ -315,9 +315,9 @@ pub mod tests {
 
     #[test]
     fn ask_in_non_us_region_sends_nothing_and_reads_no_creds() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
-        app.settings.ai.region = "eu-west-1".into();
+        let (app, _dir) = app();
+        configured(&app);
+        app.update_settings(|s| s.ai.region = "eu-west-1".into());
         let http = ok_http();
         let creds_called = std::cell::Cell::new(false);
         let creds = || {
@@ -332,8 +332,8 @@ pub mod tests {
 
     #[test]
     fn ask_with_non_us_profile_sends_nothing() {
-        let (mut app, _dir) = app();
-        app.settings.ai.large.model = "anthropic.claude-opus-5-5".into();
+        let (app, _dir) = app();
+        app.update_settings(|s| s.ai.large.model = "anthropic.claude-opus-5-5".into());
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("Use us.anthropic.claude-opus-5-5"), "{err}");
@@ -371,8 +371,8 @@ pub mod tests {
 
     #[test]
     fn ask_off_allow_list_sends_nothing() {
-        let (mut app, _dir) = app();
-        app.settings.ai.large = AiTier { provider: "openai".into(), model: "gpt".into(), effort: String::new() };
+        let (app, _dir) = app();
+        app.update_settings(|s| s.ai.large = AiTier { provider: "openai".into(), model: "gpt".into(), effort: String::new() });
         let http = ok_http();
         let creds_called = std::cell::Cell::new(false);
         let creds = || {
@@ -387,9 +387,9 @@ pub mod tests {
 
     #[test]
     fn allowed_but_clientless_provider_fails_closed() {
-        let (mut app, _dir) = app();
-        app.settings.ai.allowed_providers.push("ollama".into());
-        app.settings.ai.large = AiTier { provider: "ollama".into(), model: "llama".into(), effort: String::new() };
+        let (app, _dir) = app();
+        app.update_settings(|s| s.ai.allowed_providers.push("ollama".into()));
+        app.update_settings(|s| s.ai.large = AiTier { provider: "ollama".into(), model: "llama".into(), effort: String::new() });
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("No client for provider 'ollama'"), "{err}");
@@ -407,8 +407,8 @@ pub mod tests {
 
     #[test]
     fn ask_missing_creds_is_clear() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("No AWS credentials") && err.contains("aws_access_key_id and aws_secret_access_key"), "{err}");
@@ -417,8 +417,8 @@ pub mod tests {
 
     #[test]
     fn ask_about_topic_sends_work_context_only_and_returns_citations() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let dd = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, dd);
         let http = ok_http();
@@ -441,8 +441,8 @@ pub mod tests {
 
     #[test]
     fn ask_without_topic_uses_today_and_excludes_personal() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let dd = topic_id(&app, "Datadog renewal");
         plant_personal(&app, dd);
         let http = ok_http();
@@ -455,8 +455,8 @@ pub mod tests {
 
     #[test]
     fn ask_about_topics_lists_every_active_topic_and_excludes_personal() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let dd = topic_id(&app, "Datadog renewal");
         plant_personal(&app, dd);
         let http = ok_http();

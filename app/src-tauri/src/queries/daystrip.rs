@@ -52,7 +52,7 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
           WHERE substr(e.start, 1, 10) = ?1
           ORDER BY e.start",
     )?;
-    let default_buffer = app.settings.life_buffer_min;
+    let default_buffer = app.settings().life_buffer_min;
     let blocks = stmt
         .query_map([&today], |r| {
             let start: String = r.get(1)?;
@@ -100,8 +100,8 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
     }
 
     Ok(json!({
-        "day_start_min": app.settings.day_start_hour * 60,
-        "day_end_min": app.settings.day_end_hour * 60,
+        "day_start_min": app.settings().day_start_hour * 60,
+        "day_end_min": app.settings().day_end_hour * 60,
         "blocks": blocks,
         "note": note,
     }))

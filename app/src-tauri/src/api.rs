@@ -23,6 +23,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "reflect" => queries::reflect::call(app, name, args),
         "search" => queries::search::call(app, name, args),
         "sync" => crate::sync::call(app, name, args),
+        "settings" => crate::settings::api::call(app, name, args),
         "outbox" => crate::outbox::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
         "ai" => {
@@ -50,12 +51,12 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
             )?;
             Ok(json!({
                 "categories": queries::categories::map(&app.db())?,
-                "day_start_hour": app.settings.day_start_hour,
-                "day_end_hour": app.settings.day_end_hour,
-                "life_buffer_min": app.settings.life_buffer_min,
-                "quiet_days": app.settings.quiet_days,
+                "day_start_hour": app.settings().day_start_hour,
+                "day_end_hour": app.settings().day_end_hour,
+                "life_buffer_min": app.settings().life_buffer_min,
+                "quiet_days": app.settings().quiet_days,
                 "clock_offset_ms": app.clock.offset_ms(),
-                "ai_label": crate::ai::label(&app.settings.ai),
+                "ai_label": crate::ai::label(&app.settings().ai),
                 "incoming_count": incoming,
                 "todo_count": queries::todos::list(&app.db(), app.clock.now())?.len(),
                 "platform": std::env::consts::OS,

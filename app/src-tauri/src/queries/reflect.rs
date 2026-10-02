@@ -452,7 +452,7 @@ fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result
     let now = app.clock.now();
     let all = events(conn, day, day + Duration::days(1))?;
     let evs: Vec<&Ev> = all.iter().filter(|e| keep(e, lens)).collect();
-    let (h0, h1) = (app.settings.day_start_hour as i64 * 60, app.settings.day_end_hour as i64 * 60);
+    let (h0, h1) = (app.settings().day_start_hour as i64 * 60, app.settings().day_end_hour as i64 * 60);
     // Free time counts every block as busy (time math on Life is allowed).
     let free = gaps(&busy(&all), h0, h1);
     let free_total: i64 = free.iter().map(|g| g.1 - g.0).sum();

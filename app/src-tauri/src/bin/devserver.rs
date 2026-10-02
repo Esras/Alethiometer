@@ -7,8 +7,9 @@ use tiny_http::{Header, Response, Server};
 
 fn main() -> anyhow::Result<()> {
     let dir: std::path::PathBuf = std::env::var_os("ALETHIOMETER_DATA_DIR").map(Into::into).unwrap_or_else(|| ".alethiometer-dev".into());
-    let app = std::sync::Arc::new(App::open(&dir)?);
+    let app = App::shared(App::open(&dir)?);
     alethiometer_lib::sync::start(app.clone());
+    alethiometer_lib::settings::live::watch(app.clone());
     alethiometer_lib::outbox::start(app.clone());
     let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;

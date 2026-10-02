@@ -537,7 +537,7 @@ impl Resolver {
 }
 
 pub fn resolver(app: &App) -> Result<Resolver> {
-    Resolver::load(&app.db(), &app.settings.people)
+    Resolver::load(&app.db(), &app.settings().people)
 }
 
 // ------------------------------------------------------------------ new-person suggestions (17a)

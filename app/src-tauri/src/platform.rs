@@ -12,6 +12,10 @@ use std::path::PathBuf;
 pub trait Platform: Send + Sync {
     fn secret_get(&self, key: &str) -> Option<String>;
     fn secret_set(&self, key: &str, value: &str) -> std::io::Result<()>;
+    /// When a secret was last set ("2026-09-14T10:02:00"), if known.
+    fn secret_set_at(&self, _key: &str) -> Option<String> {
+        None
+    }
     /// Persistent notification (stays until answered). Returns false if unsupported.
     fn notify_persistent(&self, _title: &str, _body: &str) -> bool {
         false
@@ -24,14 +28,20 @@ pub trait Platform: Send + Sync {
     }
 }
 
-/// Secrets in `<data dir>/secrets.json`, mode 0600.
+/// Secrets in `<data dir>/secrets.json`, mode 0600. When each was set goes in
+/// `secrets.meta.json` (names and times only), for the Settings page.
 pub struct FileSecrets {
     path: PathBuf,
+    meta: PathBuf,
 }
 
 impl FileSecrets {
     pub fn new(data_dir: &std::path::Path) -> FileSecrets {
-        FileSecrets { path: data_dir.join("secrets.json") }
+        FileSecrets { path: data_dir.join("secrets.json"), meta: data_dir.join("secrets.meta.json") }
+    }
+
+    fn read_meta(&self) -> BTreeMap<String, String> {
+        std::fs::read_to_string(&self.meta).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
     }
 
     fn read(&self) -> BTreeMap<String, String> {
@@ -56,6 +66,13 @@ impl Platform for FileSecrets {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
         }
+        let mut meta = self.read_meta();
+        meta.insert(key.into(), chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
+        std::fs::write(&self.meta, serde_json::to_string_pretty(&meta)?)?;
         Ok(())
+    }
+
+    fn secret_set_at(&self, key: &str) -> Option<String> {
+        self.read_meta().get(key).cloned()
     }
 }

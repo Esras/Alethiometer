@@ -73,6 +73,21 @@ pub fn deep_link(conn: &rusqlite::Connection, url: &str) -> Option<String> {
 
 pub struct Slack;
 
+/// Channels you're a member of, as (id, name, private), for Settings → Review….
+pub fn member_channels(http: &dyn crate::sync::http::Http, token: String) -> anyhow::Result<Vec<(String, String, bool)>> {
+    let client = api::Client::new(http, token);
+    let raw = client.get_paged("users.conversations", &[("types", "public_channel,private_channel"), ("exclude_archived", "true"), ("limit", "200")], "channels", 20)?;
+    let mut out: Vec<(String, String, bool)> = raw
+        .iter()
+        .filter_map(|c| {
+            let s = |k: &str| c.get(k).and_then(Value::as_str).map(str::to_owned);
+            Some((s("id")?, s("name")?, c.get("is_private").and_then(Value::as_bool).unwrap_or(false)))
+        })
+        .collect();
+    out.sort_by(|a, b| a.1.cmp(&b.1));
+    Ok(out)
+}
+
 /// Default secret names; override per source with `config.user_token_secret`
 /// and `config.app_token_secret` (e.g. for a second workspace).
 pub const USER_TOKEN: &str = "slack.user_token";

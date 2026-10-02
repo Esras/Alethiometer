@@ -287,7 +287,7 @@ fn list(app: &App, archived: bool) -> Result<Value> {
            FROM topics t WHERE (t.archived_at IS NOT NULL) = ?3"
     ))?;
     let week = crate::seed::fmt(now + chrono::Duration::days(7));
-    let quiet_before = crate::seed::fmt(now - chrono::Duration::days(app.settings.quiet_days));
+    let quiet_before = crate::seed::fmt(now - chrono::Duration::days(app.settings().quiet_days));
     let mut rows = stmt
         .query_map(params![now_s, week, archived], |r| {
             let last: Option<String> = r.get(6)?;
@@ -514,7 +514,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
     }
 
     let people = {
-        let r = super::people::Resolver::load(&conn, &app.settings.people)?;
+        let r = super::people::Resolver::load(&conn, &app.settings().people)?;
         super::people::for_topic(&conn, &r, id, now, 9)?
     };
 
