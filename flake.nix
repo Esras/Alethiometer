@@ -31,6 +31,52 @@
           imports = [
             (pkgs.devshell.extraModulesPath + "/language/rust.nix")
             (pkgs.devshell.importTOML ./devshell.toml)
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            (pkgs.devshell.extraModulesPath + "/language/c.nix")
+            (
+              let
+                libs = with pkgs; [
+                  openssl
+                  dbus
+                  glib
+                  gtk3
+                  webkitgtk_4_1
+                  libsoup_3
+                  cairo
+                  pango
+                  gdk-pixbuf
+                  atk
+                  harfbuzz
+                  zlib
+                ];
+              in
+              {
+                language.c = {
+                  compiler = pkgs.gcc;
+                  includes = libs;
+                  libraries = libs;
+                };
+                env = [
+                  {
+                    name = "PKG_CONFIG_PATH";
+                    prefix = "$DEVSHELL_DIR/share/pkgconfig";
+                  }
+                  {
+                    name = "__EGL_VENDOR_LIBRARY_DIRS";
+                    value = "${pkgs.mesa}/share/glvnd/egl_vendor.d";
+                  }
+                  {
+                    name = "GBM_BACKENDS_PATH";
+                    value = "${pkgs.mesa}/lib/gbm";
+                  }
+                  {
+                    name = "LIBGL_DRIVERS_PATH";
+                    value = "${pkgs.mesa}/lib/dri";
+                  }
+                ];
+              }
+            )
           ];
         };
     });
