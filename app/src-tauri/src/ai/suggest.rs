@@ -279,7 +279,7 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
     Ok(out)
 }
 
-fn reply_json(reply: &str) -> Option<Value> {
+pub(crate) fn reply_json(reply: &str) -> Option<Value> {
     let start = reply.find('{')?;
     let end = reply.rfind('}')?;
     serde_json::from_str(reply.get(start..=end)?).ok()

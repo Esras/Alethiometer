@@ -28,6 +28,7 @@ export interface AppInfo {
   ui_font_size: number;
   reading_font_size: number;
   settings_rev: number;
+  glean: boolean;
 }
 
 export interface Block {

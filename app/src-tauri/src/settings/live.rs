@@ -309,7 +309,10 @@ fn apply(app: &App, new: Settings) -> State {
     } else if restart {
         "Saved · restart Alethiometer to apply".to_string()
     } else if !restarted.is_empty() {
-        format!("Saved · {} reconnected", join_names(&restarted))
+        // Glean is search-only: nothing to reconnect, its next search uses the change.
+        let search_only = new.sources.iter().filter(|s| s.kind == "glean").map(|s| &s.name).collect::<Vec<_>>();
+        let verb = if restarted.iter().all(|n| search_only.contains(&n)) { "updated" } else { "reconnected" };
+        format!("Saved · {} {verb}", join_names(&restarted))
     } else {
         "Saved · live".to_string()
     };

@@ -68,6 +68,8 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "ui_font_size": settings.ui_font_size,
                 "reading_font_size": settings.reading_font_size,
                 "settings_rev": app.settings_state().rev,
+                // The Assistant searches Glean first when a Glean source is on.
+                "glean": crate::glean::config(app).is_some(),
             }))
         }
         "open_url" => {

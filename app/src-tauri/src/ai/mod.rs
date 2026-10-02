@@ -177,6 +177,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let a = with_live(app, |d| ask(app, d, &q, opt_i64(args, "topic_id"), scope))?;
             Ok(json!(a))
         }
+        "ask_glean" | "chips" => crate::glean::ask::call(app, name, args),
         // Safe to call after a sync: returns {status: "ai_off"} when not configured.
         "suggest_topics" => {
             let limit = opt_i64(args, "limit").unwrap_or(10).clamp(1, 50) as usize;

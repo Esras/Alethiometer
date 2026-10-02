@@ -183,7 +183,7 @@ fn when(at: Option<&str>, now: NaiveDateTime) -> String {
     }
 }
 
-fn source_label(kind: &str) -> &'static str {
+pub fn source_label(kind: &str) -> &'static str {
     match kind {
         "slack" => "Slack",
         "gmail" => "Gmail",
