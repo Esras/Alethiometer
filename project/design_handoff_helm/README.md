@@ -227,6 +227,27 @@ Reference: round 26 (25 is superseded; 25d's find becomes the field at the top o
 **AI (26c):** allowed providers (bedrock; US regions only, changed in settings.json only), Bedrock region and AWS profile, and a models table (Small / Large tier: model, effort, today's usage; an empty model turns a tier off).
 - **Prices are never entered by hand.** They're read once a day from the AWS Price List API (`pricing:GetProducts`, Bedrock, the configured region) and cached; `p` refreshes them. A model that isn't listed shows "not listed", and its cost estimate shows tokens only.
 
+### Settings (26a General, 27a Sources, 26c AI; 25d find)
+A modal over the app, opened from the cog to the right of the sync status, or with `⌘,`. `Esc` closes it. It isn't a tab: ⌘1–⌘6 stay the tabs. Reference: rounds 26 and 27 (25 is superseded except 25d's find).
+
+**Schema.** One row per field of `Settings` in `settings.rs`. Descriptions come from its doc comments, cut to one short line or dropped when the label says enough. `sources[].config` is untyped today (`serde_json::Value`); give each connector a typed config struct and generate one JSON schema (`schemars`), so the page can render source fields and hand edits are validated.
+
+**Layout**
+- Sidebar: Find (`/`, 25d) at the top, then the sections numbered 1–6: General, Categories, People, Sources, AI, Developer. **Sources expands in the sidebar** with one sub-item per source plus "Add source" (27a). A red dot marks a source that needs attention. "Open settings.json" (`⌘⇧,`) sits at the bottom.
+- Main pane: a title, then each group as its own card (label above the card, 24px between groups). Each row has the label, an optional one-line description and the control on the right. The key path (e.g. `quiet_days`) shows only on the focused row.
+- A source's page header shows the icon, name, live status and an Enabled toggle, followed by the groups Identity, Secrets, What it reads and Limits.
+- Secrets are write-only: the page shows the secret's name and when it was set, plus Replace… (`r`), and writes the value to the Keychain. A value is never displayed.
+- `ai.allowed_providers` is read-only here ("settings.json only"): it's the safety gate, so changing it stays a deliberate hand edit.
+
+**Saving and reload**
+- Every change writes settings.json immediately; there's no Save button. The modal header confirms it ("Saved · live", "Saved · Slack reconnected").
+- Helm re-reads the file and applies the change live: ui_scale through the webview zoom, a source change by restarting only that connector. Hand edits to the file are picked up the same way (file watcher).
+- If a setting truly can't apply live, Helm restarts itself and says so in the Settings header. There's no "restart later" path.
+
+**Keys:** `j`/`k` setting, `1`–`6` or `⇥` section, `⌥j`/`⌥k` previous / next source, `↵` edit, `−`/`+` step, `space` toggle, `r` replace secret, `a` add source, `⇧X` remove source, `/` find, `esc` close.
+
+**Cleanup:** fold `life_calendars` into the `protoncal` source; show `fake_now` (Developer) only in dev builds.
+
 ### Delegated asks (24a capture, 24b list, 24c by person, 24d topic + Reflect)
 Small things you've asked someone else to do: not engineering work (that stays in Jira) and not your own todos. Reference: round 24 (round 23 is superseded).
 
@@ -493,7 +514,8 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **26a–26c, 24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
+- `design/Helm Explorations 21-24.dc.html`: rounds 21–24. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
+- `design/Helm Explorations 25-28.dc.html`: rounds 25 and later. Relevant IDs: **27a, 26a, 26c, 25d** (26b's source list, 27b, 27c and the rest of 25 superseded).
 - `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
 - `design/Helm Explorations 13-16.dc.html`: rounds 13–16. Relevant IDs: **13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (15a–15e, 16a/16b superseded).
 - `design/Helm Explorations 7-12.dc.html`: rounds 7–12. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
