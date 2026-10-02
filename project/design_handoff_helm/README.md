@@ -1,7 +1,7 @@
-# Handoff: Helm — personal work assistant (macOS)
+# Handoff: Alethiometer — personal work assistant (macOS)
 
 ## Overview
-Helm is a single-user, local-first desktop assistant for one person: a manager moving into director-track work with a heavy meeting load, who loses track of time and attention easily. It gathers work signals (calendar, Slack, Jira, GitHub, a work Obsidian vault) under **Topics**. It then helps with four jobs: triage (Incoming), deciding what's next (Priorities), capture (Notes) and reflection (Reflect). Life/personal commitments are visible only as untitled busy time.
+Alethiometer is a single-user, local-first desktop assistant for one person: a manager moving into director-track work with a heavy meeting load, who loses track of time and attention easily. It gathers work signals (calendar, Slack, Jira, GitHub, a work Obsidian vault) under **Topics**. It then helps with four jobs: triage (Incoming), deciding what's next (Priorities), capture (Notes) and reflection (Reflect). Life/personal commitments are visible only as untitled busy time.
 
 This is a personal tool, not a product. Hard-coded choices, a `settings.json` and a short README for setup are all fine. Don't build settings screens, onboarding, multi-user support, telemetry or billing.
 
@@ -156,7 +156,7 @@ Reference: 19a/19b, with the row layout from 20a.
 **Outbox actions:** `gmail.trash`, `gmail.unsubscribe` (one-click POST, then trash), `gmail.label`, `gmail.archive` and `obsidian.append_task`. Each one can be undone until the outbox flushes.
 
 ### Todos (22a tab, 22b topic tasks, 22c creation, 21e weekly review)
-Marvin holds your todos, and Jira holds work tracked with others. Helm shows both and never merges them. Only Marvin tasks linked to a Helm topic are read, so personal Marvin lists stay off this machine.
+Marvin holds your todos, and Jira holds work tracked with others. Alethiometer shows both and never merges them. Only Marvin tasks linked to a Alethiometer topic are read, so personal Marvin lists stay off this machine.
 
 **Todos tab (22a)**
 - A new tab between Priorities and Topics, with the open count in its badge.
@@ -171,7 +171,7 @@ Marvin holds your todos, and Jira holds work tracked with others. Helm shows bot
   - due date
 - Clicking a column header sorts by it (default: due date, ascending, with undated tasks last). `/` filters by text.
 - Filters: Source (All · Marvin · Jira, with counts), Topic, Priority, Due.
-- The Jira rows are issues assigned to you, plus any created from Helm.
+- The Jira rows are issues assigned to you, plus any created from Alethiometer.
 - **Overdue is quiet:** red date text (`#fb4934`) only, with no badge, re-sort or banner.
 - How it differs from Priorities: only committed tasks, all of them, and nothing folded away.
 
@@ -208,6 +208,24 @@ Marvin holds your todos, and Jira holds work tracked with others. Helm shows bot
 - The day strip shows nothing for todos.
 
 **Outbox actions:** `marvin.create`, `marvin.complete`, `marvin.drop`, `jira.create`, `jira.transition_done`, `jira.unassign`, `slack.later_complete`, `obsidian.append_link`.
+
+### Settings (26a General, 26b Sources, 26c AI)
+Reference: round 26 (25 is superseded; 25d's find becomes the field at the top of the sidebar).
+
+- **Modal, not a tab.** A cog to the right of the sync status, or `⌘,`, opens it over the app with the app dimmed behind. `esc` closes it. `⌘⇧,` opens `settings.json` itself.
+- **Live reload.** Saving writes `settings.json` and Alethiometer re-reads it and applies the change live: `ui_scale` through webview zoom, and a source change restarts only that connector. Edits you make to the file by hand are picked up the same way. If a setting truly can't apply live, the app restarts itself on save and says so in the header ("Saved · live", "Saved · Slack reconnected").
+- **Layout.** A sidebar with find (`/`) and sections numbered 1–6 (General, Categories, People, Sources, AI, Developer); a red dot marks a section that needs attention. Every group is its own card with space between cards. Descriptions are one short line, or none where the label says enough. The `settings.json` key path shows only on the focused row. Categories, People and Developer use the same cards but aren't drawn yet.
+- **Keys:** `j/k` setting, `1–6` or `⇥` section, `↵` edit, `−/+` step, `space` toggle, `/` find.
+
+**General (26a):** Window (ui_scale), **Type** (`ui_font`, `mono_font` from installed fonts, each shown in its own face; `ui_font_size` 13 for lists, labels and controls, `reading_font_size` 14 for messages, notes and drafts; ui_scale multiplies both), Day strip (day range, Life travel buffer), Topics (quiet after), Notes (vault), Data (sample data).
+
+**Sources (26b):** a list of sources with sync state on the left, the selected source's cards on the right: Identity, Secrets, What it reads, Limits.
+- **Secrets** are in the Keychain only, never shown, and can only be replaced (`r`).
+- **Tag** shows what `personal` means today (not sent to the AI, kept out of Incoming, no write-back except Marvin). That's a current decision, not a fixed rule; take the description from the code's actual rules rather than hard-coding it.
+- **Slack channels** is a mode: **All I'm in** (`"all"`, shows the count) or **Only these**. **Review… ↵** opens a searchable, sortable list of channels you're in, with a checkbox, last activity and messages per day for each. Unchecking one in All switches to Only these with the rest still checked. The row warns that past about 100 channels a catch-up takes minutes without the live-feed (`xapp-`) token.
+
+**AI (26c):** allowed providers (bedrock; US regions only, changed in settings.json only), Bedrock region and AWS profile, and a models table (Small / Large tier: model, effort, today's usage; an empty model turns a tier off).
+- **Prices are never entered by hand.** They're read once a day from the AWS Price List API (`pricing:GetProducts`, Bedrock, the configured region) and cached; `p` refreshes them. A model that isn't listed shows "not listed", and its cost estimate shows tokens only.
 
 ### Delegated asks (24a capture, 24b list, 24c by person, 24d topic + Reflect)
 Small things you've asked someone else to do: not engineering work (that stays in Jira) and not your own todos. Reference: round 24 (round 23 is superseded).
@@ -475,7 +493,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
-- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
+- `design/Helm Explorations 21-24.dc.html`: rounds 21 and later. Relevant IDs: **26a–26c, 24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
 - `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
 - `design/Helm Explorations 13-16.dc.html`: rounds 13–16. Relevant IDs: **13a, 13b, 14a, 14b, 15f, 15g, 15h, 16c** (15a–15e, 16a/16b superseded).
 - `design/Helm Explorations 7-12.dc.html`: rounds 7–12. Relevant IDs: **7a, 7b, 8a, 8b, 9a, 9b, 9c, 9d, 10a, 11a, 12c** (12a/12b superseded).
