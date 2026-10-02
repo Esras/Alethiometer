@@ -74,9 +74,9 @@
   {:else}
     <span class="v tnum" ondblclick={() => onedit(true)} role="presentation">{shown}</span>
   {/if}
+  {#if unit}<span class="unit">{unit}</span>{/if}
   <button onclick={() => bump(1)} disabled={max !== undefined && value >= max} aria-label="More">+</button>
 </span>
-{#if unit}<span class="unit">{unit}</span>{/if}
 
 <style>
   .stepper {
@@ -113,6 +113,6 @@
   .unit {
     color: var(--tx-label);
     font-size: 0.9231rem;
-    min-width: 28px;
+    margin-right: 4px;
   }
 </style>

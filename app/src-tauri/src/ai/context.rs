@@ -134,8 +134,19 @@ fn item_block(conn: &Connection, r: &ItemRow) -> Result<String> {
     Ok(b)
 }
 
-/// Context for questions about one topic: its note, open tasks, then confirmed
-/// items newest first.
+fn topic_rows(conn: &Connection, topic_id: i64, state: &str) -> Result<Vec<ItemRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {ITEM_COLS}
+           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+          WHERE tl.topic_id = ?1 AND tl.state = ?2 AND s.tag = 'work' AND (?2 = 'confirmed' OR i.seen = 0)
+          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
+    ))?;
+    let rows = stmt.query_map(params![topic_id, state], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows.into_iter().filter(|r| r.tag == "work").collect())
+}
+
+/// Context for questions about one topic: its note, its new signals still in
+/// Incoming (suggested, not confirmed), open tasks, then confirmed items newest first.
 pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Context> {
     let (name, note) = topic_note(conn, vault, topic_id)?;
     let mut ctx = Context::default();
@@ -148,14 +159,16 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
     if !people.is_empty() {
         ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
     }
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {ITEM_COLS}
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'
-          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
-    ))?;
-    let rows: Vec<ItemRow> =
-        stmt.query_map([topic_id], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|r| r.tag == "work").collect();
+    let suggested = topic_rows(conn, topic_id, "suggested")?;
+    if !suggested.is_empty() {
+        ctx.push("\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n", None);
+        for r in &suggested {
+            if !ctx.push(&item_block(conn, r)?, Some(r.id)) {
+                break;
+            }
+        }
+    }
+    let rows = topic_rows(conn, topic_id, "confirmed")?;
     // Open tasks first so the budget never drops them; then everything else newest first.
     let (open, rest): (Vec<&ItemRow>, Vec<&ItemRow>) = rows.iter().partition(|r| is_open_task(r));
     ctx.push("\nItems linked to this topic (newest first):\n", None);
@@ -333,6 +346,28 @@ pub mod tests {
         )
         .unwrap();
         id
+    }
+
+    #[test]
+    fn topic_context_includes_its_new_suggested_signals() {
+        let (app, _dir) = app();
+        let id = topic_id(&app, "Datadog renewal");
+        {
+            let conn = app.db();
+            let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
+            for (ext, title, seen) in [("n1", "FRESH-SUGGESTION renewal quote", 0), ("n2", "OLD-SUGGESTION already triaged", 1)] {
+                conn.execute(
+                    "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, ?2, 'message', ?3, '2026-09-01T09:00:00', 'open', ?4)",
+                    params![src, ext, title, seen],
+                )
+                .unwrap();
+                conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![conn.last_insert_rowid(), id]).unwrap();
+            }
+        }
+        let ctx = for_topic(&app.db(), &app.vault, id).unwrap();
+        assert!(ctx.text.contains("not yet confirmed"));
+        assert!(ctx.text.contains("FRESH-SUGGESTION"));
+        assert!(!ctx.text.contains("OLD-SUGGESTION"));
     }
 
     #[test]

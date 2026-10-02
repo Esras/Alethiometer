@@ -48,6 +48,9 @@ pub fn check(ai: &AiSettings, tier: Tier) -> Result<&AiTier> {
             t.provider
         )));
     }
+    if !t.enabled {
+        return Err(msg(format!("The {:?} tier is off in Settings", tier)));
+    }
     if t.model.is_empty() {
         return Err(msg(format!("No model set for the {:?} tier in settings.json", tier)));
     }
@@ -268,7 +271,7 @@ pub mod tests {
     #[test]
     fn provider_off_allow_list_fails_closed() {
         let mut ai = Settings::default().ai;
-        ai.large = AiTier { provider: "openai".into(), model: "x".into(), effort: String::new() };
+        ai.large = AiTier { provider: "openai".into(), enabled: true, model: "x".into(), effort: String::new() };
         let err = check(&ai, Tier::Large).unwrap_err().to_string();
         assert!(err.contains("not on the allow-list"), "{err}");
     }
@@ -286,6 +289,14 @@ pub mod tests {
         let mut ai = Settings::default().ai;
         ai.small.model.clear();
         assert!(check(&ai, Tier::Small).is_err());
+    }
+
+    #[test]
+    fn a_tier_turned_off_fails() {
+        let mut ai = Settings::default().ai;
+        ai.large.enabled = false;
+        assert!(check(&ai, Tier::Large).unwrap_err().to_string().contains("off in Settings"));
+        assert!(check(&ai, Tier::Small).is_ok());
     }
 
     #[test]
@@ -373,7 +384,7 @@ pub mod tests {
     #[test]
     fn ask_off_allow_list_sends_nothing() {
         let (app, _dir) = app();
-        app.update_settings(|s| s.ai.large = AiTier { provider: "openai".into(), model: "gpt".into(), effort: String::new() });
+        app.update_settings(|s| s.ai.large = AiTier { provider: "openai".into(), enabled: true, model: "gpt".into(), effort: String::new() });
         let http = ok_http();
         let creds_called = std::cell::Cell::new(false);
         let creds = || {
@@ -390,7 +401,7 @@ pub mod tests {
     fn allowed_but_clientless_provider_fails_closed() {
         let (app, _dir) = app();
         app.update_settings(|s| s.ai.allowed_providers.push("ollama".into()));
-        app.update_settings(|s| s.ai.large = AiTier { provider: "ollama".into(), model: "llama".into(), effort: String::new() });
+        app.update_settings(|s| s.ai.large = AiTier { provider: "ollama".into(), enabled: true, model: "llama".into(), effort: String::new() });
         let http = ok_http();
         let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("No client for provider 'ollama'"), "{err}");

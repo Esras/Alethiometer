@@ -47,7 +47,7 @@ pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Re
     let titles: Vec<String> = conn
         .prepare(
             "SELECT i.title FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-              WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 10",
+              WHERE tl.topic_id = ?1 AND (tl.state = 'confirmed' OR (tl.state = 'suggested' AND i.seen = 0)) AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 10",
         )?
         .query_map([t], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
@@ -397,7 +397,7 @@ fn local_evidence(app: &App, question: &str, topic: Option<i64>) -> Result<Vec<L
         let conn = app.db();
         let mut stmt = conn.prepare(
             "SELECT i.id FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-              WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 6",
+              WHERE tl.topic_id = ?1 AND (tl.state = 'confirmed' OR (tl.state = 'suggested' AND i.seen = 0)) AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 6",
         )?;
         for id in stmt.query_map([t], |r| r.get::<_, i64>(0))? {
             ids.push((id?, "in topic".into()));

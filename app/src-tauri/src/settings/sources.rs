@@ -6,7 +6,7 @@
 //! defaults here and there in step. Unknown keys are allowed (an older or newer
 //! build may know more), wrong types are not.
 //!
-//! Groups (`x-group`): identity, secrets, reads ("What it reads"), limits.
+//! Groups (`x-group`): identity, secrets, reads ("What it reads"), categories, limits.
 //! A field with `x-secret` holds the *name* of a secret; the page shows that
 //! secret (set or not, when) with Replace…, never its value.
 
@@ -54,7 +54,7 @@ pub struct SlackConfig {
     pub user_token_secret: String,
     #[schemars(extend("x-group" = "secrets", "x-label" = "App token", "x-secret" = true, "x-note" = "xapp-… · live feed"))]
     pub app_token_secret: String,
-    /// Refreshed each catch-up. Past ~100, a catch-up takes minutes without the live token.
+    /// Past ~100, a catch-up takes minutes without the live token.
     #[schemars(extend("x-group" = "reads", "x-label" = "Channels", "x-widget" = "slack_channels"))]
     pub channels: Channels,
     /// Still read, never new in Incoming.
@@ -100,7 +100,6 @@ impl Default for SlackConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct GmailConfig {
-    /// Picks the account at sign-in and in links.
     #[schemars(extend("x-group" = "identity", "x-label" = "Account"))]
     pub account: String,
     #[schemars(extend("x-group" = "secrets", "x-label" = "Token name prefix", "x-advanced" = true))]
@@ -110,7 +109,6 @@ pub struct GmailConfig {
     /// Category → Gmail label added when you file a thread.
     #[schemars(extend("x-group" = "reads", "x-label" = "Category labels", "x-widget" = "category_map"))]
     pub category_labels: BTreeMap<String, String>,
-    /// Never write to Gmail.
     #[schemars(extend("x-group" = "reads", "x-label" = "Read only"))]
     pub read_only: bool,
 }
@@ -124,17 +122,16 @@ impl Default for GmailConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct GcalConfig {
-    /// Picks the account at sign-in.
     #[schemars(extend("x-group" = "identity", "x-label" = "Account"))]
     pub account: String,
     #[schemars(extend("x-group" = "identity", "x-label" = "Calendar"))]
     pub calendar_id: String,
     #[schemars(extend("x-group" = "secrets", "x-label" = "Secret name prefix", "x-advanced" = true))]
     pub secret_prefix: String,
-    #[schemars(extend("x-group" = "reads", "x-label" = "Default category", "x-widget" = "category"))]
+    #[schemars(extend("x-group" = "categories", "x-label" = "Default category", "x-widget" = "category"))]
     pub default_category: String,
     /// Google colorId → category, for self-holds.
-    #[schemars(extend("x-group" = "reads", "x-label" = "Category by colour", "x-widget" = "category_map"))]
+    #[schemars(extend("x-group" = "categories", "x-label" = "Category by colour", "x-widget" = "category_map"))]
     pub category_by_color: BTreeMap<String, String>,
     #[schemars(extend("x-group" = "limits", "x-label" = "Days back", "x-unit" = "days", "x-min" = 0))]
     pub days_back: i64,
@@ -142,12 +139,10 @@ pub struct GcalConfig {
     pub days_ahead: i64,
     #[schemars(extend("x-group" = "limits", "x-label" = "Hold length", "x-unit" = "min", "x-step" = 5, "x-min" = 5, "x-max" = 480))]
     pub hold_minutes: i64,
-    /// Working hours a hold may be placed in.
     #[schemars(extend("x-group" = "limits", "x-label" = "Hold hours", "x-widget" = "hour_range"))]
     pub hold_hours: Vec<u32>,
     #[schemars(extend("x-group" = "limits", "x-label" = "Hold search", "x-unit" = "workdays", "x-min" = 1, "x-max" = 20))]
     pub hold_search_days: i64,
-    /// all, externalOnly or none; empty uses Google's default.
     #[schemars(extend("x-group" = "limits", "x-label" = "RSVP updates", "x-enum" = ["", "all", "externalOnly", "none"]))]
     pub rsvp_send_updates: String,
 }
@@ -181,7 +176,6 @@ pub struct JiraConfig {
     pub email: String,
     #[schemars(extend("x-group" = "secrets", "x-label" = "API token", "x-secret" = true))]
     pub secret: String,
-    /// Which issues to follow.
     #[schemars(extend("x-group" = "reads", "x-label" = "JQL", "x-widget" = "code"))]
     pub jql: String,
     /// Custom date-time field holding the real deadline.
@@ -237,7 +231,6 @@ pub struct GithubConfig {
     /// Off skips PRs you were only pulled into through a team.
     #[schemars(extend("x-group" = "reads", "x-label" = "Team review requests"))]
     pub team_review_requests: bool,
-    /// Never write to GitHub.
     #[schemars(extend("x-group" = "reads", "x-label" = "Read only"))]
     pub read_only: bool,
     #[schemars(extend("x-group" = "limits", "x-label" = "Look back", "x-unit" = "days", "x-min" = 1))]
@@ -269,7 +262,6 @@ pub struct ObsidianConfig {
     /// obsidian writes through the running app; file writes the files directly.
     #[schemars(extend("x-group" = "reads", "x-label" = "Write through", "x-enum" = ["obsidian", "file"]))]
     pub write_mode: String,
-    /// Extra patterns to skip.
     #[schemars(extend("x-group" = "reads", "x-label" = "Ignore", "x-widget" = "list"))]
     pub ignore: Vec<String>,
     #[schemars(extend("x-group" = "limits", "x-label" = "REST URL", "x-advanced" = true))]
@@ -301,7 +293,6 @@ pub struct ProtoncalConfig {
     pub past_days: i64,
     #[schemars(extend("x-group" = "limits", "x-label" = "Days ahead", "x-unit" = "days", "x-min" = 1))]
     pub future_days: i64,
-    /// skip ignores all-day events.
     #[schemars(extend("x-group" = "reads", "x-label" = "All-day events", "x-enum" = ["busy", "skip"]))]
     pub all_day: String,
 }
@@ -325,13 +316,11 @@ pub struct GleanConfig {
     pub act_as: String,
     #[schemars(extend("x-group" = "secrets", "x-label" = "API token", "x-secret" = true))]
     pub token_secret: String,
-    /// Empty searches every datasource Glean has.
     #[schemars(extend("x-group" = "reads", "x-label" = "Datasources", "x-widget" = "list"))]
     pub datasources: Vec<String>,
     /// Never search these (e.g. slack: it's read directly).
     #[schemars(extend("x-group" = "reads", "x-label" = "Skip datasources", "x-widget" = "list"))]
     pub exclude_datasources: Vec<String>,
-    /// Results older than this are left out.
     #[schemars(extend("x-group" = "reads", "x-label" = "Window", "x-unit" = "days", "x-step" = 30, "x-min" = 7))]
     pub window_days: i64,
     /// Anchored results below this similarity to the topic are hidden.

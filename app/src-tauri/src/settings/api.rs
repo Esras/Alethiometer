@@ -128,8 +128,8 @@ pub fn fonts() -> Vec<Value> {
     let mut fams: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
     for f in db.faces() {
         if let Some((name, _)) = f.families.first() {
-            if name.starts_with('.') {
-                continue; // macOS hides these
+            if name.starts_with('.') || name == "System Font" {
+                continue;
             }
             let e = fams.entry(name.clone()).or_insert(true);
             *e = *e && f.monospaced;

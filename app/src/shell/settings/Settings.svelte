@@ -132,7 +132,7 @@
       const kind = p.kinds.find((k) => k.kind === s.kind);
       out.push({ t: 'enabled', group: '', source: s });
       const fields = (kind?.fields ?? []).filter((f) => !f.opts?.secret && !(s.kind === 'glean' && f.key.endsWith('poll_secs')));
-      const order = ['identity', 'secrets', 'reads', 'limits'];
+      const order = ['identity', 'secrets', 'reads', 'categories', 'limits'];
       for (const g of order) {
         if (g === 'secrets') {
           for (const k of s.secrets) out.push({ t: 'secret', group: 'secrets', secret: k, source: s });
@@ -227,6 +227,7 @@
     if (it.t === 'enabled') return apply([{ path: ['sources', it.source.index, 'enabled'], value: !it.source.enabled }]);
     if (it.t === 'secret') return startReplace(it.secret);
     if (it.t === 'kind') return addSource(it.kind, it.label);
+    if (it.t === 'tier') return apply([{ path: ['ai', it.tier, 'enabled'], value: get(page.values, ['ai', it.tier, 'enabled']) === false }]);
     if (it.t === 'field') {
       if (it.field.opts?.readonly) return;
       if (it.field.widget === 'toggle') return setField(it, !it.value);
@@ -371,7 +372,7 @@
     } else if (e.key === 'Enter') activate(items[focus]);
     else if (e.key === ' ') {
       const it = items[focus];
-      if (it?.t === 'enabled' || (it?.t === 'field' && it.field.widget === 'toggle')) activate(it);
+      if (it?.t === 'enabled' || it?.t === 'tier' || (it?.t === 'field' && it.field.widget === 'toggle')) activate(it);
     } else if (e.key === '-' || e.key === '−') step(-1);
     else if (e.key === '+' || e.key === '=') step(1);
     else if (e.key === '/') {
@@ -488,8 +489,7 @@
             <div class="glabel">
               {GROUP_LABELS[g.name] ?? g.name}
               {#if g.name === 'secrets'}<span class="gnote">secrets.json (0600), never shown</span>{/if}
-              {#if g.name === 'Models'}<span class="gnote">empty model turns a tier off</span>{/if}
-              {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD · only used for cost estimates</span>{/if}
+              {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD</span>{/if}
             </div>
           {/if}
           <div class="card" class:table={g.name === 'Models' || g.name === 'Prices'}>
@@ -554,12 +554,15 @@
                 {@const tier = item.tier}
                 {@const model = String(get(page.values, ['ai', tier, 'model']) ?? '')}
                 {@const effort = String(get(page.values, ['ai', tier, 'effort']) ?? '')}
+                {@const on = get(page.values, ['ai', tier, 'enabled']) !== false}
                 <div class="trow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
-                  <span class="lbl">{tier === 'small' ? 'Small' : 'Large'}</span>
+                  <span class="lbl tier">
+                    <button class="switch" class:on onclick={() => activate(item)} aria-label="{tier === 'small' ? 'Small' : 'Large'} tier" aria-pressed={on}><span></span></button>
+                    {tier === 'small' ? 'Small' : 'Large'}
+                  </span>
                   <input
                     class="text-input mono"
                     value={model}
-                    placeholder="off"
                     list="ai-models"
                     onblur={(e) => e.currentTarget.value !== model && apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
                     onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
@@ -937,6 +940,11 @@
   .lbl i {
     color: var(--tx-label);
   }
+  .lbl.tier {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .desc {
     margin-top: 3px;
     color: var(--tx-muted-2);
@@ -993,7 +1001,7 @@
   .thead,
   .trow {
     display: grid;
-    grid-template-columns: 90px minmax(0, 1fr) auto 160px;
+    grid-template-columns: 110px minmax(0, 1fr) auto 160px;
     gap: 16px;
     align-items: center;
     padding: 10px 18px;

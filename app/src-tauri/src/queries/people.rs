@@ -400,7 +400,8 @@ pub struct Resolver {
     my_color: u8,
 }
 
-/// Your own accounts: settings `people.me`, plus each Slack source's own user id.
+/// Your own accounts: settings `people.me`, each Slack source's own user id, and
+/// each Jira source's email (the API token's owner).
 fn my_accounts(conn: &Connection, settings: &PeopleSettings) -> Result<HashSet<(String, String)>> {
     let mut me: HashSet<(String, String)> = settings
         .me
@@ -415,6 +416,14 @@ fn my_accounts(conn: &Connection, settings: &PeopleSettings) -> Result<HashSet<(
         if let Some(u) = serde_json::from_str::<Value>(&c).ok().and_then(|v| v.get("me").and_then(Value::as_str).map(str::to_owned)) {
             if !u.is_empty() {
                 me.insert(("slack".into(), u));
+            }
+        }
+    }
+    let jira: Vec<String> = conn.prepare("SELECT config_json FROM sources WHERE kind = 'jira'")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    for c in jira {
+        if let Some(e) = serde_json::from_str::<Value>(&c).ok().and_then(|v| v.get("email").and_then(Value::as_str).map(|e| norm("email", e))) {
+            if !e.is_empty() {
+                me.insert(("email".into(), e));
             }
         }
     }
@@ -1126,6 +1135,17 @@ mod tests {
         assert!(!new.known);
         assert_eq!(new.color, hash_color("new.person@work.com"), "unknown, but keyed by the email the source gave");
         assert!(r.who("slack", Some("U0ZACH"), "zach").me, "you, by your email");
+    }
+
+    #[test]
+    fn your_jira_account_is_you() {
+        let conn = db();
+        conn.execute("INSERT INTO sources (kind, tag, name, config_json) VALUES ('jira', 'work', 'Jira', '{\"email\": \"Zach@Work.com\"}')", []).unwrap();
+        conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('jira', 'acc-me', 'Zach', 'zach@work.com')", []).unwrap();
+        let r = Resolver::load(&conn, &PeopleSettings::default()).unwrap();
+        assert!(r.who("jira", Some("acc-me"), "Zach").me);
+        assert!(r.who("gmail", Some("zach@work.com"), "Zach").me, "the Jira email is yours everywhere");
+        assert!(!r.who("jira", Some("acc-other"), "Kim").me);
     }
 
     #[test]

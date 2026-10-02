@@ -112,12 +112,13 @@ export const SECTIONS = [
 export type Section = (typeof SECTIONS)[number]['id'];
 
 /** Group order per page (anything unlisted keeps its schema order, after these). */
-export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Bedrock', 'Models', 'Prices', 'Clock', 'identity', 'secrets', 'reads', 'limits', 'Advanced'];
+export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Bedrock', 'Models', 'Prices', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
 
 export const GROUP_LABELS: Record<string, string> = {
   identity: 'Identity',
   secrets: 'Secrets',
   reads: 'What it reads',
+  categories: 'Categories',
   limits: 'Limits',
 };
 

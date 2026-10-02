@@ -16,7 +16,7 @@ Hand edits are picked up the same way: a file watcher on the data dir reloads `s
 
 ## Schema
 
-Rows come from the JSON schema of `Settings` (`settings/mod.rs`) and of each connector's typed config (`settings/sources.rs`), generated with `schemars`. A field's doc comment is its description: the first line shows. `x-section`, `x-group`, `x-label`, `x-unit`, `x-step`, `x-min`/`x-max`, `x-enum`, `x-widget` place and shape the row (`settings/schema.rs` flattens them).
+Rows come from the JSON schema of `Settings` (`settings/mod.rs`) and of each connector's typed config (`settings/sources.rs`), generated with `schemars`. A field's doc comment is its description: the first line shows. Most fields have none: a description is only there when the setting does something non-standard or surprising. `x-section`, `x-group`, `x-label`, `x-unit`, `x-step`, `x-min`/`x-max`, `x-enum`, `x-widget` place and shape the row (`settings/schema.rs` flattens them).
 
 Connectors still read their own config from JSON. `settings::sources::tests::defaults_match_connectors` keeps the typed defaults and the connectors' in step. Unknown keys are allowed, wrong types are refused.
 
@@ -25,8 +25,8 @@ Connectors still read their own config from JSON. `settings::sources::tests::def
 1. **General**: Window (`ui_scale`), Type (`ui_font`, `mono_font`, `ui_font_size`, `reading_font_size`), Day strip, Topics, Notes (vault), Data (sample data).
 2. **Categories**: the Topics index category editor (writes `categories` back).
 3. **People**: your colour, your accounts, when to suggest a People note.
-4. **Sources**: one sub-item per source, plus Add source. Pages: Identity, Secrets, What it reads, Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.
-5. **AI**: allowed providers (read-only), Bedrock region and profile, models with today's usage, prices (editable for now; see ISSUES.md), local embeddings state.
+4. **Sources**: one sub-item per source, plus Add source. Pages: Identity, Secrets, What it reads (Categories on Google Calendar), Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.
+5. **AI**: allowed providers (read-only), Bedrock region and profile, models (each tier has an on/off toggle, `ai.small.enabled` / `ai.large.enabled`) with today's usage, prices (editable for now; see ISSUES.md), local embeddings state.
 6. **Developer**: `fake_now` (dev builds only) and the settings path.
 
 `life_calendars` moves into the Proton source's `urls` the first time the app opens the file.

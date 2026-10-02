@@ -96,9 +96,11 @@
           {/each}
         </div>
       {:else}
-        <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
-          {#each o.enum ?? [] as opt}<option value={opt}>{opt || 'default'}</option>{/each}
-        </select>
+        <span class="dropdown">
+          <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
+            {#each o.enum ?? [] as opt}<option value={opt}>{opt || 'default'}</option>{/each}
+          </select><i class="ph ph-caret-down"></i>
+        </span>
       {/if}
     {:else if field.widget === 'font'}
       <FontPick value={String(value ?? '')} {fonts} mono={!!o.mono} open={editing} onclose={() => onedit(false)} onchange={(v) => onset(v)} />
@@ -110,9 +112,11 @@
     {:else if field.widget === 'map' || field.widget === 'category_map'}
       <MapEdit map={(value as Record<string, string>) ?? {}} categories={field.widget === 'category_map'} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'category'}
-      <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
-        {#each Object.entries(ui.info?.categories ?? {}) as [k, c]}<option value={k}>{c.label}</option>{/each}
-      </select>
+      <span class="dropdown">
+        <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
+          {#each Object.entries(ui.info?.categories ?? {}) as [k, c]}<option value={k}>{c.label}</option>{/each}
+        </select><i class="ph ph-caret-down"></i>
+      </span>
     {:else if field.widget === 'hour_range'}
       {@const r = (value as number[]) ?? [9, 17]}
       <Stepper value={r[0] ?? 9} min={0} max={(r[1] ?? 17) - 1} format={hour} onchange={(v) => onset([v, r[1] ?? 17])} />
@@ -157,7 +161,7 @@
         bind:this={input}
         value={String(value ?? '')}
         disabled={readonly}
-        placeholder={field.widget === 'folder' ? 'built-in stand-in vault' : ''}
+        placeholder={field.key === 'obsidian_vault' ? 'built-in stand-in vault' : ''}
         onfocus={() => onedit(true)}
         onblur={(e) => commitText(e.currentTarget.value)}
         onkeydown={(e) => {
@@ -276,6 +280,28 @@
   .code:focus,
   select:focus {
     border-color: var(--aqua);
+  }
+  .dropdown {
+    position: relative;
+    display: inline-flex;
+    width: 360px;
+    max-width: 100%;
+  }
+  .dropdown select {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    color: var(--tx-title);
+    font: inherit;
+    padding-right: 30px;
+  }
+  .dropdown i {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--tx-label);
+    pointer-events: none;
   }
   .text-input:disabled {
     color: var(--tx-label);

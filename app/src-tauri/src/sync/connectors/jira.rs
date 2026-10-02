@@ -20,7 +20,7 @@
 
 use super::github::urlencode;
 use crate::sync::http::Response;
-use crate::sync::{local_ts, Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use crate::sync::{local_ts, Batch, Connector, Ctx, Handle, ItemUpsert, Message, Profile};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde_json::{json, Value};
 
@@ -110,8 +110,8 @@ fn error(resp: &Response) -> anyhow::Error {
 impl Connector for Jira {
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
         let api = Api::new(ctx)?;
-        let me = api.get("/rest/api/3/myself")?;
-        let me = me.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
+        let myself = api.get("/rest/api/3/myself")?;
+        let me = myself.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
 
         let cursor = ctx.source.cursor.as_deref().and_then(parse_time).map(|t| t.with_timezone(&Utc));
         let since = cursor.unwrap_or_else(|| {
@@ -129,6 +129,16 @@ impl Connector for Jira {
         };
 
         let mut batch = Batch::default();
+        if !me.is_empty() {
+            let email = myself.get("emailAddress").and_then(Value::as_str).or_else(|| ctx.source.config.get("email").and_then(Value::as_str));
+            batch.profiles.push(Profile {
+                kind: "jira".into(),
+                account: me.clone(),
+                real_name: myself.get("displayName").and_then(Value::as_str).map(str::to_owned),
+                email: email.filter(|e| !e.trim().is_empty()).map(str::to_owned),
+                is_bot: false,
+            });
+        }
         let mut newest = cursor;
         let mut token: Option<String> = None;
         for _ in 0..MAX_PAGES {
@@ -652,6 +662,7 @@ mod tests {
     #[test]
     fn polls_all_pages_and_maps_issues() {
         let (b, reqs) = polled(None);
+        assert_eq!((b.profiles[0].account.as_str(), b.profiles[0].email.as_deref()), ("acc-me", Some("me@acme.test")), "your account, for matching you");
         let searches: Vec<&String> = reqs.iter().filter(|r| r.1.contains("/search/jql")).map(|r| &r.1).collect();
         assert_eq!(searches.len(), 2);
         assert!(searches[0].starts_with("https://acme.atlassian.net/rest/api/3/search/jql?jql="));

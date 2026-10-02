@@ -112,6 +112,7 @@
       const i = known.indexOf(id);
       return i < 0 ? known.length : i;
     };
+    keepDismissed(q);
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
     const live = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted].map((s) => s.item_id));
@@ -132,6 +133,22 @@
       chosen = new Set([...chosen].filter((id) => msgs.some((m) => m.id === id)));
       msgIdx = Math.min(msgIdx, msgs.length - 1);
     }
+  }
+
+  function keepDismissed(q: Queue) {
+    const id = selItem;
+    if (!queue || id === null || !dismissed.has(id)) return;
+    if ([...q.topics.flatMap((t) => t.signals), ...q.unsorted].some((s) => s.item_id === id)) return;
+    const put = (list: Signal[], from: Signal[]) => {
+      const i = from.findIndex((s) => s.item_id === id);
+      list.splice(Math.min(i, list.length), 0, from[i]);
+    };
+    if (queue.unsorted.some((s) => s.item_id === id)) return put(q.unsorted, queue.unsorted);
+    const t = queue.topics.find((t) => t.signals.some((s) => s.item_id === id));
+    if (!t) return;
+    const nt = q.topics.find((x) => x.id === t.id);
+    if (nt) put(nt.signals, t.signals);
+    else q.topics.push({ ...t, signals: t.signals.filter((s) => s.item_id === id) });
   }
 
   function leaveMsgs() {

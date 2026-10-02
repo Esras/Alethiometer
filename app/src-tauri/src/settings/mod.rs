@@ -59,7 +59,6 @@ impl JsonSchema for Categories {
 pub struct SourceConfig {
     /// slack, gmail, gcal, jira, github, obsidian, protoncal or glean.
     pub kind: String,
-    /// Shown in Incoming and the sync status.
     #[schemars(extend("x-label" = "Name", "x-group" = "identity"))]
     pub name: String,
     /// Personal sources only produce busy blocks.
@@ -67,7 +66,7 @@ pub struct SourceConfig {
     pub tag: String,
     #[serde(default = "yes")]
     pub enabled: bool,
-    /// Seconds between catch-ups. Ignored by live sources.
+    /// Ignored by live sources.
     #[serde(default = "default_poll")]
     #[schemars(extend("x-label" = "Poll every", "x-group" = "limits", "x-unit" = "s", "x-step" = 30, "x-min" = 30))]
     pub poll_secs: u64,
@@ -87,7 +86,8 @@ fn default_poll() -> u64 {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct AiTier {
     pub provider: String,
-    /// Empty turns this tier off.
+    #[serde(default = "yes")]
+    pub enabled: bool,
     pub model: String,
     /// Reasoning effort: "low", "medium", "high", or "" for the model's default.
     #[serde(default)]
@@ -102,10 +102,8 @@ pub struct Price {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct AiSettings {
-    /// Work data only goes to these. Anything else fails closed.
     #[schemars(extend("x-label" = "Allowed providers", "x-group" = "Allowed providers", "x-readonly" = true))]
     pub allowed_providers: Vec<String>,
-    /// US regions only under the BAA.
     #[schemars(extend("x-label" = "Region", "x-group" = "Bedrock", "x-enum" = ["us-east-1", "us-east-2", "us-west-1", "us-west-2"]))]
     pub region: String,
     /// Empty uses AWS_PROFILE, then default.
@@ -119,7 +117,7 @@ pub struct AiSettings {
     pub small: AiTier,
     #[schemars(extend("x-label" = "Large", "x-group" = "Models", "x-widget" = "tier"))]
     pub large: AiTier,
-    /// Per million tokens, USD. Only used for cost estimates.
+    /// Per million tokens, USD.
     #[serde(default)]
     #[schemars(extend("x-label" = "Prices", "x-group" = "Prices", "x-widget" = "prices"))]
     pub prices: BTreeMap<String, Price>,
@@ -131,7 +129,6 @@ pub struct Settings {
     /// Topic categories in UI order. Topics and calendar blocks reference keys, which never change.
     #[schemars(extend("x-section" = "categories", "x-widget" = "categories"))]
     pub categories: Categories,
-    /// First hour shown on the day strip.
     #[schemars(extend("x-section" = "general", "x-group" = "Day strip", "x-label" = "Day range", "x-widget" = "hour", "x-pair" = "day_end_hour", "x-min" = 0, "x-max" = 23))]
     pub day_start_hour: u32,
     /// Last hour shown on the day strip.
@@ -140,9 +137,6 @@ pub struct Settings {
     /// Before each Life block. b on a block changes just that one.
     #[schemars(extend("x-section" = "general", "x-group" = "Day strip", "x-label" = "Travel buffer", "x-unit" = "min", "x-step" = 5, "x-min" = 0, "x-max" = 120))]
     pub life_buffer_min: i64,
-    /// Empty uses the built-in stand-in.
-    ///
-    /// Absolute path to the work Obsidian vault. Empty = `<data dir>/vault`.
     #[schemars(extend("x-section" = "general", "x-group" = "Notes", "x-label" = "Work vault", "x-widget" = "folder", "x-restart" = true))]
     pub obsidian_vault: String,
     /// Proton Calendar "Limited view" share links. Moved into the protoncal source's `urls` at startup.
@@ -153,16 +147,12 @@ pub struct Settings {
     /// Pin the clock to HH:MM. Empty uses the real clock.
     #[schemars(extend("x-section" = "developer", "x-group" = "Clock", "x-label" = "Fake now", "x-dev" = true, "x-restart" = true))]
     pub fake_now: String,
-    /// Type and spacing grow together.
     #[schemars(extend("x-section" = "general", "x-group" = "Window", "x-label" = "Interface scale", "x-widget" = "scale", "x-step" = 0.05, "x-min" = 0.75, "x-max" = 2.0))]
     pub ui_scale: f64,
-    /// Lists, labels and controls. Empty uses the system font.
     #[schemars(extend("x-section" = "general", "x-group" = "Type", "x-label" = "Interface font", "x-widget" = "font"))]
     pub ui_font: String,
-    /// Keys, paths, code. Empty uses the system monospace font.
     #[schemars(extend("x-section" = "general", "x-group" = "Type", "x-label" = "Monospace font", "x-widget" = "font", "x-mono" = true))]
     pub mono_font: String,
-    /// Lists, labels, controls.
     #[schemars(extend("x-section" = "general", "x-group" = "Type", "x-label" = "Interface size", "x-unit" = "px", "x-step" = 0.5, "x-min" = 10, "x-max" = 20))]
     pub ui_font_size: f64,
     /// Messages, notes, drafts.
@@ -187,7 +177,6 @@ pub struct Settings {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct PeopleSettings {
-    /// Your colour, as an index into the person palette.
     #[schemars(extend("x-group" = "You", "x-label" = "Your colour", "x-widget" = "person_color", "x-min" = 0, "x-max" = 255))]
     pub my_color: u8,
     /// Your own accounts as kind:account (email:me@work.com).
@@ -195,10 +184,8 @@ pub struct PeopleSettings {
     /// Your Slack user id comes from the Slack source itself.
     #[schemars(extend("x-group" = "You", "x-label" = "Your accounts", "x-widget" = "list"))]
     pub me: Vec<String>,
-    /// Suggest a People note for a sender seen in this many signals…
     #[schemars(extend("x-group" = "New person suggestions", "x-label" = "Suggest after", "x-unit" = "signals", "x-min" = 1, "x-max" = 50))]
     pub suggest_after: i64,
-    /// …within this many days.
     #[schemars(extend("x-group" = "New person suggestions", "x-label" = "Within", "x-unit" = "days", "x-min" = 1, "x-max" = 90))]
     pub suggest_days: i64,
 }
@@ -231,8 +218,8 @@ impl Default for Settings {
                 aws_profile: String::new(),
                 // US inference profiles only; the org's BAA covers Bedrock in US regions.
                 // Suggestions are simple picks: low effort keeps them fast and cheap.
-                small: AiTier { provider: "bedrock".into(), model: "us.openai.gpt-6-luna".into(), effort: "low".into() },
-                large: AiTier { provider: "bedrock".into(), model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
+                small: AiTier { provider: "bedrock".into(), enabled: true, model: "us.openai.gpt-6-luna".into(), effort: "low".into() },
+                large: AiTier { provider: "bedrock".into(), enabled: true, model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
                 prices: BTreeMap::new(),
             },
             fake_now: String::new(),

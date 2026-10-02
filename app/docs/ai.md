@@ -176,9 +176,9 @@ Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime
 
 | Feature | Command | Tier / model | Sent to Bedrock |
 |---|---|---|---|
-| Ask about a topic (assistant pane with a topic open) | `ai.ask {question, topic_id}` | large / Opus 5.5 | The system prompt. The question. The topic name. The topic's Obsidian note (first 6,000 chars). For confirmed, work-tagged items linked to the topic (open tasks first, then newest first): source, kind, time, status, due date, owner, title, summary, first 600 chars of the body, and the last 6 messages (300 chars each). |
+| Ask about a topic (assistant pane with a topic open) | `ai.ask {question, topic_id}` | large / Opus 5.5 | The system prompt. The question. The topic name. The topic's Obsidian note (first 6,000 chars). The topic's new signals still in Incoming (suggested, not confirmed), marked as such, then confirmed work-tagged items linked to the topic (open tasks first, then newest first). For each: source, kind, time, status, due date, owner, title, summary, first 600 chars of the body, and the last 6 messages (300 chars each). |
 | Ask about today (Reflect, or the assistant pane with no topic) | `ai.ask {question}` or `scope: "today"` | large / Opus 5.5 | The system prompt. The question. Today's work calendar events (time, title, attendees, tentative). Work items that happened or got a message today, with the same fields as above. Life blocks aren't sent. |
-| Assistant with Glean: queries | `ai.ask_glean {question, topic_id?, off?, on?}` | small / GPT-6 Luna | The system prompt (write up to `queries_per_ask` Glean queries in Glean's syntax). The question. The "Sent with your question" chips that are on: topic title, its people's names, Jira keys, channels, up to 10 recent signal titles, and the note (first 3,000 chars) only if you added it. |
+| Assistant with Glean: queries | `ai.ask_glean {question, topic_id?, off?, on?}` | small / GPT-6 Luna | The system prompt (write up to `queries_per_ask` Glean queries in Glean's syntax). The question. The "Sent with your question" chips that are on: topic title, its people's names, Jira keys, channels, up to 10 recent signal titles (confirmed, plus suggested ones still in Incoming), and the note (first 3,000 chars) only if you added it. |
 | Assistant with Glean: answer | same call | large / Opus 5.5 | The system prompt (answer only from numbered evidence, cite by number, people ranked when asked about people). The chips that are on. Up to 12 kept evidence items, numbered: for Glean results title, system, container, the people Glean names and its snippet; for local work items title, source, date, summary and the first 500 chars of the body. The question. |
 | Topic suggestions | `ai.suggest_topics {limit}` | small / GPT-6 Luna | The system prompt (existing topic, a new 2-5 word one, or none). For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body), and its stored messages (time, author, first 240 chars each: numbered when the item can be split, at most 30; otherwise the last 10). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
 
@@ -187,6 +187,8 @@ Context is capped at 24,000 characters per question, newest first. Items from `p
 `ai.ask` returns `{answer, used}`, where `used` lists the item IDs that were in the context, so the UI can cite them. Answers are plain text.
 
 ## Assistant with Glean
+
+The pane keeps one conversation per topic (and one per view without a topic) while the app is open; switching away and back brings it back, and ↺ in the header starts over. Nothing is written to disk.
 
 When a Glean source is on, the Assistant pane (440px, design hi-fi 3a and 3d) uses `ai.ask_glean` instead of `ai.ask`:
 
@@ -229,6 +231,7 @@ Every call Bedrock answers records its `usage` (tier, model, input and output to
 | Message starts with | Meaning |
 |---|---|
 | `AI provider 'x' is not on the allow-list` | That tier's provider isn't in `allowed_providers`. Nothing was sent. |
+| `The Large tier is off in Settings` | That tier's toggle is off (`ai.large.enabled`). Nothing was sent. |
 | `No model set for the Large tier` | The model is empty. The AI is off. |
 | `ai.region '…' is not a US region` / `… is AWS GovCloud` | Set `ai.region` to a commercial `us-*` region. Nothing was sent. |
 | `Model '…' is not a US inference profile` | Use the `us.` ID the message names. Nothing was sent. |

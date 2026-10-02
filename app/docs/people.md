@@ -31,7 +31,7 @@ Every message author (`item_messages.author_id`) and item author (`person_handle
 
 Gmail, Jira and GitHub messages now store `author_id` too (it was Slack only). Rows stored before this change have none and are matched by name only.
 
-**You** are your Slack source's own user id plus `people.me` in settings (`["email:me@work.com", "jira:…"]`), shown in `people.my_color` (default 0, Gruvbox red).
+**You** are your Slack source's own user id, each Jira source's `email` (the API token's owner; each poll also stores your Jira accountId with that email in `account_profiles`), plus `people.me` in settings (`["email:me@work.com", "jira:…"]`), shown in `people.my_color` (default 0, Gruvbox red).
 
 ## Colours (16c)
 

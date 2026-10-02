@@ -1,3 +1,20 @@
+<script lang="ts" module>
+  import type { Chip, Reply } from './assistant/types';
+
+  type Entry = { q: string; a?: string; reply?: Reply; err?: string };
+  type Convo = { log: Entry[]; off: string[]; on: string[]; busy: boolean };
+  const convos = new Map<string, Convo>();
+
+  function convo(key: string): Convo {
+    let c = convos.get(key);
+    if (!c) {
+      const fresh: Convo = $state({ log: [], off: [], on: [], busy: false });
+      convos.set(key, (c = fresh));
+    }
+    return c;
+  }
+</script>
+
 <script lang="ts">
   // Collapsible ask pane. Suggests and answers only; never writes your words.
   // Questions go only to the allow-listed provider; failures are shown, not hidden.
@@ -14,16 +31,11 @@
   import Markdown from '../lib/ui/Markdown.svelte';
   import GleanAnswer from './assistant/GleanAnswer.svelte';
   import SourcesPanel from './assistant/SourcesPanel.svelte';
-  import type { Chip, Reply } from './assistant/types';
 
   let { topic = null, scope = null }: { topic?: TopicRef | null; scope?: 'topics' | null } = $props();
-  type Entry = { q: string; a?: string; reply?: Reply; err?: string };
   let question = $state('');
-  let log = $state<Entry[]>([]);
-  let busy = $state(false);
   let chips = $state<Chip[]>([]);
-  let off = $state<string[]>([]);
-  let on = $state<string[]>([]);
+  const c = $derived(convo(topic ? `topic:${topic.id}` : `${ui.tab}:${scope ?? ''}`));
   let sources = $state(false);
   let hoverQuery = $state<number | null>(null);
   let hoverSource = $state<string | null>(null);
@@ -31,47 +43,48 @@
   let note = $state<string | null>(null);
 
   const glean = $derived(!!ui.info?.glean);
-  const last = $derived([...log].reverse().find((m) => m.reply)?.reply ?? null);
+  const last = $derived([...c.log].reverse().find((m) => m.reply)?.reply ?? null);
 
   // What would be sent, before asking too.
   $effect(() => {
     const id = topic?.id ?? null;
     if (!glean || !ui.assistantOpen) return;
-    call<Chip[]>('ai.chips', { topic_id: id, off, on }).then((c) => (chips = c));
+    call<Chip[]>('ai.chips', { topic_id: id, off: c.off, on: c.on }).then((x) => (chips = x));
   });
 
-  // A different topic starts over.
-  let lastTopic: number | null | undefined = undefined;
   $effect(() => {
-    const id = topic?.id ?? null;
-    if (lastTopic !== undefined && id !== lastTopic) {
-      log = [];
-      off = [];
-      on = [];
-      sources = false;
-    }
-    lastTopic = id;
+    void c;
+    sources = false;
+    note = null;
   });
+
+  function reset() {
+    c.log = [];
+    c.off = [];
+    c.on = [];
+  }
 
   async function run(q: string) {
-    if (!q || busy) return;
-    busy = true;
+    const conv = c;
+    if (!q || conv.busy) return;
+    conv.busy = true;
     note = null;
-    log.push({ q });
-    const i = log.length - 1;
+    conv.log.push({ q });
+    const i = conv.log.length - 1;
+    const topicId = topic?.id ?? null;
     try {
       if (glean) {
-        const r = await call<Reply>('ai.ask_glean', { question: q, topic_id: topic?.id ?? null, off, on });
-        log[i] = { q, reply: r };
-        chips = r.chips;
+        const r = await call<Reply>('ai.ask_glean', { question: q, topic_id: topicId, off: conv.off, on: conv.on });
+        conv.log[i] = { q, reply: r };
+        if (conv === c) chips = r.chips;
       } else {
-        const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topic?.id ?? null, scope });
-        log[i] = { q, a: r.answer };
+        const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topicId, scope });
+        conv.log[i] = { q, a: r.answer };
       }
     } catch (err) {
-      log[i] = { q, err: String((err as Error).message ?? err) };
+      conv.log[i] = { q, err: String((err as Error).message ?? err) };
     } finally {
-      busy = false;
+      conv.busy = false;
     }
   }
 
@@ -83,15 +96,15 @@
   }
 
   /** Remove (or add back) a chip; with an answer on screen, ask again without it. */
-  function toggle(c: Chip) {
-    if (c.on) {
-      off = [...off.filter((x) => x !== c.id), c.id];
-      on = on.filter((x) => x !== c.id);
+  function toggle(ch: Chip) {
+    if (ch.on) {
+      c.off = [...c.off.filter((x) => x !== ch.id), ch.id];
+      c.on = c.on.filter((x) => x !== ch.id);
     } else {
-      on = [...on.filter((x) => x !== c.id), c.id];
-      off = off.filter((x) => x !== c.id);
+      c.on = [...c.on.filter((x) => x !== ch.id), ch.id];
+      c.off = c.off.filter((x) => x !== ch.id);
     }
-    const prev = [...log].reverse().find((m) => m.reply);
+    const prev = [...c.log].reverse().find((m) => m.reply);
     if (prev) run(prev.q);
   }
 
@@ -119,6 +132,7 @@
       {#if glean}
         <span class="route mono" title="Glean searches; the large model answers from what's kept"><AppIcon source="glean" size={12} />{last?.route ?? 'search → model'}</span>
       {/if}
+      {#if c.log.length}<button class="reset" onclick={reset} disabled={c.busy} title="Start over"><i class="ph ph-arrow-counter-clockwise"></i></button>{/if}
       <button class="close" onclick={() => (ui.assistantOpen = false)} title="Close (⌘I)"><i class="ph ph-caret-double-right"></i></button>
     </div>
     {#if topic}
@@ -128,7 +142,7 @@
     {/if}
     {#if !glean}<div class="provider" title="Questions go only to this allow-listed provider">{ui.info?.ai_label}</div>{/if}
     <div class="log scroll">
-      {#each log as m}
+      {#each c.log as m}
         <div class="q" class:bubble={glean}>{m.q}</div>
         {#if m.reply}
           <GleanAnswer reply={m.reply} {hoverQuery} {hoverSource} bind:hoverPerson />
@@ -164,7 +178,7 @@
       {/if}
     {/if}
     <form class="ask" onsubmit={ask}>
-      <input bind:value={question} placeholder="Ask, or @ to reference…" disabled={busy} />
+      <input bind:value={question} placeholder="Ask, or @ to reference…" disabled={c.busy} />
     </form>
   </aside>
 {:else}
@@ -212,6 +226,19 @@
     display: flex;
   }
   .route + .close {
+    margin-left: 8px;
+  }
+  .reset {
+    margin-left: auto;
+    color: var(--tx-muted-2);
+    display: flex;
+  }
+  .reset:hover:not(:disabled),
+  .close:hover {
+    color: var(--tx-title);
+  }
+  .route + .reset,
+  .reset + .close {
     margin-left: 8px;
   }
   .ctx {
