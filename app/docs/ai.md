@@ -178,11 +178,32 @@ Everything goes in one Converse request per call, over HTTPS to `bedrock-runtime
 |---|---|---|---|
 | Ask about a topic (assistant pane with a topic open) | `ai.ask {question, topic_id}` | large / Opus 5.5 | The system prompt. The question. The topic name. The topic's Obsidian note (first 6,000 chars). For confirmed, work-tagged items linked to the topic (open tasks first, then newest first): source, kind, time, status, due date, owner, title, summary, first 600 chars of the body, and the last 6 messages (300 chars each). |
 | Ask about today (Reflect, or the assistant pane with no topic) | `ai.ask {question}` or `scope: "today"` | large / Opus 5.5 | The system prompt. The question. Today's work calendar events (time, title, attendees, tentative). Work items that happened or got a message today, with the same fields as above. Life blocks aren't sent. |
+| Assistant with Glean: queries | `ai.ask_glean {question, topic_id?, off?, on?}` | small / GPT-6 Luna | The system prompt (write up to `queries_per_ask` Glean queries in Glean's syntax). The question. The "Sent with your question" chips that are on: topic title, its people's names, Jira keys, channels, up to 10 recent signal titles, and the note (first 3,000 chars) only if you added it. |
+| Assistant with Glean: answer | same call | large / Opus 5.5 | The system prompt (answer only from numbered evidence, cite by number, people ranked when asked about people). The chips that are on. Up to 12 kept evidence items, numbered: for Glean results title, system, container, the people Glean names and its snippet; for local work items title, source, date, summary and the first 500 chars of the body. The question. |
 | Topic suggestions | `ai.suggest_topics {limit}` | small / GPT-6 Luna | The system prompt (existing topic, a new 2-5 word one, or none). For each Unsorted item (up to `limit`, default 10, max 50): source, kind, title and summary (no body), and its stored messages (time, author, first 240 chars each: numbered when the item can be split, at most 30; otherwise the last 10). All active topic names with a one-line gist (the first lines of each topic's note). The names of topics you marked wrong for that item, as "NOT about". |
 
 Context is capped at 24,000 characters per question, newest first. Items from `personal` sources are filtered out in SQL and checked again in code. Tests plant personal rows straight into the database to prove they never reach a request.
 
 `ai.ask` returns `{answer, used}`, where `used` lists the item IDs that were in the context, so the UI can cite them. Answers are plain text.
+
+## Assistant with Glean
+
+When a Glean source is on, the Assistant pane (440px, design hi-fi 3a and 3d) uses `ai.ask_glean` instead of `ai.ask`:
+
+1. The small model turns the question and the chips into a few Glean queries. Without a small tier, the question is the query.
+2. Glean runs each one. The local route adds the topic's own signals and the work items nearest the question (embeddings, else full text).
+3. The local check from anchored search (`docs/sources/glean.md`) drops Glean results that aren't about the topic. Pins stay, rejects go, and results outside the window go too.
+4. The large model answers from the kept evidence only (at most 12). Citations to numbers that weren't given are removed. For people questions it also returns a ranked list (ownership › code › review › management) with a role, one sentence of why and evidence numbers.
+
+The reply lists the queries (with their marks and returned → kept), every source kept or dropped with its reason, the people, and the chips. If Glean can't answer (not set up, no token, daily limit, down), the answer comes from local evidence and says so. Both tiers are checked against the allow-list before anything is read or sent; the large one first.
+
+## Local embeddings
+
+`embed/`: BAAI/bge-small-en-v1.5 (ONNX, 384 dimensions, CLS pooling, L2-normalised), run in-process with tract, a pure-Rust ONNX runtime. Nothing is sent anywhere. On first run the model (`onnx/model.onnx`, about 130 MB, and `tokenizer.json`) downloads from huggingface.co into `<data dir>/models/bge-small-en-v1.5/`. Settings → AI shows the state, with Download/Retry if it failed. Vectors live in SQLite through sqlite-vec (`vec_items`, `vec_topics`). A background pass embeds work items (title, summary, start of body) and topics (name, recent signal titles, start of the note) and re-embeds whatever changed. Personal sources are never embedded.
+
+Used by the off-topic check (similarity to the topic) and the Assistant's local route. Until the model is ready, those fall back to entity matching and full-text search.
+
+Tested here against a tiny generated model with the same interface (`tests/fixtures/embed/make.py`). The real download and model weren't reachable from the build environment, so the first real run is on the Mac.
 
 ## Topic suggestions
 

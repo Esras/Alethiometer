@@ -4,6 +4,26 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### AI prices: where they come from (user, 2026-10-02: open, come back to it)
+
+The Settings design (26c) says prices are never typed in: read once a day from the AWS Price List API (`pricing:GetProducts`) and cached. That API needs classic IAM credentials (or an SSO profile) with `pricing:GetProducts`. The Bedrock API key (bearer token) the work Mac uses only works for Bedrock, so it can't call it. Options: AWS's public bulk price file for Bedrock (`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/region_index.json`, no credentials; checked reachable on 2026-10-02), GetProducts with separate IAM credentials, or keep hand-entered prices. Until decided, `ai.prices` stays editable in Settings → AI.
+
+### ⌘K: when to ask Glean (user, 2026-10-02: open)
+
+Built for now: ⌘K searches locally as you type; Glean only on ⌥↵ (also in the Search view). Candidates: debounced as you type with a cache, on a pause, or on demand as now. Every Glean call counts against `calls_per_day`.
+
+### Glean: decisions made while building that need a look
+
+- **Linking a Glean result to a topic (⌘T)** pins it to the topic, since Glean results aren't stored as items. A local item is filed as usual.
+- **Glean isn't gated by `ai.allowed_providers`.** It isn't an LLM endpoint and it's the company's own search, but queries do carry work context (names, keys, signal titles). Say if it should need an allow-list entry.
+- **Glean unavailable in the Assistant** answers from local evidence and says why. The hi-fi lists "Glean unavailable" as not yet designed.
+- **Off-topic check without the embedding model**: until the model is downloaded, a Glean result needs only the shared entity, not the similarity.
+- Not built: "+ topic" on the owner list (3d), the Glean directory into People notes (1f/1g, left out on purpose), `@` references in the Assistant input.
+
+### Embedding model download is unverified
+
+The model comes from `https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx` (and `tokenizer.json`). Hugging Face wasn't reachable from the build environment, so the URL, the file and its input/output names were checked only against a stand-in with the same interface. If the first run on the Mac fails, Settings → AI shows why and offers Retry. A work network that blocks huggingface.co needs the two files dropped into `<data dir>/models/bge-small-en-v1.5/` by hand.
+
 ### Priorities: scoring isn't built, and needs design first
 
 The Priorities tab (8b) only ever shows sample data: nothing computes quadrants, scores or reason pills for real items, so with `demo_data: false` it's empty. The design never decided what makes something urgent or important. Inputs worth considering: due date, todo estimates (`todo_estimates`, built), who's asking, Jira status, mentions, an upcoming meeting on the topic. Also open: todos only, or every open signal (as 8b shows). Design pass first, then build.
