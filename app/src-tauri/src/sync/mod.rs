@@ -610,8 +610,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
             let n = sync_source(app, id)?;
-            suggest_after_sync(app, id);
             Ok(serde_json::json!({ "new_signals": n }))
+        }
+        "suggest" => {
+            suggest_after_sync(app, crate::queries::arg_i64(args, "source_id")?);
+            Ok(Value::Null)
         }
         _ => Err(crate::api::unknown(name)),
     }

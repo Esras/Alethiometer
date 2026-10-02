@@ -117,6 +117,8 @@
     clicked = new Set(clicked).add(id);
     try {
       await call('sync.now', { source_id: id });
+      refresh();
+      await call('sync.suggest', { source_id: id });
     } finally {
       const next = new Set(clicked);
       next.delete(id);
