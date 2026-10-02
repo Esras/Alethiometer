@@ -15,7 +15,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
   - **Claude Code's Bash tool (cloud or local):** each command runs as `bash -c "<the whole command>"`, so `pkill -f target/debug/devserver` matches that shell and kills it along with the server. Use `kill $(pgrep -f "[t]arget/debug/devserver")` (the bracket keeps the pattern from matching itself). In your own terminal a plain `pkill -f` is fine.
 - Real data dir on the Mac: `~/Library/Application Support/dev.alethiometer.app` (`settings.json`, `secrets.json` mode 0600, `alethiometer.sqlite`). Keychain isn't wired, secrets live in the file.
 - **`ISSUES.md`** (repo root): running list of bugs/gaps found wiring up real accounts on the Mac, separate from this file's "in flight" list until triaged in here. Check it before starting more connector work — several are load-bearing (the Tauri command was synchronous and froze the whole window on any slow call; `suggest_topics` had two separate gating bugs that made it silently do nothing).
-- **Live on the work Mac: GitHub, Bedrock AI, Google Calendar, Jira, Gmail, Obsidian.** Slack and Proton ICS are still fixture-tested only.
+- **Live on the work Mac: GitHub, Bedrock AI, Google Calendar, Jira, Gmail, Obsidian, Slack.** Proton ICS is still fixture-tested only.
 
 ## Built
 
@@ -71,8 +71,8 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 **Priorities (user, 2026-09-28), in order:**
 
-1. **Slack**: capture reworked to the user's model: every message (yours too) within the lookback, Slack's read marker ignored; triage closes a run (`slack::close_triaged`); threads are one item and one topic, new replies come back as updates; threads attach to the item holding their parent (`ItemUpsert::attach_to`, `item_messages.reply_to`, `split::holder`); top-level runs get per-message topics via the AI split, with earlier messages and their filed topics as context (`ai/suggest.rs::context_messages`). Context messages in `item_messages.context`, sender id in `item_messages.author_id`. The split review UI (15g/15h) and person colours (16c) are built (`app/docs/people.md`). The Slack app now asks for `users:read.email` (user decision: profile emails match senders to People notes and colour them by email); add the scope and reinstall before going live (`docs/sources/slack.md`). Next: go live on the work Mac with `lookback_hours: 12`, then the missed-message audit (below).
-2. **Gmail**: done and resynced; filing archives (todo or not). Still open: Unsubscribe (19a), the category label chip.
+1. **Slack**: live on the work Mac (`lookback_hours: 12`). Next: the missed-message audit (below).
+2. **Gmail**: done and resynced; filing archives (todo or not). Still open: Unsubscribe (19a).
 3. **Priorities scoring**: not built (sample data only); needs a design pass first, see ISSUES.md.
 4. 13b (AI failure panel): built in the sync chip; the macOS notification on ok → failed waits for notifications in `platform.rs`.
 5. **Todos (22a, 22c)**: built, see `app/docs/todos.md`. One typed model (`queries/todos.rs`, `TodoExt::Local | Jira | Obsidian`) over `items`; local todos live on the built-in `notes` source and never sync. Todos tab (sort, `/` filter, source chips, `x`/`u`, `n` new). In Incoming, `n` holds a todo on the signal (`held_todos`) until Confirm/Move creates it with that topic (Gmail threads are archived by the filing itself). Jira todos: `jira.create_issue` with `assign_me` + due, a stub item until the next poll. Creating a todo never writes to the topic's Obsidian note (the user's call; 22c's "link line" is dropped); todos show on the topic through their topic link, and `- [ ]` tasks in a topic's note are linked to that topic by the Obsidian sync. Not built: Marvin (needs the personal-boundary decision), 22b topic Tasks, 21e stale review, Topic/Priority/Due filter chips, AI-drafted todo text, Slack Later.
@@ -82,16 +82,16 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 **Also open:**
 
 - **Expanded signal layout** (ISSUES.md): the user wants to redesign it, probably with structured connector fields (status, owner, reporter, due) instead of one joined `summary`, and a body excerpt (Incoming never shows an item's description today). Mocks were offered (HTML in `project/` or a published page); the user passed for now and may use the design tool.
-- **Not built from the design spec** (checked against the code 2026-10-01): RSVP (14a/14b, backend `gcal.rsvp` exists), Gmail Unsubscribe and label chip (19a), topic Tasks (22b), stale todos review (21e), Todos filter chips and AI-drafted todo text (22a/22c), embeddings (sqlite-vec), the rem font-size cleanup. Also: a thread whose parent is older than the Slack lookback doesn't show inside its channel's split review (15h).
+- **Not built from the design spec** (checked against the code 2026-10-01): RSVP (14a/14b, backend `gcal.rsvp` exists; declined for now), Gmail Unsubscribe (19a), topic Tasks (22b), stale todos review (21e), Todos filter chips and AI-drafted todo text (22a/22c), embeddings (sqlite-vec), the rem font-size cleanup. Also: a thread whose parent is older than the Slack lookback doesn't show inside its channel's split review (15h).
 - **Design pass for the bigger window:** the app now opens at 1760×1175 (`tauri.conf.json`, about 80% of the user's screen); the mocks and the design README ("The window is about 1320×880") assume the old size. The user wants to review layouts for the larger space with the design thread.
 - Questions for the user: should Topics' "Upcoming" (next 7 days) also show only the next instance of a series? Should plain Jira comments by others count as updates?
 - Watch UI lag/CPU. A dismiss-triggered `refresh()` loop (an effect depending on `ui.rev`) was the dismiss lag and a ~150% CPU spike; fixed with `untrack`. Any `$effect` that calls `refresh()` must `untrack` it. If lag reappears, suspect contention on the single `Mutex<Connection>` shared by sync threads and UI calls, or the full `incoming.list` reload after each action.
 - **Slack missed-message audit:** review every path where a message could fail to reach a signal (dropped Socket Mode events, the reconnect window, edits/deletes, old-thread replies, rate-limit backoff, paging limits, the 50-message cap per item, DMs beyond `max_dms` without a socket) and fix/test each.
 - **Obsidian (live):** connected to the work vault; a Topics note save through the plugin is verified. Writes go through the running Obsidian app via the Local REST API plugin (pinned to its own CA; `write_mode: "file"` fallback). Open questions: dismissing a conflicted save after "reload", spurious conflicts if Obsidian hasn't flushed to disk yet, custom auth header names.
-- UI for remaining writebacks: RSVP on invites in Incoming (designed, 14a/14b, design README "RSVP"), Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
+- UI for remaining writebacks: Slack reply, Jira transitions/comments in Topics, ticking Obsidian tasks.
 - macOS pieces behind `platform.rs`: Keychain secrets, global capture hotkey, tray dot, persistent Reflect notification, launch at login.
-- Real-account runs still to do: Slack, Proton ICS.
-- People, not yet: your own Gmail address isn't detected (set `people.me`); two notes describing one person stay separate until you merge them by hand (never automatic, by design).
+- Real-account runs still to do: Proton ICS.
+- People, not yet: two notes describing one person stay separate until you merge them by hand (never automatic, by design).
 - Wanted later: assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
 - Check `ISSUES.md`'s "Open" section before starting connector work.
 
