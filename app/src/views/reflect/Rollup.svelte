@@ -51,13 +51,13 @@
     align-items: center;
     padding: 7px 12px;
     background: var(--bg-head);
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-2);
   }
   header i {
-    font-size: 13px;
+    font-size: 1rem;
   }
   .count {
     margin-left: auto;

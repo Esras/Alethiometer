@@ -22,6 +22,12 @@ export interface AppInfo {
   incoming_count: number;
   todo_count: number;
   platform: string;
+  ui_scale: number;
+  ui_font: string;
+  mono_font: string;
+  ui_font_size: number;
+  reading_font_size: number;
+  settings_rev: number;
 }
 
 export interface Block {

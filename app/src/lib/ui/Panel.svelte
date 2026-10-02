@@ -67,7 +67,7 @@
     gap: 8px;
     align-items: center;
     padding: 7px 0 7px 12px;
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-2);
@@ -80,17 +80,17 @@
     cursor: default;
   }
   .toggle i {
-    font-size: 13px;
+    font-size: 1rem;
   }
   .toggle .caret {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .right {
     display: flex;
     gap: 8px;
     align-items: center;
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
   .count {
     color: var(--tx-muted-2);

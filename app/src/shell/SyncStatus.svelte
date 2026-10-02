@@ -222,7 +222,7 @@
     display: flex;
     gap: 7px;
     align-items: center;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
   }
@@ -253,7 +253,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .label {
     margin-top: 4px;
@@ -277,12 +277,12 @@
     color: var(--aqua);
   }
   .when {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
     max-width: 150px;
   }
   .err {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--orange);
     padding-left: 22px;
   }
@@ -290,7 +290,7 @@
     color: var(--tx-label);
   }
   .spark {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--aqua);
   }
   .err.off,
@@ -301,7 +301,7 @@
     word-break: break-all;
   }
   .state {
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 6px;
     border-radius: 9px;
     background: var(--border);

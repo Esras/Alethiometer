@@ -58,10 +58,13 @@ fn known_secret(app: &App, name: &str) -> bool {
 }
 
 fn get(app: &App) -> Result<Value> {
-    let file: Value = std::fs::read_to_string(app.settings_path())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| serde_json::to_value(&*app.settings()).unwrap_or(Value::Null));
+    // What's in effect (defaults filled in), but sources as written in the file:
+    // the in-memory ones have the vault path and Life links resolved into them.
+    let file: Value = std::fs::read_to_string(app.settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let mut values = serde_json::to_value(&*app.settings()).unwrap_or(Value::Null);
+    if let Some(s) = file.get("sources") {
+        values["sources"] = s.clone();
+    }
     let status = crate::sync::call(app, "status", &json!({}))?;
     let settings = app.settings();
     let conn = app.db();
@@ -100,9 +103,9 @@ fn get(app: &App) -> Result<Value> {
         .iter()
         .map(|(k, label)| json!({ "kind": k, "label": label, "fields": schema::source_fields(k), "defaults": sources::defaults(k) }))
         .collect();
-    let tag_rules = "Personal: never sent to the AI, kept out of Incoming and search, and only untitled busy blocks are stored. Nothing is written back.";
+    let tag_rules = crate::sync::PERSONAL_RULES;
     Ok(json!({
-        "values": file,
+        "values": values,
         "fields": schema::settings_fields(),
         "kinds": kinds,
         "sources": srcs,

@@ -272,7 +272,7 @@
     align-items: center;
     padding: 8px 14px;
     background: var(--bg-head);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-2);
   }
   .path {
@@ -285,7 +285,7 @@
   }
   .status {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted-2);
   }
   .status.warn {
@@ -298,7 +298,7 @@
     align-items: center;
     padding: 7px 14px;
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-2);
   }
   .conflict i {
@@ -320,7 +320,7 @@
     border: 0;
     outline: none;
     background: transparent;
-    font-size: 15px;
+    font-size: calc(var(--fs-read) * 15 / 14);
     line-height: 1.8;
     color: var(--tx-2);
     caret-color: var(--aqua);
@@ -342,7 +342,7 @@
   .h {
     color: var(--orange);
     font-weight: 500;
-    font-size: 13px;
+    font-size: 1rem;
     letter-spacing: 0.02em;
     margin-top: 14px;
     line-height: 1.8;

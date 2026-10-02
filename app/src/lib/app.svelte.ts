@@ -25,6 +25,7 @@ export const ui = $state({
   openedFrom: null as Tab | null,
   assistantOpen: false,
   searchOpen: false,
+  settingsOpen: false,
   /** The Search results view's query, and the tab it was opened from (Esc goes back). */
   searchQuery: '',
   searchFrom: null as Tab | null,
@@ -38,12 +39,39 @@ export async function loadInfo() {
   setInfo(await call<AppInfo>('app.info'));
   tick();
   setInterval(tick, 15_000);
+  watchSettings();
+  setInterval(watchSettings, 3_000);
 }
+
+const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 function setInfo(info: AppInfo) {
   ui.info = info;
   const root = document.documentElement;
   for (const [key, c] of Object.entries(info.categories)) root.style.setProperty(`--cat-${key}`, c.color);
+  applyType(info);
+}
+
+const quote = (f: string) => (/^[\w-]+$/.test(f) ? f : `"${f.replace(/"/g, '')}"`);
+
+/** Type settings as CSS: the root size scales every rem; reading text has its own size. */
+function applyType(info: AppInfo) {
+  const root = document.documentElement.style;
+  root.setProperty('--font-ui', info.ui_font ? `${quote(info.ui_font)}, 'Inter', system-ui, sans-serif` : `'Inter', system-ui, sans-serif`);
+  root.setProperty('--font-mono', info.mono_font ? `${quote(info.mono_font)}, ui-monospace, monospace` : `ui-monospace, 'SF Mono', Menlo, monospace`);
+  root.setProperty('font-size', `${info.ui_font_size || 13}px`);
+  root.setProperty('--fs-read', `${info.reading_font_size || 14}px`);
+  // The desktop window zooms natively (set_zoom); a plain browser gets CSS zoom.
+  if (!inTauri) root.setProperty('zoom', String(info.ui_scale || 1));
+}
+
+let settingsRev = -1;
+/** Settings changed (from the modal or a hand edit): reload what depends on them. */
+export async function watchSettings() {
+  const st = await call<{ rev: number }>('settings.state').catch(() => null);
+  if (!st) return;
+  if (settingsRev >= 0 && st.rev !== settingsRev) refresh();
+  settingsRev = st.rev;
 }
 
 function tick() {

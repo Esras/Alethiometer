@@ -335,7 +335,7 @@
     border: 1px solid var(--border);
     background: var(--bg-app);
     color: var(--tx-muted);
-    font-size: 15px;
+    font-size: 1.1538rem;
   }
   .titles {
     min-width: 0;
@@ -355,7 +355,7 @@
     text-decoration: underline;
   }
   .crumb {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted);
     display: flex;
     gap: 6px;
@@ -368,7 +368,7 @@
     background: none;
     border: none;
     font: inherit;
-    font-size: 24px;
+    font-size: 1.8462rem;
     font-weight: 500;
     letter-spacing: -0.015em;
     margin-top: 3px;
@@ -388,7 +388,7 @@
     outline: none;
     background: none;
     font: inherit;
-    font-size: 24px;
+    font-size: 1.8462rem;
     font-weight: 500;
     letter-spacing: -0.015em;
     color: var(--tx-title);
@@ -399,7 +399,7 @@
     text-decoration-color: var(--tx-disabled);
   }
   .merging {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .merging .u {
@@ -418,7 +418,7 @@
     align-items: center;
   }
   .score {
-    font-size: 18px;
+    font-size: 1.3846rem;
     font-weight: 500;
     margin-left: 10px;
     color: var(--tx-title);
@@ -445,7 +445,7 @@
     font-weight: 500;
   }
   .sub {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .rule {
@@ -462,7 +462,7 @@
     background: rgba(142, 192, 124, 0.07);
   }
   .up-row .when {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
   }
   .when.today {
@@ -470,7 +470,7 @@
     font-weight: 500;
   }
   .src {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted-2);
   }
   .open-row {
@@ -487,7 +487,7 @@
     display: flex;
     gap: 6px;
     align-items: center;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted);
   }
   .empty {
@@ -499,7 +499,7 @@
     gap: 4px;
     letter-spacing: 0;
     text-transform: none;
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
   .chip {
     padding: 1px 7px;
@@ -537,7 +537,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: 0.7692rem;
     font-weight: 600;
     color: var(--bg-app);
   }
@@ -550,7 +550,7 @@
   }
 
   .role {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
   }
   .repos {
@@ -559,7 +559,7 @@
     gap: 6px 16px;
     padding: 8px 12px 10px;
     border-top: 1px solid var(--bg-head);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
   }
   .repo {

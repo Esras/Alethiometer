@@ -137,11 +137,11 @@
     background: none;
     border: 0;
     outline: none;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-body);
   }
   .hint {
-    font-size: 11px;
+    font-size: 0.8462rem;
     white-space: nowrap;
   }
   .opt {
@@ -152,7 +152,7 @@
     align-items: center;
     padding: 6px 10px 6px 0;
     text-align: left;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-2);
   }
   .opt.on {
@@ -184,7 +184,7 @@
   }
   .none {
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
 </style>

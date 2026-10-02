@@ -87,7 +87,7 @@
     font: inherit;
   }
   .key {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
   .err {

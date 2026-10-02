@@ -238,7 +238,7 @@
     border-bottom: 1px solid var(--bg-head);
   }
   .count {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-body);
   }
   .q {
@@ -250,7 +250,7 @@
     margin-left: auto;
   }
   .chip {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     padding: 3px 9px;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -296,14 +296,14 @@
     gap: 3px;
   }
   .title {
-    font-size: 13.5px;
+    font-size: 1.0385rem;
   }
   .sel .title {
     color: var(--tx-title);
     font-weight: 500;
   }
   .snippet {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
     line-height: 1.5;
   }
@@ -314,7 +314,7 @@
     padding: 0 1px;
   }
   .quiet {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .u {
@@ -324,7 +324,7 @@
     display: flex;
     gap: 7px;
     align-items: center;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-2);
     padding-top: 2px;
     min-width: 0;
@@ -342,7 +342,7 @@
     background: var(--border-strong);
   }
   .when {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
     padding-top: 2px;
     text-align: right;
@@ -362,7 +362,7 @@
     gap: 16px;
     padding: 8px 16px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
     overflow: hidden;

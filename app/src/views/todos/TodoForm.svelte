@@ -110,7 +110,7 @@
     border: 1px solid var(--border-strong);
     border-radius: var(--r-input);
     background: var(--bg-app);
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .switch {
     display: flex;
@@ -176,14 +176,14 @@
   }
   .fx {
     flex: 1;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .ghost {
     color: var(--tx-muted-2);
   }
   .k {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
 </style>

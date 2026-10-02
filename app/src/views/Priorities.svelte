@@ -305,12 +305,12 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
   .h1 {
-    font-size: 20px;
+    font-size: 1.5385rem;
     font-weight: 500;
     color: var(--tx-title);
     margin-right: 8px;
@@ -359,7 +359,7 @@
     padding: 7px 12px;
     background: var(--bg-app);
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-muted);
@@ -373,7 +373,7 @@
     margin-left: auto;
     display: flex;
     color: var(--tx-muted-2);
-    font-size: 14px;
+    font-size: 1.0769rem;
     border-radius: var(--r-block);
     transition: color 120ms;
   }
@@ -421,7 +421,7 @@
     flex: 0 1 auto;
   }
   .topic {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
     white-space: nowrap;
     overflow: hidden;
@@ -436,7 +436,7 @@
     margin-top: 4px;
   }
   .score {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-2);
   }
   .empty {
@@ -449,7 +449,7 @@
     align-content: flex-start;
     gap: 6px;
     padding: 10px 12px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
     overflow-y: auto;
   }
@@ -497,7 +497,7 @@
     border-radius: 3px;
   }
   .sel-label {
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--aqua);
@@ -507,7 +507,7 @@
     flex: 0 1 auto;
   }
   .sel-meta {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
     flex: 0 1000 auto;
     min-width: 0;
@@ -516,7 +516,7 @@
     margin-left: auto;
     display: flex;
     gap: 14px;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted);
     flex: none;
   }
@@ -543,13 +543,13 @@
     display: flex;
     gap: 6px;
     align-items: center;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
   .esc {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .peek-title {
@@ -559,19 +559,19 @@
   }
   .peek-sum {
     margin-top: 2px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
   }
   .peek-body {
     margin-top: 8px;
     max-height: 120px;
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
     line-height: 1.55;
     color: var(--tx-2);
   }
   .peek-people {
     margin-top: 8px;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
 </style>

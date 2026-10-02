@@ -35,7 +35,7 @@
     border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--bg-panel);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
     white-space: nowrap;
   }

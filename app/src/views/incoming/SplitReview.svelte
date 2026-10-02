@@ -409,7 +409,7 @@
     min-width: 0;
   }
   .meta {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
@@ -418,14 +418,14 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
     background: rgba(142, 192, 124, 0.18);
     color: var(--aqua);
   }
   .pill i {
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
   .modes {
     display: flex;
@@ -436,7 +436,7 @@
     display: flex;
     border: 1px solid var(--border);
     border-radius: 6px;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     background: var(--bg-app);
   }
   .seg button {
@@ -450,13 +450,13 @@
     background: var(--aqua);
   }
   .key {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
   }
   .groups {
     padding: 4px 16px 0 26px;
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
     display: flex;
     flex-direction: column;
   }
@@ -502,7 +502,7 @@
     position: absolute;
     left: -26px;
     top: 7px;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--aqua);
   }
   .t {
@@ -521,7 +521,7 @@
     text-decoration-color: var(--tx-disabled);
   }
   .side {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
     display: flex;
@@ -550,7 +550,7 @@
     gap: 10px;
     height: 14px;
     align-items: center;
-    font-size: 12px;
+    font-size: 0.9231rem;
     line-height: 1;
     letter-spacing: 2px;
     color: var(--tx-disabled);
@@ -565,7 +565,7 @@
     gap: 10px 20px;
     align-items: center;
     flex-wrap: wrap;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .lg {
     display: flex;

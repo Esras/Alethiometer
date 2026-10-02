@@ -124,7 +124,7 @@
     background: none;
     border: 0;
     outline: none;
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-body);
   }
   .results {
@@ -151,7 +151,7 @@
     justify-self: center;
   }
   .kind {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .empty {
@@ -163,7 +163,7 @@
     gap: 14px;
     padding: 6px 14px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
 </style>

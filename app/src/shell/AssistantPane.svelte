@@ -80,7 +80,7 @@
   .close {
     margin-left: auto;
     color: var(--tx-muted-2);
-    font-size: 15px;
+    font-size: 1.1538rem;
     display: flex;
   }
   .ctx {
@@ -88,7 +88,7 @@
     padding: 6px 8px;
     border-radius: var(--r-input);
     border: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted);
     display: flex;
     gap: 6px;
@@ -101,7 +101,7 @@
   }
   .provider {
     margin: 8px 14px 0;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .log {
@@ -111,7 +111,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
     line-height: 1.5;
   }
   .q {
@@ -138,7 +138,7 @@
     border-radius: var(--r-panel);
     border: 1px solid var(--border);
     background: var(--bg-app);
-    font-size: 13px;
+    font-size: 1rem;
     outline: none;
   }
   .ask input:focus {
@@ -155,10 +155,10 @@
     background: var(--bg-panel);
     border-left: 1px solid var(--border);
     color: var(--tx-muted-2);
-    font-size: 15px;
+    font-size: 1.1538rem;
   }
   .spark {
-    font-size: 17px;
+    font-size: 1.3077rem;
     color: var(--aqua);
   }
 </style>

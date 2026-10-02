@@ -8,6 +8,11 @@
 //!   which is replaced wholesale on each poll (it holds no user content).
 
 pub mod connectors;
+
+/// What `personal` means today, in one line for the Settings page. Keep it in
+/// step with `apply` (busy blocks only), the AI context builders (work only),
+/// search and Incoming (`s.tag = 'work'`) and the outbox.
+pub const PERSONAL_RULES: &str = "Personal sources only store untitled busy blocks: never sent to the AI, never in Incoming or search, nothing written back.";
 pub mod http;
 
 use crate::error::{msg, Result};

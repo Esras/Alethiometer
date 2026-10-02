@@ -336,7 +336,7 @@
     font: inherit;
   }
   .count {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
   }
   .cols,
   .row {
@@ -412,7 +412,7 @@
   }
   .in,
   .hint {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
   .chips {
@@ -420,7 +420,7 @@
     flex-wrap: wrap;
     gap: 4px;
     padding: 8px 18px 0;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .chip {
     display: flex;
@@ -447,7 +447,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-title);
   }
   .sel .name {
@@ -455,14 +455,14 @@
   }
   .badge {
     flex: none;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
     background: rgba(142, 192, 124, 0.2);
     color: var(--aqua);
   }
   .path {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
   }
   .path.none {
@@ -483,7 +483,7 @@
     text-decoration-color: var(--tx-disabled);
   }
   .cell {
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-muted);
   }
   .quiet > :not(.bar):not(.pick) {
@@ -499,7 +499,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-muted);
   }
   .archive {
@@ -531,7 +531,7 @@
     gap: 16px;
     padding: 8px 18px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
     overflow: hidden;

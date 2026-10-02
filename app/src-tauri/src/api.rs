@@ -44,6 +44,7 @@ pub fn unknown(cmd: &str) -> crate::error::Error {
 fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
+            let settings = app.settings();
             let incoming: i64 = app.db().query_row(
                 "SELECT count(*) FROM items i WHERE i.seen = 0",
                 [],
@@ -60,6 +61,12 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "incoming_count": incoming,
                 "todo_count": queries::todos::list(&app.db(), app.clock.now())?.len(),
                 "platform": std::env::consts::OS,
+                "ui_scale": settings.ui_scale,
+                "ui_font": settings.ui_font,
+                "mono_font": settings.mono_font,
+                "ui_font_size": settings.ui_font_size,
+                "reading_font_size": settings.reading_font_size,
+                "settings_rev": app.settings_state().rev,
             }))
         }
         "open_url" => {

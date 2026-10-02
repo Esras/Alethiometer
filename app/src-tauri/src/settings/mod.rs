@@ -59,12 +59,12 @@ impl JsonSchema for Categories {
 pub struct SourceConfig {
     /// slack, gmail, gcal, jira, github, obsidian, protoncal or glean.
     pub kind: String,
-    /// Personal sources only produce busy blocks.
-    #[schemars(extend("x-label" = "Tag", "x-group" = "identity", "x-enum" = ["work", "personal"]))]
-    pub tag: String,
     /// Shown in Incoming and the sync status.
     #[schemars(extend("x-label" = "Name", "x-group" = "identity"))]
     pub name: String,
+    /// Personal sources only produce busy blocks.
+    #[schemars(extend("x-label" = "Tag", "x-group" = "identity", "x-enum" = ["work", "personal"]))]
+    pub tag: String,
     #[serde(default = "yes")]
     pub enabled: bool,
     /// Seconds between catch-ups. Ignored by live sources.
@@ -106,7 +106,7 @@ pub struct AiSettings {
     #[schemars(extend("x-label" = "Allowed providers", "x-group" = "Allowed providers", "x-readonly" = true))]
     pub allowed_providers: Vec<String>,
     /// US regions only under the BAA.
-    #[schemars(extend("x-label" = "Region", "x-group" = "Bedrock"))]
+    #[schemars(extend("x-label" = "Region", "x-group" = "Bedrock", "x-enum" = ["us-east-1", "us-east-2", "us-west-1", "us-west-2"]))]
     pub region: String,
     /// Empty uses AWS_PROFILE, then default.
     ///
