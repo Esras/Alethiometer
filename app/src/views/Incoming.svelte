@@ -15,7 +15,7 @@
   // account to a person (17b); a frequent unknown sender gets a New person
   // strip under the messages (17a: p create note, l link, Not now).
   import { call, openExternal } from '../lib/api';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { catColor, category, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
@@ -288,6 +288,14 @@
     leaveMsgs();
   }
 
+  async function jumpEnd(s: Signal | null, end: boolean) {
+    if (!s) return;
+    if (!expanded.has(s.item_id)) toggle(s.item_id);
+    if (inMsgs && s.messages.length) msgIdx = end ? s.messages.length - 1 : 0;
+    await tick();
+    document.querySelector(`[data-item="${s.item_id}"]`)?.scrollIntoView({ block: end ? 'end' : 'start', behavior: 'smooth' });
+  }
+
   function toggle(id: number) {
     const next = new Set(expanded);
     if (next.has(id)) next.delete(id);
@@ -406,6 +414,8 @@
       if (plain(e, ' ')) return current.messages[msgIdx] && choose(current.messages[msgIdx].id), true;
       if (plain(e, 'Escape')) return leaveMsgs(), true;
     }
+    if (plain(e, 'G')) return jumpEnd(current, true), true;
+    if (plain(e, 'g')) return jumpEnd(current, false), true;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepSignal(1), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepSignal(-1), true;
     if (plain(e, ']')) return stepTopic(1), true;
@@ -659,14 +669,14 @@
           <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
           <span>c confirm groups</span><span>g by topic / in order</span><span>esc back</span>
         {:else if unsorted && inMsgs}
-          <span>j/k message</span><span>space select</span><span>⇧j/k select range</span>
+          <span>j/k message</span><span>g/G first / last</span><span>space select</span><span>⇧j/k select range</span>
           <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
           <span>↵ collapse</span><span>esc done</span>
         {:else if unsorted}
-          <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span>
+          <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span><span>g/G top / end</span>
           <span>t move to topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
         {:else}
-          <span>j/k signal</span><span>↵ expand</span>
+          <span>j/k signal</span><span>↵ expand</span><span>g/G top / end</span>
           <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
         {#if reviewing === null}

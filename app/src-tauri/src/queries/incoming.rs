@@ -414,8 +414,10 @@ fn load_messages(conn: &Connection, look: &Lookup, sigs: &mut [Signal]) -> Resul
             let (prev, at) = (own[i - 1].1.clone(), own[i].1.clone());
             own[i].0.gap = others.iter().any(|t| *t > prev && *t < at);
         }
-        s.context = context;
         s.messages = own.into_iter().map(|r| r.0).collect();
+        let triaged = s.messages.iter().any(|m| m.read || m.replies.iter().any(|r| r.read));
+        let thread: bool = conn.query_row("SELECT json_extract(raw_json, '$.thread_ts') IS NOT NULL FROM items WHERE id = ?1", [s.item_id], |r| r.get(0))?;
+        s.context = if triaged && !thread { vec![] } else { context };
         s.held = super::todos::held(conn, s.item_id)?;
         s.new_person = new_person(conn, look, s, &author_ids)?;
         s.author = item_author(conn, look, s)?;
@@ -1450,6 +1452,22 @@ mod tests {
         assert!(q.unsorted.iter().any(|s| s.source == "jira"));
         // The tab badge (unseen items) matches what the queue shows.
         assert_eq!(unseen(&conn) as usize, shown(&q));
+    }
+
+    #[test]
+    fn a_triaged_channel_run_drops_the_channel_context() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let s = q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|s| s.source == "slack" && !s.split && !s.messages.is_empty()).unwrap();
+        let (id, first) = (s.item_id, s.messages[0].id);
+        conn.execute("INSERT INTO item_messages (item_id, at, author, text, context) VALUES (?1, '2000-01-01T00:00:00', 'x', 'earlier in the channel', 1)", [id]).unwrap();
+        conn.execute("UPDATE items SET raw_json = json_remove(raw_json, '$.thread_ts') WHERE id = ?1", [id]).unwrap();
+        let find = |q: &Queue| q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|x| x.item_id == id).map(|x| x.context.len()).unwrap();
+        assert!(find(&queue(&conn, now).unwrap()) > 0, "nothing read yet: context shows");
+        conn.execute("UPDATE item_messages SET read = 1 WHERE id = ?1", [first]).unwrap();
+        assert_eq!(find(&queue(&conn, now).unwrap()), 0, "already read: no channel context");
+        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.thread_ts', '1.0') WHERE id = ?1", [id]).unwrap();
+        assert!(find(&queue(&conn, now).unwrap()) > 0, "a thread keeps its parent as context");
     }
 
     #[test]

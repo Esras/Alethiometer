@@ -1,9 +1,10 @@
 <script lang="ts">
   import { call, openExternal } from '../lib/api';
-  import { catColor, refresh, ui } from '../lib/app.svelte';
+  import { catColor, openTopic, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
+  import SignalDetail from './shared/SignalDetail.svelte';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, Todo, TodosData } from './todos/types';
 
@@ -30,6 +31,7 @@
   const DAY = 480;
   const dur = (m: number) =>
     m >= DAY && m % DAY === 0 ? `${m / DAY}d` : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
+  const signalOf = (t: Todo | null) => (t?.ext.type === 'local' ? t.ext.from_item : null);
   const isEpic = (t: Todo) => t.ext.type === 'jira' && t.ext.issue_type?.toLowerCase() === 'epic';
 
   let todos = $state<Todo[]>([]);
@@ -43,6 +45,7 @@
   let err = $state<string | null>(null);
   let filterEl = $state<HTMLInputElement>();
   let editing = $state<number | null>(null);
+  let open = $state<number | null>(null);
   let asked = false;
   const focusEl = (el: HTMLInputElement) => el.select();
 
@@ -120,6 +123,12 @@
 
   const current = $derived(rows.find((t) => t.item_id === sel) ?? null);
 
+  function expand(t: Todo | null) {
+    if (!t || signalOf(t) === null) return;
+    sel = t.item_id;
+    open = open === t.item_id ? null : t.item_id;
+  }
+
   function sortBy(key: SortKey) {
     sort = sort.key === key ? { key, asc: !sort.asc } : { key, asc: true };
   }
@@ -168,6 +177,9 @@
     if (plain(e, 'x') || plain(e, ' ')) return toggle(current), true;
     if (plain(e, 'u')) return current && struck.has(current.item_id) && toggle(current), true;
     if (plain(e, 'o')) return current?.url && openExternal(current.url), true;
+    if (plain(e, 'Enter')) return expand(current), true;
+    if (plain(e, 'Escape') && open !== null) return (open = null), true;
+    if (plain(e, 't')) return current?.topic && openTopic(current.topic.id), true;
     if (plain(e, 'n')) return (creating = true), true;
     if (plain(e, 's')) return (sort = { key: SORTS[(SORTS.indexOf(sort.key) + 1) % SORTS.length], asc: true }), true;
     if (plain(e, '/')) return filterEl?.focus(), true;
@@ -216,7 +228,9 @@
             <span class="title-cell">
               <AppIcon source={ICON[t.ext.type]} size={14} />
               <span class="title ellipsis" title={t.title}>{t.title}</span>
-              {#if t.from}<span class="from ellipsis">{t.from}</span>{/if}
+              {#if t.from && signalOf(t) !== null}
+                <button class="from link ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
+              {:else if t.from}<span class="from ellipsis">{t.from}</span>{/if}
             </span>
             <span>{#if t.ext.type === 'jira'}<span class="status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
             <span class="topic ellipsis">
@@ -249,11 +263,16 @@
             {/if}
             <span class="tnum" class:overdue={t.overdue && !done}>{done ? 'Done' : (t.due_label ?? '')}</span>
           </div>
+          {#if open === t.item_id && signalOf(t) !== null}
+            <div class="signal" role="presentation" onclick={() => (sel = t.item_id)}>
+              <SignalDetail itemId={signalOf(t)!} hints={t.topic ? 't open topic · esc collapse' : 'esc collapse'} />
+            </div>
+          {/if}
         {:else}
           <div class="empty">{todos.length ? 'Nothing matches.' : 'No todos. Make one from a signal in Incoming (n), or here (n).'}</div>
         {/each}
       </div>
-      <div class="hints"><span>j/k todo</span><span>x done</span><span>u undo</span><span>n new todo</span><span>/ filter</span><span>e estimate</span><span>s sort</span><span>o open source</span></div>
+      <div class="hints"><span>j/k todo</span><span>x done</span><span>u undo</span><span>n new todo</span><span>/ filter</span><span>e estimate</span><span>s sort</span><span>o open source</span>{#if signalOf(current) !== null}<span>{open === sel ? 'esc' : '↵'} signal</span>{/if}{#if current?.topic}<span>t topic</span>{/if}</div>
     </div>
   </div>
   <AssistantPane topic={current?.topic ?? null} />
@@ -398,6 +417,13 @@
     max-width: 40%;
     font-size: 0.9231rem;
     color: var(--tx-label);
+  }
+  .from.link:hover {
+    color: var(--tx-2);
+    text-decoration: underline;
+  }
+  .signal {
+    padding: 0 16px 10px 56px;
   }
   .status {
     display: inline-block;

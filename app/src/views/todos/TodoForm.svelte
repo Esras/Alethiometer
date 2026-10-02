@@ -80,7 +80,10 @@
       <span class="val">{jira.project} · {jira.issue_type} · you</span>
     {/if}
     <span class="lbl">Due</span>
-    <input class="date" type="date" bind:value={due} />
+    <span class="due">
+      <input class="date" class:empty={!due} type="date" bind:value={due} />
+      {#if due}<button class="ghost" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
+    </span>
     <span class="lbl">Topic</span>
     {#if choose}
       {#if picking}
@@ -150,8 +153,16 @@
     border-color: var(--aqua);
   }
   .date {
-    justify-self: start;
     color-scheme: dark;
+  }
+  .date.empty {
+    color: var(--tx-label);
+  }
+  .due {
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .val {
     display: flex;
