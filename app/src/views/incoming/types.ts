@@ -15,6 +15,7 @@ export interface Message {
   part?: number;
   /** Thread replies to this message; they move with it. */
   replies?: Message[];
+  read?: boolean;
 }
 
 export interface Signal {
@@ -41,6 +42,8 @@ export interface Signal {
   new_person: NewPerson | null;
   /** The item's author as `meta` names it, matched like a message sender (16c, 17b). */
   author: { name: string; who: Who } | null;
+  /** Gmail's own current label, matched to a category key (`config.category_labels`). */
+  category?: string | null;
 }
 
 export interface Held {

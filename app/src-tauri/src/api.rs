@@ -63,6 +63,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "open_url" => {
             let url = args.get("url").and_then(Value::as_str).ok_or_else(|| msg("open_url needs a 'url'"))?;
+            let url = &crate::sync::connectors::slack::deep_link(&app.db(), url).unwrap_or_else(|| url.to_owned());
             app.platform.open_url(url).map_err(|e| msg(format!("couldn't open {url}: {e}")))?;
             Ok(json!({ "ok": true }))
         }

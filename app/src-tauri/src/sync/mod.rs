@@ -84,6 +84,7 @@ pub struct Profile {
     pub account: String,
     pub real_name: Option<String>,
     pub email: Option<String>,
+    pub is_bot: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -237,11 +238,20 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             )?;
             let channel = it.raw_json.get("channel").and_then(Value::as_str);
             if let (false, Some(holder)) = (exists, crate::queries::split::holder(&tx, source.id, channel, parent)?) {
+                if bump {
+                    mark_read_if_triaged(&tx, holder)?;
+                }
                 for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| *k != parent) {
+                    // Replies before the run (context) were read; so were ones stored when you triaged.
+                    let read = m.context
+                        || tx
+                            .query_row("SELECT read FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent], |r| r.get(0))
+                            .optional()?
+                            .unwrap_or(false);
                     tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent])?;
                     tx.execute(
-                        "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
-                        params![holder, m.at, m.author, m.text, key, m.author_id, parent],
+                        "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+                        params![holder, m.at, m.author, m.text, key, m.author_id, parent, read],
                     )?;
                 }
                 if bump {
@@ -279,6 +289,9 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                 id
             }
             Some(id) => {
+                if bump {
+                    mark_read_if_triaged(&tx, id)?;
+                }
                 tx.execute(
                     "UPDATE items SET kind = ?2, title = ?3, body = ?4, summary = ?5, url = ?6, author_person_id = ?7,
                        occurred_at = ?8, ended_at = ?9, due_at = ?10, status = ?11, msg_count = ?12, owner = ?13,
@@ -296,11 +309,15 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             }
         };
         if !it.messages.is_empty() {
+            let read: std::collections::HashSet<String> = tx
+                .prepare("SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL AND read = 1 AND ext_key IS NOT NULL")?
+                .query_map([item_id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
             tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL", [item_id])?;
             for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)) {
                 tx.execute(
-                    "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![item_id, m.at, m.author, m.text, key, m.author_id, m.context],
+                    "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![item_id, m.at, m.author, m.text, key, m.author_id, m.context, read.contains(key)],
                 )?;
             }
             if skipped > 0 {
@@ -329,15 +346,15 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext], |r| r.get(0))
             .optional()?;
         if let Some(id) = id {
-            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0 WHERE id = ?1 AND status != 'done'", [id])?;
+            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0, summary = 'cancelled' WHERE id = ?1 AND status != 'done'", [id])?;
             tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
     }
     for p in &batch.profiles {
         tx.execute(
-            "INSERT INTO account_profiles (kind, account, real_name, email) VALUES (?1, ?2, ?3, lower(?4))
-             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), updated_at = datetime('now')",
-            params![p.kind, p.account, p.real_name, p.email],
+            "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
+             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = datetime('now')",
+            params![p.kind, p.account, p.real_name, p.email, p.is_bot],
         )?;
     }
     for ext in &batch.seen {
@@ -441,6 +458,11 @@ fn person_for(conn: &Connection, kind: &str, h: &Handle) -> Result<i64> {
     Ok(id)
 }
 
+/// A triaged item a sync brings back: what it held so far stays read (faded).
+fn mark_read_if_triaged(tx: &rusqlite::Connection, item_id: i64) -> rusqlite::Result<usize> {
+    tx.execute("UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND EXISTS (SELECT 1 FROM items WHERE id = ?1 AND seen = 1)", [item_id])
+}
+
 static RUNNING: std::sync::Mutex<Vec<i64>> = std::sync::Mutex::new(Vec::new());
 
 struct Running(i64);
@@ -500,7 +522,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
 /// A no-op (with a status) when AI isn't configured; never fails the sync.
 /// Re-stamps `last_sync_at` afterwards so the UI reloads once the suggestions have landed.
 pub fn suggest_after_sync(app: &App, source_id: i64) {
-    let _running = Running::start(source_id);
+    let _running = crate::ai::suggest::Running::start();
     if let Err(e) = crate::ai::call(app, "suggest_topics", &serde_json::json!({ "limit": 10 })) {
         eprintln!("suggest_topics: {e}");
     }
@@ -560,6 +582,8 @@ pub struct SourceStatus {
     pub last_sync_at: Option<String>,
     pub last_error: Option<String>,
     pub syncing: bool,
+    /// Slack only: whether the live socket is connected (else it polls).
+    pub live: Option<bool>,
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
@@ -577,6 +601,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                         last_sync_at: r.get(4)?,
                         last_error: r.get(5)?,
                         syncing: is_running(r.get(0)?),
+                        live: if r.get::<_, String>(1)? == "slack" { connectors::slack::socket::connected(r.get(0)?) } else { None },
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -662,7 +687,7 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();
         let src = load_source(&conn, 1).unwrap();
-        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned) };
+        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned), is_bot: false };
         apply(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
         apply(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
         let got: (String, String) = conn.query_row("SELECT real_name, email FROM account_profiles", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();

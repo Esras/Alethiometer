@@ -488,13 +488,31 @@ pub fn record(conn: &Connection, status: &str, message: Option<&str>, suggested:
     Ok(())
 }
 
+static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Marks the after-sync AI pass (suggestions, estimates) as running, for the status popover.
+pub struct Running;
+
+impl Running {
+    pub fn start() -> Running {
+        RUNNING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Running
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 pub fn last_run(conn: &Connection) -> Result<Value> {
     let run = conn
         .query_row("SELECT status, message, suggested, at, last_ok_at FROM ai_suggest_run", [], |r| {
             Ok(json!({ "status": r.get::<_, String>(0)?, "message": r.get::<_, Option<String>>(1)?, "suggested": r.get::<_, i64>(2)?, "at": r.get::<_, String>(3)?, "last_ok_at": r.get::<_, Option<String>>(4)? }))
         })
         .optional()?;
-    Ok(json!({ "run": run, "waiting": unsorted(conn, u32::MAX as usize)?.len() }))
+    Ok(json!({ "run": run, "waiting": unsorted(conn, u32::MAX as usize)?.len(), "running": RUNNING.load(std::sync::atomic::Ordering::SeqCst) > 0 }))
 }
 
 pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {

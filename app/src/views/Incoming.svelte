@@ -16,7 +16,7 @@
   // strip under the messages (17a: p create note, l link, Not now).
   import { call, openExternal } from '../lib/api';
   import { untrack } from 'svelte';
-  import { catColor, refresh, ui } from '../lib/app.svelte';
+  import { catColor, category, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
@@ -456,6 +456,9 @@
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
                   {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
+                  {#if s.category}
+                    <span class="pill cat" style:background={`color-mix(in oklch, ${catColor(s.category)} 22%, transparent)`} style:color={catColor(s.category)} title="Labeled {category(s.category).label} in Gmail">{category(s.category).label}</span>
+                  {/if}
                   {#if s.split}
                     <span
                       class="pill split"
@@ -543,6 +546,7 @@
                       {/if}
                       <div
                         class="msg"
+                        class:context={m.read}
                         class:pickable={canPick}
                         class:focus={sel && inMsgs && mi === msgIdx}
                         class:chosen={sel && chosen.has(m.id)}
@@ -555,8 +559,16 @@
                         <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
                         <div class="txt"><Markdown text={m.text} /></div>
                       </div>
-                      {#each m.replies ?? [] as r (r.id)}
-                        <div class="msg reply" class:chosen={sel && chosen.has(m.id)}>
+                      {@const replies = m.replies ?? []}
+                      {@const readReplies = replies.filter((r) => r.read).length}
+                      {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
+                      {#if hiddenReplies}
+                        <button class="more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                          … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
+                        </button>
+                      {/if}
+                      {#each replies.filter((r, ri) => !r.read || ri >= hiddenReplies) as r (r.id)}
+                        <div class="msg reply" class:context={r.read} class:chosen={sel && chosen.has(m.id)}>
                           <span class="t tnum">{r.time}</span>
                           <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
                           <div class="txt"><Markdown text={r.text} /></div>
@@ -624,7 +636,7 @@
       <div class="hints">
         {#if reviewing !== null}
           <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
-          <span>↵ confirm groups</span><span>g by topic / in order</span><span>esc back</span>
+          <span>c confirm groups</span><span>g by topic / in order</span><span>esc back</span>
         {:else if unsorted && inMsgs}
           <span>j/k message</span><span>space select</span><span>⇧j/k select range</span>
           <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
@@ -883,6 +895,10 @@
   .more:hover {
     color: var(--aqua);
   }
+  .reply-more {
+    margin-left: 10px;
+    padding-left: 70px;
+  }
   .msg.reply {
     margin-left: 10px;
     padding-left: 16px;
@@ -915,6 +931,13 @@
   }
   .who-meta :global(.name) {
     font-weight: 400;
+  }
+  .pill.cat {
+    align-self: center;
+    flex: none;
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 9px;
   }
   .pill.split {
     align-self: center;

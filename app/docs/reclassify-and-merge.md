@@ -13,7 +13,7 @@ One topic per signal: a move never adds a second topic, and it writes nothing to
 - **Chronology (18c):** j/k select an entry (selecting adds nothing), ↵ or a click expands it in place (messages with sender colours, your replies, one faded context message, Open in the app), Esc collapses. While it's expanded: `t` moves the whole signal (topic picker, create allowed), `s` opens the split review for this one signal (only with more than one message). A moved signal leaves "moved to X · u undo" where it was until you leave the topic.
 - **Search (18d):** ⌘K (Ctrl+K) stays a quick jump: ↵ opens the top hit. ⌘↵, or ↵ when nothing matches quickly, opens the Search tab: every work item matching, with its source, a snippet with the match marked, its topic ("no topic" when it has none) and its date; source chips filter. j/k move, ↵ opens (the topic, else the app), space expands, `t` moves, `s` splits, `u` undoes, `/` goes back to the query, Esc goes back to where you were.
 - A move is filed straight away: the old link becomes `wrong`, the new one `confirmed` (`incoming.reclassify`). `u` restores every link exactly as it was (`incoming.unreclassify`).
-- The split review on a filed signal shows only that signal (plus parts the review makes); a moved part is confirmed to its new topic straight away, so ↵ is Done. Moving a message to Unsorted puts it back in Incoming.
+- The split review on a filed signal shows only that signal (plus parts the review makes); a moved part is confirmed to its new topic straight away, so c is Done. Moving a message to Unsorted puts it back in Incoming.
 
 ## Merging topics
 

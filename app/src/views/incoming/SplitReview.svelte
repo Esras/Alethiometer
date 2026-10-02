@@ -10,11 +10,11 @@
   // - j/k move (⋯ isn't a row), space selects, shift+j/k selects a range
   //   (like text: back toward where it started shrinks it), t moves the selection (or the
   //   current message) to a topic's group straight away (a new topic makes a
-  //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, ↵ confirms every group that
+  //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, c confirms every group that
   //   has a topic (Unsorted stays in Incoming), Esc goes back.
   // - `filed` (18c chronology, 18d search): reviewing one filed signal. Only
   //   its own part and the parts this review makes are shown; a move files
-  //   straight away (confirmed), so ↵ is just Done.
+  //   straight away (confirmed), so c is just Done.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { useKeys, plain } from '../../lib/keys.svelte';
@@ -275,7 +275,8 @@
     if (plain(e, 'd')) return dismiss(), true;
     if (plain(e, 'u')) return undo(), true;
     if (plain(e, 'g')) return (mode = mode === 'topic' ? 'order' : 'topic'), true;
-    if (plain(e, 'Enter')) return filed ? onclose(changed) : confirmable && confirmAll(), true;
+    if (plain(e, 'c')) return filed ? onclose(changed) : confirmable && confirmAll(), true;
+    if (plain(e, 'Enter')) return true;
     if (plain(e, 'Escape')) return onclose(changed), true;
     // Everything else (tab switches, [ ]) waits until the review is closed.
     return plain(e, e.key) && e.key.length === 1;
@@ -378,10 +379,10 @@
       <button class="btn" onclick={() => (picking = !!(chosen.size || current))}>Move… <kbd>t</kbd></button>
       <button class="btn" onclick={dismiss}>Dismiss <kbd>d</kbd></button>
       {#if filed}
-        <button class="btn primary" onclick={() => onclose(changed)}>Done <kbd>↵</kbd></button>
+        <button class="btn primary" onclick={() => onclose(changed)}>Done <kbd>c</kbd></button>
       {:else}
         <button class="btn primary" onclick={confirmAll} disabled={!confirmable}>
-          Confirm {confirmable} {confirmable === 1 ? 'group' : 'groups'} <kbd>↵</kbd>
+          Confirm {confirmable} {confirmable === 1 ? 'group' : 'groups'} <kbd>c</kbd>
         </button>
       {/if}
     </span>

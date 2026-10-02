@@ -48,6 +48,29 @@ pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) 
     Ok(Some(serde_json::to_string(&state)?))
 }
 
+/// A Slack web permalink as a slack:// link for the desktop app, when a Slack
+/// source knows that workspace's team id. `message` and `thread_ts` aren't in
+/// Slack's documented scheme; without them it still opens the channel.
+pub fn deep_link(conn: &rusqlite::Connection, url: &str) -> Option<String> {
+    let re = regex::Regex::new(r"^(https://[^/]+)/archives/([A-Z0-9]+)/p(\d{7,})(?:\?(.*))?$").expect("static regex");
+    let cap = re.captures(url)?;
+    let (base, channel, p) = (&cap[1], &cap[2], &cap[3]);
+    let mut cursors = conn.prepare("SELECT cursor FROM sources WHERE kind = 'slack' AND cursor IS NOT NULL").ok()?;
+    let team = cursors
+        .query_map([], |r| r.get::<_, String>(0))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|c| State::parse(Some(&c)))
+        .find(|s| s.team_url.trim_end_matches('/') == base && !s.team_id.is_empty())?
+        .team_id;
+    let (secs, micros) = p.split_at(p.len() - 6);
+    let mut link = format!("slack://channel?team={team}&id={channel}&message={secs}.{micros}");
+    if let Some(t) = cap.get(4).and_then(|q| q.as_str().split('&').find_map(|kv| kv.strip_prefix("thread_ts="))) {
+        link.push_str(&format!("&thread_ts={t}"));
+    }
+    Some(link)
+}
+
 pub struct Slack;
 
 /// Default secret names; override per source with `config.user_token_secret`
@@ -62,6 +85,8 @@ pub struct Config {
     pub channels: Vec<String>,
     /// `"channels": "all"`: every channel you're a member of.
     pub all_channels: bool,
+    /// Muted channels, ids/names, or a DM's other user id/an Mpim's name: still read, never new.
+    pub muted: Vec<String>,
     /// Poll DMs and group DMs.
     pub dms: bool,
     /// Mentions in channels you don't follow (search; needs `search:read`).
@@ -86,6 +111,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn is_muted(&self, id: &str, name: &str) -> bool {
+        self.muted.iter().any(|m| m == id || m == name)
+    }
+
     pub fn from_json(v: &Value) -> Config {
         let b = |k: &str, d: bool| v.get(k).and_then(Value::as_bool).unwrap_or(d);
         let i = |k: &str, d: i64| v.get(k).and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(d);
@@ -97,6 +126,11 @@ impl Config {
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default(),
             all_channels: v.get("channels").and_then(Value::as_str) == Some("all"),
+            muted: v
+                .get("muted")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(|c| c.trim().trim_start_matches('#').to_owned()).collect())
+                .unwrap_or_default(),
             dms: b("dms", true),
             mentions: b("mentions", true),
             lookback_hours: i("lookback_hours", 72),

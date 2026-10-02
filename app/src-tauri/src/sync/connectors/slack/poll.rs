@@ -87,6 +87,9 @@ pub struct State {
     /// "https://acme.slack.com/", for permalinks.
     #[serde(default)]
     pub team_url: String,
+    /// "T0123ABCD", for slack:// links.
+    #[serde(default)]
+    pub team_id: String,
     /// Resolved ids of followed channels (the live socket filters on these).
     #[serde(default)]
     pub follow: Vec<String>,
@@ -230,11 +233,11 @@ impl Msg {
         if text.trim().is_empty() {
             text = rich_text(v);
         }
-        if text.trim().is_empty() {
-            if let Some(files) = v.get("files").and_then(Value::as_array) {
-                let names: Vec<&str> = files.iter().filter_map(|f| f.get("name").and_then(Value::as_str)).collect();
-                text = format!("[file] {}", names.join(", "));
-            }
+        for f in v.get("files").and_then(Value::as_array).into_iter().flatten() {
+            let image = f.get("mimetype").and_then(Value::as_str).is_some_and(|m| m.starts_with("image/"));
+            let name = f.get("name").and_then(Value::as_str).unwrap_or("");
+            let line = format!("[{}] {name}", if image { "image" } else { "file" });
+            text = if text.trim().is_empty() { line } else { format!("{text}\n{line}") };
         }
         Some(Msg {
             ts: s("ts")?,
@@ -353,6 +356,7 @@ pub struct Poller<'a> {
     done_convs: BTreeSet<String>,
     done_threads: BTreeSet<String>,
     items: Vec<ItemUpsert>,
+    seen: Vec<String>,
     profiles: Vec<Profile>,
 }
 
@@ -378,22 +382,24 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         done_convs: BTreeSet::new(),
         done_threads: BTreeSet::new(),
         items: vec![],
+        seen: vec![],
         profiles: vec![],
     };
     let result = p.run();
     socket::finish(ctx.source.id, &plan, result.is_ok());
     result?;
-    Ok(Batch { items: p.items, profiles: p.profiles, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
+    Ok(Batch { items: p.items, seen: p.seen, profiles: p.profiles, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
 }
 
 impl Poller<'_> {
     fn run(&mut self) -> anyhow::Result<()> {
-        if self.state.me.is_empty() || self.state.team_url.is_empty() {
+        if self.state.me.is_empty() || self.state.team_url.is_empty() || self.state.team_id.is_empty() {
             let v = self.client.get("auth.test", &[])?;
             let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
             self.state.me = s("user_id");
             self.state.me_name = s("user");
             self.state.team_url = s("url");
+            self.state.team_id = s("team_id");
         }
         // Live, but the last full pass is `catchup_hours` old: do one now.
         // Socket Mode is best-effort, so events can be lost while connected.
@@ -816,6 +822,14 @@ impl Poller<'_> {
             attach_to: thread.map(|t| t.0.to_owned()),
             ..Default::default()
         });
+        let muted = match &conv.kind {
+            ConvKind::Channel { name } => self.cfg.is_muted(&conv.id, name),
+            ConvKind::Im { user } => self.cfg.is_muted(&conv.id, user),
+            ConvKind::Mpim { name } => self.cfg.is_muted(&conv.id, name),
+        };
+        if muted {
+            self.seen.push(id.clone());
+        }
         self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone() });
         Ok(())
     }
@@ -960,6 +974,9 @@ impl Poller<'_> {
             bump: true,
             ..Default::default()
         });
+        if self.cfg.is_muted(channel, &channel_name) {
+            self.seen.push(id.clone());
+        }
         self.state.open.insert(id.clone(), Open { id, first: m.ts.clone(), last: m.ts.clone() });
         Ok(())
     }
@@ -995,8 +1012,9 @@ impl Poller<'_> {
                 // Real name and email (`users:read.email`) for People (queries::people).
                 let real_name = s("/user/profile/real_name").or_else(|| s("/user/real_name"));
                 let email = s("/user/profile/email");
-                if real_name.is_some() || email.is_some() {
-                    self.profiles.push(Profile { kind: "slack".into(), account: id.to_owned(), real_name: real_name.clone(), email });
+                let is_bot = id == "USLACKBOT" || v.pointer("/user/is_bot").and_then(Value::as_bool) == Some(true);
+                if real_name.is_some() || email.is_some() || is_bot {
+                    self.profiles.push(Profile { kind: "slack".into(), account: id.to_owned(), real_name: real_name.clone(), email, is_bot });
                 }
                 s("/user/profile/display_name").or(real_name).or_else(|| s("/user/name")).unwrap_or_else(|| id.to_owned())
             }
@@ -1064,7 +1082,17 @@ impl Poller<'_> {
                     None => self.user_name(uid)?,
                 })
             } else if let Some(cid) = target.strip_prefix('#') {
-                format!("#{}", label.map(str::to_owned).or_else(|| self.channel_names.get(cid).cloned()).unwrap_or_else(|| cid.to_owned()))
+                let name = match label {
+                    Some(l) => l.to_owned(),
+                    None => {
+                        if !self.channel_names.contains_key(cid) && self.info(cid).is_err() {
+                            // Private or deleted: keep the id, and don't ask again this poll.
+                            self.channel_names.insert(cid.to_owned(), cid.to_owned());
+                        }
+                        self.channel_names.get(cid).cloned().unwrap_or_else(|| cid.to_owned())
+                    }
+                };
+                format!("#{name}")
             } else if let Some(special) = target.strip_prefix('!') {
                 match label {
                     Some(l) => l.to_owned(),
@@ -1168,6 +1196,12 @@ fn truncate(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn files_are_always_listed() {
+        let m = Msg::parse(&json!({ "ts": "1.0", "text": "look", "files": [{ "name": "image.png", "mimetype": "image/png" }, { "name": "q3.pdf", "mimetype": "application/pdf" }] })).unwrap();
+        assert_eq!(m.text, "look\n[image] image.png\n[file] q3.pdf");
+    }
 
     #[test]
     fn empty_text_falls_back_to_attachments_and_blocks() {

@@ -36,7 +36,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "Apple Development: REPLACE ME (TEAMID)"
+      "signingIdentity": "-"
     }
   }
 }

@@ -53,6 +53,9 @@ pub struct Message {
     /// Thread replies to this message, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<Message>,
+    /// Already there when you last triaged the item: shown faded.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -82,6 +85,9 @@ pub struct Signal {
     /// The item's author as the meta line names it, matched like a message's
     /// sender (16c colour, 17b link).
     pub author: Option<Author>,
+    /// Gmail's own current label, matched to a category key (`config.category_labels`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     #[serde(skip)]
     at: String,
 }
@@ -175,7 +181,7 @@ fn ids_arg(args: &Value) -> Vec<i64> {
 }
 
 const SIGNAL_COLS: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurred_at, i.ended_at, i.msg_count,
-                           (SELECT display_name FROM people p WHERE p.id = i.author_person_id)";
+                           (SELECT display_name FROM people p WHERE p.id = i.author_person_id), json_extract(i.raw_json, '$.category')";
 
 fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Signal> {
     let title: String = r.get(3)?;
@@ -183,6 +189,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
     let ended: Option<String> = r.get(7)?;
     let msg_count: Option<i64> = r.get(8)?;
     let author: Option<String> = r.get(9)?;
+    let category: Option<String> = r.get(10)?;
     Ok(Signal {
         meta: meta(&title, &at, ended.as_deref(), msg_count, author.as_deref(), now),
         item_id: r.get(0)?,
@@ -199,6 +206,7 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         split: false,
         new_person: None,
         author: None,
+        category,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -253,7 +261,7 @@ type MsgRow = (Message, bool, Option<String>, Option<String>, Option<String>, St
 
 fn message_rows(conn: &Connection, look: &Lookup, source: &str, item_id: i64) -> Result<Vec<MsgRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, at, author, text, context, ext_key, reply_to, author_id FROM item_messages WHERE item_id = ?1 ORDER BY at, id",
+        "SELECT id, at, author, text, context, ext_key, reply_to, author_id, read FROM item_messages WHERE item_id = ?1 ORDER BY at, id",
     )?;
     let rows = stmt
         .query_map([item_id], |r| {
@@ -269,6 +277,7 @@ fn message_rows(conn: &Connection, look: &Lookup, source: &str, item_id: i64) ->
                 gap: false,
                 part: None,
                 replies: vec![],
+                read: r.get(8)?,
             };
             Ok((m, r.get::<_, bool>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?, author_id, at))
         })?
@@ -370,8 +379,8 @@ pub fn queue_with(conn: &Connection, now: NaiveDateTime, settings: &PeopleSettin
     ))?;
     let mut topics: Vec<TopicSignals> = vec![];
     let rows = stmt.query_map([], |r| {
-        let sig = Signal { update: r.get(13)?, ..row_to_signal(r, now)? };
-        Ok((sig, r.get::<_, i64>(10)?, r.get::<_, String>(11)?, r.get::<_, String>(12)?))
+        let sig = Signal { update: r.get(14)?, ..row_to_signal(r, now)? };
+        Ok((sig, r.get::<_, i64>(11)?, r.get::<_, String>(12)?, r.get::<_, String>(13)?))
     })?;
     for row in rows {
         let (sig, id, name, category) = row?;
@@ -1368,6 +1377,18 @@ mod tests {
         assert!(q.unsorted.iter().any(|s| s.source == "jira"));
         // The tab badge (unseen items) matches what the queue shows.
         assert_eq!(unseen(&conn) as usize, shown(&q));
+    }
+
+    #[test]
+    fn gmail_signal_carries_its_gmail_category() {
+        let (conn, now, _d) = setup();
+        let q = queue(&conn, now).unwrap();
+        let mail = q.topics[0].signals.iter().find(|s| s.source == "gmail").unwrap();
+        assert_eq!(mail.category, None, "no category stored yet");
+        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.category', 'vendors') WHERE id = ?1", [mail.item_id]).unwrap();
+        let q2 = queue(&conn, now).unwrap();
+        let mail2 = q2.topics[0].signals.iter().find(|s| s.source == "gmail").unwrap();
+        assert_eq!(mail2.category.as_deref(), Some("vendors"));
     }
 
     #[test]
