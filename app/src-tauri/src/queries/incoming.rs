@@ -88,6 +88,10 @@ pub struct Signal {
     /// Gmail's own current label, matched to a category key (`config.category_labels`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip)]
     at: String,
 }
@@ -181,7 +185,8 @@ fn ids_arg(args: &Value) -> Vec<i64> {
 }
 
 const SIGNAL_COLS: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurred_at, i.ended_at, i.msg_count,
-                           (SELECT display_name FROM people p WHERE p.id = i.author_person_id), json_extract(i.raw_json, '$.category')";
+                           (SELECT display_name FROM people p WHERE p.id = i.author_person_id), json_extract(i.raw_json, '$.category'),
+                           json_extract(i.raw_json, '$.change'), json_extract(i.raw_json, '$.moved_from'), CASE WHEN i.kind = 'event' THEN i.body END";
 
 fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Signal> {
     let title: String = r.get(3)?;
@@ -190,11 +195,18 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
     let msg_count: Option<i64> = r.get(8)?;
     let author: Option<String> = r.get(9)?;
     let category: Option<String> = r.get(10)?;
+    let kind: String = r.get(2)?;
+    let event = kind == "event";
+    let change: Option<String> = r.get(11)?;
+    let moved_from: Option<String> = r.get(12)?;
+    let description: Option<String> = r.get(13)?;
     Ok(Signal {
-        meta: meta(&title, &at, ended.as_deref(), msg_count, author.as_deref(), now),
+        meta: if event { event_meta(&at, ended.as_deref(), author.as_deref(), now) } else { meta(&title, &at, ended.as_deref(), msg_count, author.as_deref(), now) },
+        change: change.as_deref().and_then(|c| change_label(c, moved_from.as_deref(), now)),
+        description: description.map(|d| excerpt(d.trim(), 400)).filter(|d| !d.is_empty()),
         item_id: r.get(0)?,
         source: r.get(1)?,
-        kind: r.get(2)?,
+        kind,
         title,
         summary: r.get(4)?,
         url: r.get(5)?,
@@ -218,6 +230,56 @@ fn time_label(t: NaiveDateTime, now: NaiveDateTime) -> String {
         t.format("%H:%M").to_string()
     } else {
         when_label(t, now, true)
+    }
+}
+
+fn day_time(t: NaiveDateTime, now: NaiveDateTime) -> String {
+    format!("{} {}", when_label(t, now, false), t.format("%H:%M"))
+}
+
+/// "Sam · Thu 11:00–11:45": when the event is, not when it was sent.
+fn event_meta(at: &str, ended: Option<&str>, author: Option<&str>, now: NaiveDateTime) -> String {
+    let Some(start) = parse_ts(at) else { return String::new() };
+    let end = ended.and_then(parse_ts).filter(|e| *e > start);
+    let midnight = |t: NaiveDateTime| t.time() == chrono::NaiveTime::MIN;
+    let when = match end {
+        Some(e) if midnight(start) && midnight(e) => {
+            let last = e - chrono::Duration::days(1);
+            if last.date() > start.date() {
+                format!("{}–{}", when_label(start, now, false), when_label(last, now, false))
+            } else {
+                when_label(start, now, false)
+            }
+        }
+        Some(e) if e.date() == start.date() => format!("{}–{}", day_time(start, now), e.format("%H:%M")),
+        Some(e) => format!("{}–{}", day_time(start, now), day_time(e, now)),
+        None => day_time(start, now),
+    };
+    match author {
+        Some(a) => format!("{a} · {when}"),
+        None => when,
+    }
+}
+
+fn change_label(change: &str, moved_from: Option<&str>, now: NaiveDateTime) -> Option<String> {
+    Some(match change {
+        "invite" => "New invite".into(),
+        "new" => "New event".into(),
+        "moved" => match moved_from.and_then(parse_ts) {
+            Some(t) => format!("Moved from {}", day_time(t, now)),
+            None => "Moved".into(),
+        },
+        "guests" => "Guests changed".into(),
+        "updated" => "Updated".into(),
+        "cancelled" => "Cancelled".into(),
+        _ => return None,
+    })
+}
+
+fn excerpt(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", s[..i].trim_end()),
+        None => s.to_string(),
     }
 }
 
@@ -379,8 +441,8 @@ pub fn queue_with(conn: &Connection, now: NaiveDateTime, settings: &PeopleSettin
     ))?;
     let mut topics: Vec<TopicSignals> = vec![];
     let rows = stmt.query_map([], |r| {
-        let sig = Signal { update: r.get(14)?, ..row_to_signal(r, now)? };
-        Ok((sig, r.get::<_, i64>(11)?, r.get::<_, String>(12)?, r.get::<_, String>(13)?))
+        let sig = Signal { update: r.get(17)?, ..row_to_signal(r, now)? };
+        Ok((sig, r.get::<_, i64>(14)?, r.get::<_, String>(15)?, r.get::<_, String>(16)?))
     })?;
     for row in rows {
         let (sig, id, name, category) = row?;
@@ -1356,6 +1418,17 @@ mod tests {
     }
 
     #[test]
+    fn events_say_when_and_what_changed() {
+        let now = parse_ts("2026-09-28T10:00:00").unwrap();
+        assert_eq!(event_meta("2026-10-01T17:00:00", Some("2026-10-01T19:00:00"), Some("Sam"), now), "Sam · Thu 17:00–19:00");
+        assert_eq!(event_meta("2026-10-01T00:00:00", Some("2026-10-03T00:00:00"), None, now), "Thu–Fri");
+        assert_eq!(event_meta("2026-09-28T00:00:00", Some("2026-09-29T00:00:00"), None, now), "Today");
+        assert_eq!(change_label("moved", Some("2026-09-29T14:00:00"), now).as_deref(), Some("Moved from Tue 14:00"));
+        assert_eq!(change_label("cancelled", None, now).as_deref(), Some("Cancelled"));
+        assert_eq!(excerpt("abcdef", 3), "abc…");
+    }
+
+    #[test]
     fn seed_matches_mock() {
         let (conn, now, _d) = setup();
         let q = queue(&conn, now).unwrap();
@@ -1367,7 +1440,7 @@ mod tests {
         assert_eq!(slack.meta, "42 new · 09:05–10:40");
         assert_eq!(slack.messages.len(), 4);
         let cal = acme.signals.iter().find(|s| s.source == "gcal").unwrap();
-        assert_eq!(cal.meta, "Sam · 10:41");
+        assert_eq!(cal.meta, "Sam · Today 10:41");
         let mail = acme.signals.iter().find(|s| s.source == "gmail").unwrap();
         assert_eq!(mail.meta, "10:22");
         let alerts: i64 = q.topics[1].signals.iter().filter_map(|s| s.msg_count).sum();

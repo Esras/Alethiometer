@@ -151,6 +151,9 @@ struct Seen {
     end: String,
     hash: String,
     needs_action: bool,
+    start: String,
+    guests: String,
+    change: String,
 }
 
 impl Cursor {
@@ -164,7 +167,9 @@ impl Cursor {
                     .filter_map(|(id, e)| {
                         let mut p = e.as_str()?.split('|');
                         let (end, hash, flag) = (p.next()?, p.next()?, p.next()?);
-                        Some((id.clone(), Seen { end: end.into(), hash: hash.into(), needs_action: flag == "n" }))
+                        let mut rest = || p.next().unwrap_or("").to_string();
+                        let (start, guests, change) = (rest(), rest(), rest());
+                        Some((id.clone(), Seen { end: end.into(), hash: hash.into(), needs_action: flag == "n", start, guests, change }))
                     })
                     .collect()
             })
@@ -180,7 +185,7 @@ impl Cursor {
         let seen: Map<String, Value> = self
             .seen
             .iter()
-            .map(|(id, s)| (id.clone(), json!(format!("{}|{}|{}", s.end, s.hash, if s.needs_action { "n" } else { "a" }))))
+            .map(|(id, s)| (id.clone(), json!(format!("{}|{}|{}|{}|{}|{}", s.end, s.hash, if s.needs_action { "n" } else { "a" }, s.start, s.guests, s.change))))
             .collect();
         json!({ "sync_token": self.sync_token, "full_on": self.full_on, "seen": seen }).to_string()
     }
@@ -310,11 +315,20 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
     emails.sort_unstable();
     let status = ev.get("status").and_then(Value::as_str).unwrap_or("confirmed");
     let hash = format!("{:08x}", fnv(format!("{start}|{end}|{status}|{}", emails.join(",")).as_bytes()) as u32);
-    let seen = Seen { end: end.clone(), hash, needs_action };
+    let guests = format!("{:08x}", fnv(emails.join(",").as_bytes()) as u32);
     let bump = match prev {
         None => true,
-        Some(p) => !declined && (p.hash != seen.hash || (needs_action && !p.needs_action)),
+        Some(p) => !declined && (p.hash != hash || (needs_action && !p.needs_action)),
     };
+    let change = match prev {
+        None if needs_action => "invite".to_string(),
+        None => "new".to_string(),
+        Some(p) if !bump => p.change.clone(),
+        Some(p) if !p.start.is_empty() && (p.start != start || p.end != end) => format!("moved@{}", p.start),
+        Some(p) if !p.guests.is_empty() && p.guests != guests => "guests".to_string(),
+        Some(_) => "updated".to_string(),
+    };
+    let seen = Seen { end: end.clone(), hash, needs_action, start: start.clone(), guests, change: change.clone() };
 
     let category = ev
         .get("colorId")
@@ -334,6 +348,9 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
         notes.push("declined".into());
     } else if tentative {
         notes.push("tentative".into());
+    }
+    if let Some(loc) = ev.get("location").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty() && !l.contains("://")) {
+        notes.push(loc.to_string());
     }
 
     let organizer = ev.get("organizer");
@@ -359,7 +376,15 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
         ended_at: Some(end.clone()),
         due_at: None,
         status: if declined { "done".into() } else { "open".into() },
-        raw_json: ev.clone(),
+        raw_json: {
+            let mut raw = ev.clone();
+            let (kind, from) = change.split_once('@').map_or((change.as_str(), None), |(k, f)| (k, Some(f)));
+            raw["change"] = json!(kind);
+            if let Some(from) = from {
+                raw["moved_from"] = json!(from);
+            }
+            raw
+        },
         event: on_strip.then_some(EventFields { start, end, category, tentative, attendees: who }),
         bump,
         drop_event: !on_strip,
@@ -607,6 +632,10 @@ pub(crate) mod tests {
         assert!(!item(&b, "7kq3c1standup_20260928T150000Z").bump);
         assert!(item(&b, "8nw1newinvite").bump);
         assert_eq!(b.cancelled, ["2b9vlunch0928"]);
+        let moved = &item(&b, "5fh2acmeqbr").raw_json;
+        assert_eq!((moved["change"].as_str(), moved["moved_from"].as_str()), (Some("moved"), Some(item(&first, "5fh2acmeqbr").occurred_at.as_str())));
+        assert_eq!(item(&b, "8nw1newinvite").raw_json["change"], "invite");
+        assert_eq!(item(&b, "7kq3c1standup_20260928T150000Z").raw_json["change"], "new", "no real change keeps the last one");
         let c = cursor_json(&b);
         assert_eq!(c["sync_token"], "CKjC0YiEx70CEKjC0YiEx70CGAU=");
         assert!(c["seen"].get("2b9vlunch0928").is_none());

@@ -44,6 +44,8 @@ export interface Signal {
   author: { name: string; who: Who } | null;
   /** Gmail's own current label, matched to a category key (`config.category_labels`). */
   category?: string | null;
+  change?: string | null;
+  description?: string | null;
 }
 
 export interface Held {

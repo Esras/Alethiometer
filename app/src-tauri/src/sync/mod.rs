@@ -351,7 +351,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext], |r| r.get(0))
             .optional()?;
         if let Some(id) = id {
-            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0, summary = 'cancelled' WHERE id = ?1 AND status != 'done'", [id])?;
+            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0, summary = 'cancelled', raw_json = json_set(raw_json, '$.change', 'cancelled') WHERE id = ?1 AND status != 'done'", [id])?;
             tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
         }
     }

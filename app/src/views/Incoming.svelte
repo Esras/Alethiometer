@@ -473,6 +473,9 @@
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
                   <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
                   {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
+                  {#if s.change}
+                    <span class="pill change" class:red={s.change === 'Cancelled'} class:green={s.change.startsWith('New')} class:yellow={s.change !== 'Cancelled' && !s.change.startsWith('New')}>{s.change}</span>
+                  {/if}
                   {#if s.category}
                     <span class="pill cat" style:background={`color-mix(in oklch, ${catColor(s.category)} 22%, transparent)`} style:color={catColor(s.category)} title="Labeled {category(s.category).label} in Gmail">{category(s.category).label}</span>
                   {/if}
@@ -541,6 +544,7 @@
                 {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
                 <div class="ctx">
                   <div class="info tnum">{@render metaText(s, info(s))}</div>
+                  {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
                   {#each s.context as m, ci (m.id)}
                     {#if hidden && ci === 1}
                       <button class="more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
@@ -955,6 +959,15 @@
     font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
+  }
+  .pill.change {
+    align-self: center;
+    flex: none;
+  }
+  .desc {
+    font-size: var(--fs-read);
+    color: var(--tx-2);
+    margin: 4px 0;
   }
   .pill.split {
     align-self: center;
