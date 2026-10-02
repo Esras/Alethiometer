@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&amp;display=swap"><style>body{margin:0;background:#f0eee9;font-family:Kalam,cursive;color:#222}a{color:#222}a:hover{color:#d2572b}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}</style></helmet>
+<section class="dv-turn" id="t5">
+<div class="dv-thd"><a class="dv-tid" href="#t5">5</a><span class="dv-tname">Facet bar where hovering highlights rows · prose with chips, plus cards that explain the ranking</span></div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">⌘K · FACET BAR WITH HOVER HIGHLIGHT</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);margin:0 0 14px;max-width:900px">Rows show only the source system, so they stay quiet. The bar lists each <i>route</i> (Glean, local, any future aggregator), each with its own colour and the sources it returned. Hovering a route or a source highlights its rows, the same way the queries work in <a class="dv-oid" href="#3b">3b</a>; clicking filters. A result that arrived by two routes appears under both, and nothing is marked on the row itself.</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="5a" style="width:520px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#5a">5a</a><span>Hovering the <b>Glean</b> route. Its rows get the Glean-purple left bar, and the rest dim. "Cutover plan v3" was found both locally and through Glean, so it lights up here and under local.</span></div>
+<div class="dv-card" style="width:520px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1.5px solid #222"><span style="font-size:15px;white-space:nowrap">⌕ cutover plan</span><span style="flex:1"></span><span style="border:2px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700;white-space:nowrap">Q4 billing migration ▾</span></div>
+<div style="display:flex;gap:8px;align-items:center;padding:6px 12px;border-bottom:2px solid #222;font:11px ui-monospace,monospace;flex-wrap:wrap">
+<span style="display:flex;gap:5px;align-items:center;border:2px solid #7f83e6;border-radius:10px;padding:1px 7px;background:#eeeefc;box-shadow:0 0 0 2px #fff,0 0 0 3.5px #7f83e6"><img src="icons/glean.png" alt="" style="width:12px;height:12px">4 <span style="opacity:.4">│</span><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><img src="icons/jira.png" alt="" style="width:11px;height:11px"><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span></span>
+<span style="display:flex;gap:5px;align-items:center;border:1.5px solid #8a8577;border-radius:10px;padding:1px 7px;opacity:.6"><span style="width:8px;height:8px;border-radius:2px;background:#8a8577"></span>local 4 <span style="opacity:.4">│</span><img src="icons/slack.png" alt="" style="width:11px;height:11px"><img src="icons/obsidian.png" alt="" style="width:11px;height:11px"><img src="icons/jira.png" alt="" style="width:11px;height:11px"><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span></span>
+<span style="flex:1"></span><span style="opacity:.55">7 results</span>
+</div>
+<div style="display:flex;flex-direction:column;padding:6px 0;font-size:14px"><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;background:#f6f6fe;box-shadow:inset 3px 0 0 #7f83e6"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.6">4d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/slack.png" alt="" style="width:18px;height:18px;display:block"><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.6">2d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;background:#f6f6fe;box-shadow:inset 3px 0 0 #7f83e6"><img src="icons/jira.png" alt="" style="width:18px;height:18px;display:block"><span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.6">1w</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/obsidian.png" alt="" style="width:18px;height:18px;display:block"><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.6">3d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;background:#f6f6fe;box-shadow:inset 3px 0 0 #7f83e6"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.6">3w</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/jira.png" alt="" style="width:18px;height:18px;display:block"><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.6">5d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;background:#f6f6fe;box-shadow:inset 3px 0 0 #7f83e6"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span><span>ledger-exporter · cutover.md</span><span style="font:11px ui-monospace,monospace;opacity:.6">6d</span></div></div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-top:1.5px dashed #999;font-size:12px"><span style="color:#d2572b">11 off-topic hidden</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.65">hover route or icon · click filter · ⌥click exclude</span></div>
+</div></div>
+
+<div class="dv-opt" id="5b" style="width:520px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#5b">5b</a><span>Hovering the <b>Jira</b> icon inside the Glean route. Only Jira-via-Glean lights up; PLAT-212, which came from the local Jira connector, stays dim. Hovering Jira under local does the reverse. Each route keeps its own colour, which leaves room for a second aggregator later.</span></div>
+<div class="dv-card" style="width:520px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1.5px solid #222"><span style="font-size:15px;white-space:nowrap">⌕ cutover plan</span><span style="flex:1"></span><span style="border:2px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700;white-space:nowrap">Q4 billing migration ▾</span></div>
+<div style="display:flex;gap:8px;align-items:center;padding:6px 12px;border-bottom:2px solid #222;font:11px ui-monospace,monospace;flex-wrap:wrap">
+<span style="display:flex;gap:5px;align-items:center;border:1.5px solid #7f83e6;border-radius:10px;padding:1px 7px"><img src="icons/glean.png" alt="" style="width:12px;height:12px">4 <span style="opacity:.4">│</span><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box;opacity:.4">D</span><img src="icons/jira.png" alt="" style="width:14px;height:14px;border-radius:3px;box-shadow:0 0 0 2px #7f83e6"><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box;opacity:.4">C</span><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box;opacity:.4">G</span></span>
+<span style="display:flex;gap:5px;align-items:center;border:1.5px solid #8a8577;border-radius:10px;padding:1px 7px;opacity:.6"><span style="width:8px;height:8px;border-radius:2px;background:#8a8577"></span>local 4 <span style="opacity:.4">│</span><img src="icons/slack.png" alt="" style="width:11px;height:11px"><img src="icons/obsidian.png" alt="" style="width:11px;height:11px"><img src="icons/jira.png" alt="" style="width:11px;height:11px"><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span></span>
+<span style="flex:1"></span><span style="opacity:.55">7 results</span>
+</div>
+<div style="display:flex;flex-direction:column;padding:6px 0;font-size:14px"><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.6">4d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/slack.png" alt="" style="width:18px;height:18px;display:block"><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.6">2d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;background:#f6f6fe;box-shadow:inset 3px 0 0 #7f83e6"><img src="icons/jira.png" alt="" style="width:18px;height:18px;display:block"><span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.6">1w</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/obsidian.png" alt="" style="width:18px;height:18px;display:block"><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.6">3d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.6">3w</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><img src="icons/jira.png" alt="" style="width:18px;height:18px;display:block"><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.6">5d</span></div><div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:9px;align-items:center;padding:4px 12px;opacity:.3"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span><span>ledger-exporter · cutover.md</span><span style="font:11px ui-monospace,monospace;opacity:.6">6d</span></div></div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-top:1.5px dashed #999;font-size:12px"><span style="color:#d2572b">11 off-topic hidden</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.65">hover route or icon · click filter · ⌥click exclude</span></div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">WHO OWNS THIS · PROSE AND CARDS TOGETHER</div>
+<div class="dv-opts" style="margin-bottom:12px">
+<div class="dv-opt" id="5c" style="width:680px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#5c">5c</a><span>The prose comes first, with inline chips, for readers who skim the sentence. The cards follow and are always visible, for readers who skip the prose. Each card says <b>why it's in that position</b>: its role, the signals behind it, and how it compares to the card above. Hovering a chip in the prose highlights its card, and hovering a card highlights its chip.</span></div>
+<div class="dv-card" style="width:680px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">no topic</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">Who should I talk to about <span style="font:12px ui-monospace,monospace">ledger-exporter</span>?</div>
+<div style="font-size:14px;line-height:2">
+Start with <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle;background:#f1efe9;box-shadow:0 0 0 1.5px #222;border-radius:11px;padding:0 7px 0 2px"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 300);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">L</span><b style="color:oklch(0.55 0.15 300)">Lena Ortiz</b></span>. She's the named owner. <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 145);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">R</span><b style="color:oklch(0.5 0.15 145)">Ravi Shah</b></span> knows the code best. For roadmap questions, go to <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 210);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">M</span><b style="color:oklch(0.5 0.15 210)">Marcus Tran</b></span>.
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+
+<div style="display:grid;grid-template-columns:22px 150px minmax(0,1fr) auto;gap:4px 12px;align-items:start;border:2px solid #222;background:#f7f6f2;border-radius:6px;padding:8px 10px">
+<span style="font:700 13px ui-monospace,monospace;padding-top:2px">1</span>
+<span style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 300);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">L</span><b style="color:oklch(0.55 0.15 300);white-space:nowrap">Lena Ortiz</b></span><span style="font:11px ui-monospace,monospace;opacity:.6;padding-left:28px">Billing Platform</span></span>
+<span style="display:flex;flex-direction:column;gap:3px;font-size:13px"><span><b>Owner.</b> Formal ownership in two systems, and she's the one who answers questions.</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>CODEOWNERS</span><span style="display:flex;gap:3px;align-items:center"><img src="icons/jira.png" alt="" style="width:12px;height:12px">component lead</span><span style="display:flex;gap:3px;align-items:center"><img src="icons/slack.png" alt="" style="width:12px;height:12px">14 answers · last 9d</span></span></span>
+<span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">+ topic</span>
+</div>
+
+<div style="display:grid;grid-template-columns:22px 150px minmax(0,1fr) auto;gap:4px 12px;align-items:start;border:1.5px solid #999;border-radius:6px;padding:8px 10px">
+<span style="font:700 13px ui-monospace,monospace;padding-top:2px">2</span>
+<span style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 145);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">R</span><b style="color:oklch(0.5 0.15 145);white-space:nowrap">Ravi Shah</b></span><span style="font:11px ui-monospace,monospace;opacity:.6;padding-left:28px">Billing Platform</span></span>
+<span style="display:flex;flex-direction:column;gap:3px;font-size:13px"><span><b>Main builder.</b> Has more commits than Lena but no formal ownership, so he ranks below her.</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>62% commits · 6 mo</span><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span>design doc author</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span>
+</div>
+
+<div style="display:grid;grid-template-columns:22px 150px minmax(0,1fr) auto;gap:4px 12px;align-items:start;border:1.5px solid #999;border-radius:6px;padding:8px 10px">
+<span style="font:700 13px ui-monospace,monospace;padding-top:2px">3</span>
+<span style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 60);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">A</span><b style="color:oklch(0.52 0.15 60);white-space:nowrap">Ana Silva</b></span><span style="font:11px ui-monospace,monospace;opacity:.6;padding-left:28px">Billing Platform</span></span>
+<span style="display:flex;flex-direction:column;gap:3px;font-size:13px"><span><b>Reviewer.</b> Sees most changes but authored fewer of them than Ravi. Not mentioned in the prose.</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>21% commits · reviews 70% of PRs</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span>
+</div>
+
+<div style="display:grid;grid-template-columns:22px 150px minmax(0,1fr) auto;gap:4px 12px;align-items:start;border:1.5px solid #999;border-radius:6px;padding:8px 10px">
+<span style="font:700 13px ui-monospace,monospace;padding-top:2px">4</span>
+<span style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 210);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">M</span><b style="color:oklch(0.5 0.15 210);white-space:nowrap">Marcus Tran</b></span><span style="font:11px ui-monospace,monospace;opacity:.6;padding-left:28px">EM, Billing Platform</span></span>
+<span style="display:flex;flex-direction:column;gap:3px;font-size:13px"><span><b>Decides.</b> Doesn't work on the code; included because he manages 1–3 and approves the roadmap.</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><img src="icons/jira.png" alt="" style="width:12px;height:12px">roadmap approver</span><span style="display:flex;gap:3px;align-items:center"><img src="icons/glean.png" alt="" style="width:12px;height:12px">org chart</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span>
+</div>
+
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>ranked: formal ownership › code activity › review › management</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e show ▸</span></div>
+</div></div></div>
+</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);max-width:900px">Card 1 is shown highlighted, as when its chip in the prose is hovered. The footer gives the ranking order in a single line, so the order can be understood without reading the prose.</div>
+<p class="dv-next">Try next: “facet bar in <a class="dv-oid" href="#3b">3b</a>'s sources panel” · “ranking order as a setting” · “hi-fi in Gruvbox”</p>
+</section>
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Showing "via Glean" alongside the real source · owners as person chips</span></div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);margin:0 0 14px;max-width:900px">Every option shows the same six results. The real source (Jira, Slack, Drive and so on) is always the main icon; they differ in how "via Glean" is shown and filtered. D, C and G are lettered placeholders for Drive, Confluence and GitHub.</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">SOURCE ICONS · ⌘K</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="4a" style="width:420px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a><span><b>Corner badge.</b> The source icon with a small Glean "g" in its corner. Compact and easy to learn. Filtering by "via Glean" goes through a header chip.</span></div>
+<div class="dv-card" style="width:420px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:2px solid #222;flex-wrap:wrap"><span style="font-size:15px">⌕ cutover plan</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:10px;padding:0 7px;font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><img src="icons/glean.png" alt="" style="width:12px;height:12px">only</span><span style="border:1.5px solid #222;border-radius:10px;padding:0 7px;font-size:12px;white-space:nowrap">local only</span></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 30px;gap:7px 9px;padding:8px 12px;font-size:14px;align-items:center">
+<span style="position:relative;width:18px;height:18px"><span style="position:absolute;inset:0;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><img src="icons/glean.png" alt="" style="position:absolute;right:-5px;bottom:-5px;width:11px;height:11px;background:#fff;border-radius:50%;box-shadow:0 0 0 1.5px #fff"></span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<span style="position:relative;width:18px;height:18px"><img src="icons/slack.png" alt="" style="width:18px;height:18px"></span><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<span style="position:relative;width:18px;height:18px"><img src="icons/jira.png" alt="" style="width:18px;height:18px"><img src="icons/glean.png" alt="" style="position:absolute;right:-5px;bottom:-5px;width:11px;height:11px;background:#fff;border-radius:50%;box-shadow:0 0 0 1.5px #fff"></span><span>FIN-88 Sign-off: dual-run</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<span style="position:relative;width:18px;height:18px"><img src="icons/obsidian.png" alt="" style="width:18px;height:18px"></span><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<span style="position:relative;width:18px;height:18px"><span style="position:absolute;inset:0;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><img src="icons/glean.png" alt="" style="position:absolute;right:-5px;bottom:-5px;width:11px;height:11px;background:#fff;border-radius:50%;box-shadow:0 0 0 1.5px #fff"></span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<span style="position:relative;width:18px;height:18px"><img src="icons/jira.png" alt="" style="width:18px;height:18px"></span><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+</div>
+<div style="padding:6px 12px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Risk: the badge is small. Glean's purple holds up at 11px, but only just.</div>
+</div></div>
+
+<div class="dv-opt" id="4b" style="width:420px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4b">4b</a><span><b>Two columns.</b> A narrow "via" column (Glean or blank) next to the source icon. You can scan either column on its own, and clicking either one filters by it. Costs about 18px per row.</span></div>
+<div class="dv-card" style="width:420px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:2px solid #222"><span style="font-size:15px">⌕ cutover plan</span></div>
+<div style="display:grid;grid-template-columns:14px 18px minmax(0,1fr) 30px;gap:7px 7px;padding:8px 12px;font-size:14px;align-items:center">
+<span style="font:9px ui-monospace,monospace;opacity:.5">via</span><span style="font:9px ui-monospace,monospace;opacity:.5">src</span><span></span><span></span>
+<img src="icons/glean.png" alt="" style="width:13px;height:13px"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<span></span><img src="icons/slack.png" alt="" style="width:18px;height:18px"><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<img src="icons/glean.png" alt="" style="width:13px;height:13px"><img src="icons/jira.png" alt="" style="width:18px;height:18px"><span>FIN-88 Sign-off: dual-run</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<span></span><img src="icons/obsidian.png" alt="" style="width:18px;height:18px"><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<img src="icons/glean.png" alt="" style="width:13px;height:13px"><span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<span></span><img src="icons/jira.png" alt="" style="width:18px;height:18px"><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+</div>
+<div style="padding:6px 12px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Jira appears twice (Glean and local) and reads clearly: same source, different route.</div>
+</div></div>
+
+<div class="dv-opt" id="4c" style="width:420px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4c">4c</a><span><b>Tinted tile.</b> Glean results put the source icon on a pale Glean-purple tile; local results have no tile. There's no second mark, so "via Glean" reads as a background state.</span></div>
+<div class="dv-card" style="width:420px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:2px solid #222"><span style="font-size:15px">⌕ cutover plan</span></div>
+<div style="display:grid;grid-template-columns:24px minmax(0,1fr) 30px;gap:6px 9px;padding:8px 12px;font-size:14px;align-items:center">
+<span style="width:24px;height:24px;border-radius:5px;background:#e6e6fb;display:flex;align-items:center;justify-content:center"><span style="width:16px;height:16px;border:1.5px solid #222;border-radius:3px;font:700 8px/13px ui-monospace,monospace;text-align:center;box-sizing:border-box;background:#fff">D</span></span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><img src="icons/slack.png" alt="" style="width:16px;height:16px"></span><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<span style="width:24px;height:24px;border-radius:5px;background:#e6e6fb;display:flex;align-items:center;justify-content:center"><img src="icons/jira.png" alt="" style="width:16px;height:16px"></span><span>FIN-88 Sign-off: dual-run</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><img src="icons/obsidian.png" alt="" style="width:16px;height:16px"></span><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<span style="width:24px;height:24px;border-radius:5px;background:#e6e6fb;display:flex;align-items:center;justify-content:center"><span style="width:16px;height:16px;border:1.5px solid #222;border-radius:3px;font:700 8px/13px ui-monospace,monospace;text-align:center;box-sizing:border-box;background:#fff">C</span></span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><img src="icons/jira.png" alt="" style="width:16px;height:16px"></span><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+</div>
+<div style="padding:6px 12px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Risk: on Gruvbox dark, the tint needs enough contrast to read without being loud.</div>
+</div></div>
+
+<div class="dv-opt" id="4d" style="width:420px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4d">4d</a><span><b>Facet bar.</b> Rows show only the source icon. A header bar groups sources by route with counts, and clicking the Glean icon or any source icon filters. "Via" is a filter, not something shown on every row.</span></div>
+<div class="dv-card" style="width:420px;max-width:100%">
+<div style="display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1.5px solid #222"><span style="font-size:15px">⌕ cutover plan</span></div>
+<div style="display:flex;gap:10px;align-items:center;padding:6px 12px;border-bottom:2px solid #222;font:11px ui-monospace,monospace;flex-wrap:wrap">
+<span style="display:flex;gap:4px;align-items:center;border:1.5px solid #222;border-radius:10px;padding:1px 7px;background:#f1efe9"><img src="icons/glean.png" alt="" style="width:12px;height:12px">3 <span style="opacity:.4">│</span> <span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><img src="icons/jira.png" alt="" style="width:11px;height:11px"><span style="width:11px;height:11px;border:1px solid #222;border-radius:2px;font:700 7px/9px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span></span>
+<span style="display:flex;gap:4px;align-items:center;border:1.5px solid #999;border-radius:10px;padding:1px 7px">local 3 <span style="opacity:.4">│</span> <img src="icons/slack.png" alt="" style="width:11px;height:11px"><img src="icons/obsidian.png" alt="" style="width:11px;height:11px"><img src="icons/jira.png" alt="" style="width:11px;height:11px"></span>
+</div>
+<div style="display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:7px 9px;padding:8px 12px;font-size:14px;align-items:center">
+<span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<img src="icons/slack.png" alt="" style="width:18px;height:18px"><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<img src="icons/jira.png" alt="" style="width:18px;height:18px"><span>FIN-88 Sign-off: dual-run</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<img src="icons/obsidian.png" alt="" style="width:18px;height:18px"><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<span style="width:18px;height:18px;border:1.5px solid #222;border-radius:3px;font:700 9px/15px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<img src="icons/jira.png" alt="" style="width:18px;height:18px"><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+</div>
+<div style="padding:6px 12px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Combines well with <a class="dv-oid" href="#4a">4a</a> or <a class="dv-oid" href="#4c">4c</a>: the bar handles filtering, the row mark handles scanning.</div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">WHO OWNS THIS · THE APP'S PERSON CHIPS</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);margin:0 0 14px;max-width:900px">When the answer is about people, it returns people. Each person is the app's standard chip: a circle with their initial and their name, both in their person colour (L 0.65, hashed from email), so a person looks the same here as everywhere else. Their context sits next to the chip.</div>
+<div class="dv-opts" style="margin-bottom:12px">
+
+<div class="dv-opt" id="4e" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4e">4e</a><span><b>A card for each person.</b> One line of narrative, then one card per person: chip on the left, context on the right. The evidence uses the source icons, so you can see which system each claim comes from.</span></div>
+<div class="dv-card" style="width:640px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">no topic</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">Who should I talk to about <span style="font:12px ui-monospace,monospace">ledger-exporter</span>?</div>
+<div style="font-size:14px">Start with Lena: she owns it. Ravi and Ana wrote most of the code.</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;border:1.5px solid #222;border-radius:6px;padding:7px 10px">
+<span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 300);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">L</span><b style="color:oklch(0.55 0.15 300);white-space:nowrap">Lena Ortiz</b></span>
+<span style="display:flex;flex-direction:column;gap:2px;font-size:13px"><span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform · mgr Marcus Tran</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>CODEOWNERS</span><span style="display:flex;gap:3px;align-items:center"><img src="icons/jira.png" alt="" style="width:12px;height:12px">component lead</span><span style="display:flex;gap:3px;align-items:center"><img src="icons/slack.png" alt="" style="width:12px;height:12px">14 answers</span></span></span>
+<span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">+ topic</span></div>
+<div style="display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;border:1.5px solid #999;border-radius:6px;padding:7px 10px">
+<span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 145);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">R</span><b style="color:oklch(0.5 0.15 145);white-space:nowrap">Ravi Shah</b></span>
+<span style="display:flex;flex-direction:column;gap:2px;font-size:13px"><span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>62% commits · 6 mo</span><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span>design doc</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;border:1.5px solid #999;border-radius:6px;padding:7px 10px">
+<span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 60);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">A</span><b style="color:oklch(0.52 0.15 60);white-space:nowrap">Ana Silva</b></span>
+<span style="display:flex;flex-direction:column;gap:2px;font-size:13px"><span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>21% commits · reviews most PRs</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;border:1.5px solid #999;border-radius:6px;padding:7px 10px">
+<span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:22px;border-radius:50%;background:oklch(0.65 0.15 210);color:#fff;font:700 11px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">M</span><b style="color:oklch(0.5 0.15 210);white-space:nowrap">Marcus Tran</b></span>
+<span style="display:flex;flex-direction:column;gap:2px;font-size:13px"><span style="font:11px ui-monospace,monospace;opacity:.6">EM, Billing Platform</span><span style="display:flex;gap:10px;flex-wrap:wrap;font:11px ui-monospace,monospace;align-items:center"><span style="display:flex;gap:3px;align-items:center"><img src="icons/jira.png" alt="" style="width:12px;height:12px">approves roadmap</span><span style="opacity:.6">manages Lena, Ravi, Ana</span></span></span>
+<span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>from 38 results</span><span style="color:#d2572b">2 dropped: name match only</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e show ▸</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="4f" style="width:560px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#4f">4f</a><span><b>Chips inside the narrative.</b> A normal prose answer with the people as inline chips. The context for a chip opens on hover or focus (shown open for Lena), the same way chips behave elsewhere. Use this when the answer is mostly prose that happens to mention people.</span></div>
+<div class="dv-card" style="width:560px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">no topic</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">Who should I talk to about <span style="font:12px ui-monospace,monospace">ledger-exporter</span>?</div>
+<div style="font-size:14px;line-height:2;position:relative">
+<span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle;background:#f1efe9;box-shadow:0 0 0 1.5px #222;border-radius:11px;padding:0 7px 0 2px"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 300);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">L</span><b style="color:oklch(0.55 0.15 300)">Lena Ortiz</b></span> owns it and answers most questions in #billing-eng. <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 145);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">R</span><b style="color:oklch(0.5 0.15 145)">Ravi Shah</b></span> wrote most of the current version, and <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 60);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">A</span><b style="color:oklch(0.52 0.15 60)">Ana Silva</b></span> reviews most PRs. For roadmap questions, go to their manager, <span style="display:inline-flex;gap:4px;align-items:center;vertical-align:middle"><span style="width:18px;height:18px;border-radius:50%;background:oklch(0.65 0.15 210);color:#fff;font:700 10px system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center">M</span><b style="color:oklch(0.5 0.15 210)">Marcus Tran</b></span>.
+</div>
+<div style="margin:-4px 0 0 0;width:300px;border:2px solid #222;border-radius:6px;background:#fff;box-shadow:3px 3px 0 rgba(0,0,0,.12);padding:8px 10px;display:flex;flex-direction:column;gap:4px;font-size:13px">
+<span style="display:flex;gap:6px;align-items:center"><span style="width:20px;height:20px;border-radius:50%;background:oklch(0.65 0.15 300);color:#fff;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center">L</span><b style="color:oklch(0.55 0.15 300)">Lena Ortiz</b><span style="flex:1"></span><span style="font:10px ui-monospace,monospace;opacity:.6">not in People</span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform · mgr Marcus Tran</span>
+<span style="display:flex;gap:3px;align-items:center;font:11px ui-monospace,monospace"><span style="width:12px;height:12px;border:1px solid #222;border-radius:2px;font:700 7px/10px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span>CODEOWNERS for ledger-exporter</span>
+<span style="display:flex;gap:3px;align-items:center;font:11px ui-monospace,monospace"><img src="icons/jira.png" alt="" style="width:12px;height:12px">component lead · BILL</span>
+<span style="display:flex;gap:3px;align-items:center;font:11px ui-monospace,monospace"><img src="icons/slack.png" alt="" style="width:12px;height:12px">14 answers in #billing-eng</span>
+<span style="font:11px ui-monospace,monospace;opacity:.65;border-top:1px dashed #999;padding-top:4px">↵ open in Slack · ⌘↵ add to topic · n new People note</span>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>from 38 results</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e show ▸</span></div>
+</div></div></div>
+</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);max-width:900px">Rule: if the model's answer is a list of people, use cards (<a class="dv-oid" href="#4e">4e</a>). If it's prose that mentions people, use inline chips (<a class="dv-oid" href="#4f">4f</a>). Both use the same chip.</div>
+<p class="dv-next">Try next: “<a class="dv-oid" href="#4a">4a</a> combined with <a class="dv-oid" href="#4d">4d</a>” · “icons in <a class="dv-oid" href="#3b">3b</a>'s sources panel” · “hi-fi in Gruvbox”</p>
+</section>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Ask: the panel adds detail without moving anything else · queries can be told apart · ⌘K with source icons · owners ranked only on evidence</span></div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">ASK PANE · E ADDS A PANEL, THE LEFT SIDE NEVER CHANGES</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="3a" style="width:540px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a><span>Panel closed. Answer, count line, chips and input. Only the count line's hint text changes when the panel opens.</span></div>
+<div class="dv-card" style="width:540px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;height:430px;box-sizing:border-box">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.6">Two things. The ledger reconciliation job hasn't passed in staging (PLAT-231) <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 <sup style="font:10px ui-monospace,monospace">4</sup>.</div>
+<div style="flex:1"></div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>9 sources</span><span style="color:#d2572b">22 dropped</span><span style="opacity:.6">3 queries</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e show ▸</span></div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;opacity:.55;letter-spacing:.06em">SENT WITH YOUR QUESTION</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">topic title ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">Priya · Marcus · Dana ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font:11px ui-monospace,monospace">PLAT-212 · billing-svc ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">#billing-migration ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">8 signal titles ×</span>
+<span style="border:1.5px dashed #999;border-radius:10px;padding:0 8px;font-size:12px;opacity:.7">notes +</span>
+</div></div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="3b" style="width:960px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a><span>Panel open, shown while hovering query Q2. The left column is identical to <a class="dv-oid" href="#3a">3a</a>. Each query has its own mark, and each kept row shows which queries returned it. Hovering a query dims every source it didn't return. The source list scrolls.</span></div>
+<div class="dv-card" style="width:960px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,540px) minmax(360px,1fr)">
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;border-right:1.5px dashed #999;height:430px;box-sizing:border-box">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.6">Two things. The ledger reconciliation job hasn't passed in staging (PLAT-231) <sup style="font:10px ui-monospace,monospace">1</sup>, and <span style="background:#fdf3ee;box-shadow:inset 0 -2px 0 #d2572b">Finance hasn't signed off on the dual-run window</span> <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 <sup style="font:10px ui-monospace,monospace">4</sup>.</div>
+<div style="flex:1"></div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>9 sources</span><span style="color:#d2572b">22 dropped</span><span style="opacity:.6">3 queries</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px;background:#222;color:#fff">e hide ◂</span></div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;opacity:.55;letter-spacing:.06em">SENT WITH YOUR QUESTION</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">topic title ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">Priya · Marcus · Dana ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font:11px ui-monospace,monospace">PLAT-212 · billing-svc ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">#billing-migration ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">8 signal titles ×</span>
+<span style="border:1.5px dashed #999;border-radius:10px;padding:0 8px;font-size:12px;opacity:.7">notes +</span>
+</div></div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div>
+<div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;height:430px;box-sizing:border-box;min-width:0">
+<div style="display:flex;flex-direction:column;gap:3px">
+<div style="font-size:11px;opacity:.55;letter-spacing:.06em">QUERIES</div>
+<div style="display:grid;grid-template-columns:34px minmax(0,1fr) 38px;gap:2px 6px;align-items:baseline;font:11px/1.5 ui-monospace,monospace;white-space:nowrap">
+<span style="color:#2a78d6;font-weight:700;opacity:.35">●Q1</span><span style="opacity:.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cutover blocked from:"Priya Raman" updated:past_6_months</span><span style="opacity:.35;text-align:right">12→4</span>
+<span style="color:#d2572b;font-weight:700">■Q2</span><span style="background:#fdf3ee;box-shadow:inset 0 -2px 0 #d2572b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"PLAT-212" app:jira</span><span style="text-align:right">9→3</span>
+<span style="color:#2f7f3a;font-weight:700;opacity:.35">▲Q3</span><span style="opacity:.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cutover app:slack channel:billing-migration</span><span style="opacity:.35;text-align:right">10→2</span>
+<span style="opacity:.35">◇ L</span><span style="opacity:.35">local index</span><span style="opacity:.35;text-align:right">12→4</span>
+</div></div>
+<div style="display:flex;gap:14px;font-size:14px;border-bottom:1.5px solid #222;padding-bottom:4px"><b style="border-bottom:3px solid #222;margin-bottom:-6px;white-space:nowrap">Kept 9</b><span style="opacity:.55;white-space:nowrap">Dropped 22</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6;white-space:nowrap">⇥ switch</span></div>
+<div style="flex:1;min-height:0;overflow-y:scroll;display:flex;flex-direction:column;gap:6px;padding-right:4px">
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace">1</span><span><u>PLAT-231 Ledger recon fails</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#2a78d6">●</span></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira › PLAT · assignee Marcus</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;background:#fdf3ee;box-shadow:inset 3px 0 0 #d2572b;padding:3px 6px;margin:0 -6px"><span style="font:10px ui-monospace,monospace">2</span><span><u>FIN-88 Sign-off: dual-run window</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#d2572b">■</span></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira › FIN · links PLAT-212</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace">3</span><span><u>Cutover plan v3</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#2a78d6">●</span></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Drive › Billing · pinned · 3 shared people</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace">4</span><span><u>1:1 Priya, Sep 29</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right">◇</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Obsidian › 1:1s · in topic</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;background:#fdf3ee;box-shadow:inset 3px 0 0 #d2572b;padding:3px 6px;margin:0 -6px"><span style="font:10px ui-monospace,monospace"></span><span><u>PLAT-212 Billing migration</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#d2572b">■</span> ◇</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira › PLAT · topic epic · also local</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;background:#fdf3ee;box-shadow:inset 3px 0 0 #d2572b;padding:3px 6px;margin:0 -6px"><span style="font:10px ui-monospace,monospace"></span><span><u>PLAT-240 Refund edge cases</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#2a78d6">●</span> <span style="color:#d2572b">■</span></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira › PLAT · child of PLAT-212</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace"></span><span><u>Dual-run window thread</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#2f7f3a">▲</span> ◇</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Slack › #billing-migration</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace"></span><span><u>Staging recon results</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right"><span style="color:#2f7f3a">▲</span></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Slack › #billing-migration</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 56px;gap:1px 8px;align-items:center;font-size:13px;opacity:.35"><span style="font:10px ui-monospace,monospace"></span><span><u>Cutover risks</u> ↗</span><span style="font:10px ui-monospace,monospace;text-align:right">◇</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Obsidian › Topics</span></div>
+</div>
+<div style="border-top:1.5px dashed #999;padding-top:6px;font:11px ui-monospace,monospace;opacity:.65">hover a query to filter · ↵ open · p pin · x reject for this topic</div>
+</div></div></div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">⌘K · SOURCE ICONS</div>
+<div class="dv-opts" style="margin-bottom:40px">
+<div class="dv-opt" id="3c" style="width:600px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a><span>A source icon on the left replaces the location text. The topic chip stays as the anchor. The Drive, Confluence and GitHub icons are lettered placeholders until real ones are added.</span></div>
+<div class="dv-card" style="width:600px;max-width:100%;padding:0">
+<div style="display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid #222"><span style="font-size:16px">⌕</span><span style="font-size:16px">cutover plan</span><span style="flex:1"></span><span style="border:2px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700;white-space:nowrap">Q4 billing migration ▾</span></div>
+<div style="display:grid;grid-template-columns:18px minmax(0,1fr) 34px;gap:6px 10px;padding:8px 14px;font-size:14px;align-items:center">
+<span style="width:16px;height:16px;border:1.5px solid #222;border-radius:3px;font:700 9px/13px ui-monospace,monospace;text-align:center;box-sizing:border-box">D</span><span style="background:#f1efe9;box-shadow:inset 3px 0 0 #222;margin-left:-6px;padding-left:6px">Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<img src="icons/slack.png" alt="" style="width:16px;height:16px"><span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<img src="icons/jira.png" alt="" style="width:16px;height:16px"><span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<img src="icons/obsidian.png" alt="" style="width:16px;height:16px"><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<span style="width:16px;height:16px;border:1.5px solid #222;border-radius:3px;font:700 9px/13px ui-monospace,monospace;text-align:center;box-sizing:border-box">C</span><span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<img src="icons/jira.png" alt="" style="width:16px;height:16px"><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+<span style="width:16px;height:16px;border:1.5px solid #222;border-radius:3px;font:700 9px/13px ui-monospace,monospace;text-align:center;box-sizing:border-box">G</span><span>billing/ledger-exporter · cutover.md</span><span style="font:11px ui-monospace,monospace;opacity:.5">6d</span>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:7px 14px;border-top:1.5px dashed #999;font-size:12px"><span style="color:#d2572b">11 off-topic hidden</span><span style="font:11px ui-monospace,monospace;opacity:.6">⇧↵ show</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.65">↵ open · ⌘↵ link to topic · x reject</span></div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">WHO OWNS THIS</div>
+<div class="dv-opts" style="margin-bottom:12px">
+<div class="dv-opt" id="3d" style="width:620px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#3d">3d</a><span>Ranked only by evidence for this query. That evidence comes from people across the org, including ones you've never worked with, which is Glean's advantage here. Whether you know someone is shown as a label but never changes the order.</span></div>
+<div class="dv-card" style="width:620px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">no topic</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">Who should I talk to about <span style="font:12px ui-monospace,monospace">ledger-exporter</span>?</div>
+<div style="font-size:14px">Lena owns it and answers most questions about it. Ravi and Ana built most of the current version.</div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px 10px;font-size:14px;align-items:start">
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Lena Ortiz</b> <span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform · mgr Marcus Tran</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">CODEOWNERS · Jira component lead · answered 14 Slack threads</span></div>
+<div style="display:flex;justify-content:flex-end"><span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Ravi Shah</b> <span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform</span> <span style="font:10px ui-monospace,monospace;border:1px solid #999;border-radius:3px;padding:0 3px;opacity:.7">in People</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">62% of commits, last 6 mo · design doc author</span></div>
+<div style="display:flex;justify-content:flex-end"><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Ana Silva</b> <span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">21% of commits · reviewer on most PRs</span></div>
+<div style="display:flex;justify-content:flex-end"><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Marcus Tran</b> <span style="font:11px ui-monospace,monospace;opacity:.6">EM, Billing Platform</span> <span style="font:10px ui-monospace,monospace;border:1px solid #999;border-radius:3px;padding:0 3px;opacity:.7">in People</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">manages the owners · approves roadmap</span></div>
+<div style="display:flex;justify-content:flex-end"><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>from 38 results</span><span style="color:#d2572b">2 dropped: name match only</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e show ▸</span></div>
+</div></div></div>
+</div>
+<p class="dv-next">Try next: “<a class="dv-oid" href="#3b">3b</a> Dropped tab, grouped by query” · “Ask when Glean is down” · “hi-fi in Gruvbox”</p>
+</section>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Ask: chips from 1a, flow from 1b, sources panel from 1c that can be hidden · ⌘K merged · People becomes "who owns this"</span></div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">ASK PANE · ONE DESIGN, TWO STATES</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="2a" style="width:560px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a><span>Default: sources panel hidden. The chips decide what's sent, and removing one re-runs the search without it. The answer stays clean, with numbered citations only. One line shows the counts; <b>e</b> opens the sources panel.</span></div>
+<div class="dv-card" style="width:560px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.55">Two things. The ledger reconciliation job hasn't passed in staging (PLAT-231) <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 <sup style="font:10px ui-monospace,monospace">4</sup>.</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>9 sources</span><span style="color:#d2572b">22 dropped</span><span style="opacity:.6">3 queries</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e sources ▸</span></div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;opacity:.55;letter-spacing:.06em">SENT WITH YOUR QUESTION</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">topic title ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">Priya · Marcus · Dana ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font:11px ui-monospace,monospace">PLAT-212 · billing-svc ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">#billing-migration ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">8 signal titles ×</span>
+<span style="border:1.5px dashed #999;border-radius:10px;padding:0 8px;font-size:12px;opacity:.7">notes +</span>
+</div></div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="2b" style="width:1000px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a><span>Same pane with <b>e</b> pressed. The sources panel shows Kept, Dropped and the queries sent, written in Glean's real filter syntax. Each source links out, and selecting one highlights the sentences that cite it. Chips and the answer stay where they were.</span></div>
+<div class="dv-card" style="width:1000px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 420px">
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;border-right:1.5px dashed #999">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.6">Two things. <span style="background:#fdf3ee;box-shadow:inset 0 -2px 0 #d2572b">The ledger reconciliation job hasn't passed in staging (PLAT-231)</span> <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 <sup style="font:10px ui-monospace,monospace">4</sup>.</div>
+<div style="flex:1;min-height:40px"></div>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">topic title ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">Priya · Marcus · Dana ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font:11px ui-monospace,monospace">PLAT-212 · billing-svc ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">#billing-migration ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">8 signal titles ×</span>
+<span style="border:1.5px dashed #999;border-radius:10px;padding:0 8px;font-size:12px;opacity:.7">notes +</span>
+</div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div>
+<div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:14px;font-size:14px;border-bottom:1.5px solid #222;padding-bottom:4px"><b style="border-bottom:3px solid #222;margin-bottom:-6px">Kept 9</b><span style="opacity:.55">Dropped 22</span><span style="opacity:.55">Queries 3</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6">e hide</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 52px;gap:2px 8px;align-items:center;font-size:13px;background:#f1efe9;box-shadow:inset 3px 0 0 #222;padding:4px 6px;margin:0 -6px"><span style="font:10px ui-monospace,monospace">1</span><span><u>PLAT-231 Ledger recon fails</u> ↗</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 81%,#fff 81%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira › PLAT · Jira key in topic · Marcus</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 52px;gap:2px 8px;align-items:center;font-size:13px"><span style="font:10px ui-monospace,monospace">2</span><span><u>Dual-run window thread</u> ↗</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 79%,#fff 79%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Slack › #billing-migration · in topic</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 52px;gap:2px 8px;align-items:center;font-size:13px"><span style="font:10px ui-monospace,monospace">3</span><span><u>Cutover plan v3</u> ↗</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 77%,#fff 77%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Drive › Billing · pinned · 3 shared people</span></div>
+<div style="display:grid;grid-template-columns:16px minmax(0,1fr) 52px;gap:2px 8px;align-items:center;font-size:13px"><span style="font:10px ui-monospace,monospace">4</span><span><u>1:1 Priya, Sep 29</u> ↗</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 70%,#fff 70%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Obsidian › 1:1s · in topic</span></div>
+<div style="font-size:13px;opacity:.55">+ 5 more</div>
+<div style="border-top:1.5px dashed #999;padding-top:6px;display:flex;flex-direction:column;gap:3px">
+<div style="font-size:11px;opacity:.55;letter-spacing:.06em">QUERIES SENT (TAB PREVIEW)</div>
+<div style="font:11px/1.6 ui-monospace,monospace;background:#f7f6f2;border:1px solid #e2e0da;border-radius:4px;padding:6px 8px;display:flex;flex-direction:column">
+<span>cutover blocked from:"Priya Raman" updated:past_6_months</span>
+<span>"PLAT-212" app:jira</span>
+<span>cutover app:slack channel:billing-migration</span></div>
+<div style="font-size:11px;opacity:.6">One query per entity group. Glean has no nested AND/OR, so the app runs several searches and merges them.</div>
+</div>
+<div style="border-top:1.5px dashed #999;padding-top:6px;font:11px ui-monospace,monospace;opacity:.65">↵ open · p pin · x reject for this topic · ⇥ tabs</div>
+</div></div></div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">⌘K · MERGED</div>
+<div class="dv-opts" style="margin-bottom:40px">
+<div class="dv-opt" id="2c" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a><span>One list with no Glean/local distinction. Each row shows <i>where the thing lives</i>. Duplicates collapse into one row that opens in the app that owns it. Off-topic results are hidden behind a single count.</span></div>
+<div class="dv-card" style="width:640px;max-width:100%;padding:0">
+<div style="display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid #222"><span style="font-size:16px">⌕</span><span style="font-size:16px">cutover plan</span><span style="flex:1"></span><span style="border:2px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700">Q4 billing migration ▾</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 220px 34px;gap:4px 10px;padding:8px 14px;font-size:14px;align-items:baseline">
+<span style="background:#f1efe9;box-shadow:inset 3px 0 0 #222;margin-left:-14px;padding-left:14px">Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.7">Drive › Billing</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span>
+<span>“cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.7">Slack › #billing-migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span>
+<span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.7">Jira › FIN</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span>
+<span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.7">Obsidian › 1:1s</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span>
+<span>Dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.7">Confluence › BILL</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span>
+<span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.7">Jira › PLAT · Topic</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:7px 14px;border-top:1.5px dashed #999;font-size:12px"><span style="color:#d2572b">11 off-topic hidden</span><span style="font:11px ui-monospace,monospace;opacity:.6">⇧↵ show</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.65">↵ open · ⌘↵ link to topic · x reject · ? why</span></div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">WHO OWNS THIS · PEOPLE FROM GLEAN'S WIDER VIEW</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);margin:0 0 14px;max-width:900px">The people come from authors, assignees, committers and repliers on the matching Glean results, combined locally. This doesn't assume any special Glean expert endpoint. Local data adds how well <i>you</i> know each person, so someone you already talk to ranks above a stranger with the same evidence.</div>
+<div class="dv-opts" style="margin-bottom:12px">
+
+<div class="dv-opt" id="2d" style="width:620px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a><span>As an answer in Ask. Asking about a repo, Jira component or service returns a contact list, with each person's evidence in the source's own terms. Each person can be added to the topic.</span></div>
+<div class="dv-card" style="width:620px;max-width:100%"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">no topic</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">Who should I talk to about <span style="font:12px ui-monospace,monospace">ledger-exporter</span>?</div>
+<div style="font-size:14px">Start with Lena. She owns it and answers most questions about it. Ravi built most of the current version.</div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px 10px;font-size:14px;align-items:start">
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Lena Ortiz</b> <span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform · mgr Marcus Tran</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">CODEOWNERS · Jira component lead · answered 14 Slack threads</span></div>
+<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><span style="font:10px ui-monospace,monospace;border:1px solid #999;border-radius:3px;padding:0 4px;opacity:.7">not in People</span><span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Ravi Shah</b> <span style="font:11px ui-monospace,monospace;opacity:.6">Billing Platform</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">62% of commits, last 6 mo · design doc author</span></div>
+<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><span style="font:10px ui-monospace,monospace;border:1px solid #2f7f3a;color:#2f7f3a;border-radius:3px;padding:0 4px">you · 3 threads</span><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span><b>Marcus Tran</b> <span style="font:11px ui-monospace,monospace;opacity:.6">EM, Billing Platform</span></span><span style="font:11px ui-monospace,monospace;opacity:.7">manages both · approves roadmap</span></div>
+<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><span style="font:10px ui-monospace,monospace;border:1px solid #2f7f3a;color:#2f7f3a;border-radius:3px;padding:0 4px">in People · 1:1</span><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">+ topic</span></div>
+<div style="display:flex;flex-direction:column;gap:2px;opacity:.55"><span>Jo Kim <span style="font:11px ui-monospace,monospace">Data Eng</span></span><span style="font:11px ui-monospace,monospace">heavy consumer, 4 issues filed</span></div><span></span>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;font:11px ui-monospace,monospace;border-top:1.5px dashed #999;padding-top:6px"><span>from 38 results</span><span style="color:#d2572b">2 people dropped: name match only</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:3px;padding:0 5px">e sources ▸</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="2e" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#2e">2e</a><span>As a ⌘K action on any result. Select a repo, epic or doc and press <b>⌘O</b> for "people for this", grouped by role. Faster than asking, but there's no prose answer.</span></div>
+<div class="dv-card" style="width:640px;max-width:100%;padding:0">
+<div style="display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid #222"><span style="font-size:16px">⌕</span><span style="font-size:16px">ledger-exporter</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">people for ▸ GitHub › billing/ledger-exporter</span></div>
+<div style="display:grid;grid-template-columns:96px minmax(0,1fr) 120px;gap:4px 10px;padding:8px 14px;font-size:14px;align-items:baseline">
+<span style="font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.06em">OWNS</span><span style="background:#f1efe9;box-shadow:inset 3px 0 0 #222;margin-left:-6px;padding-left:6px"><b>Lena Ortiz</b> <span style="font:11px ui-monospace,monospace;opacity:.6">CODEOWNERS · component lead</span></span><span style="font:10px ui-monospace,monospace;opacity:.6">not in People</span>
+<span style="font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.06em">BUILDS</span><span>Ravi Shah <span style="font:11px ui-monospace,monospace;opacity:.6">62% commits</span></span><span style="font:10px ui-monospace,monospace;color:#2f7f3a">you · 3 threads</span>
+<span></span><span>Ana Silva <span style="font:11px ui-monospace,monospace;opacity:.6">21% commits</span></span><span></span>
+<span style="font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.06em">ANSWERS</span><span>Lena Ortiz · Ravi Shah <span style="font:11px ui-monospace,monospace;opacity:.6">Slack #billing-eng</span></span><span></span>
+<span style="font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.06em">DECIDES</span><span>Marcus Tran <span style="font:11px ui-monospace,monospace;opacity:.6">EM · approves roadmap</span></span><span style="font:10px ui-monospace,monospace;color:#2f7f3a">in People</span>
+<span style="font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.06em">USES</span><span style="opacity:.6">Jo Kim · 2 more</span><span></span>
+</div>
+<div style="padding:7px 14px;border-top:1.5px solid #222;font:11px ui-monospace,monospace;opacity:.65">↵ open in Slack · ⌘↵ add to topic · ⌘C copy list · esc back to results</div>
+</div></div>
+</div>
+<div style="font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);max-width:900px">Frontmatter: when someone is already in People, team and manager from Glean show read-only in these lists. Writing them into notes waits until the People page is designed.</div>
+<p class="dv-next">Try next: “Ask when Glean is down” · “<a class="dv-oid" href="#2b">2b</a> Dropped tab” · “<a class="dv-oid" href="#2d">2d</a> and <a class="dv-oid" href="#2e">2e</a> together” · “hi-fi in Gruvbox”</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Glean · Ask pane, ⌘K, People, then Settings. Each surface gets two options: one changes the flow, the other the layout.</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin:0 0 26px;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6);max-width:1100px">
+<span>• Glean is a work source on the BAA allow-list, so any work context can be sent. It's never used for personal data.</span>
+<span>• <b>Local check:</b> every Glean result needs at least one entity match with the topic (a person, Jira key, channel or link) and a local embedding score above the threshold. Shared words alone never keep a result.</span>
+<span>• Pins and rejects are saved per topic and turned into filters on the next query.</span>
+<span>• A Glean result with the same URL as a local item merges into that item.</span>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">ASK PANE</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="1a" style="width:560px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><span>Glean writes the answer. Local context is shown as removable chips before you send. Citations are checked afterwards, and any sentence that relied on a dropped citation is struck through.</span></div>
+<div class="dv-card" style="width:560px"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">model: Glean chat</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;opacity:.55;letter-spacing:.06em">SENT WITH YOUR QUESTION</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">topic title ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">Priya R · Marcus T · Dana K ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-family:ui-monospace,monospace;font-size:11px">PLAT-212 · billing-svc ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">#billing-migration ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">8 signal titles ×</span>
+<span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">2 signal bodies ×</span>
+<span style="border:1.5px dashed #999;border-radius:10px;padding:0 8px;font-size:12px;opacity:.7">notes: off for this ask +</span>
+</div></div>
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.55">Two things. The ledger reconciliation job hasn't passed in staging (PLAT-231, Marcus) <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes moving cutover to Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>. <span style="text-decoration:line-through;opacity:.45">The runbook also requires a two-week freeze on HR data <sup style="font:10px ui-monospace,monospace">4</sup>.</span></div>
+<div style="border-top:1.5px dashed #999;padding-top:8px;display:flex;flex-direction:column;gap:5px">
+<div style="font-size:11px;opacity:.55;letter-spacing:.06em">SOURCES · 3 KEPT</div>
+<div style="display:grid;grid-template-columns:18px 20px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace">1</span><span style="color:#2f7f3a">✓</span><span>Jira PLAT-231 Ledger recon fails on partial refunds <span style="font:11px ui-monospace,monospace;opacity:.6">· epic PLAT-212 · Marcus</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="display:grid;grid-template-columns:18px 20px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace">2</span><span style="color:#2f7f3a">✓</span><span>Slack thread in #billing-migration <span style="font:11px ui-monospace,monospace;opacity:.6">· topic channel · already local, merged</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="display:grid;grid-template-columns:18px 20px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace">3</span><span style="color:#2f7f3a">✓</span><span>Doc · Cutover plan v3 <span style="font:11px ui-monospace,monospace;opacity:.6">· owner Dana · 3 shared people</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="font-size:11px;color:#d2572b;letter-spacing:.06em;margin-top:4px">DROPPED · 1</div>
+<div style="display:grid;grid-template-columns:18px 20px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px;opacity:.7"><span style="font:10px ui-monospace,monospace">4</span><span style="color:#d2572b">✕</span><span>Confluence · Data migration runbook (HR) <span style="font:11px ui-monospace,monospace">· shared words only: “migration”, “cutover” · 0 shared people</span></span><span style="font:11px ui-monospace,monospace">k keep</span></div>
+</div>
+<div style="font-size:12px;opacity:.6">Glean's answer uses the citations it picked. All the local check can do here is flag the sentences built on dropped citations.</div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="1b" style="width:560px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><span>Glean only searches. Alethiometer writes the queries from the topic, checks the results locally, then the configured model answers using only the kept evidence. The pipeline line shows the counts at each step.</span></div>
+<div class="dv-card" style="width:560px"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet</span></div>
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font:11px/1.6 ui-monospace,monospace;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center"><span style="border:1px solid #222;border-radius:3px;padding:0 5px">3 queries</span>→<span style="border:1px solid #222;border-radius:3px;padding:0 5px">31 Glean</span>+<span style="border:1px solid #222;border-radius:3px;padding:0 5px">12 local</span>→<span style="border:2px solid #2f7f3a;border-radius:3px;padding:0 5px;color:#2f7f3a">9 kept</span>→<span style="border:1px solid #222;border-radius:3px;padding:0 5px">answer</span></div>
+<div style="font:11px/1.6 ui-monospace,monospace;background:#f7f6f2;border:1px solid #e2e0da;border-radius:4px;padding:6px 8px;display:flex;flex-direction:column">
+<span>“cutover blocked” from:priya,marcus,dana after:2026-04-01</span>
+<span>PLAT-212 OR PLAT-231 OR billing-svc</span>
+<span>channel:billing-migration -pinned:none</span>
+<span style="opacity:.5">built from: people, Jira keys, channel, window 180d · e edit</span></div>
+<div style="font-size:14px;line-height:1.55">Two things. The ledger reconciliation job hasn't passed in staging (PLAT-231) <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 notes <sup style="font:10px ui-monospace,monospace">4 local</sup>.</div>
+<div style="border-top:1.5px dashed #999;padding-top:8px;display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;opacity:.55;letter-spacing:.06em">EVIDENCE · 9 KEPT</span><span style="font:11px ui-monospace,monospace;opacity:.5">5 Glean · 4 local</span></div>
+<div style="display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace;opacity:.6">Glean</span><span>Jira PLAT-231 Ledger recon fails… <span style="font:11px ui-monospace,monospace;opacity:.6">· Jira key · .81</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace;opacity:.6">Glean</span><span>Doc · Cutover plan v3 <span style="font:11px ui-monospace,monospace;opacity:.6">· 3 people · .77</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:6px;align-items:baseline;font-size:13px"><span style="font:10px ui-monospace,monospace;opacity:.6">local</span><span>Note · 1:1 Priya, Sep 29 <span style="font:11px ui-monospace,monospace;opacity:.6">· in topic</span></span><span style="font:11px ui-monospace,monospace;opacity:.6">p x</span></div>
+<div style="font-size:13px;opacity:.55">+ 6 more ▸</div>
+<div style="display:flex;gap:8px;align-items:baseline;margin-top:4px"><span style="font-size:11px;color:#d2572b;letter-spacing:.06em">DROPPED · 22 ▸</span><span style="font:11px ui-monospace,monospace;opacity:.6">14 shared words only · 4 outside 180d · 3 already local · 1 rejected Sep 12</span></div>
+</div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div></div></div>
+
+<div class="dv-opt" id="1c" style="width:980px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><span>Same flow as <a class="dv-oid" href="#1b">1b</a>, with evidence in its own rail. Kept and Dropped are tabs, each row shows its score and reason, and selecting a row highlights the sentences that use it.</span></div>
+<div class="dv-card" style="width:980px"><div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">Ask</b><span style="font-size:13px;opacity:.6">Q4 billing migration</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.7">Glean search → sonnet · 31 + 12 → 9</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 420px">
+<div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;border-right:1.5px dashed #999">
+<div style="align-self:flex-end;background:#f1efe9;border-radius:6px;padding:5px 10px;font-size:14px;max-width:80%">What's still blocking the cutover date?</div>
+<div style="font-size:14px;line-height:1.6">Two things. <span style="background:#fdf3ee;box-shadow:inset 0 -2px 0 #d2572b">The ledger reconciliation job hasn't passed in staging (PLAT-231)</span> <sup style="font:10px ui-monospace,monospace">1</sup>, and Finance hasn't signed off on the dual-run window <sup style="font:10px ui-monospace,monospace">2</sup>. Dana's plan proposes Nov 18 <sup style="font:10px ui-monospace,monospace">3</sup>, and Priya asked for it in Tuesday's 1:1 <sup style="font:10px ui-monospace,monospace">4</sup>.</div>
+<div style="flex:1;min-height:120px"></div>
+<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;border:1.5px solid #222;border-radius:5px;padding:5px 9px;font-size:14px;opacity:.6">Ask about this topic…</div><span style="border:2px solid #222;border-radius:4px;padding:1px 8px;font-weight:700;font-size:13px">Ask ⏎</span></div>
+</div>
+<div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:14px;font-size:14px;border-bottom:1.5px solid #222;padding-bottom:4px"><b style="border-bottom:3px solid #222;margin-bottom:-6px;white-space:nowrap">Kept 9</b><span style="opacity:.55;white-space:nowrap">Dropped 22</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6;white-space:nowrap">⇥ switch</span></div>
+<div style="display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:4px 8px;align-items:center;font-size:13px;background:#f1efe9;box-shadow:inset 3px 0 0 #222;padding:4px 6px;margin:0 -6px"><span style="font:10px ui-monospace,monospace;opacity:.6">Glean</span><span>Jira PLAT-231 Ledger recon fails</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 81%,#fff 81%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">Jira key in topic · assignee Marcus · .81</span></div>
+<div style="display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:4px 8px;align-items:center;font-size:13px;padding:0 0"><span style="font:10px ui-monospace,monospace;opacity:.6">local</span><span>Slack · #billing-migration thread</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 79%,#fff 79%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">in topic · Glean copy merged</span></div>
+<div style="display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:4px 8px;align-items:center;font-size:13px"><span style="font:10px ui-monospace,monospace;opacity:.6">Glean</span><span>Doc · Cutover plan v3 <span style="font:10px ui-monospace,monospace;border:1px solid #222;border-radius:3px;padding:0 3px">pin</span></span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 77%,#fff 77%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">pinned Sep 20 · 3 shared people</span></div>
+<div style="display:grid;grid-template-columns:38px minmax(0,1fr) 52px;gap:4px 8px;align-items:center;font-size:13px"><span style="font:10px ui-monospace,monospace;opacity:.6">local</span><span>Note · 1:1 Priya, Sep 29</span><span style="display:block;height:7px;border:1px solid #222;background:linear-gradient(90deg,#222 0 70%,#fff 70%)"></span><span></span><span style="font:11px ui-monospace,monospace;opacity:.65;grid-column:2/4">in topic</span></div>
+<div style="font-size:13px;opacity:.55">+ 5 more</div>
+<div style="border-top:1.5px dashed #999;padding-top:6px;font-size:12px;opacity:.65">Threshold <span style="font:11px ui-monospace,monospace">.62</span> · <span style="font:11px ui-monospace,monospace">p</span> pin · <span style="font:11px ui-monospace,monospace">x</span> reject for this topic · <span style="font:11px ui-monospace,monospace">o</span> open</div>
+</div></div></div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">⌘K SEARCH</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="1d" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a><span>Glean as its own section under the local results. Duplicates are merged into the local rows, and a footer counts the hidden results by reason.</span></div>
+<div class="dv-card" style="width:640px;padding:0">
+<div style="display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid #222"><span style="font-size:16px">⌕</span><span style="font-size:16px">cutover plan</span><span style="flex:1"></span><span style="border:1.5px solid #222;border-radius:10px;padding:0 8px;font-size:12px">in: Q4 billing migration ▾</span></div>
+<div style="padding:6px 0 4px">
+<div style="padding:4px 14px 2px;font-size:11px;opacity:.55;letter-spacing:.06em">LOCAL · 4</div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 14px;font-size:14px;background:#f1efe9;box-shadow:inset 3px 0 0 #222"><span style="font:11px ui-monospace,monospace;opacity:.6">Slack</span><span>#billing-migration · “cutover plan v3 is up…” <span style="font:10px ui-monospace,monospace;border:1px solid #999;border-radius:3px;padding:0 3px">+Glean</span></span><span style="font:11px ui-monospace,monospace;opacity:.5">2d</span></div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 14px;font-size:14px"><span style="font:11px ui-monospace,monospace;opacity:.6">Note</span><span>1:1 Priya · cutover date</span><span style="font:11px ui-monospace,monospace;opacity:.5">3d</span></div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 14px;font-size:14px"><span style="font:11px ui-monospace,monospace;opacity:.6">Jira</span><span>PLAT-212 Billing migration</span><span style="font:11px ui-monospace,monospace;opacity:.5">5d</span></div>
+<div style="padding:8px 14px 2px;font-size:11px;opacity:.55;letter-spacing:.06em">GLEAN · 3</div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:0 8px;align-items:baseline;padding:3px 14px;font-size:14px"><span style="font:11px ui-monospace,monospace;opacity:.6">Doc</span><span>Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.5">4d</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.6">owner Dana · 3 shared people</span></div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:0 8px;align-items:baseline;padding:3px 14px;font-size:14px"><span style="font:11px ui-monospace,monospace;opacity:.6">Conf.</span><span>Billing svc · dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.5">3w</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.6">mentions billing-svc · Marcus edited</span></div>
+<div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:0 8px;align-items:baseline;padding:3px 14px;font-size:14px"><span style="font:11px ui-monospace,monospace;opacity:.6">Jira</span><span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.5">1w</span><span></span><span style="font:11px ui-monospace,monospace;opacity:.6">links PLAT-212</span></div>
+</div>
+<div style="display:flex;gap:10px;align-items:baseline;padding:7px 14px;border-top:1.5px dashed #999;font-size:12px"><span style="color:#d2572b">11 hidden</span><span style="font:11px ui-monospace,monospace;opacity:.65">8 shared words only · 3 outside 180d</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.65">⇧↵ show · ⌘↵ link to topic · x reject</span></div>
+</div></div>
+
+<div class="dv-opt" id="1e" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a><span>One ranked list with Glean and local results mixed. Every row says why it's there; dropped rows sit greyed under a line. The anchor chip picks what the local check compares against (a topic, or just you and recency).</span></div>
+<div class="dv-card" style="width:640px;padding:0">
+<div style="display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:2px solid #222"><span style="font-size:16px">⌕</span><span style="font-size:16px">cutover plan</span><span style="flex:1"></span><span style="font-size:12px;opacity:.6">anchor</span><span style="border:2px solid #222;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700">Q4 billing migration</span><span style="border:1.5px solid #999;border-radius:10px;padding:0 8px;font-size:12px">none</span></div>
+<div style="display:grid;grid-template-columns:44px minmax(0,1fr) 190px;gap:2px 8px;padding:6px 14px;font-size:14px;align-items:baseline">
+<span style="font:10px ui-monospace,monospace;opacity:.5">FROM</span><span style="font:10px ui-monospace,monospace;opacity:.5">RESULT</span><span style="font:10px ui-monospace,monospace;opacity:.5">WHY</span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">Glean</span><span>Doc · Cutover plan v3</span><span style="font:11px ui-monospace,monospace;opacity:.7">pinned · 3 people</span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">local</span><span>Slack · “cutover plan v3 is up…”</span><span style="font:11px ui-monospace,monospace;opacity:.7">in topic · merged</span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">Glean</span><span>FIN-88 Sign-off: dual-run window</span><span style="font:11px ui-monospace,monospace;opacity:.7">links PLAT-212</span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">local</span><span>Note · 1:1 Priya</span><span style="font:11px ui-monospace,monospace;opacity:.7">in topic</span>
+<span style="font:11px ui-monospace,monospace;opacity:.6">Glean</span><span>Billing svc · dual-run checklist</span><span style="font:11px ui-monospace,monospace;opacity:.7">billing-svc · Marcus</span>
+<span style="grid-column:1/4;border-top:1.5px dashed #999;margin:6px 0 2px;font-size:11px;color:#d2572b;letter-spacing:.06em;padding-top:4px">DROPPED BY LOCAL CHECK</span>
+<span style="font:11px ui-monospace,monospace;opacity:.4">Glean</span><span style="opacity:.45">HR data migration · cutover plan</span><span style="font:11px ui-monospace,monospace;opacity:.55">shared words only</span>
+<span style="font:11px ui-monospace,monospace;opacity:.4">Glean</span><span style="opacity:.45">Payroll cutover plan (2025)</span><span style="font:11px ui-monospace,monospace;opacity:.55">14 mo old · 0 people</span>
+<span style="font:11px ui-monospace,monospace;opacity:.4">Glean</span><span style="opacity:.45">Data warehouse cutover</span><span style="font:11px ui-monospace,monospace;opacity:.55">rejected Sep 12</span>
+</div>
+<div style="padding:7px 14px;border-top:1.5px solid #222;font:11px ui-monospace,monospace;opacity:.65">↵ open · ⌘↵ link to topic · p pin · x reject · k keep a dropped row</div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">PEOPLE</div>
+<div class="dv-opts" style="margin-bottom:40px">
+
+<div class="dv-opt" id="1f" style="width:560px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a><span>On the person. Glean's directory values sit next to the note's frontmatter, one row per field. Accept writes the field to the People note through the outbox; conflicts show both values.</span></div>
+<div class="dv-card" style="width:560px">
+<div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:18px">Priya Raman</b><span style="font:11px ui-monospace,monospace;opacity:.6">People/Priya Raman.md</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6">Glean directory · 3d</span></div>
+<div style="padding:10px 14px;display:grid;grid-template-columns:80px minmax(0,1fr) minmax(0,1fr) 90px;gap:6px 10px;align-items:baseline;font-size:14px">
+<span style="font:10px ui-monospace,monospace;opacity:.5">FIELD</span><span style="font:10px ui-monospace,monospace;opacity:.5">IN NOTE</span><span style="font:10px ui-monospace,monospace;opacity:.5">GLEAN</span><span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.7">role</span><span style="opacity:.4">–</span><span>Staff Eng Manager</span><span style="display:flex;gap:4px"><span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">Add</span><span style="font:11px ui-monospace,monospace;opacity:.6">a</span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.7">team</span><span>Payments</span><span style="color:#d2572b">Billing Platform</span><span style="display:flex;gap:4px"><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">Replace</span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.7">manager</span><span style="opacity:.4">–</span><span><u>Marcus Tran</u> <span style="font:10px ui-monospace,monospace;opacity:.6">in People</span></span><span style="display:flex;gap:4px"><span style="border:2px solid #222;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700">Link</span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.7">location</span><span>Denver</span><span style="opacity:.5">Denver · same</span><span></span>
+<span style="font:11px ui-monospace,monospace;opacity:.7">reports</span><span style="opacity:.4">–</span><span>4 people · 1 in People</span><span style="display:flex;gap:4px"><span style="border:1.5px solid #999;border-radius:4px;padding:0 6px;font-size:12px">Show</span></span>
+</div>
+<div style="padding:8px 14px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Writes <span style="font:11px ui-monospace,monospace">obsidian.frontmatter</span> through the outbox. Ignored values stay ignored until Glean's value changes. Matched by work email.</div>
+</div></div>
+
+<div class="dv-opt" id="1g" style="width:640px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a><span>A review queue instead. All directory changes in one list, grouped by field so a whole column can be accepted at once. Opened from a dot on People in Settings or from the sync chip.</span></div>
+<div class="dv-card" style="width:640px">
+<div style="display:flex;gap:10px;align-items:baseline;padding:9px 14px;border-bottom:2px solid #222"><b style="font-size:16px">People · from Glean</b><span style="font-size:13px;opacity:.6">22 changes · 14 people</span><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6">⇧A accept group</span></div>
+<div style="padding:8px 14px;display:grid;grid-template-columns:130px minmax(0,1fr) minmax(0,1fr) 60px;gap:4px 10px;align-items:baseline;font-size:14px">
+<span style="grid-column:1/5;font-size:11px;opacity:.55;letter-spacing:.06em">MANAGER · 9 new</span>
+<span>Priya Raman</span><span style="opacity:.4">–</span><span>Marcus Tran</span><span style="font:11px ui-monospace,monospace;opacity:.6">a · i</span>
+<span>Dana Kowal</span><span style="opacity:.4">–</span><span>Marcus Tran</span><span style="font:11px ui-monospace,monospace;opacity:.6">a · i</span>
+<span style="opacity:.55">+ 7 more</span><span></span><span></span><span></span>
+<span style="grid-column:1/5;font-size:11px;opacity:.55;letter-spacing:.06em;margin-top:6px">TEAM · 3 conflicts</span>
+<span>Priya Raman</span><span>Payments</span><span style="color:#d2572b">Billing Platform</span><span style="font:11px ui-monospace,monospace;opacity:.6">a · i</span>
+<span>Leo Park</span><span>Infra</span><span style="color:#d2572b">Platform Infra</span><span style="font:11px ui-monospace,monospace;opacity:.6">a · i</span>
+<span style="opacity:.55">+ 1 more</span><span></span><span></span><span></span>
+<span style="grid-column:1/5;font-size:11px;opacity:.55;letter-spacing:.06em;margin-top:6px">ROLE · 10 new</span>
+<span style="opacity:.55">folded ▸</span><span></span><span></span><span></span>
+</div>
+<div style="padding:8px 14px;border-top:1.5px dashed #999;font-size:12px;opacity:.65">Only people who already have a People note. Glean never creates notes. New people still come from 17a.</div>
+</div></div>
+</div>
+
+<div style="font:600 12px system-ui,sans-serif;letter-spacing:.06em;color:rgba(0,0,0,.5);margin:0 0 12px">SETTINGS · LATER</div>
+<div class="dv-opts">
+<div class="dv-opt" id="1h" style="width:1000px;max-width:100%"><div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a><span>Glean as a source under Sources (27a pattern). The groups cover the connection, the role per surface, which direct connectors it replaces, what's sent, retrieval, the local check, feedback and limits. Key paths are shown on each row.</span></div>
+<div class="dv-card" style="width:1000px">
+<div style="display:flex;gap:10px;align-items:baseline;padding:9px 16px;border-bottom:2px solid #222"><b style="font-size:16px">Settings</b><span style="flex:1"></span><span style="font:11px ui-monospace,monospace;opacity:.6">esc close · ⌘⇧, settings.json</span></div>
+<div style="display:grid;grid-template-columns:200px minmax(0,1fr)">
+<div style="border-right:1.5px dashed #999;padding:8px 0;font-size:14px;display:flex;flex-direction:column;gap:2px">
+<div style="margin:0 10px 6px;border:1.5px solid #999;border-radius:4px;padding:1px 7px;font-size:13px;opacity:.6">/ find</div>
+<span style="padding:1px 12px;opacity:.6">1 General</span><span style="padding:1px 12px;opacity:.6">2 Categories</span><span style="padding:1px 12px;opacity:.6">3 People <span style="color:#d2572b">●</span></span><span style="padding:1px 12px"><b>4 Sources</b></span>
+<span style="padding:1px 12px 1px 28px;opacity:.6">Slack</span><span style="padding:1px 12px 1px 28px;opacity:.6">Jira</span><span style="padding:1px 12px 1px 28px;opacity:.6">Obsidian</span>
+<span style="padding:1px 12px 1px 28px;background:#f1efe9;box-shadow:inset 3px 0 0 #222"><b>Glean</b></span><span style="padding:1px 12px 1px 28px;opacity:.45">+ Add source</span>
+<span style="padding:1px 12px;opacity:.6">5 AI</span><span style="padding:1px 12px;opacity:.6">6 Developer</span>
+</div>
+<div style="padding:12px 18px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;gap:10px;align-items:baseline"><b style="font-size:20px">Glean</b><span style="font:11px ui-monospace,monospace;color:#2f7f3a">● connected · work</span><span style="flex:1"></span><span style="font-size:13px">Enabled</span><span style="display:inline-block;width:28px;height:14px;border:1.5px solid #222;border-radius:8px;background:#222"></span></div>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">CONNECTION</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Instance</span><span style="font:11px ui-monospace,monospace">acme-be.glean.com</span>
+<span>Auth</span><span style="font:11px ui-monospace,monospace">OAuth · you@acme</span>
+<span>Timeout · fallback</span><span style="font:11px ui-monospace,monospace">8s · local only</span>
+<span style="grid-column:1/3;font:10px ui-monospace,monospace;opacity:.45">glean.instance · glean.auth · glean.timeout_s</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">ROLE PER SURFACE</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Ask pane</span><span style="font:11px ui-monospace,monospace"><b>search → AI model</b> | Glean chat</span>
+<span>⌘K search</span><span style="font:11px ui-monospace,monospace"><b>separate section</b> | mixed</span>
+<span>People fields</span><span style="font:11px ui-monospace,monospace"><b>review first</b> | off</span>
+<span style="grid-column:1/3;font:10px ui-monospace,monospace;opacity:.45">glean.surfaces.{ask,search,people}</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">REPLACES DIRECT SOURCES</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Confluence, Google Drive</span><span style="font:11px ui-monospace,monospace">via Glean</span>
+<span>Jira</span><span style="font:11px ui-monospace,monospace">direct · Glean dedupes</span>
+<span>Slack</span><span style="font:11px ui-monospace,monospace">direct · excluded in Glean</span>
+<span style="grid-column:1/3;font-size:12px;opacity:.6">Data that only Glean has is search-only: it isn't polled, isn't in Incoming, and doesn't go into the local index.</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">SENT TO GLEAN</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Topic title, people, Jira keys, channels</span><span>☑</span>
+<span>Recent signal titles</span><span style="font:11px ui-monospace,monospace">☑ last 10</span>
+<span>Signal bodies</span><span style="font:11px ui-monospace,monospace">☑ selected only</span>
+<span>Notes text</span><span style="font:11px ui-monospace,monospace">☑ current topic</span>
+<span style="grid-column:1/3;font:10px ui-monospace,monospace;opacity:.45">glean.context.*</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">RETRIEVAL</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Datasources</span><span style="font:11px ui-monospace,monospace">all but slack, hr</span>
+<span>Window</span><span style="font:11px ui-monospace,monospace">− 180d +</span>
+<span>Queries per ask · results each</span><span style="font:11px ui-monospace,monospace">3 · 30</span>
+<span>Cache</span><span style="font:11px ui-monospace,monospace">15m</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">LOCAL CHECK</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Require an entity match</span><span>☑</span>
+<span>Min. similarity to topic</span><span style="font:11px ui-monospace,monospace">− .62 +</span>
+<span>Recency half-life</span><span style="font:11px ui-monospace,monospace">60d</span>
+<span>Merge same-URL with local</span><span>☑</span>
+<span>Show dropped</span><span style="font:11px ui-monospace,monospace">folded</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">FEEDBACK</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Save pins / rejects per topic</span><span>☑</span>
+<span>Send them as query filters</span><span>☑</span>
+<span>Saved</span><span style="font:11px ui-monospace,monospace">41 · 3 topics · clear…</span></div></div>
+
+<div><div style="font-size:11px;opacity:.55;letter-spacing:.06em;margin-bottom:3px">LIMITS</div><div style="border:1.5px solid #222;border-radius:6px;padding:6px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px;align-items:baseline">
+<span>Calls per day</span><span style="font:11px ui-monospace,monospace">400 · 37 used</span>
+<span>Ask before a chat over</span><span style="font:11px ui-monospace,monospace">20k tokens</span></div></div>
+
+</div></div></div></div></div>
+</div>
+<p class="dv-next">Try next: “<a class="dv-oid" href="#1b">1b</a> with <a class="dv-oid" href="#1c">1c</a>'s rail” · “what Ask looks like when Glean is down” · “the Dropped tab in <a class="dv-oid" href="#1c">1c</a>” · “hi-fi in Gruvbox”</p>
+</section>
+</x-dc>
+</body>
+</html>
