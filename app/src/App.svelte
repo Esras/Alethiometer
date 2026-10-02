@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { call } from './lib/api';
   import { loadInfo, setTab, TABS, ui } from './lib/app.svelte';
   import { dispatchKey, isTyping, mod } from './lib/keys.svelte';
   import AssistantPane from './shell/AssistantPane.svelte';
   import DayStrip from './shell/DayStrip.svelte';
   import SearchPalette from './shell/SearchPalette.svelte';
+  import Settings from './shell/settings/Settings.svelte';
   import TabBar from './shell/TabBar.svelte';
   import TitleBar from './shell/TitleBar.svelte';
   import Incoming from './views/Incoming.svelte';
@@ -22,6 +24,18 @@
     .catch((e) => (ui.error = String(e.message ?? e)));
 
   function onKey(e: KeyboardEvent) {
+    // ⌘, opens Settings (a modal, not a tab); ⌘⇧, opens settings.json itself.
+    if (mod(e) && e.code === 'Comma' && !ui.settingsOpen) {
+      if (e.shiftKey) call('settings.open_file').catch((x) => (ui.error = String(x.message ?? x)));
+      else ui.settingsOpen = true;
+      e.preventDefault();
+      return;
+    }
+    // While Settings is open it owns the keyboard.
+    if (ui.settingsOpen) {
+      dispatchKey(e);
+      return;
+    }
     if (mod(e) && e.key === 'k' && ui.tab !== 'reflect') {
       ui.searchOpen = true;
       e.preventDefault();
@@ -66,6 +80,7 @@
     </main>
   {/if}
   {#if ui.searchOpen}<SearchPalette />{/if}
+  {#if ui.settingsOpen && ready}<Settings />{/if}
   {#if ready}<Nudge />{/if}
 </div>
 

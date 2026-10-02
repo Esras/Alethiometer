@@ -6,46 +6,50 @@
   // the split review for it, u undoes a move, / goes back to the query, Esc
   // goes back to where you were. Each result shows its source, a snippet with
   // the match marked, its topic ("no topic" when it has none) and its date.
-  // Source chips filter the list.
-  import { call, openExternal } from '../lib/api';
+  // Glean results join local ones (⌥↵ asks, or ⌘K had already asked); the
+  // facet bar groups them by route (hover highlights, click filters, ⌥click
+  // excludes). A Glean result opens in its own app; it isn't stored, so it
+  // can't be moved or split.
+  import { openExternal } from '../lib/api';
   import { catColor, closeSearch, openTopic, refresh, ui } from '../lib/app.svelte';
+  import { hydrated, inLens, parts, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { moveSignal, undoMove, type Move } from '../lib/reclassify';
-  import { sourceLabel } from '../lib/sources';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
+  import FacetBar from '../lib/ui/FacetBar.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import SignalDetail from './shared/SignalDetail.svelte';
 
-  interface Result {
-    id: number;
-    title: string;
-    source: string;
-    when: string;
-    snippet: string;
-    topic: { id: number; name: string; category: string; state: 'confirmed' | 'suggested' } | null;
-    msgs: number;
-  }
+  const isMac = navigator.platform.toLowerCase().includes('mac');
 
-  let results = $state<Result[] | null>(null);
-  let filter = $state<string | null>(null);
-  let sel = $state<number | null>(null);
-  let expanded = $state<number | null>(null);
+  let res = $state<Hydrated | null>(null);
+  let hover = $state<Lens | null>(null);
+  let filter = $state<Lens | null>(null);
+  let exclude = $state<Lens | null>(null);
+  let sel = $state<string | null>(null);
+  let expanded = $state<string | null>(null);
   let picking = $state(false);
   let reviewing = $state<number | null>(null);
   let moves = $state<Move[]>([]);
   let err = $state<string | null>(null);
+  let asking = $state(false);
 
   $effect(() => {
     const q = ui.searchQuery;
+    const glean = ui.searchGlean;
     void ui.rev;
-    call<{ q: string; results: Result[] }>('search.results', { q }).then((r) => {
-      if (r.q !== ui.searchQuery) return;
-      results = r.results;
-      if (sel === null || !r.results.some((x) => x.id === sel)) sel = r.results[0]?.id ?? null;
-    });
+    asking = glean;
+    hydrated(q, null, glean)
+      .then((r) => {
+        if (r.q !== ui.searchQuery) return;
+        res = r;
+        if (sel === null || !r.rows.some((x) => x.key === sel)) sel = r.rows[0]?.key ?? null;
+      })
+      .catch((e) => (err = String(e.message ?? e)))
+      .finally(() => (asking = false));
   });
 
   // A new query starts fresh.
@@ -53,58 +57,39 @@
   $effect(() => {
     if (ui.searchQuery === lastQuery) return;
     lastQuery = ui.searchQuery;
-    filter = null;
+    filter = exclude = null;
     sel = null;
     expanded = null;
     moves = [];
   });
 
-  const chips = $derived.by(() => {
-    const out: { source: string; count: number }[] = [];
-    for (const r of results ?? []) {
-      const c = out.find((x) => x.source === r.source);
-      if (c) c.count++;
-      else out.push({ source: r.source, count: 1 });
-    }
-    return out;
-  });
-  const shown = $derived((results ?? []).filter((r) => filter === null || r.source === filter));
-  const current = $derived(shown.find((r) => r.id === sel) ?? null);
+  const shown = $derived((res?.rows ?? []).filter((r) => inLens(r, filter) && !(exclude && inLens(r, exclude))));
+  const current = $derived(shown.find((r) => r.key === sel) ?? null);
 
   $effect(() => {
-    if (sel !== null) document.querySelector(`[data-result="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (sel !== null) document.querySelector(`[data-result="${CSS.escape(sel)}"]`)?.scrollIntoView({ block: 'nearest' });
   });
-
-  /** "a \u0001b\u0002 c" → text and marked parts. */
-  function parts(snippet: string): { text: string; hit: boolean }[] {
-    return snippet
-      .split(/(\u0001[^\u0002]*\u0002)/)
-      .filter(Boolean)
-      .map((p) => (p.startsWith('\u0001') ? { text: p.slice(1, -1), hit: true } : { text: p, hit: false }));
-  }
 
   function step(d: number) {
     if (!shown.length) return;
-    const i = shown.findIndex((r) => r.id === sel);
-    sel = shown[Math.max(0, Math.min(shown.length - 1, i < 0 ? 0 : i + d))].id;
+    const i = shown.findIndex((r) => r.key === sel);
+    sel = shown[Math.max(0, Math.min(shown.length - 1, i < 0 ? 0 : i + d))].key;
     if (expanded !== sel) expanded = null;
   }
 
-  function open(r: Result | null) {
+  function open(r: HRow | null) {
     if (!r) return;
     if (r.topic) return openTopic(r.topic.id);
-    call<{ url: string | null }>('incoming.detail', { item_id: r.id }).then((d) => {
-      if (d.url) openExternal(d.url);
-    });
+    if (r.url) openExternal(r.url);
   }
 
   async function moveTo(to: number, name: string) {
     picking = false;
     const r = current;
-    if (!r) return;
+    if (r?.item_id == null) return;
     try {
-      const m = await moveSignal(r.id, r.topic?.id ?? null, to, name);
-      moves = [...moves.filter((x) => x.itemId !== r.id), m];
+      const m = await moveSignal(r.item_id, r.topic?.id ?? null, to, name);
+      moves = [...moves.filter((x) => x.itemId !== r.item_id), m];
       err = null;
       refresh();
     } catch (e) {
@@ -113,12 +98,12 @@
   }
 
   async function undo() {
-    const m = moves.find((x) => x.itemId === sel) ?? moves[moves.length - 1];
+    const m = moves.find((x) => `item:${x.itemId}` === sel) ?? moves[moves.length - 1];
     if (!m) return;
     try {
       await undoMove(m);
       moves = moves.filter((x) => x !== m);
-      sel = m.itemId;
+      sel = `item:${m.itemId}`;
       err = null;
       refresh();
     } catch (e) {
@@ -131,14 +116,17 @@
     if (changed) refresh();
   }
 
+  const local = $derived(current?.item_id != null);
+
   useKeys((e) => {
     if (picking || reviewing !== null || ui.searchOpen) return;
+    if (e.key === 'Enter' && e.altKey) return (ui.searchGlean = true), true;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
     if (plain(e, 'Enter')) return open(current), true;
-    if (plain(e, ' ')) return sel !== null && (expanded = expanded === sel ? null : sel), true;
-    if (plain(e, 't')) return (picking = !!current), true;
-    if (plain(e, 's')) return current && current.msgs > 1 && (reviewing = current.id), true;
+    if (plain(e, ' ')) return sel !== null && local && (expanded = expanded === sel ? null : sel), true;
+    if (plain(e, 't')) return (picking = local), true;
+    if (plain(e, 's')) return current?.item_id != null && current.msgs > 1 && (reviewing = current.item_id), true;
     if (plain(e, 'u')) return undo(), true;
     if (plain(e, 'Escape')) return expanded !== null ? (expanded = null) : closeSearch(), true;
   });
@@ -148,25 +136,31 @@
   <div class="panel">
     <div class="head">
       <span class="count">
-        {#if results}{shown.length} {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
+        {#if res}{shown.length} {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
       </span>
-      <span class="chips">
-        <button class="chip" class:on={filter === null} onclick={() => (filter = null)}>All <span class="n">{results?.length ?? 0}</span></button>
-        {#each chips as c (c.source)}
-          <button class="chip" class:on={filter === c.source} onclick={() => (filter = filter === c.source ? null : c.source)}>
-            {sourceLabel(c.source)} <span class="n">{c.count}</span>
-          </button>
-        {/each}
-      </span>
+      {#if asking}<span class="asking">asking Glean…</span>{/if}
     </div>
+    {#if res}
+      <div class="facets"><FacetBar facets={res.facets} total={shown.length} bind:hover bind:filter bind:exclude /></div>
+    {/if}
     <div class="list scroll">
-      {#each shown as r (r.id)}
-        {@const move = moves.find((m) => m.itemId === r.id)}
-        {#if reviewing === r.id}
-          <div class="review"><SplitReview itemId={r.id} filed onclose={endReview} /></div>
+      {#each shown as r (r.key)}
+        {@const move = moves.find((m) => r.item_id === m.itemId)}
+        {@const lit = hover !== null && inLens(r, hover)}
+        {#if r.item_id !== null && reviewing === r.item_id}
+          <div class="review"><SplitReview itemId={r.item_id} filed onclose={endReview} /></div>
         {:else}
-          <div class="row" class:sel={sel === r.id} data-result={r.id} onclick={() => (sel = r.id)} ondblclick={() => open(r)} role="presentation">
-            <span class="icon"><AppIcon source={r.source} size={16} /></span>
+          <div
+            class="row"
+            class:sel={sel === r.key}
+            class:dim={hover !== null && !lit}
+            class:lit
+            style:--rc={hover ? ROUTE_COLOR[hover.route] : 'transparent'}
+            data-result={r.key}
+            onclick={() => (sel = r.key)}
+            ondblclick={() => open(r)}
+            role="presentation">
+            <span class="icon" title="{r.system}{r.routes.length > 1 ? ' · local and Glean' : r.routes[0] === 'glean' ? ' via Glean' : ''}"><AppIcon source={r.icon} size={16} /></span>
             <div class="main">
               <span class="title">{r.title}</span>
               {#if move}
@@ -176,14 +170,16 @@
                   {#each parts(r.snippet) as p, i (i)}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}
                 </span>
               {/if}
-              {#if expanded === r.id}
+              {#if expanded === r.key && r.item_id !== null}
                 <div onclick={(ev) => ev.stopPropagation()} role="presentation">
-                  <SignalDetail itemId={r.id} hints={r.msgs > 1 ? 't move · s split · esc collapse' : 't move · esc collapse'} />
+                  <SignalDetail itemId={r.item_id} hints={r.msgs > 1 ? 't move · s split · esc collapse' : 't move · esc collapse'} />
                 </div>
               {/if}
             </div>
             {#if r.topic}
               <span class="topic"><span class="bar" style:background={catColor(r.topic.category)}></span><span class="ellipsis">{r.topic.name}</span></span>
+            {:else if r.item_id === null}
+              <span class="topic none"><span class="ellipsis">{r.system}{r.container ? ` › ${r.container}` : ''}</span></span>
             {:else}
               <span class="topic none"><span class="bar"></span>no topic</span>
             {/if}
@@ -191,7 +187,7 @@
           </div>
         {/if}
       {:else}
-        {#if results}<div class="empty">Nothing matches “{ui.searchQuery}”.</div>{/if}
+        {#if res}<div class="empty">Nothing matches “{ui.searchQuery}”.</div>{/if}
       {/each}
     </div>
     {#if picking && current}
@@ -201,8 +197,10 @@
     {/if}
     <DockHost left={18} />
     <div class="hints">
-      <span>j/k move</span><span>↵ open</span><span>space expand</span><span class="key">t move to topic</span>
-      {#if current && current.msgs > 1}<span class="key">s split</span>{/if}
+      <span>j/k move</span><span>↵ open</span>
+      {#if local}<span>space expand</span><span class="key">t move to topic</span>{/if}
+      {#if current && local && current.msgs > 1}<span class="key">s split</span>{/if}
+      {#if !ui.searchGlean}<span>{isMac ? '⌥↵' : 'Alt+↵'} Glean</span>{/if}
       {#if moves.length}<span>u undo</span>{/if}<span>/ edit search</span><span>esc back</span>
       {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
     </div>
@@ -237,36 +235,26 @@
     padding: 12px 18px;
     border-bottom: 1px solid var(--bg-head);
   }
+  .facets {
+    border-bottom: 1px solid var(--bg-head);
+    padding: 0 4px;
+  }
+  .asking {
+    color: var(--tx-label);
+    font-size: 0.9231rem;
+  }
+  .row.dim {
+    opacity: 0.4;
+  }
+  .row.lit {
+    box-shadow: inset 2px 0 0 var(--rc);
+  }
   .count {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-body);
   }
   .q {
     color: var(--tx-title);
-  }
-  .chips {
-    display: flex;
-    gap: 6px;
-    margin-left: auto;
-  }
-  .chip {
-    font-size: 11.5px;
-    padding: 3px 9px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    color: var(--tx-muted);
-    white-space: nowrap;
-  }
-  .chip .n {
-    color: var(--tx-label);
-  }
-  .chip.on {
-    background: var(--aqua);
-    border-color: var(--aqua);
-    color: var(--bg-app);
-  }
-  .chip.on .n {
-    color: inherit;
   }
   .list {
     flex: 1;
@@ -296,14 +284,14 @@
     gap: 3px;
   }
   .title {
-    font-size: 13.5px;
+    font-size: 1.0385rem;
   }
   .sel .title {
     color: var(--tx-title);
     font-weight: 500;
   }
   .snippet {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
     line-height: 1.5;
   }
@@ -314,7 +302,7 @@
     padding: 0 1px;
   }
   .quiet {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .u {
@@ -324,7 +312,7 @@
     display: flex;
     gap: 7px;
     align-items: center;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-2);
     padding-top: 2px;
     min-width: 0;
@@ -342,7 +330,7 @@
     background: var(--border-strong);
   }
   .when {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
     padding-top: 2px;
     text-align: right;
@@ -362,7 +350,7 @@
     gap: 16px;
     padding: 8px 16px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
     overflow: hidden;

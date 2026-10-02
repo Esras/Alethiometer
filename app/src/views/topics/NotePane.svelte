@@ -249,7 +249,7 @@
     align-items: center;
     padding: 7px 12px;
     background: var(--bg-head);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-2);
     white-space: nowrap;
   }
@@ -260,7 +260,7 @@
   .state {
     margin-left: auto;
     min-width: 0;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted-2);
     display: flex;
     gap: 4px;
@@ -274,7 +274,7 @@
   }
   .act {
     color: inherit;
-    font-size: 11px;
+    font-size: 0.8462rem;
     text-decoration: underline;
     text-decoration-color: rgba(254, 128, 25, 0.35);
     text-underline-offset: 2px;
@@ -291,7 +291,7 @@
     margin-left: 10px;
   }
   .edit {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted-2);
   }
   .edit:hover {
@@ -301,7 +301,7 @@
     flex: 1;
     min-height: 0;
     padding: 12px 16px 16px;
-    font-size: 13px;
+    font-size: calc(var(--fs-read) * 13 / 14);
     line-height: 1.75;
     color: var(--tx-2);
   }

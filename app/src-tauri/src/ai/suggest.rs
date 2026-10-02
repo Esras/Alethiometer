@@ -279,7 +279,7 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
     Ok(out)
 }
 
-fn reply_json(reply: &str) -> Option<Value> {
+pub(crate) fn reply_json(reply: &str) -> Option<Value> {
     let start = reply.find('{')?;
     let end = reply.rfind('}')?;
     serde_json::from_str(reply.get(start..=end)?).ok()
@@ -517,7 +517,7 @@ pub fn last_run(conn: &Connection) -> Result<Value> {
 
 pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     // Fail closed before reading anything: not configured means do nothing.
-    if let Err(e) = super::check(&app.settings.ai, Tier::Small) {
+    if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
         return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), considered: 0, suggested: vec![], split: vec![] });
     }
     let pending = prepare(&app.db(), &app.vault, limit.clamp(1, 50))?;
@@ -588,8 +588,8 @@ mod tests {
     use crate::sync::http::FakeHttp;
     use std::time::SystemTime;
 
-    fn configured(app: &mut App) {
-        app.settings.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into();
+    fn configured(app: &App) {
+        app.update_settings(|s| s.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into());
     }
 
     fn reply_for(topic: &str) -> String {
@@ -617,8 +617,8 @@ mod tests {
 
     #[test]
     fn missing_creds_fail_without_writing() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let http = FakeHttp::default();
         let before: i64 = app.db().query_row("SELECT count(*) FROM topic_links", [], |r| r.get(0)).unwrap();
         let out = suggest_topics(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, 10).unwrap();
@@ -631,8 +631,8 @@ mod tests {
 
     #[test]
     fn asks_the_model_even_with_zero_existing_topics() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         app.db().execute("DELETE FROM topic_links", []).unwrap();
         app.db().execute("DELETE FROM topic_repos", []).unwrap();
         app.db().execute("DELETE FROM topic_people", []).unwrap();
@@ -651,8 +651,8 @@ mod tests {
 
     #[test]
     fn a_new_topic_proposal_creates_the_topic_and_links_the_item() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let item = plant_dm(&app, &["We should renegotiate the S3 archiver contract before renewal"]);
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(r#"{"topic_id": null, "new_topic": "S3 archiver contract renewal", "confidence": 0.8, "reason": "new recurring subject"}"#));
@@ -670,8 +670,8 @@ mod tests {
     #[test]
     fn a_new_topic_takes_the_suggested_category_if_it_exists() {
         let category_of = |text: &str, cat: &str| {
-            let (mut app, _dir) = app();
-            configured(&mut app);
+            let (app, _dir) = app();
+            configured(&app);
             let app = &app;
             let item = plant_dm(app, &[text]);
             let http = FakeHttp::default();
@@ -690,8 +690,8 @@ mod tests {
 
     #[test]
     fn a_new_topic_proposal_reuses_an_existing_topic_of_the_same_name() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let existing = topic_id(&app, "Datadog renewal");
         let item = plant_dm(&app, &["Renewal terms are in from the vendor"]);
         let http = FakeHttp::default();
@@ -705,8 +705,8 @@ mod tests {
 
     #[test]
     fn writes_only_suggested_and_respects_wrong() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let dd = topic_id(&app, "Datadog renewal");
         let acme = topic_id(&app, "Acme outage");
         // Newest unsorted item, previously marked wrong for Acme.
@@ -752,8 +752,8 @@ mod tests {
 
     #[test]
     fn model_picking_a_wrong_topic_is_ignored() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let acme = topic_id(&app, "Acme outage");
         let item = {
             let conn = app.db();
@@ -776,8 +776,8 @@ mod tests {
 
     #[test]
     fn personal_items_are_never_sent() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let dd = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, dd);
         // Make the personal item look unsorted too.
@@ -856,8 +856,8 @@ mod tests {
 
     #[test]
     fn context_messages_reach_the_prompt_with_the_topic_they_were_filed_under() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let q4 = topic_id(&app, "Q4 headcount");
         let item = plant_dm(&app, &["Can you send the numbers?", "thanks!"]);
         {
@@ -884,8 +884,8 @@ mod tests {
 
     #[test]
     fn splits_a_mixed_dm_into_suggested_parts() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let v1 = topic_id(&app, "v1 ingest deprecation");
         let q4 = topic_id(&app, "Q4 headcount");
         let acme = topic_id(&app, "Acme outage");
@@ -935,8 +935,8 @@ mod tests {
 
     #[test]
     fn confetti_is_folded_back_and_the_item_is_suggested_whole() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let v1 = topic_id(&app, "v1 ingest deprecation");
         let q4 = topic_id(&app, "Q4 headcount");
         let item = plant_dm(&app, &["Globex cutover slips", "OK to push PLAT-1170?", "also Q4?"]);
@@ -957,8 +957,8 @@ mod tests {
 
     #[test]
     fn split_children_are_not_split_again() {
-        let (mut app, _dir) = app();
-        configured(&mut app);
+        let (app, _dir) = app();
+        configured(&app);
         let item = plant_dm(&app, &["one thing", "another thing"]);
         let root: i64 = app.db().query_row("SELECT min(id) FROM items", [], |r| r.get(0)).unwrap();
         app.db().execute("UPDATE items SET parent_id = ?2 WHERE id = ?1", params![item, root]).unwrap();

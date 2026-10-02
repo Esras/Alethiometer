@@ -34,8 +34,16 @@
   --r-input: 6px;
   --r-panel: 8px;
 
+  /* Type (settings.json ui_font, mono_font, ui_font_size, reading_font_size;
+     set at startup and live from Settings). Interface sizes are rem, so the
+     root size scales them all; reading text (messages, notes, drafts,
+     answers) uses --fs-read. ui_scale (webview zoom) multiplies both. */
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --fs-read: 14px;
+
   color-scheme: dark;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 13px;
   font-feature-settings: 'cv11';
   color: var(--tx-body);
@@ -71,6 +79,13 @@ textarea {
   color: inherit;
 }
 
+code,
+kbd,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
 :focus-visible {
   outline: 1.5px solid var(--aqua);
   outline-offset: 1px;
@@ -82,7 +97,7 @@ textarea {
 
 /* 10.5px uppercase section label */
 .label {
-  font-size: 10.5px;
+  font-size: 0.8077rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--tx-label);
@@ -106,7 +121,7 @@ textarea {
 
 /* Outlined buttons, never filled */
 .btn {
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 3px 10px;
   border-radius: var(--r-input);
   border: 1px solid var(--border-strong);
@@ -127,7 +142,7 @@ textarea {
 
 /* Reason / weight pills */
 .pill {
-  font-size: 10.5px;
+  font-size: 0.8077rem;
   padding: 1px 7px;
   border-radius: 9px;
   white-space: nowrap;
@@ -150,7 +165,7 @@ textarea {
   display: flex;
   border: 1px solid var(--border);
   border-radius: var(--r-input);
-  font-size: 12px;
+  font-size: 0.9231rem;
   background: var(--bg-panel);
 }
 .seg button {

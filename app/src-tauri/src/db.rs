@@ -18,14 +18,28 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0012_account_profiles.sql"),
     include_str!("../migrations/0013_bot_accounts.sql"),
     include_str!("../migrations/0014_message_read.sql"),
+    include_str!("../migrations/0015_embeddings.sql"),
+    include_str!("../migrations/0016_glean.sql"),
 ];
 
+/// sqlite-vec, loaded into every connection this process opens.
+fn register_vec() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        // SAFETY: sqlite3_vec_init has the extension entry point signature
+        // SQLite expects; registering it before any connection is opened.
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<*const (), unsafe extern "C" fn(*mut rusqlite::ffi::sqlite3, *mut *mut std::os::raw::c_char, *const rusqlite::ffi::sqlite3_api_routines) -> std::os::raw::c_int>(sqlite_vec::sqlite3_vec_init as *const ())));
+    });
+}
+
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
+    register_vec();
     let conn = Connection::open(path)?;
     init(conn)
 }
 
 pub fn open_in_memory() -> anyhow::Result<Connection> {
+    register_vec();
     init(Connection::open_in_memory()?)
 }
 

@@ -24,6 +24,9 @@
   {/each}
   <span class="right">
     {#if ui.tab !== 'reflect'}<SyncStatus />{/if}
+    <button class="cog" class:on={ui.settingsOpen} onclick={() => (ui.settingsOpen = !ui.settingsOpen)} title="Settings ({isMac ? '⌘,' : 'Ctrl+,'})" aria-label="Settings"
+      ><i class="ph ph-gear-six"></i></button
+    >
     {#if ui.tab === 'reflect'}
       <CountdownPill />
     {:else}
@@ -44,8 +47,27 @@
     align-items: stretch;
     gap: 2px;
     padding: 0 14px;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-muted-2);
+  }
+  .cog {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 26px;
+    align-self: center;
+    border-radius: var(--r-input);
+    color: var(--tx-muted-2);
+    font-size: 1.1538rem;
+  }
+  .cog:hover {
+    color: var(--tx-2);
+    background: rgba(235, 219, 178, 0.05);
+  }
+  .cog.on {
+    color: var(--aqua);
+    background: var(--aqua-tint);
   }
   .tab {
     display: flex;
@@ -62,7 +84,7 @@
     box-shadow: inset 0 -2px 0 var(--aqua);
   }
   .badge {
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 0 6px;
     border-radius: 8px;
     background: var(--border);
@@ -88,7 +110,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border);
     color: var(--tx-label);
-    font-size: 12px;
+    font-size: 0.9231rem;
     white-space: nowrap;
   }
   .q {
@@ -101,6 +123,6 @@
   }
   .hint {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
 </style>

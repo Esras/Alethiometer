@@ -2,7 +2,9 @@ pub mod ai;
 pub mod api;
 pub mod clock;
 pub mod db;
+pub mod embed;
 pub mod error;
+pub mod glean;
 pub mod outbox;
 pub mod platform;
 pub mod queries;
@@ -26,16 +28,30 @@ mod desktop {
     }
 
     pub fn run() {
-        let app = Arc::new(App::open(&App::default_data_dir()).expect("failed to open Alethiometer data directory"));
+        let app = App::shared(App::open(&App::default_data_dir()).expect("failed to open Alethiometer data directory"));
         crate::sync::start(app.clone());
         crate::outbox::start(app.clone());
-        let scale = app.settings.ui_scale.clamp(0.5, 3.0);
+        crate::settings::live::watch(app.clone());
+        crate::embed::start(app.clone());
+        let scale = app.settings().ui_scale.clamp(0.5, 3.0);
+        let core = app.clone();
         tauri::Builder::default()
             .setup(move |a| {
                 use tauri::Manager;
                 if let Some(w) = a.get_webview_window("main") {
                     let _ = w.set_zoom(scale);
                 }
+                // Settings apply live: zoom in place, restart when a setting can't.
+                let zoom = a.handle().clone();
+                let restart = a.handle().clone();
+                let _ = core.hooks.set(crate::state::Hooks {
+                    set_zoom: Arc::new(move |z| {
+                        if let Some(w) = zoom.get_webview_window("main") {
+                            let _ = w.set_zoom(z);
+                        }
+                    }),
+                    restart: Arc::new(move || restart.restart()),
+                });
                 Ok(())
             })
             .manage(app)

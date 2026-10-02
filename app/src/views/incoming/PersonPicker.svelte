@@ -130,7 +130,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-body);
   }
   .head {
@@ -142,13 +142,13 @@
   }
   .label {
     flex: none;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--tx-label);
   }
   .acct {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted);
   }
   .field {
@@ -193,7 +193,7 @@
     height: 22px;
     border-radius: 50%;
     color: var(--bg-app);
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -209,11 +209,11 @@
     color: var(--tx-body);
   }
   .path {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .kinds {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
@@ -231,7 +231,7 @@
     gap: 14px;
     padding: 6px 2px 0;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     min-width: 0;
   }

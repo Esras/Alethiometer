@@ -89,7 +89,7 @@
     border: 1px solid #504945;
     border-radius: var(--r-panel);
     color: var(--tx-body);
-    font-size: 13px;
+    font-size: 1rem;
     padding: 14px 16px;
     display: flex;
     flex-direction: column;
@@ -100,12 +100,12 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
   .app {
-    font-size: 15px;
+    font-size: 1.1538rem;
     color: var(--aqua);
   }
   .pin {
@@ -120,7 +120,7 @@
   }
   .x {
     margin-left: 8px;
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-muted);
     display: flex;
   }
@@ -128,7 +128,7 @@
     color: var(--tx-title);
   }
   .title {
-    font-size: 14px;
+    font-size: 1.0769rem;
     font-weight: 500;
     color: var(--tx-title);
   }

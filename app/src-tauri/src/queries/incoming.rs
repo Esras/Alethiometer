@@ -116,9 +116,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     let now = app.clock.now();
     let conn = app.db();
     match name {
-        "list" => Ok(json!(queue_with(&conn, now, &app.settings.people)?)),
-        "family" => Ok(json!(family(&conn, arg_i64(args, "item_id")?, scope_arg(args).as_deref(), &app.settings.people)?)),
-        "detail" => Ok(json!(detail(&conn, arg_i64(args, "item_id")?, &app.settings.people)?)),
+        "list" => Ok(json!(queue_with(&conn, now, &app.settings().people)?)),
+        "family" => Ok(json!(family(&conn, arg_i64(args, "item_id")?, scope_arg(args).as_deref(), &app.settings().people)?)),
+        "detail" => Ok(json!(detail(&conn, arg_i64(args, "item_id")?, &app.settings().people)?)),
         "reclassify" => {
             let moved = reclassify(&conn, arg_i64(args, "item_id")?, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
             Ok(json!({ "ok": true, "moved": moved }))

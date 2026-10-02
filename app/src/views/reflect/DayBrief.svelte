@@ -110,13 +110,13 @@
     align-items: center;
     padding: 7px 12px;
     background: var(--bg-head);
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-2);
   }
   header i {
-    font-size: 13px;
+    font-size: 1rem;
   }
   .inner {
     padding: 12px;
@@ -137,12 +137,12 @@
     min-width: 0;
   }
   .v {
-    font-size: 22px;
+    font-size: 1.6923rem;
     font-weight: 500;
     color: var(--tx-title);
   }
   .l {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
   }
   .bars {
@@ -155,7 +155,7 @@
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 10px;
     align-items: center;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .track {
@@ -173,7 +173,7 @@
     position: relative;
     height: 12px;
     margin-left: 54px;
-    font-size: 10px;
+    font-size: 0.7692rem;
     color: var(--tx-disabled);
   }
   .axis span {
@@ -186,7 +186,7 @@
   .links {
     display: flex;
     gap: 16px;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .link {
     display: flex;
@@ -203,7 +203,7 @@
     flex-direction: column;
     gap: 6px;
     margin-top: -4px;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .where {
     display: grid;
@@ -241,7 +241,7 @@
   .topic {
     margin-left: auto;
     color: var(--tx-label);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
   }
   .muted {
     color: var(--tx-label);

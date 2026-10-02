@@ -109,7 +109,7 @@
     const l = overlaps.lanes.get(b.id);
     if (!l || l.lanes < 2) return '';
     const h = laneH(l.lanes);
-    return `top:${l.lane * (h + 2)}px;height:${h}px;line-height:${h - (b.tentative ? 2 : 0)}px;padding-top:0;padding-bottom:0;font-size:${h >= 18 ? 10.5 : 10}px;border-radius:3px;`;
+    return `top:${l.lane * (h + 2)}px;height:${h}px;line-height:${h - (b.tentative ? 2 : 0)}px;padding-top:0;padding-bottom:0;font-size:${h >= 18 ? 10.5 / 13 : 10 / 13}rem;border-radius:3px;`;
   }
   const laned = (b: Block) => (overlaps.lanes.get(b.id)?.lanes ?? 1) > 1;
   const shown = (b: Block) => (overlaps.lanes.get(b.id)?.lane ?? 0) < MAX_LANES;
@@ -302,13 +302,13 @@
     background: var(--bg-panel);
   }
   .next {
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     color: var(--tx-muted-2);
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .left {
-    font-size: 17px;
+    font-size: 1.3077rem;
     font-weight: 500;
   }
   .bar {
@@ -343,7 +343,7 @@
     top: 0;
     height: var(--bh);
     border-radius: var(--r-block);
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: calc(var(--bh) / 2 - 6px) 5px 0;
     overflow: hidden;
     white-space: nowrap;
@@ -379,7 +379,7 @@
     position: absolute;
     padding: 0 5px;
     border-radius: 3px;
-    font-size: 10px;
+    font-size: 0.7692rem;
     color: var(--tx-body);
     background: var(--bg-head);
     border: 1px solid var(--border-strong);
@@ -409,7 +409,7 @@
     box-shadow: inset 0 2px 0 var(--cat-life), 0 0 0 1.5px var(--aqua);
   }
   .block.life i {
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
   .leave-tick {
     position: absolute;
@@ -428,7 +428,7 @@
     position: absolute;
     inset: auto 0 0 0;
     height: 11px;
-    font-size: 10px;
+    font-size: 0.7692rem;
     color: var(--tx-label);
   }
   .axis span {
@@ -451,7 +451,7 @@
     padding: 4px 10px;
     border-radius: var(--r-input);
     border: 1px dashed var(--border-strong);
-    font-size: 11px;
+    font-size: 0.8462rem;
     line-height: 1.25;
     color: var(--tx-muted);
   }
@@ -459,7 +459,7 @@
     border-color: transparent;
   }
   .note i {
-    font-size: 15px;
+    font-size: 1.1538rem;
     color: var(--aqua);
   }
   .popover {
@@ -475,7 +475,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .pop-head {
     display: flex;
@@ -483,7 +483,7 @@
     align-items: center;
   }
   .pop-head i {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--cat-life);
   }
   .pop-title {
@@ -492,7 +492,7 @@
   }
   .busy {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .pop-body {
@@ -514,7 +514,7 @@
     gap: 14px;
     padding-top: 7px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-muted-2);
   }
 </style>

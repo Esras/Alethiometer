@@ -85,13 +85,13 @@
     align-items: center;
     padding: 7px 12px;
     background: var(--bg-head);
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-2);
   }
   header i {
-    font-size: 13px;
+    font-size: 1rem;
   }
   .count {
     margin-left: auto;
@@ -110,7 +110,7 @@
     background: rgba(235, 219, 178, 0.03);
   }
   .glyph {
-    font-size: 14px;
+    font-size: 1.0769rem;
   }
   .title {
     min-width: 0;
@@ -132,7 +132,7 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     padding: 2px 8px;
     border-radius: var(--r-input);
     border: 1px solid var(--border);
@@ -148,7 +148,7 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     margin-right: 4px;
   }

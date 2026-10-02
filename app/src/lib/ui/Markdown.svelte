@@ -124,7 +124,7 @@
     font-size: 1.1em;
   }
   code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.92em;
     padding: 0 3px;
     border-radius: 3px;

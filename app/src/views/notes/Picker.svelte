@@ -90,7 +90,7 @@
     border-radius: var(--r-panel);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     overflow: hidden;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .search {
     display: flex;
@@ -106,7 +106,7 @@
     background: none;
     border: 0;
     outline: none;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-body);
     caret-color: var(--aqua);
   }
@@ -139,7 +139,7 @@
     display: flex;
     justify-content: center;
     color: var(--tx-muted-2);
-    font-size: 13px;
+    font-size: 1rem;
   }
   .sq {
     width: 7px;
@@ -148,7 +148,7 @@
   }
   .hint {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
     white-space: nowrap;
   }
@@ -157,7 +157,7 @@
     gap: 12px;
     padding: 5px 10px;
     border-top: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
 </style>

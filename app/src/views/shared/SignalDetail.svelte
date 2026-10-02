@@ -71,13 +71,13 @@
     gap: 10px;
     align-items: baseline;
     padding: 2px 0;
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
   }
   .msg.faded {
     opacity: 0.55;
   }
   .t {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .txt {
@@ -94,7 +94,7 @@
     gap: 14px;
     align-items: center;
     padding-top: 6px;
-    font-size: 11.5px;
+    font-size: 0.8846rem;
   }
   .app {
     color: var(--blue);

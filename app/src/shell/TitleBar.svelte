@@ -19,7 +19,7 @@
     display: flex;
     align-items: center;
     padding: 0 12px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
     border-bottom: 1px solid var(--bg-head);
     user-select: none;
@@ -46,7 +46,7 @@
     align-items: center;
   }
   .title i {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--aqua);
   }
   .spacer {

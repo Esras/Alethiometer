@@ -149,7 +149,7 @@ pub fn test_set(source_id: i64, connected: bool, caught_up: bool, flags: &[Flag]
 // Connection.
 
 /// Start the live connection for one Slack source in the background.
-pub fn start(app: Arc<App>, source_id: i64) {
+pub fn start(app: Arc<App>, source_id: i64, gen: u64) {
     let (tx, rx) = mpsc::channel::<()>();
     let sync_app = app.clone();
     std::thread::Builder::new()
@@ -160,8 +160,11 @@ pub fn start(app: Arc<App>, source_id: i64) {
         .name(format!("slack-socket-{source_id}"))
         .spawn(move || {
             let mut backoff = Duration::from_secs(5);
-            loop {
-                let exit = connect_and_listen(&app, source_id, &tx);
+            while crate::sync::alive(source_id, gen) {
+                let exit = connect_and_listen(&app, source_id, gen, &tx);
+                if !crate::sync::alive(source_id, gen) {
+                    return; // restarted or disabled; a newer socket owns the state
+                }
                 // Whatever happened, events may now be missed: next sync polls.
                 set_connected(source_id, false);
                 match exit {
@@ -172,7 +175,9 @@ pub fn start(app: Arc<App>, source_id: i64) {
                     }
                     Err(e) => {
                         eprintln!("slack socket (source {source_id}): {e}; retrying in {}s", backoff.as_secs());
-                        std::thread::sleep(backoff);
+                        if !crate::sync::sleep_alive(source_id, gen, backoff) {
+                            return;
+                        }
                         backoff = (backoff * 2).min(Duration::from_secs(300));
                     }
                 }
@@ -186,7 +191,7 @@ enum Exit {
     Stop(String),
 }
 
-fn connect_and_listen(app: &App, source_id: i64, tx: &mpsc::Sender<()>) -> anyhow::Result<Exit> {
+fn connect_and_listen(app: &App, source_id: i64, gen: u64, tx: &mpsc::Sender<()>) -> anyhow::Result<Exit> {
     let source = load_source(&app.db(), source_id)?;
     let cfg = Config::from_json(&source.config);
     let Some(token) = app.platform.secret_get(&cfg.app_token_secret) else {
@@ -212,6 +217,10 @@ fn connect_and_listen(app: &App, source_id: i64, tx: &mpsc::Sender<()>) -> anyho
     set_connected(source_id, true);
     tx.send(()).ok();
     loop {
+        if !crate::sync::alive(source_id, gen) {
+            ws.close(None).ok();
+            return Ok(Exit::Reconnect);
+        }
         let msg = ws.read().map_err(|e| anyhow::anyhow!("socket read: {e}"))?;
         let text = match msg {
             Message::Text(t) => t.to_string(),

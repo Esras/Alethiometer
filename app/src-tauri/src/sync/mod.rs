@@ -8,6 +8,11 @@
 //!   which is replaced wholesale on each poll (it holds no user content).
 
 pub mod connectors;
+
+/// What `personal` means today, in one line for the Settings page. Keep it in
+/// step with `apply` (busy blocks only), the AI context builders (work only),
+/// search and Incoming (`s.tag = 'work'`) and the outbox.
+pub const PERSONAL_RULES: &str = "Personal sources only store untitled busy blocks: never sent to the AI, never in Incoming or search, nothing written back.";
 pub mod http;
 
 use crate::error::{msg, Result};
@@ -532,45 +537,100 @@ pub fn suggest_after_sync(app: &App, source_id: i64) {
     let _ = app.db().execute("UPDATE sources SET last_sync_at = datetime('now', 'localtime') WHERE id = ?1", [source_id]);
 }
 
+/// Each source's loops carry the generation they were started with and stop
+/// once it moves on: restarting a source (its settings changed) or disabling it
+/// bumps the generation, so only that connector restarts.
+static GENERATIONS: std::sync::Mutex<std::collections::BTreeMap<i64, u64>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+pub(crate) fn bump_generation(id: i64) -> u64 {
+    let mut g = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let n = g.entry(id).or_insert(0);
+    *n += 1;
+    *n
+}
+
+/// Whether loops started at generation `gen` for source `id` should keep going.
+pub fn alive(id: i64, gen: u64) -> bool {
+    GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).get(&id).copied() == Some(gen)
+}
+
+/// Sleep up to `d`, waking early (false) once the source's loops should stop.
+pub fn sleep_alive(id: i64, gen: u64, d: std::time::Duration) -> bool {
+    let until = std::time::Instant::now() + d;
+    loop {
+        if !alive(id, gen) {
+            return false;
+        }
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        std::thread::sleep(left.min(std::time::Duration::from_secs(1)));
+    }
+}
+
+static THREADS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether background sync runs in this process (not in tests or one-off tools).
+pub fn running_threads() -> bool {
+    THREADS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Background polling for every enabled source. One thread per source.
 pub fn start(app: std::sync::Arc<App>) {
-    let ids: Vec<(i64, String)> = {
+    THREADS.store(true, std::sync::atomic::Ordering::Relaxed);
+    let ids: Vec<i64> = {
         let conn = app.db();
-        let names: Vec<String> = app.settings.sources.iter().filter(|s| s.enabled).map(|s| s.name.clone()).collect();
-        let mut stmt = match conn.prepare("SELECT id, name FROM sources WHERE enabled = 1") {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)));
-        match rows {
-            Ok(rows) => rows.filter_map(|r| r.ok()).filter(|(_, n): &(i64, String)| names.contains(n)).collect(),
-            Err(_) => return,
-        }
+        let Ok(mut stmt) = conn.prepare("SELECT id FROM sources") else { return };
+        let Ok(rows) = stmt.query_map([], |r| r.get(0)) else { return };
+        rows.filter_map(|r| r.ok()).collect()
     };
-    for (id, name) in ids {
-        let cfg = app.settings.sources.iter().find(|s| s.name == name);
-        let poll = cfg.map(|s| s.poll_secs).unwrap_or(300).max(30);
-        // Slack: live Socket Mode nudges on top of polling (no-op without an app-level token).
-        if cfg.is_some_and(|s| s.kind == "slack") {
-            connectors::slack::socket::start(app.clone(), id);
-        }
-        let app = app.clone();
-        // The vault runs its own loop: file watcher plus a short poll.
-        if cfg.is_some_and(|s| s.kind == "obsidian") {
-            connectors::obsidian::run(app, id, name, std::time::Duration::from_secs(poll));
-            continue;
-        }
-        std::thread::Builder::new()
-            .name(format!("sync-{name}"))
-            .spawn(move || loop {
+    for id in ids {
+        start_source(app.clone(), id);
+    }
+}
+
+/// Stop a source's loops (if any) and start them again from its current
+/// settings. A source that's disabled or no longer in settings stays stopped.
+pub fn start_source(app: std::sync::Arc<App>, id: i64) {
+    let gen = bump_generation(id);
+    let Ok(source) = load_source(&app.db(), id) else { return };
+    let settings = app.settings();
+    let Some(cfg) = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name) else { return };
+    // Glean is search-only: queried on demand, never polled.
+    if !cfg.enabled || cfg.kind == "glean" {
+        return;
+    }
+    let name = cfg.name.clone();
+    let poll = std::time::Duration::from_secs(cfg.poll_secs.max(30));
+    // Slack: live Socket Mode nudges on top of polling (no-op without an app-level token).
+    if cfg.kind == "slack" {
+        connectors::slack::socket::start(app.clone(), id, gen);
+    }
+    // The vault runs its own loop: file watcher plus a short poll.
+    if cfg.kind == "obsidian" {
+        connectors::obsidian::run(app, id, gen, name, poll);
+        return;
+    }
+    std::thread::Builder::new()
+        .name(format!("sync-{name}"))
+        .spawn(move || {
+            while alive(id, gen) {
                 match sync_source(&app, id) {
                     Ok(_) => suggest_after_sync(&app, id),
                     Err(e) => eprintln!("sync {name}: {e}"),
                 }
-                std::thread::sleep(std::time::Duration::from_secs(poll));
-            })
-            .ok();
-    }
+                if !sleep_alive(id, gen, poll) {
+                    break;
+                }
+            }
+        })
+        .ok();
+}
+
+/// Stop a source's loops (removed or disabled in settings).
+pub fn stop_source(id: i64) {
+    bump_generation(id);
 }
 
 #[derive(Serialize)]

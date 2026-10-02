@@ -79,7 +79,7 @@
     white-space: nowrap;
   }
   .main i {
-    font-size: 13px;
+    font-size: 1rem;
     flex: none;
   }
   .muted {
@@ -96,7 +96,7 @@
     flex: none;
   }
   .sub {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
 </style>

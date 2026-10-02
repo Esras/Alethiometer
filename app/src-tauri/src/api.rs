@@ -23,6 +23,8 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "reflect" => queries::reflect::call(app, name, args),
         "search" => queries::search::call(app, name, args),
         "sync" => crate::sync::call(app, name, args),
+        "settings" => crate::settings::api::call(app, name, args),
+        "embed" => crate::embed::call(app, name, args),
         "outbox" => crate::outbox::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
         "ai" => {
@@ -43,6 +45,7 @@ pub fn unknown(cmd: &str) -> crate::error::Error {
 fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
+            let settings = app.settings();
             let incoming: i64 = app.db().query_row(
                 "SELECT count(*) FROM items i WHERE i.seen = 0",
                 [],
@@ -50,15 +53,23 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
             )?;
             Ok(json!({
                 "categories": queries::categories::map(&app.db())?,
-                "day_start_hour": app.settings.day_start_hour,
-                "day_end_hour": app.settings.day_end_hour,
-                "life_buffer_min": app.settings.life_buffer_min,
-                "quiet_days": app.settings.quiet_days,
+                "day_start_hour": app.settings().day_start_hour,
+                "day_end_hour": app.settings().day_end_hour,
+                "life_buffer_min": app.settings().life_buffer_min,
+                "quiet_days": app.settings().quiet_days,
                 "clock_offset_ms": app.clock.offset_ms(),
-                "ai_label": crate::ai::label(&app.settings.ai),
+                "ai_label": crate::ai::label(&app.settings().ai),
                 "incoming_count": incoming,
                 "todo_count": queries::todos::list(&app.db(), app.clock.now())?.len(),
                 "platform": std::env::consts::OS,
+                "ui_scale": settings.ui_scale,
+                "ui_font": settings.ui_font,
+                "mono_font": settings.mono_font,
+                "ui_font_size": settings.ui_font_size,
+                "reading_font_size": settings.reading_font_size,
+                "settings_rev": app.settings_state().rev,
+                // The Assistant searches Glean first when a Glean source is on.
+                "glean": crate::glean::config(app).is_some(),
             }))
         }
         "open_url" => {

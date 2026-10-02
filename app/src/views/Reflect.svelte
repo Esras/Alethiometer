@@ -228,7 +228,7 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    font-size: 15px;
+    font-size: 1.1538rem;
     color: var(--tx-title);
   }
   .car {
@@ -241,11 +241,11 @@
     color: var(--tx-title);
   }
   .ctx {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .today {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--aqua);
   }
   .today:hover {
@@ -256,7 +256,7 @@
     gap: 8px;
     align-items: center;
     color: var(--tx-2);
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .err i {
     color: var(--orange);
@@ -288,7 +288,7 @@
     gap: 10px;
     align-items: center;
     padding: 9px 12px;
-    font-size: 13px;
+    font-size: 1rem;
     color: var(--tx-label);
     position: relative;
   }
@@ -316,7 +316,7 @@
     color: var(--tx-label);
   }
   .asking {
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .askrow:focus-within {
     box-shadow: inset 0 0 0 1px var(--aqua);
@@ -331,7 +331,7 @@
     align-items: flex-start;
     padding: 8px 12px 10px;
     border-top: 1px solid var(--bg-head);
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
     color: var(--tx-2);
     line-height: 1.5;
   }
@@ -347,7 +347,7 @@
     border-radius: var(--r-panel);
     border: 1px dashed var(--border);
     color: var(--tx-label);
-    font-size: 12px;
+    font-size: 0.9231rem;
     line-height: 1.5;
   }
   .lifenote i {

@@ -295,7 +295,7 @@
     background: none;
     border: 0;
     outline: none;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     color: var(--tx-body);
   }
   .chips {
@@ -305,7 +305,7 @@
   .chip {
     padding: 3px 10px;
     border-radius: var(--r-input);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .chip.on {
@@ -316,13 +316,13 @@
     flex: 1;
   }
   .k {
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-label);
   }
   .err {
     margin-bottom: 8px;
     color: var(--orange);
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .panel {
     flex: 1;
@@ -344,11 +344,11 @@
     gap: 12px;
     align-items: center;
     padding: 7px 16px;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
   }
   .head {
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-label);
@@ -375,7 +375,7 @@
   }
   .check {
     color: var(--tx-muted-2);
-    font-size: 15px;
+    font-size: 1.1538rem;
   }
   .done .check {
     color: var(--aqua);
@@ -396,7 +396,7 @@
   .from {
     flex: none;
     max-width: 40%;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-label);
   }
   .status {
@@ -406,7 +406,7 @@
     padding: 1px 7px;
     border-radius: 10px;
     border: 1px solid var(--border-strong);
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--tx-muted);
   }
   .topic {
@@ -435,7 +435,7 @@
   }
   .split {
     margin-left: 4px;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     font-style: normal;
     color: var(--tx-label);
   }
@@ -447,7 +447,7 @@
     color: var(--tx-body);
     border: 1px solid var(--aqua);
     border-radius: var(--r-input);
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .overdue {
     color: var(--red);
@@ -461,7 +461,7 @@
     gap: 16px;
     padding: 7px 16px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
   }
 </style>

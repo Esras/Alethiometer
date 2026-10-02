@@ -718,7 +718,7 @@
     color: var(--tx-label);
   }
   .count {
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
     background: var(--border);
@@ -763,7 +763,7 @@
     gap: 8px;
     align-items: center;
     padding: 8px 16px 6px;
-    font-size: 11px;
+    font-size: 0.8462rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tx-muted-2);
@@ -806,7 +806,7 @@
     min-width: 0;
   }
   .meta {
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
@@ -854,7 +854,7 @@
   }
   .ctx {
     padding: 4px 16px 12px 38px;
-    font-size: 12.5px;
+    font-size: calc(var(--fs-read) * 12.5 / 14);
   }
   .msg {
     position: relative;
@@ -877,7 +877,7 @@
     align-items: center;
     gap: 8px;
     padding: 0 16px 8px 38px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .held .htext {
@@ -885,11 +885,11 @@
   }
   .held .ghost {
     flex: none;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .more {
     padding: 2px 0 2px 54px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .more:hover {
@@ -923,7 +923,7 @@
     position: absolute;
     left: -14px;
     top: 7px;
-    font-size: 11px;
+    font-size: 0.8462rem;
     color: var(--aqua);
   }
   .t {
@@ -935,7 +935,7 @@
   .pill.cat {
     align-self: center;
     flex: none;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
   }
@@ -945,7 +945,7 @@
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 10.5px;
+    font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
     background: rgba(142, 192, 124, 0.18);
@@ -953,14 +953,14 @@
     cursor: pointer;
   }
   .pill.split i {
-    font-size: 11px;
+    font-size: 0.8462rem;
   }
   .gap {
     display: block;
     height: 14px;
     padding: 0 8px;
     margin: 0 -8px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     line-height: 14px;
     letter-spacing: 2px;
     color: var(--tx-disabled);
@@ -978,10 +978,10 @@
     border-radius: 6px;
     background: var(--bg-panel);
     border: 1px dashed var(--border-strong);
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .new-person > i {
-    font-size: 14px;
+    font-size: 1.0769rem;
     color: var(--tx-muted-2);
   }
   .new-person .q {
@@ -1004,14 +1004,14 @@
   }
   .info {
     padding-bottom: 6px;
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .links {
     display: flex;
     gap: 14px;
     padding-top: 6px;
-    font-size: 12px;
+    font-size: 0.9231rem;
   }
   .all {
     color: var(--aqua);
@@ -1039,7 +1039,7 @@
     gap: 16px;
     padding: 8px 16px;
     border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
     overflow: hidden;

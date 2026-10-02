@@ -5,11 +5,27 @@ use crate::platform::{FileSecrets, Platform};
 use crate::settings::Settings;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
+
+/// What the shell around the core can do when settings change: the desktop
+/// app sets these; the dev server and tests leave them unset.
+pub struct Hooks {
+    /// Apply a new `ui_scale` to the window.
+    pub set_zoom: Arc<dyn Fn(f64) + Send + Sync>,
+    /// Restart the whole app (a setting that can't apply live).
+    pub restart: Arc<dyn Fn() + Send + Sync>,
+}
 
 pub struct App {
     db: Mutex<Connection>,
-    pub settings: Settings,
+    /// Re-read from `settings.json` on every change (`crate::settings::live`).
+    settings: RwLock<Arc<Settings>>,
+    pub hooks: OnceLock<Hooks>,
+    /// Local embeddings (`embed`): the model once loaded, and its status.
+    pub embed: crate::embed::Engine,
+    settings_state: Mutex<crate::settings::live::State>,
+    /// Set by `shared`, so code holding `&App` can start background work.
+    this: OnceLock<std::sync::Weak<App>>,
     pub clock: Clock,
     pub data_dir: PathBuf,
     pub vault: PathBuf,
@@ -50,18 +66,60 @@ impl App {
             data_dir: data_dir.to_path_buf(),
             vault,
             platform: std::sync::Arc::new(FileSecrets::new(data_dir)),
-            settings,
+            settings: RwLock::new(Arc::new(settings)),
+            hooks: OnceLock::new(),
+            embed: Default::default(),
+            settings_state: Mutex::new(Default::default()),
+            this: OnceLock::new(),
         };
-        if crate::queries::categories::load(&app.db(), &app.settings.categories)? {
+        if crate::queries::categories::load(&app.db(), &app.settings().categories)? {
             crate::queries::categories::save(&app.db(), &data_dir.join("settings.json"))?;
         }
-        crate::sync::register_sources(&app.db(), &app.settings.sources)?;
-        if app.settings.demo_data {
+        crate::sync::register_sources(&app.db(), &app.settings().sources)?;
+        if app.settings().demo_data {
             crate::seed::seed_if_empty(&app)?;
         }
+        crate::settings::live::startup(&app);
         // People notes may have changed while the app was closed.
         crate::queries::people::scan(&app.db(), &app.vault)?;
         Ok(app)
+    }
+
+    /// Wrap for sharing across threads; `arc()` works from then on.
+    pub fn shared(app: App) -> Arc<App> {
+        let a = Arc::new(app);
+        let _ = a.this.set(Arc::downgrade(&a));
+        a
+    }
+
+    pub fn arc(&self) -> Option<Arc<App>> {
+        self.this.get().and_then(std::sync::Weak::upgrade)
+    }
+
+    /// The current settings. Cheap; hold the `Arc` for a consistent view.
+    pub fn settings(&self) -> Arc<Settings> {
+        self.settings.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Swap in new settings (after `settings.json` changed).
+    pub fn set_settings(&self, s: Settings) {
+        *self.settings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(s);
+    }
+
+    /// Change settings in memory only (tests).
+    pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
+        let mut s = (*self.settings()).clone();
+        f(&mut s);
+        self.set_settings(s);
+    }
+
+    /// What the Settings header shows (`settings::live`).
+    pub fn settings_state(&self) -> MutexGuard<'_, crate::settings::live::State> {
+        self.settings_state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn settings_path(&self) -> PathBuf {
+        self.data_dir.join("settings.json")
     }
 
     pub fn db(&self) -> MutexGuard<'_, Connection> {

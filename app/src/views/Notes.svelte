@@ -473,7 +473,7 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    font-size: 13px;
+    font-size: 1rem;
     color: var(--tx-muted);
   }
   .day .title {
@@ -495,7 +495,7 @@
     cursor: default;
   }
   .back {
-    font-size: 11.5px;
+    font-size: 0.8846rem;
     color: var(--tx-label);
     padding: 0 6px;
     border-radius: var(--r-block);
@@ -536,7 +536,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 1.0769rem;
   }
   .text {
     position: relative;
@@ -546,7 +546,7 @@
   textarea,
   .measure {
     font-family: inherit;
-    font-size: 15px;
+    font-size: calc(var(--fs-read) * 15 / 14);
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -607,7 +607,7 @@
   .margin {
     position: relative;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: 0.9615rem;
     border-left: 1px solid var(--border);
     padding-left: 14px;
     align-self: stretch;
@@ -630,7 +630,7 @@
     gap: 18px;
     padding: 10px 26px;
     border-top: 1px solid var(--bg-head);
-    font-size: 12px;
+    font-size: 0.9231rem;
     color: var(--tx-muted-2);
   }
   .legend {

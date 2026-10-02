@@ -76,7 +76,7 @@ fn prompt(conn: &rusqlite::Connection, t: &todos::Todo) -> Result<String> {
 }
 
 pub fn estimate_todos(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
-    if let Err(e) = super::check(&app.settings.ai, Tier::Small) {
+    if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
         return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), estimated: 0 });
     }
     let pending: Vec<(i64, String)> = {
@@ -124,8 +124,8 @@ mod tests {
     #[test]
     fn estimates_fill_gaps_and_never_replace_yours() {
         assert_eq!((parse(r#"{"minutes": 50}"#), parse(r#"x {"minutes": "7"} y"#), parse(r#"{"minutes": 0}"#)), (Some(45), Some(5), None));
-        let (mut app, _dir) = app();
-        app.settings.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into();
+        let (app, _dir) = app();
+        app.update_settings(|s| s.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into());
         let conn = app.db();
         for title in ["Reply to Kim", "Review the retry PR"] {
             todos::create(&conn, &todos::Draft { target: "local".into(), text: title.into(), due: None }, None, None).unwrap();

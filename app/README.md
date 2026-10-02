@@ -20,7 +20,9 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
 | Sync status (freshness per source, write states) | tab bar |
-| sqlite-vec embeddings | not started |
+| Settings modal (⌘,), live reload of settings.json, typed source configs | done. See `docs/settings.md` |
+| Local embeddings (bge-small, tract, sqlite-vec) | done, model downloads on first run; untested with the real model. See `docs/ai.md` |
+| Glean (search-only): ⌘K and Search view routes, Assistant with Glean | done against recorded responses; untested live. See `docs/sources/glean.md` |
 
 ## Run it
 
@@ -55,8 +57,9 @@ Build the `.app` on the Mac with `npx tauri build`. Set `bundle.macOS.signingIde
 Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux; override with `ALETHIOMETER_DATA_DIR`):
 
 - `alethiometer.sqlite`: the database.
-- `settings.json`: written with defaults on first run. Edit by hand.
-- `secrets.json`: API tokens on Linux (mode 0600). On the Mac these move to the Keychain.
+- `settings.json`: written with defaults on first run. Edit it in Settings (⌘,) or by hand; either way changes apply live (`docs/settings.md`).
+- `secrets.json`: API tokens (mode 0600), for now on the Mac too. `secrets.meta.json` keeps when each was set (names and times only).
+- `models/`: the local embedding model, downloaded on first run.
 - `vault/`: stand-in work Obsidian vault until `obsidian_vault` is set.
 
 `settings.json` fields:
@@ -67,12 +70,14 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 | `day_start_hour`, `day_end_hour` | Day strip range (default 8–19). |
 | `life_buffer_min` | Default travel buffer before a Life block (press `b` on a block to override one). |
 | `obsidian_vault` | Absolute path to the work vault. |
-| `life_calendars` | Proton Calendar "Limited view" links. Busy times only. |
+| `life_calendars` | Old place for Proton Calendar links: moved into the protoncal source's `urls` on first open. |
 | `ai.allowed_providers` | Providers covered by a BAA. Anything else fails closed. |
 | `ai.region`, `ai.small`, `ai.large` | Bedrock region and model per tier. Empty model = AI off. See `docs/ai.md`. |
 | `ai.aws_profile` | AWS profile for Bedrock credentials (empty = `AWS_PROFILE`, then `default`). |
 | `quiet_days` | Topics with no signal for this many days go under "Quiet" in the Topics index (default 7). |
-| `ui_scale` | Desktop window zoom (default `1.0`, e.g. `1.15`). Read at startup. |
+| `ui_scale` | Desktop window zoom (default `1.0`, e.g. `1.15`). Applies live. |
+| `ui_font`, `mono_font` | Interface and monospace font families (empty = system). |
+| `ui_font_size`, `reading_font_size` | Base sizes in px at scale 1.0: lists and controls (13), messages, notes and drafts (14). |
 | `fake_now` | Dev only: pin the clock to `HH:MM`. |
 | `demo_data` | Fill an empty database with the sample data. Turn off before connecting real sources. |
 | `people.my_color` | Your person colour: index into the 256-colour palette (default `0`, Gruvbox red). See `docs/people.md`. |
@@ -95,7 +100,9 @@ Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine 
 | Key | Where | Action |
 |---|---|---|
 | `⌘1`–`⌘5` | anywhere | switch tab |
-| `⌘K` or `/` | anywhere | search |
+| `⌘K` or `/` | anywhere | search (`⌥↵` Glean, `⌥A` anchor, `⇧↵` off-topic, `⌘T` link, `⌘⌫` reject, `⌘↵` Search view) |
+| `⌘,` / `⌘⇧,` | anywhere | Settings / open settings.json |
+| `e` | Assistant (Glean) | Sources panel (`⇥` Kept/Dropped, `p` pin, `x` reject) |
 | `⌘I` | anywhere | toggle assistant pane |
 | `Esc` | overlays | close |
 | `b` | Life block popover | change travel buffer |

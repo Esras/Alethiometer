@@ -598,7 +598,7 @@ fn close_tasks(conn: &Connection, source_id: i64, path: &str, keep: &HashSet<&st
 /// Markdown file changes (debounced) or at least every `poll` (capped at 60 s;
 /// the scan is only a local stat walk). Without a watcher it's a plain timer.
 /// One thread per source, so two scans never race over the cursor.
-pub fn run(app: std::sync::Arc<crate::state::App>, source_id: i64, name: String, poll: std::time::Duration) {
+pub fn run(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, name: String, poll: std::time::Duration) {
     use notify::Watcher;
     use std::sync::mpsc::RecvTimeoutError;
     use std::time::{Duration, Instant};
@@ -628,22 +628,29 @@ pub fn run(app: std::sync::Arc<crate::state::App>, source_id: i64, name: String,
                 !matches!(ev.kind, notify::EventKind::Access(_))
                     && ev.paths.iter().any(|p| root.as_ref().and_then(|r| rel_str(r, p)).is_some_and(|rel| wanted(&ignore, &rel)))
             };
-            loop {
+            while crate::sync::alive(source_id, gen) {
                 if let Err(e) = crate::sync::sync_source(&app, source_id) {
                     eprintln!("sync {name}: {e}");
                 }
                 let deadline = Instant::now() + poll;
                 loop {
-                    match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    if !crate::sync::alive(source_id, gen) {
+                        return;
+                    }
+                    let wait = deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(1));
+                    match rx.recv_timeout(wait) {
                         Ok(Ok(ev)) if relevant(&ev) => {
                             // Editors save in bursts; wait for a quiet second.
                             while rx.recv_timeout(Duration::from_millis(1000)).is_ok() {}
                             break;
                         }
                         Ok(_) => continue,
-                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => break,
+                        Err(RecvTimeoutError::Timeout) => continue,
                         Err(RecvTimeoutError::Disconnected) => {
-                            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                            if !crate::sync::sleep_alive(source_id, gen, deadline.saturating_duration_since(Instant::now())) {
+                                return;
+                            }
                             break;
                         }
                     }
@@ -1336,7 +1343,7 @@ mod tests {
         };
         let conn = crate::db::open_in_memory().unwrap();
         let app = std::sync::Arc::new(crate::state::App::from_parts(conn, settings, data.path()).unwrap());
-        run(app.clone(), 1, "Vault".into(), std::time::Duration::from_secs(60));
+        run(app.clone(), 1, crate::sync::bump_generation(1), "Vault".into(), std::time::Duration::from_secs(60));
         let count = |t: &str| -> i64 {
             app.db().query_row("SELECT count(*) FROM items WHERE title = ?1", [t], |r| r.get(0)).unwrap()
         };
