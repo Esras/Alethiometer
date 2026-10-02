@@ -273,9 +273,9 @@
     {/if}
   </div>
 
-  {#if data?.note}
-    <div class="note"><i class="ph ph-calendar-x"></i><span>{data.note}</span></div>
-  {/if}
+  <div class="note" class:empty={!data?.note}>
+    {#if data?.note}<i class="ph ph-calendar-x"></i><span>{data.note}</span>{/if}
+  </div>
 </div>
 
 <style>
@@ -454,6 +454,9 @@
     font-size: 11px;
     line-height: 1.25;
     color: var(--tx-muted);
+  }
+  .note.empty {
+    border-color: transparent;
   }
   .note i {
     font-size: 15px;
