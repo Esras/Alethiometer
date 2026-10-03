@@ -197,11 +197,11 @@ impl Daemon {
         // Closing stdin ends both adapters; the signals catch one that hangs.
         lock(&h.stdin).take();
         let pid = h.pid;
-        let _ = Command::new("kill").arg("-TERM").arg(format!("-{pid}")).stderr(Stdio::null()).status();
+        signal_group(pid, libc::SIGTERM);
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(3));
             if h.alive.load(Ordering::SeqCst) {
-                let _ = Command::new("kill").arg("-KILL").arg(format!("-{pid}")).stderr(Stdio::null()).status();
+                signal_group(pid, libc::SIGKILL);
             }
         });
         Ok(())
@@ -265,9 +265,14 @@ impl Daemon {
                 for id in running {
                     let _ = self.kill(&id);
                 }
-                self.stop.store(true, Ordering::SeqCst);
-                // Wake the accept loop.
-                let _ = UnixStream::connect(&self.socket);
+                // Stop just after the reply is out: the process ends with `run`.
+                let d = self.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(200));
+                    d.stop.store(true, Ordering::SeqCst);
+                    // Wake the accept loop.
+                    let _ = UnixStream::connect(&d.socket);
+                });
                 Reply::Ok
             }
         })
@@ -303,6 +308,17 @@ impl Daemon {
         let _ = writer.join();
         self.conns.fetch_sub(1, Ordering::SeqCst);
         self.busy();
+    }
+}
+
+/// Signals the agent's process group (it leads one: `process_group(0)`).
+/// Not through `kill(1)`: procps-ng reads `kill -TERM -<pid>` as
+/// `kill(-1, SIGTERM)`, every process the user owns. Never 0 or 1 either:
+/// `killpg` would reach this daemon's group or every process.
+fn signal_group(pid: u32, sig: libc::c_int) -> bool {
+    match libc::pid_t::try_from(pid) {
+        Ok(p) if p > 1 => unsafe { libc::killpg(p, sig) == 0 },
+        _ => false,
     }
 }
 
@@ -465,6 +481,29 @@ mod tests {
         c.ok(&Request::Write { id: "acp-9".into(), line: "again".into() }).unwrap();
         let got = events(dir, BTreeMap::from([("acp-9".to_string(), 5)]), 1);
         assert_eq!((got[0].seq, got[0].line.as_deref()), (6, Some("again")));
+        c.ok(&Request::Shutdown { force: true }).unwrap();
+        srv.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn kill_ends_the_agents_group_and_nothing_else() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path();
+        // In a group of its own, like an unrelated process of the user's.
+        let mut bystander = Command::new("sleep").arg("30").process_group(0).spawn().unwrap();
+        let srv = start(dir);
+        let c = Control::connect(&proto::socket_path(dir)).unwrap();
+        // Ignores TERM and stdin closing, with a child: only the group KILL ends it.
+        let script = "trap '' TERM; sleep 30 & wait";
+        c.ok(&Request::Spawn { id: "acp-1".into(), cmd: "sh".into(), args: vec!["-c".into(), script.into()], env: BTreeMap::new(), cwd: String::new(), after: 0 }).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        c.ok(&Request::Kill { id: "acp-1".into() }).unwrap();
+        let got = events(dir, BTreeMap::new(), 1);
+        assert_eq!(got[0].kind, Kind::Exit);
+        assert!(bystander.try_wait().unwrap().is_none(), "a process outside the agent's group was signalled");
+        assert!(!signal_group(0, 0) && !signal_group(1, 0), "never the daemon's own group or every process");
+        bystander.kill().unwrap();
+        let _ = bystander.wait();
         c.ok(&Request::Shutdown { force: true }).unwrap();
         srv.join().unwrap().unwrap();
     }

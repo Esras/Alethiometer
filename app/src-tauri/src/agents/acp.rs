@@ -499,6 +499,8 @@ pub fn on_event(app: &Arc<App>, ev: Event) {
         }
         return;
     };
+    // Rows and the log position move together (see `Store::gate`).
+    let _gate = app.agents.store.gate();
     let seen = app.agents.store.lock().hosts.get(&ev.id).map(|h| h.seq).unwrap_or(0);
     if ev.seq <= seen {
         return;
@@ -1373,6 +1375,8 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
     let id = conn.session.clone();
     let key = session_thread(&id);
     let rpc = conn.next.fetch_add(1, Ordering::SeqCst);
+    // The prompt is tracked before anything else is stored, so a crash can't keep one without the other.
+    let gate = app.agents.store.gate();
     let first = {
         let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         t.prompts.insert(rpc, row);
@@ -1398,6 +1402,7 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
         });
     }
     save_turn(app, conn, None);
+    drop(gate);
     let sid = conn.sid();
     let sent = conn.write(&json!({ "jsonrpc": "2.0", "id": rpc, "method": "session/prompt", "params": { "sessionId": sid, "prompt": [{ "type": "text", "text": text }] } }));
     if let Err(e) = sent {

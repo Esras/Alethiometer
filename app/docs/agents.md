@@ -57,7 +57,11 @@ cd agentd && cargo test   # the host's own tests
 - Rebuilding the app (Rust or Svelte) leaves agents running; the restarted app reattaches. Rebuilding **agentd** is picked up the next time the app connects with nothing running, or by **Restart host**.
 - Dev and the real app keep separate hosts as long as they use separate data directories (`ALETHIOMETER_DATA_DIR`): the socket and the copy live in the data directory.
 - To see what the host is doing: `<data dir>/agentd/agentd.log`, the logs in `<data dir>/agentd/logs/`, and `alethiometer-agentd --version`. To stop it by hand: **Restart host**, or kill the pid in `<data dir>/agentd/pid` (agents stop with it; the next app start brings the host back).
-- `tests/agents_restart.rs` runs the host in-process with `scripts/fake-acp.mjs` and hands a session waiting on an approval from one App to another (skipped without `node`).
+- `tests/agents_restart.rs` runs the host in-process with `scripts/fake-acp.mjs` as the agent (skipped without `node`):
+  - an approval asked in one App is answered in the next, on the same agent process and JSON-RPC request;
+  - the devserver binary is `kill -9`'d while the agent streams numbered chunks (`FAKE_ACP_MODE=stream`), and the next one shows every chunk exactly once, both when it comes back after the turn ended and when it joins mid-stream. This is what caught the flush writing the log position and the rows in separate snapshots (`Store::gate` now makes them one).
+- `ALETHIOMETER_AGENTD_KEEP=1` makes the app use whatever host is on the socket and never install, swap or start one; the tests set it so the app under test doesn't replace the test's host.
+- The host stops an agent by signalling its process group with `killpg`, never by running `kill(1)`: procps-ng's `kill -TERM -<pid>` sends to pid −1, every process the user owns.
 
 ## Scion agents
 

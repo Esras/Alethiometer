@@ -19,6 +19,11 @@ use std::sync::{Mutex, MutexGuard};
 #[derive(Default)]
 pub struct Store {
     inner: Mutex<Inner>,
+    /// Held while an agent-host event is applied (its rows and the log
+    /// position move together), and while `flush` takes its snapshot, so a
+    /// crash never stores rows from an event without its position or the
+    /// reverse: the next run then neither repeats nor skips it.
+    gate: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -61,6 +66,10 @@ impl Store {
 
     pub fn rev(&self) -> u64 {
         self.lock().rev
+    }
+
+    pub fn gate(&self) -> MutexGuard<'_, ()> {
+        self.gate.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Where to resume each local agent's log.
@@ -249,27 +258,12 @@ impl Store {
     /// Write what changed since the last flush. Takes the store's lock only to
     /// copy the changes out.
     pub fn flush(&self, conn: &Connection) -> rusqlite::Result<()> {
-        let (hosts, gone_h) = {
+        // One snapshot of everything, between events, written in one transaction.
+        let (hosts, gone_h, groups, sessions, rows, gone_g, gone_s) = {
+            let _g = self.gate();
             let mut i = self.lock();
             let hosts: Vec<(String, HostState)> =
                 i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
-            (hosts, std::mem::take(&mut i.gone_hosts))
-        };
-        if !hosts.is_empty() || !gone_h.is_empty() {
-            let tx = conn.unchecked_transaction()?;
-            for (id, h) in &hosts {
-                tx.execute(
-                    "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
-                    params![id, h.seq as i64, h.turn.to_string()],
-                )?;
-            }
-            for id in &gone_h {
-                tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
-            }
-            tx.commit()?;
-        }
-        let (groups, sessions, rows, gone_g, gone_s) = {
-            let mut i = self.lock();
             let groups: Vec<Group> = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
             let sessions: Vec<Session> =
                 i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
@@ -278,12 +272,21 @@ impl Store {
                 .into_iter()
                 .filter_map(|(k, id)| i.threads.get(&k).and_then(|t| t.rows.iter().find(|r| r.id == id)).map(|r| (k, r.clone())))
                 .collect();
-            (groups, sessions, rows, std::mem::take(&mut i.gone_groups), std::mem::take(&mut i.gone_sessions))
+            (hosts, std::mem::take(&mut i.gone_hosts), groups, sessions, rows, std::mem::take(&mut i.gone_groups), std::mem::take(&mut i.gone_sessions))
         };
-        if groups.is_empty() && sessions.is_empty() && rows.is_empty() && gone_g.is_empty() && gone_s.is_empty() {
+        if hosts.is_empty() && gone_h.is_empty() && groups.is_empty() && sessions.is_empty() && rows.is_empty() && gone_g.is_empty() && gone_s.is_empty() {
             return Ok(());
         }
         let tx = conn.unchecked_transaction()?;
+        for (id, h) in &hosts {
+            tx.execute(
+                "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
+                params![id, h.seq as i64, h.turn.to_string()],
+            )?;
+        }
+        for id in &gone_h {
+            tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
+        }
         for g in &groups {
             tx.execute(
                 "INSERT INTO agent_groups (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",

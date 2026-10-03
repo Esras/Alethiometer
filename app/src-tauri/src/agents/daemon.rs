@@ -97,10 +97,19 @@ enum Installed {
     Waiting,
 }
 
+/// `ALETHIOMETER_AGENTD_KEEP=1`: use whatever agent host answers on the
+/// socket and never install, swap or start one (tests that run their own).
+fn keep() -> bool {
+    std::env::var_os("ALETHIOMETER_AGENTD_KEEP").is_some_and(|v| v == "1")
+}
+
 /// Copy the best build into place unless a daemon with agents running is
 /// using it.
 fn install(app: &App, running_agents: bool) -> Result<(PathBuf, Installed)> {
     let dest = installed(app);
+    if keep() {
+        return Ok((dest, Installed::Same));
+    }
     let Some(src) = sources().into_iter().next() else {
         if dest.is_file() {
             return Ok((dest, Installed::Same));
@@ -175,6 +184,7 @@ fn control(app: &App) -> Result<Arc<Control>> {
     }
     let c = match Control::connect(&socket(app)) {
         Ok(c) => c,
+        Err(e) if keep() => return Err(msg(format!("no agent host on the socket (ALETHIOMETER_AGENTD_KEEP): {e}"))),
         Err(_) => {
             app.agents.daemon.set(|s| s.state = "starting".into());
             let (bin, _) = install(app, false).inspect_err(|e| {
