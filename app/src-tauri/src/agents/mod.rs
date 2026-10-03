@@ -204,8 +204,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         // Ask: a choice (1–3) or a written reply.
         "answer" => {
             let req = arg_str(args, "request")?;
-            let text = arg_str(args, "text")?;
-            scion::answer(app, &req, &text)?;
+            if req.starts_with("acp-") {
+                acp::answer(app, &req, opt(args, "choice"), opt(args, "text"), args.get("content").filter(|c| c.is_object()).cloned())?;
+            } else {
+                scion::answer(app, &req, &arg_str(args, "text")?)?;
+            }
             Ok(json!({ "ok": true }))
         }
         "start_local" => {

@@ -56,6 +56,8 @@
       case 'hub':
         return 'b-hub';
       case 'ask':
+        // Answered: no longer waiting on you.
+        return row.request ? 'b-need' : '';
       case 'approval':
         return 'b-need';
       case 'failed':

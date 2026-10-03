@@ -163,7 +163,7 @@ pub fn parse_choices(text: &str) -> (String, Vec<Choice>) {
         if let Some(body) = option_body(t) {
             if choices.len() < 3 {
                 let (title, detail) = split_detail(body);
-                choices.push(Choice { key: (choices.len() + 1).to_string(), title, detail });
+                choices.push(Choice { key: (choices.len() + 1).to_string(), title, detail, value: String::new() });
             }
         } else if choices.is_empty() && !t.is_empty() {
             question.push(t);
