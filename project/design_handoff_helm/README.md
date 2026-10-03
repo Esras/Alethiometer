@@ -546,7 +546,7 @@ The Agents tab shows coding-agent sessions from two kinds of source, in one tree
   - **Parsed** is a deterministic shell parse: numbered steps with tags (`reads files`, `shell per file`, `local bin`), then checks such as "No writes" or "Paths inside repo".
   - **Explained** comes from a small model, with the provider named: what the command does, plus a suggestion to trust only its read-only parts.
 
-  Buttons: **Allow once** (`O`, primary), **This session** (`S`), **Always: `pattern`** (`A`, editable), **Deny…** (`D`), and "Also in Incoming" at the right.
+  Buttons: **Allow once** (`O`, primary), **This session** (`S`), **Always: `pattern`** (`A`, editable), **Deny…** (`D`), and "Esc later" at the right. The request also shows in Incoming (see Agents in Incoming).
 - **Ask** (Scion `input-needed`): a header ("handler is waiting for you · input-needed · 4m", with a link to the session or room), then the question at 14px `#fbf1c7`. The choices read from the message become option cards, keyed `1` and `2`. Then **Write a reply…** (`R`) and **Later** (`Esc`).
 - **One-line form:** while the new-agent form is open, the card shrinks to a single line and comes back when the form closes.
 
@@ -586,13 +586,13 @@ The Agents tab shows coding-agent sessions from two kinds of source, in one tree
   - **unreachable** (the agent isn't running): `ph-plugs` `#fe8019` in an orange box. Actions: `⏎` Start it again and send, `F` Send to another agent, `Esc` Discard.
   - **failed:** `ph-x-circle` `#fb4934` in a red box, with the Hub's reason and a retry countdown. Actions: `⏎` Retry now, `E` Edit, `Esc` Cancel.
 
-  Unreachable and failed also appear in Incoming.
+  Unreachable and failed also appear in Incoming (see Agents in Incoming).
 
 **Keyboard:** `⏎` goes in, `Esc` comes out, and `Tab` cycles between the tree, the thread and the composer.
 - **Everywhere:** `⌘K` search, `/` filter sessions, `g i` Incoming, `g a` Agents, `⌘.` interrupt the selected agent, `?` keys.
 - **Tree:** `j`/`k`, `h`/`l` fold or open a group, `⏎` open, `n` new agent in the group.
 - **Thread:** `j`/`k` move between rows, `e` fold or open, `⏎` reply to a message or open a tool call, `c` copy, `g` jump to latest, `t`/`m` switch tabs.
-- **Needs you:** `o` `s` `a` `d`, `1`–`3`, `r` and `Esc`. These work whenever a request is pinned and focus isn't in the composer.
+- **Needs you:** `o` `s` `a` `d`, `1`–`3`, `r` and `Esc`. These work whenever a request is pinned and focus isn't in the composer. **Proposed:** `1`–`4` also pick an approval's options in the agent's order, as they do in Incoming.
 - **Composer:** `⌘⏎` send, `@` address one member, `↑` edit your last message.
 - Single-letter keys are off while you're typing.
 
@@ -612,6 +612,47 @@ The Agents tab shows coding-agent sessions from two kinds of source, in one tree
 - Whether a harness's Scion message calls can be recognized reliably in its transcript.
 - Whether a Zed-launched session can be observed at all (assume not).
 - Final colors and box strength.
+
+### Agents in Incoming (Agents Incoming 2a–2c)
+Reference: `design/Helm Agents Incoming.dc.html`: **2a** a topic, **2b** Agents waiting, **2c** open states. It fills the "Also in Incoming" gap listed under Not built in `app/docs/agents.md`.
+
+**What comes in:**
+- **Waiting on you:** a pinned approval or ask, an undelivered message (unreachable or failed), a session that failed.
+- **Not waiting:** a Scion message addressed to you (a DM, or a room reply to you), the final output of each local turn (one signal per turn), a Scion agent that completed.
+- Subagents never show up by themselves.
+
+**Where:**
+- Agent signals are filed under topics like any signal, in an **Agents** app group after GitHub, oldest first (2a). The topic comes from the session's ticket, found the way the facts box finds it. Otherwise the AI guesses it from the group, its goal and the first task; a session with no group uses its directory and first task instead.
+- **Agents waiting (2b)** is a second view: an entry under the rule next to Unsorted, styled like it. It lists every waiting agent across topics, grouped by project. They're the same signals as in their topics, so acting in one view acts in both.
+- No special colour: a waiting agent is one signal among many.
+
+**Row (collapsed):** one line, like any signal.
+- The agent's status mark, the same as in the tree, sits in the 38px gutter.
+- Then the agent's name in its colour, and the reason in title weight: *needs approval*, *has a question*, *didn't get your message*, *didn't take your message*, *stopped*, *wrote to you*, *ended its turn*, *finished*.
+- Then `project › group · time` in the meta text, then the usual action cluster.
+- Source actions go before the divider: **Reply** `r` on messages and turn ends, the PR on a finished agent.
+
+**Actions only touch the signal, never the agent:** `c` confirms the topic, `t` moves it to another, `x` sends it back to Unsorted, `d` takes it out of Incoming. Confirming a waiting agent leaves its request open in Agents.
+
+**Open (↵):** the conversation it's about, in Incoming's message layout (time, who, text). Then a line on why it's here, then the agent's answers.
+- **Approval:** the full command, then Parsed and Explained (the same panels as the Agents card), then the agent's options.
+- **Ask:** the question, the choices with their details, and Reply… `r`.
+- **Unreachable:** Start it again and send, Send to another agent, Discard.
+- **Failed delivery:** Retry, Edit, Cancel. The Hub gives no retry time.
+- **Failed agent:** Start it again, Open on Hub.
+- **Wrote to you / ended its turn:** the messages, with your last message faded before them. `r` opens a reply under them. A reply to a local session is its next prompt, and it resumes the session if needed.
+- **Finished:** the agent's summary and a facts line (task, time, turns, PR, ticket).
+
+**Keys:** `1`–`4` pick the agent's answers in its order, **only while the row is open**. `r` replies, and `o` opens the session in Agents. Everything else is as for any signal. No letter means something different here than it does elsewhere in Incoming.
+
+**Leaving Incoming:**
+- **Answered here:** a green check and the answer ("✓ Allowed once · 10:51") replace the actions, and the status mark changes to the agent's new state. The row is gone when you move off it. There's no undo.
+- **Acted on in Agents** (answering, replying, sending to that agent): it's gone from Incoming at the next refresh. Just looking at it doesn't count.
+- An ask also closes when the agent posts again or stops.
+
+**Badges:** the Incoming badge counts agent signals. The Agents badge stays the waiting count.
+
+**Open:** whether Agents belongs after GitHub in the fixed app order.
 
 ## Interaction model
 Keyboard-first throughout: `j`/`k` move, `↵` opens, `o` opens in the source app, `/` or `⌘K` search, `z` fold, `Tab` retarget, `⌘R` retry, `Esc` close. Every action needs a key. Use hover tints from the palette and an aqua focus ring. No animations beyond short (≤150ms) fades or collapses.
@@ -645,6 +686,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
+- `design/Helm Agents Incoming.dc.html`: agents in Incoming, **2a–2c** (see Agents in Incoming). Opens with `support.js`, `_ds/`, `icons/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Agents Final.dc.html`: the Agents tab, screens **01–08** (see the Agents section). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Explorations 21-24.dc.html`: rounds 21–24. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
 - `design/Helm Explorations 25-28.dc.html`: rounds 25 and later. Relevant IDs: **27a, 26a, 26c, 25d** (26b's source list, 27b, 27c and the rest of 25 superseded).

@@ -184,7 +184,7 @@ pub fn prompt(req: &Request, task: &str, files: &[(String, String)]) -> String {
         "<data>\ncwd (the project): {}\ntool: {}\n\ncommand:\n{}\n\ndeterministic parse:\n{}\n\nthe developer's latest request to the agent:\n{}\n",
         req.cwd,
         req.tool,
-        ai::context::clip(&req.command, 4000),
+        req.command,
         parsed,
         if task.is_empty() { "(unknown)" } else { task },
     );

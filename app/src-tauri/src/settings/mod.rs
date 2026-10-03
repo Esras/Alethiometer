@@ -283,7 +283,7 @@ impl Default for AgentsSettings {
             env: BTreeMap::new(),
         };
         AgentsSettings {
-            harnesses: vec![h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"]), h("pi", "Pi", &["-y", "pi-acp"])],
+            harnesses: vec![h("pi", "Pi", &["-y", "pi-acp"]), h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"])],
             accept_edits: true,
             colors: AgentColors::default(),
             names: AgentNames::default(),

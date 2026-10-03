@@ -40,11 +40,7 @@
     {
       title: 'Needs you',
       keys: [
-        [['O'], 'Allow once'],
-        [['S'], 'Allow for this session'],
-        [['A'], 'Always (the agent’s own rule)'],
-        [['D'], 'Deny…'],
-        [['1', '2', '3'], 'Pick an answer'],
+        [['1', '2', '3', '…'], 'Allow once / session / always / deny…, or pick an answer'],
         [['R'], 'Write a reply'],
         [['Esc'], 'Later'],
       ],

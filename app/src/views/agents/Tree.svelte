@@ -269,6 +269,9 @@
   }
   .counts .red i {
     font-size: 0.846rem;
+    width: 8px;
+    display: inline-flex;
+    justify-content: center;
   }
   .plus {
     width: 26px;

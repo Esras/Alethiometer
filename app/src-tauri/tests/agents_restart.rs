@@ -106,7 +106,7 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
     assert_eq!(again, req, "the same request, still waiting");
     wait("the session to be attached", 10, || second.agents.store.lock().sessions.get(&id).filter(|s| s.live).map(|_| ()));
 
-    alethiometer_lib::agents::call(&second, "respond", &json!({ "request": again, "option": "o" })).unwrap();
+    alethiometer_lib::agents::call(&second, "respond", &json!({ "request": again, "option": "1" })).unwrap();
     wait("the turn to finish", 30, || {
         let i = second.agents.store.lock();
         let s = i.sessions.get(&id)?;

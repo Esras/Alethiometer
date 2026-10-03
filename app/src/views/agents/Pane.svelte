@@ -86,6 +86,13 @@
     ag.hidden = new Set(ag.hidden);
   }
 
+  function toggleRow(id: number) {
+    const k = `row:${id}`;
+    if (ag.expanded.has(k)) ag.expanded.delete(k);
+    else ag.expanded.add(k);
+    ag.expanded = new Set(ag.expanded);
+  }
+
   const waitingRows = $derived(new Set((ag.tree?.requests ?? []).map((r) => r.id)));
   const messageCount = $derived(ag.tab === 'messages' ? ag.rows.length : 0);
 
@@ -184,6 +191,7 @@
                   earlier={it.run ? it.run.length - 1 : 0}
                   waiting={!!it.row.request && waitingRows.has(it.row.request)}
                   onDelivery={(a) => delivery(it.row.id, a)}
+                  onToggle={() => toggleRow(it.row.id)}
                 />
               </div>
             {/if}
@@ -389,7 +397,7 @@
     align-items: center;
     padding: 1px 7px;
     border-radius: 5px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--tx-label);
     color: var(--tx-2);
   }
   .chip i {
