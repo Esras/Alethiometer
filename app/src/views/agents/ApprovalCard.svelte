@@ -85,10 +85,23 @@
           {/if}
         </div>
         {#if req.explained}
+          {@const x = req.explained}
           <div class="panel">
-            <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub">{req.explained.model}</span></div>
-            {#if req.explained.state === 'pending'}<div class="ex muted">Asking…</div>
-            {:else if req.explained.state === 'ok'}<div class="ex">{req.explained.text}</div>
+            <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model} · read as if planted</span></div>
+            {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
+            {:else if x.state === 'ok'}
+              <div class="ex">{x.text}</div>
+              {#if x.fits === false && x.fit_note}<div class="fit"><i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span></div>{/if}
+              {#if x.misuse.length}
+                <div class="misuse">
+                  <span class="mh">If planted</span>
+                  {#each x.misuse as m (m)}<span class="mi">{m}</span>{/each}
+                  {#if x.worst}<span class="worst">Worst case: {x.worst}</span>{/if}
+                </div>
+              {:else if x.fits !== null}
+                <div class="benign"><i class="ph ph-check"></i>Nothing it could be misused for beyond what it says.</div>
+              {/if}
+              {#if x.read.length}<div class="readf">Read {x.read.join(', ')}</div>{/if}
             {:else}<div class="ex muted">{req.explained.state === 'off' ? 'Off: ' : 'Couldn’t explain: '}{req.explained.text}</div>{/if}
           </div>
         {/if}
@@ -300,6 +313,57 @@
   }
   .ex.muted {
     color: var(--tx-label);
+  }
+  .fit {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 0.9615rem;
+    line-height: 1.45;
+    color: var(--yellow);
+  }
+  .fit b {
+    font-weight: 500;
+  }
+  .misuse {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-top: 1px solid var(--bg-head);
+    padding-top: 5px;
+    font-size: 0.9615rem;
+    line-height: 1.45;
+    color: var(--tx-muted);
+    text-wrap: pretty;
+  }
+  .mh {
+    font-size: 0.808rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--orange);
+  }
+  .mi::before {
+    content: '· ';
+    color: var(--tx-disabled);
+  }
+  .worst {
+    color: var(--tx-2);
+  }
+  .benign {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    border-top: 1px solid var(--bg-head);
+    padding-top: 5px;
+    font-size: 0.9615rem;
+    color: var(--tx-muted);
+  }
+  .benign i {
+    color: var(--green);
+  }
+  .readf {
+    font: 0.846rem var(--font-mono);
+    color: var(--tx-disabled);
   }
   .btns,
   .deny {

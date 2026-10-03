@@ -294,6 +294,20 @@ pub struct Explained {
     pub text: String,
     /// "luna · Bedrock US".
     pub model: String,
+    /// Read as if the command was planted: whether it does only what its
+    /// stated purpose and the task need, and what goes beyond them.
+    #[serde(default)]
+    pub fits: Option<bool>,
+    #[serde(default)]
+    pub fit_note: String,
+    /// Concrete ways this command could do harm; empty when it's benign.
+    #[serde(default)]
+    pub misuse: Vec<String>,
+    #[serde(default)]
+    pub worst: String,
+    /// Project files read to see into the command (scripts it runs).
+    #[serde(default)]
+    pub read: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
