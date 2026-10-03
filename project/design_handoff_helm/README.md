@@ -656,6 +656,48 @@ Reference: `design/Helm Agents Incoming.dc.html`: **2a** a topic, **2b** Agents 
 
 **Open:** whether Agents belongs after GitHub in the fixed app order.
 
+### Archiving agents (Agents Archive 01–05)
+Reference: `design/Helm Agents Archive.dc.html`, sections **01–05**. Earlier archive explorations aren't included.
+
+**Rules:**
+- `a`, or right-click › Archive, archives the selected row and only that row: a session, a room, a group, or an Unsorted session. Archiving a session leaves its group and room.
+- Nothing running or waiting for you can be archived, and neither can a room or group with a member still running. Stop them first.
+- Archiving deletes the Hub agents and their clones, through the outbox. Messages and transcripts stay in the local store and stay searchable. Unsorted local sessions are only hidden.
+- `⌘⏎` archives, `Esc` cancels, and `⌘⌫` force-archives something that has stopped but isn't done. `⏎` never archives. `u` undoes for 10 s.
+- Archived items leave the tree. They come back only through the tree filter (`/`), and they open read-only. No restart, no reuse, no unarchive.
+- ⌘K doesn't archive and doesn't list archived items.
+
+**Screens:**
+- **01 Done nudge.** It appears when every session in a group has completed and the PR is merged (or the ticket is Done).
+  - A frame goes around the whole group: 1px `rgba(184,187,38,.32)` border, `rgba(184,187,38,.05)` fill, radius 7px, margin `2px 8px 4px`.
+  - The frame's footer has a `rgba(184,187,38,.22)` top border. It shows a check-circle in `#b8bb26`, "Done · completed, #208 merged" (ellipsizes), then **Archive group** in `#8ec07c` and **Not now** in `#928374`.
+  - The footer has no key hint, because `a` acts on the selection.
+  - A folded group keeps the frame and footer. Not now hides it for 7 days. Alethiometer never archives on its own.
+- **02 Confirm.** Same modal style as New agent.
+  - **Header:** archive icon `#8ec07c`, "Archive", a kind tag (SESSION / GROUP / ROOM: mono 10.5px uppercase, 1px `#665c54`), the name, then the location in mono `#928374`.
+  - **Body:** a small tree drawn like the Agents tree. Rows that will be archived carry the selection look (`#3c3836` with a 2px `#8ec07c` inset), and a group is one selection block tagged "will archive". Other rows are at 50% and tagged "unchanged".
+  - **Below the tree:** one line with a trash icon in `#a89984`: "N agents and their clones will be deleted on the Hub."
+  - **Behind the modal:** the tree dims to 32% except the target, which keeps the selection look.
+  - **Footer:** primary **Archive session** / **Archive group and N agents** (`⌘⏎`, green), **Cancel** (`Esc`), and "u undoes for 10s".
+  - **02c Not done** (stopped, not done): an amber block (`rgba(250,189,47,.08)` fill, 1px `rgba(250,189,47,.45)` border) titled "Not done". It lists unpushed commits first (lost with the clone), then open PRs, tickets not Done and failed agents. Footer: **Archive anyway** (`⌘⌫`) and Cancel. That is the only red button (`#fb4934`).
+  - **02d Still running:** a prohibit icon in `#fe8019` and "Can't archive" in the title. One sentence: "<group> still has N agents going. Stop them, then archive it." The tree tags rows "running" (`#8ec07c`) or "waiting for you" (`#fe8019`); other rows are dim and tagged "ready". Footer: **Close** (`Esc`) only.
+- **03 Undo.** The row stays in the tree for 10 s: struck through in `#665c54` on a faint hatch, with "deleting N agents in 8s · u undo" in `#fabd2f`. Then it leaves the tree, and the deletes go out through the outbox.
+- **04 Tree filter.**
+  - **Results:** `/` shows live matches first. Then a divider ("Archived · N goals · M sessions · of T"), and archived matches in tree layout (project › group › session) with the matched line under each.
+  - **Fading:** while the selection is in the live results, the whole archived section is at 40%. When the pointer is over it or the selection moves into it, all of it comes up to full strength.
+  - **Opening one:** `⏎` opens an archived item read-only. The header gets an "archived 2 Oct" chip, matches are highlighted (`⌘G` for the next one), and the bottom bar reads "Archived 2 Oct · read-only" with Back (`Esc`).
+- **05 Right-click.**
+  - Right-clicking selects the row, so the menu and `a` always act on the same thing.
+  - Items: Open `⏎`, Stop `⌘.`, New agent in <group> `n`, a divider, then **Archive session…** / **Archive group…** `a`.
+  - On a running agent, Archive is off with "stop it first".
+  - Menu: 230px wide, `#32302f`, 1px `#504945` border, radius 8px.
+
+**Outbox actions:** `scion.delete_agent`, one per agent, sent after the undo window.
+
+**Open:**
+- What happens to the group thread on Scion once its agents are deleted. Deferred; it's Scion-specific.
+- A Hub delete that fails after the undo window isn't designed yet.
+
 ## Interaction model
 Keyboard-first throughout: `j`/`k` move, `↵` opens, `o` opens in the source app, `/` or `⌘K` search, `z` fold, `Tab` retarget, `⌘R` retry, `Esc` close. Every action needs a key. Use hover tints from the palette and an aqua focus ring. No animations beyond short (≤150ms) fades or collapses.
 
@@ -688,6 +730,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
+- `design/Helm Agents Archive.dc.html`: archiving agents, **01–05** (see Archiving agents). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Agents Incoming.dc.html`: agents in Incoming, **2a–2c** (see Agents in Incoming). Opens with `support.js`, `_ds/`, `icons/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Agents Final.dc.html`: the Agents tab, screens **01–08** (see the Agents section). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Explorations 21-24.dc.html`: rounds 21–24. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
