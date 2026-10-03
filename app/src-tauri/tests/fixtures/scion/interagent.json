@@ -14,9 +14,9 @@
    "channel": "",
    "threadId": "",
    "conversationId": "c3000000-0000-4000-8000-0000000000dd",
-   "createdAt": "2026-10-03T08:20:00Z",
+   "createdAt": "2026-09-30T08:20:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T08:20:00Z"
+   "dispatchedAt": "2026-09-30T08:20:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000003",
@@ -32,9 +32,9 @@
    "channel": "",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:02:00Z",
+   "createdAt": "2026-09-30T09:02:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T09:02:00Z"
+   "dispatchedAt": "2026-09-30T09:02:00Z"
   }
  ]
 }

@@ -14,7 +14,7 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:08:00Z",
+   "createdAt": "2026-09-30T09:08:00Z",
    "dispatchState": "pending"
   },
   {
@@ -31,7 +31,7 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:07:00Z",
+   "createdAt": "2026-09-30T09:07:00Z",
    "dispatchState": "failed",
    "dispatchFailureReason": "tmux exec error: session not found"
   },
@@ -49,7 +49,7 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:06:00Z",
+   "createdAt": "2026-09-30T09:06:00Z",
    "dispatchState": "failed",
    "dispatchFailureReason": "Agent unreachable (stopped)"
   },
@@ -67,7 +67,7 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:05:00Z"
+   "createdAt": "2026-09-30T09:05:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000005",
@@ -83,9 +83,9 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:04:00Z",
+   "createdAt": "2026-09-30T09:04:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T09:04:00Z"
+   "dispatchedAt": "2026-09-30T09:04:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000004",
@@ -101,7 +101,7 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:03:00Z"
+   "createdAt": "2026-09-30T09:03:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000003",
@@ -117,9 +117,9 @@
    "channel": "",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:02:00Z",
+   "createdAt": "2026-09-30T09:02:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T09:02:00Z"
+   "dispatchedAt": "2026-09-30T09:02:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000002",
@@ -135,9 +135,9 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:00:00Z",
+   "createdAt": "2026-09-30T09:00:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T09:00:00Z"
+   "dispatchedAt": "2026-09-30T09:00:00Z"
   },
   {
    "id": "f0000000-0000-4000-8000-000000000001",
@@ -153,9 +153,9 @@
    "channel": "web",
    "threadId": "b1000000-0000-4000-8000-0000000000bb",
    "conversationId": "c1000000-0000-4000-8000-0000000000aa",
-   "createdAt": "2026-10-03T09:00:00Z",
+   "createdAt": "2026-09-30T09:00:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T09:00:00Z"
+   "dispatchedAt": "2026-09-30T09:00:00Z"
   }
  ],
  "totalCount": 9

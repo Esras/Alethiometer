@@ -1,4 +1,4 @@
 {"agent":{"id":"a1000000-0000-4000-8000-000000000005","slug":"migrator","name":"migrator","template":"coder","projectId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
   "phase":"provisioning","detached":true,"runtimeBrokerId":"e1000000-0000-4000-8000-000000000001",
   "appliedConfig":{"harnessConfig":"claude-web","task":"Write the migration for the users table","branch":"migrator-users"},
-  "created":"2026-10-03T09:30:00Z","updated":"2026-10-03T09:30:00Z","messageMode":"project","stateVersion":1,"generation":1}}
+  "created":"2026-09-30T09:30:00Z","updated":"2026-09-30T09:30:00Z","messageMode":"project","stateVersion":1,"generation":1}}

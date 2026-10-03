@@ -4,6 +4,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Agents: unverified against real agents and a live Scion Hub
+
+The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client is built from Scion's Go source and hand-written fixtures; it has never talked to a Hub. The list of things to confirm is in `app/docs/agents.md` ("To check against a live Hub"). Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
+
 ### AI prices: where they come from (user, 2026-10-02: open, come back to it)
 
 The Settings design (26c) says prices are never typed in: read once a day from the AWS Price List API (`pricing:GetProducts`) and cached. That API needs classic IAM credentials (or an SSO profile) with `pricing:GetProducts`. The Bedrock API key (bearer token) the work Mac uses only works for Bedrock, so it can't call it. Options: AWS's public bulk price file for Bedrock (`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/region_index.json`, no credentials; checked reachable on 2026-10-02), GetProducts with separate IAM credentials, or keep hand-entered prices. Until decided, `ai.prices` stays editable in Settings → AI.

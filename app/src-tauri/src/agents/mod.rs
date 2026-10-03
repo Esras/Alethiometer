@@ -119,7 +119,11 @@ fn messages_view(i: &store::Inner, id: &str) -> Vec<Row> {
     let room = s.group_id.as_ref().and_then(|g| i.groups.get(g)).and_then(|g| g.room.as_ref()).map(|r| format!("r:{}", r.id));
     if let Some(room) = room.and_then(|k| i.threads.get(&k)) {
         let mut next = 1_000_000;
-        for r in room.rows.iter().filter(|r| r.who.as_ref().is_some_and(|w| w.kind == "you") && mentions(r)) {
+        // The agent's own thread may already hold the same message (same Hub id).
+        // Mention copies carry their own ids, so the time and text match too.
+        let seen: std::collections::HashSet<String> = out.iter().flat_map(|r| [r.ext.clone(), format!("{}|{}", r.at, r.text)]).filter(|k| !k.is_empty()).collect();
+        let dup = |r: &Row| (!r.ext.is_empty() && seen.contains(&r.ext)) || seen.contains(&format!("{}|{}", r.at, r.text));
+        for r in room.rows.iter().filter(|r| r.who.as_ref().is_some_and(|w| w.kind == "you") && mentions(r) && !dup(r)) {
             next += 1;
             out.push(Row { id: next, ..r.clone() });
         }
