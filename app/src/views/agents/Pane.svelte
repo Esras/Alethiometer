@@ -8,8 +8,6 @@
   import Composer from './Composer.svelte';
   import { items, LEGEND, type Item } from './items';
   import { agentColor } from './look';
-  import NewLocal from './NewLocal.svelte';
-  import NewScion from './NewScion.svelte';
   import RowView from './RowView.svelte';
   import { act, ag, look, pinned, setTab, threadOf } from './state.svelte';
   import StatusLine from './StatusLine.svelte';
@@ -110,23 +108,15 @@
     if (id) act('open', { session: id, how }).catch(() => {});
   }
 
-  function closeForm() {
-    ag.form = null;
-    queueMicrotask(() => composerEl?.focus());
-  }
 </script>
 
 {#if !key || (!s && !g)}
   <div class="empty">
-    {#if ag.form?.kind === 'local'}
-      <div class="form-only"><NewLocal group={ag.form.group} onClose={() => (ag.form = null)} /></div>
-    {:else}
-      <div class="hello">
-        <i class="ph ph-robot"></i>
-        <p>Open a session or room from the tree, or start a local session.</p>
-        <button class="btn" onclick={() => (ag.form = { kind: 'local', group: null })}><i class="ph ph-plus"></i>New session<span class="k">N</span></button>
-      </div>
-    {/if}
+    <div class="hello">
+      <i class="ph ph-robot"></i>
+      <p>Open a session or room from the tree, or start a local session.</p>
+      <button class="btn" onclick={() => (ag.form = { kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<span class="k">N</span></button>
+    </div>
   </div>
 {:else}
   <div class="pane">
@@ -207,11 +197,7 @@
         {:else if req && req.kind === 'ask'}
           <AskCard bind:this={ask} {req} compact={!!ag.form} onReply={() => ((ag.replying = req.id), composerEl?.focus())} />
         {/if}
-        {#if ag.form?.kind === 'scion'}
-          <NewScion group={ag.form.group} room={ag.form.room} onClose={closeForm} />
-        {:else if ag.form?.kind === 'local'}
-          <NewLocal group={ag.form.group} onClose={closeForm} />
-        {:else if key}
+        {#if key}
           {#key key}
             <Composer
               bind:el={composerEl}
@@ -255,9 +241,6 @@
   }
   .hello p {
     margin: 0;
-  }
-  .form-only {
-    margin: 12px 16px 14px;
   }
   .btn {
     display: flex;

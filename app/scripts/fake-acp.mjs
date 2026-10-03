@@ -29,6 +29,7 @@ let turn = 0;
 let used = 18000;
 let mode = 'default';
 let elicits = false;
+const MODELS = { currentModelId: 'claude-sonnet-4-6', availableModels: [{ modelId: 'claude-sonnet-4-6', name: 'Sonnet' }, { modelId: 'claude-opus-4-6', name: 'Opus' }, { modelId: 'claude-haiku-4-5', name: 'Haiku' }] };
 const MODES = { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'acceptEdits', name: 'Accept Edits' }, { id: 'plan', name: 'Plan' }] };
 
 function request(method, params) {
@@ -192,7 +193,7 @@ async function play(text) {
     ],
   });
   used += 21000;
-  update({ sessionUpdate: 'usage_update', used, size: 200000, cost: { amount: 0.41 * turn, currency: 'USD' }, _meta: { '_claude/model': 'claude-sonnet-4-6' } });
+  update({ sessionUpdate: 'usage_update', used, size: 200000, cost: { amount: 0.41 * turn, currency: 'USD' }, _meta: { '_claude/model': MODELS.currentModelId } });
   if (!cancelled) await chunks('agent_message_chunk', `Done: ${text.slice(0, 60)}`);
   return cancelled ? 'cancelled' : 'end_turn';
 }
@@ -217,11 +218,14 @@ rl.on('line', async (line) => {
       return reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } }, authMethods: [] });
     case 'session/new':
       session = `fake-${Date.now().toString(36)}`;
-      return reply({ sessionId: session, modes: MODES, configOptions: [{ id: 'model', currentValue: 'claude-sonnet-4-6', options: [] }] });
+      return reply({ sessionId: session, modes: MODES, models: MODELS, configOptions: [{ id: 'model', currentValue: MODELS.currentModelId, options: [] }] });
     case 'session/resume':
     case 'session/load':
       session = m.params.sessionId;
-      return reply({ modes: MODES, configOptions: [{ id: 'model', currentValue: 'claude-sonnet-4-6', options: [] }] });
+      return reply({ modes: MODES, models: MODELS, configOptions: [{ id: 'model', currentValue: MODELS.currentModelId, options: [] }] });
+    case 'session/set_model':
+      MODELS.currentModelId = m.params.modelId;
+      return reply({});
     case 'session/set_mode':
       mode = m.params.modeId;
       update({ sessionUpdate: 'current_mode_update', currentModeId: mode });

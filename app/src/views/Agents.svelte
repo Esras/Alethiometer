@@ -7,6 +7,8 @@
   import type AskCard from './agents/AskCard.svelte';
   import { items } from './agents/items';
   import Keys from './agents/Keys.svelte';
+  import NewLocal from './agents/NewLocal.svelte';
+  import NewScion from './agents/NewScion.svelte';
   import { lookVars } from './agents/look';
   import Pane from './agents/Pane.svelte';
   import { act, ag, look, nodes, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf } from './agents/state.svelte';
@@ -46,6 +48,11 @@
       ag.sel = `g:${gid}`;
     }
     ag.folded = new Set(ag.folded);
+  }
+
+  function closeForm() {
+    ag.form = null;
+    queueMicrotask(() => (ag.open ? composerEl?.focus() : undefined));
   }
 
   function newAgent() {
@@ -213,6 +220,11 @@
   <Tree bind:filterEl onNew={newAgent} />
   <Pane bind:this={pane} bind:composerEl bind:approval bind:ask bind:denying />
   {#if ag.keys}<Keys />{/if}
+  {#if ag.form?.kind === 'scion'}
+    <NewScion group={ag.form.group} room={ag.form.room} onClose={closeForm} />
+  {:else if ag.form?.kind === 'local'}
+    <NewLocal group={ag.form.group} onClose={closeForm} />
+  {/if}
 </div>
 
 <style>

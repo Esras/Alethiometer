@@ -1,11 +1,13 @@
 <script lang="ts">
   import './form.css';
-  // New local session: the same form language as Scion's New agent (05), for
-  // an ACP harness Alethiometer launches itself. The harness signs in its own way.
+  // New local agent in the new-agent modal (05), for an ACP harness
+  // Alethiometer launches itself; the harness signs in its own way. Joins shows
+  // the group it lands in. The model list comes from the harness itself.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
-  import { mod } from '../../lib/keys.svelte';
-  import { act, ag, openThread } from './state.svelte';
+  import Joins from './Joins.svelte';
+  import NewModal from './NewModal.svelte';
+  import { act, ag, groupById, openThread } from './state.svelte';
 
   let { group = null, onClose }: { group?: string | null; onClose: () => void } = $props();
 
@@ -21,7 +23,8 @@
   let dirs = $state<string[]>([]);
   let model = $state('');
   let models = $state<{ id: string; name: string }[]>([]);
-  let modelsNote = $state('');
+  let current = $state('');
+  let loading = $state(false);
   let busy = $state(false);
   let err = $state<string | null>(null);
   let taskEl = $state<HTMLTextAreaElement>();
@@ -43,19 +46,24 @@
     if (!k) return;
     model = '';
     models = [];
-    modelsNote = 'loading…';
+    current = '';
+    loading = true;
     call<{ models: { id: string; name: string }[]; current: string }>('agents.models', { harness: k, cwd: untrack(() => cwd) })
       .then((r) => {
         if (k !== harness) return;
         models = r.models;
-        modelsNote = r.current ? `default ${r.current}` : 'optional';
+        current = r.current;
       })
-      .catch(() => {
-        if (k === harness) modelsNote = 'optional';
+      .catch(() => {})
+      .finally(() => {
+        if (k === harness) loading = false;
       });
   });
 
   const h = $derived(harnesses.find((x) => x.key === harness));
+  const g = $derived(groupId && groupId !== 'new' ? groupById(groupId) : undefined);
+  const members = $derived(g ? (ag.tree?.sessions ?? []).filter((s) => s.group_id === g.id && !s.parent_id) : []);
+  const modelName = (id: string) => models.find((m) => m.id === id)?.name || id;
 
   async function start() {
     if (busy) return;
@@ -82,17 +90,6 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (mod(e) && e.key === 'Enter') {
-      start();
-      e.preventDefault();
-    } else if (e.key === 'Escape') {
-      onClose();
-      e.preventDefault();
-    }
-    e.stopPropagation();
-  }
-
   function chipKey(e: KeyboardEvent) {
     const i = harnesses.findIndex((x) => x.key === harness);
     if (e.key === 'ArrowRight' && i < harnesses.length - 1) harness = harnesses[i + 1].key;
@@ -102,53 +99,62 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="form" onkeydown={onKey}>
-  <div class="top">
-    <i class="ph ph-user-plus"></i><span class="t">New session</span><span class="sub">local · ACP</span><span class="esc">Esc</span>
-  </div>
-  <div class="cols">
-    <div class="fields">
-      <span class="lab">Harness</span>
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <span class="chips" tabindex="0" onkeydown={chipKey}>
-        {#each harnesses as x (x.key)}
-          <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}>{x.label}</button>
-        {/each}
-      </span>
-      <span class="lab">Model</span>
-      <span class="input"><input bind:value={model} list="agent-models" placeholder="default" /><span class="note">{modelsNote}</span></span>
-      <datalist id="agent-models">{#each models as m (m.id)}<option value={m.id}>{m.name}</option>{/each}</datalist>
-      <span class="lab">Name</span>
-      <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
-      <span class="lab">Directory</span>
-      <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">its working directory</span></span>
-      <datalist id="agent-dirs">{#each dirs as d (d)}<option value={d}></option>{/each}</datalist>
-      <span class="lab">Group</span>
-      <span class="input">
-        <select bind:value={groupId}>
-          <option value="">Unsorted</option>
-          {#each groups as g (g.id)}<option value={g.id}>{g.project ? `${g.project} › ` : ''}{g.name}</option>{/each}
-          <option value="new">New group…</option>
+<NewModal sub="local · ACP" onStart={start} {onClose}>
+  <Joins
+    project={g?.project ?? ''}
+    name={groupId === 'new' ? newName || 'New group' : (g?.name ?? 'Unsorted')}
+    goal={groupId === 'new' ? newGoal : (g?.goal ?? '')}
+    host={g?.host ?? ''}
+    {members}
+    newName={name.trim() || `${harness || 'agent'}-…`}
+  />
+  <div class="fields">
+    <span class="lab">Harness</span>
+    <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>
+      {#each harnesses as x (x.key)}
+        <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}>{x.label}</button>
+      {/each}
+    </span>
+    <span class="lab">Model</span>
+    <span class="input">
+      {#if models.length}
+        <select bind:value={model}>
+          <option value="">default{current ? ` · ${modelName(current)}` : ''}</option>
+          {#each models.filter((m) => m.id !== current) as m (m.id)}<option value={m.id}>{m.name || m.id}{m.name && m.name !== m.id ? ` · ${m.id}` : ''}</option>{/each}
         </select>
-      </span>
-      {#if groupId === 'new'}
-        <span class="lab">Group name</span>
-        <span class="input"><input bind:value={newName} placeholder="Settings polish" /></span>
-        <span class="lab">Goal</span>
-        <span class="input"><input bind:value={newGoal} placeholder="Ship Settings; no overlaps" /></span>
+      {:else}
+        <input bind:value={model} placeholder={loading ? 'asking the harness…' : 'default'} />
       {/if}
-    </div>
-    <div class="right">
-      <span class="row-lab"><span class="lab">Task</span><span class="note">first prompt, sent on start</span></span>
-      <textarea bind:this={taskEl} bind:value={task} rows="5" placeholder="What should it do?"></textarea>
-      {#if err}<div class="err">{err}</div>{/if}
-    </div>
+      <span class="note">{loading ? 'from the harness' : models.length ? `${models.length} from ${h?.label ?? 'the harness'}` : 'none listed; type one or leave the default'}</span>
+    </span>
+    <span class="lab">Name</span>
+    <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
+    <span class="lab">Directory</span>
+    <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">its working directory</span></span>
+    <datalist id="agent-dirs">{#each dirs as d (d)}<option value={d}></option>{/each}</datalist>
+    <span class="lab">Group</span>
+    <span class="input">
+      <select bind:value={groupId}>
+        <option value="">Unsorted</option>
+        {#each groups as x (x.id)}<option value={x.id}>{x.project ? `${x.project} › ` : ''}{x.name}</option>{/each}
+        <option value="new">New group…</option>
+      </select>
+    </span>
+    {#if groupId === 'new'}
+      <span class="lab">Group name</span>
+      <span class="input"><input bind:value={newName} placeholder="Settings polish" /></span>
+      <span class="lab">Goal</span>
+      <span class="input"><input bind:value={newGoal} placeholder="Ship Settings; no overlaps" /></span>
+    {/if}
   </div>
-  <div class="foot">
-    <button class="b primary" disabled={busy} onclick={start}>Start session<span class="k">⌘⏎</span></button>
+  <div class="right">
+    <span class="row-lab"><span class="lab">Task</span><span class="note">first prompt, sent on start</span></span>
+    <textarea bind:this={taskEl} bind:value={task} rows="4" placeholder="What should it do?"></textarea>
+    {#if err}<div class="err">{err}</div>{/if}
+  </div>
+  {#snippet foot()}
+    <button class="b primary" disabled={busy} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
     <button class="b" onclick={onClose}>Cancel<span class="k">Esc</span></button>
     <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
-  </div>
-</div>
-
+  {/snippet}
+</NewModal>
