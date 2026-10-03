@@ -34,8 +34,6 @@ pub struct Agents {
     pub acp: acp::Host,
     pub daemon: daemon::Daemon,
     pub scion: scion::Hubs,
-    /// Bumped whenever Incoming's agent signals changed (`agents.incoming_rev`).
-    pub incoming_rev: std::sync::atomic::AtomicU64,
     /// The last set of signals written, so an unchanged store writes nothing.
     pub incoming_print: std::sync::Mutex<String>,
     pub incoming_guess: std::sync::Mutex<Option<std::time::Instant>>,
@@ -353,8 +351,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             }
             Ok(json!({ "ok": true }))
         }
-        // Incoming polls this and reloads when it moves.
-        "incoming_rev" => Ok(json!({ "rev": app.agents.incoming_rev.load(std::sync::atomic::Ordering::SeqCst) })),
         "models" => acp::models(app, &arg_str(args, "harness")?, opt(args, "cwd").unwrap_or("")),
         "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
         // Stop every local agent (Quit no longer does).

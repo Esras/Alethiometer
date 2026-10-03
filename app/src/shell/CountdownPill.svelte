@@ -1,15 +1,12 @@
 <script lang="ts">
   // Reflect has no day strip; only this pill, and only when something is near.
-  import { call } from '../lib/api';
+  import { live } from '../lib/live';
   import { nowMinute, ui, urgencyColor } from '../lib/app.svelte';
   import type { DayStripData } from '../lib/types';
 
   const NEAR_MIN = 30;
   let data = $state<DayStripData | null>(null);
-  $effect(() => {
-    void ui.rev;
-    call<DayStripData>('daystrip.get', {}).then((d) => (data = d));
-  });
+  $effect(() => live<DayStripData>('daystrip.get', {}, (d) => (data = d)));
   const now = $derived.by(() => {
     void ui.nowMs;
     return nowMinute();

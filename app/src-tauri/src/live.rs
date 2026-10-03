@@ -6,9 +6,11 @@
 //! the same on the desktop and in the browser.
 //!
 //! - Commands: `live.subscribe {client, cmd, args}` → `{id, result, seq}`,
-//!   `live.unsubscribe {id}`, `live.wait {client, since}` → `{seq, changed:
-//!   [{id, result}]}` once something changed after `since` (or empty after
-//!   `WAIT`).
+//!   `live.unsubscribe {id}`, `live.wait {client, since, ids}` → `{seq,
+//!   changed: [{id, result, seq}], gone}` once something changed after
+//!   `since` (or empty after `WAIT`). A result's `seq` orders it against
+//!   others for the same subscription; `gone` lists the `ids` the core no
+//!   longer has (dropped while the client was idle), to subscribe again.
 //! - Every subscription is also re-run each `REFRESH`: results that depend on
 //!   the time, and writes no hook here saw (another app on the same data dir).
 //! - A client that stops waiting for `IDLE` has its subscriptions dropped.
@@ -111,7 +113,8 @@ pub fn subscribe(app: &App, client: &str, cmd: &str, args: Value) -> Result<Valu
         app.live.lock().subs.remove(&id);
         return Err(e);
     }
-    let result = app.live.lock().subs.get(&id).map(|s| s.result.clone()).unwrap_or(Value::Null);
+    let st = app.live.lock();
+    let (result, seq) = st.subs.get(&id).map(|s| (s.result.clone(), s.changed)).unwrap_or((Value::Null, seq));
     Ok(json!({ "id": id, "result": result, "seq": seq }))
 }
 
@@ -150,7 +153,8 @@ pub fn unsubscribe(app: &App, id: u64) {
 
 /// The client's subscriptions whose result changed after `since`, once there
 /// are any (or none after `timeout`), and the sequence to wait from next.
-pub fn wait(app: &App, client: &str, since: u64, timeout: Duration) -> Value {
+/// Returns at once if any of `ids` is gone.
+pub fn wait(app: &App, client: &str, since: u64, ids: &[u64], timeout: Duration) -> Value {
     let live = &app.live;
     let deadline = Instant::now() + timeout;
     let mut st = live.lock();
@@ -160,11 +164,12 @@ pub fn wait(app: &App, client: &str, since: u64, timeout: Duration) -> Value {
         for (id, s) in st.subs.iter_mut().filter(|(_, s)| s.client == client) {
             s.seen = now;
             if s.changed > since {
-                changed.push(json!({ "id": id, "result": s.result }));
+                changed.push(json!({ "id": id, "result": s.result, "seq": s.changed }));
             }
         }
-        if !changed.is_empty() || now >= deadline {
-            return json!({ "seq": st.seq, "changed": changed });
+        let gone: Vec<u64> = ids.iter().copied().filter(|id| !st.subs.contains_key(id)).collect();
+        if !changed.is_empty() || !gone.is_empty() || now >= deadline {
+            return json!({ "seq": st.seq, "changed": changed, "gone": gone });
         }
         st = live.cv.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
     }
@@ -221,7 +226,8 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "wait" => {
             let since = args.get("since").and_then(Value::as_u64).unwrap_or(0);
-            Ok(wait(app, &client()?, since, WAIT))
+            let ids: Vec<u64> = args.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+            Ok(wait(app, &client()?, since, &ids, WAIT))
         }
         _ => Err(crate::api::unknown(name)),
     }
@@ -282,12 +288,12 @@ mod tests {
         assert!(rerun_now(&app, &tables) >= 1);
         assert!(ticket(&app, t_id) > t0);
         assert_eq!(ticket(&app, s_id) > s0, strip_reads_topics);
-        let w = wait(&app, "c1", since, Duration::ZERO);
+        let w = wait(&app, "c1", since, &[], Duration::ZERO);
         let pushed = w["changed"].as_array().unwrap();
         let topics_now = pushed.iter().find(|c| c["id"].as_u64() == Some(t_id)).unwrap();
         assert!(topics_now["result"].to_string().contains("Renamed live"));
         // Nothing new since then.
-        assert!(wait(&app, "c1", w["seq"].as_u64().unwrap(), Duration::ZERO)["changed"].as_array().unwrap().is_empty());
+        assert!(wait(&app, "c1", w["seq"].as_u64().unwrap(), &[t_id, s_id], Duration::ZERO)["changed"].as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -301,6 +307,15 @@ mod tests {
         });
         assert!(r.is_err());
         assert!(changed(&app).is_empty());
+    }
+
+    #[test]
+    fn a_dropped_subscription_is_reported_gone() {
+        let (app, _d) = app();
+        let id = subscribe(&app, "c1", "topics.list", json!({})).unwrap()["id"].as_u64().unwrap();
+        unsubscribe(&app, id);
+        let w = wait(&app, "c1", 0, &[id], Duration::from_secs(5));
+        assert_eq!(w["gone"], json!([id]));
     }
 
     #[test]

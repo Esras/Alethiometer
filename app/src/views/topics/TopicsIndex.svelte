@@ -9,6 +9,7 @@
   // written when you leave the index (lib/merges.svelte.ts).
   import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
+  import { live } from '../../lib/live';
   import { catColor, category, meetingPill, refresh, ui, UNCATEGORIZED } from '../../lib/app.svelte';
   import { plain, pointerMoved, useKeys } from '../../lib/keys.svelte';
   import { cancelMerge, mergingAway, merges, pendingMerge, stageMerge } from '../../lib/merges.svelte';
@@ -34,18 +35,8 @@
   // Picking the topic to merge the selected one into.
   let merging = $state<TopicRow | null>(null);
 
-  $effect(() => {
-    void ui.rev;
-    const a = archived;
-    call<TopicRow[]>('topics.list', { archived: a }).then((r) => {
-      if (archived === a) rows = r;
-    });
-  });
-
-  $effect(() => {
-    void ui.rev;
-    call<CategoryRow[]>('categories.list').then((c) => (cats = c));
-  });
+  $effect(() => live<TopicRow[]>('topics.list', { archived }, (r) => (rows = r)));
+  $effect(() => live<CategoryRow[]>('categories.list', {}, (c) => (cats = c)));
 
 
   const matches = $derived.by(() => {

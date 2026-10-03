@@ -1,6 +1,7 @@
 <script lang="ts">
   import { call, openExternal } from '../lib/api';
-  import { catColor, openTopic, refresh, ui } from '../lib/app.svelte';
+  import { live } from '../lib/live';
+  import { catColor, openTopic, refresh } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
@@ -49,22 +50,19 @@
   let asked = false;
   const focusEl = (el: HTMLInputElement) => el.select();
 
-  async function load() {
-    const d = await call<TodosData>('todos.list');
+  // Kept current by the core (lib/live.ts): writes here and elsewhere show up on their own.
+  async function apply(d: TodosData) {
     const kept = todos.filter((t) => struck.has(t.item_id) && !d.todos.some((n) => n.item_id === t.item_id));
     todos = [...d.todos, ...kept];
     jira = d.jira;
     if (!asked && d.todos.some((t) => !t.estimate)) {
       asked = true;
-      const r = await call<{ estimated: number }>('ai.estimate_todos').catch(() => ({ estimated: 0 }));
-      if (r.estimated) load();
+      // What it estimates arrives as a new result.
+      await call('ai.estimate_todos').catch(() => {});
     }
   }
 
-  $effect(() => {
-    void ui.rev;
-    load();
-  });
+  $effect(() => live<TodosData>('todos.list', {}, apply));
 
   async function setEstimate(t: Todo, value: string) {
     const minutes = parseDur(value);
@@ -77,7 +75,6 @@
       await call('todos.estimate', { item_id: t.item_id, minutes });
       err = null;
       asked = minutes !== null && asked;
-      load();
     } catch (e) {
       err = String((e as Error).message ?? e);
     }

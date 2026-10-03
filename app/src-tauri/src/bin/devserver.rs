@@ -34,15 +34,20 @@ fn main() -> anyhow::Result<()> {
             let _ = req.respond(Response::from_string(why).with_status_code(403));
             continue;
         }
-        let cmd = req.url().trim_start_matches("/call/").to_string();
-        let mut body = String::new();
-        let _ = req.as_reader().read_to_string(&mut body);
-        let args: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-        let (status, out) = match alethiometer_lib::api::call(&app, &cmd, &args) {
-            Ok(v) => (200, v),
-            Err(e) => (400, serde_json::json!({ "error": e.to_string() })),
-        };
-        let _ = req.respond(Response::from_string(out.to_string()).with_status_code(status).with_header(json_h.clone()));
+        // Each call on its own thread, as in the desktop app: `live.wait`
+        // holds its request open for up to 25 s.
+        let (app, json_h) = (app.clone(), json_h.clone());
+        std::thread::spawn(move || {
+            let cmd = req.url().trim_start_matches("/call/").to_string();
+            let mut body = String::new();
+            let _ = req.as_reader().read_to_string(&mut body);
+            let args: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+            let (status, out) = match alethiometer_lib::api::call(&app, &cmd, &args) {
+                Ok(v) => (200, v),
+                Err(e) => (400, serde_json::json!({ "error": e.to_string() })),
+            };
+            let _ = req.respond(Response::from_string(out.to_string()).with_status_code(status).with_header(json_h));
+        });
     }
     Ok(())
 }

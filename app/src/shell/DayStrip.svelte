@@ -3,6 +3,7 @@
   // Every block is faded; meetings linked to the current topic return to full
   // strength with an aqua ring. Life blocks are untitled blue hatching.
   import { call } from '../lib/api';
+  import { live } from '../lib/live';
   import { catColor, hm, nowMinute, ui, urgencyColor } from '../lib/app.svelte';
   import { useKeys } from '../lib/keys.svelte';
   import type { Block, DayStripData } from '../lib/types';
@@ -12,11 +13,7 @@
   let editingBuffer = $state(false);
   let bufferInput = $state('');
 
-  $effect(() => {
-    const topicId = ui.topicId;
-    void ui.rev;
-    call<DayStripData>('daystrip.get', { topic_id: topicId }).then((d) => (data = d));
-  });
+  $effect(() => live<DayStripData>('daystrip.get', { topic_id: ui.topicId }, (d) => (data = d)));
 
   const span = $derived(data ? data.day_end_min - data.day_start_min : 660);
   const pct = (min: number) => (data ? Math.max(0, Math.min(100, ((min - data.day_start_min) / span) * 100)) : 0);
@@ -132,7 +129,6 @@
     await call('daystrip.set_buffer', { event_id: popover.id, minutes });
     popover = { ...popover, buffer_min: minutes };
     editingBuffer = false;
-    ui.rev++;
   }
 
   useKeys((e) => {

@@ -21,7 +21,6 @@ use crate::sync::{self, Batch, ItemUpsert, Message};
 use crate::domain::ports::UnitOfWork;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::Ordering;
 
 pub const KIND: &str = "agents";
 
@@ -310,7 +309,6 @@ pub fn sync(app: &App) -> Result<bool> {
         }
         file(uow, sid, &fresh)
     })?;
-    app.agents.incoming_rev.fetch_add(1, Ordering::SeqCst);
     if needs_guess {
         suggest_later(app);
     }
@@ -357,7 +355,6 @@ fn suggest_later(app: &App) {
         if let Err(e) = crate::ai::call(&app, "suggest_topics", &json!({ "limit": 10 })) {
             eprintln!("agents: topic suggestions: {e}");
         }
-        app.agents.incoming_rev.fetch_add(1, Ordering::SeqCst);
     });
 }
 

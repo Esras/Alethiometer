@@ -19,6 +19,7 @@
   // across topics. Open, 1–9 pick the agent's answers, r replies, o opens it
   // in Agents. An answered row keeps a check until you move off it.
   import { call, openExternal } from '../lib/api';
+  import { live as liveQuery } from '../lib/live';
   import { tick, untrack } from 'svelte';
   import { catColor, category, refresh, setTab, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
@@ -121,24 +122,9 @@
   const topicName = $derived(entries.find((e) => e.key === selKey)?.name ?? '');
   const splittable = (s: Signal | null) => unsorted && !!s && s.source !== 'gmail' && s.messages.length > 1;
 
-  $effect(() => {
-    void ui.rev;
-    call<Queue>('incoming.list').then(apply);
-  });
-
-  // Agent signals change with the agents, not a sync: reload when they move.
-  $effect(() => {
-    let rev = -1;
-    const t = setInterval(() => {
-      call<{ rev: number }>('agents.incoming_rev')
-        .then((r) => {
-          if (rev >= 0 && r.rev !== rev) refresh();
-          rev = r.rev;
-        })
-        .catch(() => {});
-    }, 2000);
-    return () => clearInterval(t);
-  });
+  // Kept current by the core (lib/live.ts): syncs, agents and writes here
+  // all show up on their own.
+  $effect(() => liveQuery<Queue>('incoming.list', {}, apply));
 
   const hasAgents = (q: Queue | null) => !!q && (q.agents.length > 0 || [...q.unsorted, ...q.topics.flatMap((t) => t.signals)].some((s) => s.agent));
   function loadLive() {
