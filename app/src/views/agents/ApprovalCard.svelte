@@ -15,8 +15,11 @@
 
   // Long pipelines read better one stage per line, as the design shows them.
   const pretty = $derived(req.command.length > 70 && req.command.includes(' | ') ? req.command.replace(/\s+\|\s+/g, ' \\\n  | ') : req.command);
-  const allow = $derived(req.options.filter((o) => o.kind.startsWith('allow')));
-  const deny = $derived(req.options.find((o) => o.kind.startsWith('reject')));
+  type Option = Request['options'][number];
+  const isDeny = (o: Option) => o.kind.startsWith('reject');
+  // The first plain allow is the default; a connector that marks every choice allow_once gets none.
+  const primary = $derived(req.options.filter((o) => o.kind === 'allow_once').length === 1 ? req.options.find((o) => o.kind === 'allow_once') : undefined);
+  let denyOpt = $state<Option>();
   const verdictClass = (v: string) => (v === 'read-only' ? 'green' : v === 'unknown' ? 'yellow' : 'orange');
   const tagClass = (t: string) =>
     ['reads files', 'reads git'].includes(t) ? 'blue' : ['local bin'].includes(t) ? 'green' : ['shell per file', 'runs shell', 'env', 'unknown command'].includes(t) ? 'yellow' : 'orange';
@@ -24,7 +27,8 @@
   export function choose(key: string) {
     const o = req.options.find((o) => o.key === key);
     if (!o) return false;
-    if (o.kind.startsWith('reject')) {
+    if (isDeny(o)) {
+      denyOpt = o;
       denying = true;
       return true;
     }
@@ -33,17 +37,15 @@
   }
 
   function sendDeny() {
-    if (!deny) return;
-    act('respond', { request: req.id, option: deny.id, reason }).catch(() => {});
+    const o = denyOpt ?? req.options.find(isDeny);
+    if (!o) return;
+    act('respond', { request: req.id, option: o.id, reason }).catch(() => {});
     denying = false;
     reason = '';
   }
 
-  const label = (o: Request['options'][number]) => {
-    if (o.kind === 'allow_once') return 'Allow once';
-    if (o.kind === 'allow_always' && o.name.toLowerCase().includes('session')) return 'This session';
-    return `Always: ${o.name}`;
-  };
+  // The agent's own words: a connector that gets the kinds wrong can't make "No" read as "Allow once".
+  const label = (o: Option) => o.name.trim() || (isDeny(o) ? 'Deny' : o.kind === 'allow_once' ? 'Allow once' : 'Always');
 </script>
 
 {#if compact}
@@ -131,10 +133,9 @@
       </div>
     {:else}
       <div class="btns">
-        {#each allow as o (o.id)}
-          <button class="b" class:primary={o.kind === 'allow_once'} title={o.name} onclick={() => choose(o.key)}>{label(o)}{#if o.key}<span class="k">{o.key.toUpperCase()}</span>{/if}</button>
+        {#each req.options as o (o.id)}
+          <button class="b" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<span class="k">{o.key}</span>{/if}</button>
         {/each}
-        {#if deny}<button class="b" title={deny.name} onclick={() => choose(deny.key)}>Deny…{#if deny.key}<span class="k">{deny.key}</span>{/if}</button>{/if}
         <span class="right">Esc later</span>
       </div>
     {/if}
