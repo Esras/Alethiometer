@@ -55,21 +55,15 @@ impl NotesViews for Sql<'_> {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let mut topics: Vec<TopicText> = c
-            .prepare_cached("SELECT id, name, category, obsidian_path FROM topics WHERE archived_at IS NULL ORDER BY coalesce(score, 0) DESC, name")?
+            .prepare_cached(
+                "SELECT id, name, category, obsidian_path, corpus_rev FROM topics WHERE archived_at IS NULL ORDER BY coalesce(score, 0) DESC, name",
+            )?
             .query_map([], |r| {
-                Ok(TopicText { id: r.get(0)?, name: r.get(1)?, category: r.get(2)?, obsidian_path: r.get(3)?, text: String::new(), people: vec![] })
+                Ok(TopicText { id: r.get(0)?, name: r.get(1)?, category: r.get(2)?, obsidian_path: r.get(3)?, corpus_rev: r.get(4)?, people: vec![] })
             })?
             .collect::<rusqlite::Result<_>>()?;
-        let mut items = c.prepare_cached(
-            "SELECT i.title, coalesce(i.summary, ''), i.body FROM topic_links tl JOIN items i ON i.id = tl.item_id
-              WHERE tl.topic_id = ?1 AND tl.state != 'wrong'",
-        )?;
         let mut linked = c.prepare_cached("SELECT person_id FROM topic_people WHERE topic_id = ?1")?;
         for t in &mut topics {
-            for r in items.query_map([t.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
-                let (a, b, c) = r?;
-                t.text.push_str(&format!("{a}\n{b}\n{c}\n"));
-            }
             t.people = linked.query_map([t.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         }
         let issues = c
@@ -81,6 +75,19 @@ impl NotesViews for Sql<'_> {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         Ok(Corpus { people, topics, issues })
+    }
+
+    fn topic_text(&self, topic_id: i64) -> Result<String> {
+        let mut text = String::new();
+        let mut items = self.conn().prepare_cached(
+            "SELECT i.title, coalesce(i.summary, ''), i.body FROM topic_links tl JOIN items i ON i.id = tl.item_id
+              WHERE tl.topic_id = ?1 AND tl.state != 'wrong'",
+        )?;
+        for r in items.query_map([topic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
+            let (a, b, c) = r?;
+            text.push_str(&format!("{a}\n{b}\n{c}\n"));
+        }
+        Ok(text)
     }
 
     fn page_counts(&self, date: Date) -> Result<(i64, i64)> {

@@ -27,6 +27,8 @@ pub struct App {
     pub agents: crate::agents::Agents,
     /// One sync worker per source (`sync::worker`).
     pub workers: crate::sync::worker::Workers,
+    /// The Notes suggestion index's per-topic words (`queries::notes`).
+    pub notes_index: crate::queries::notes::IndexCache,
     settings_state: Mutex<crate::settings::live::State>,
     /// Set by `shared`, so code holding `&App` can start background work.
     this: OnceLock<std::sync::Weak<App>>,
@@ -82,6 +84,7 @@ impl App {
             embed: Default::default(),
             agents: Default::default(),
             workers: Default::default(),
+            notes_index: Default::default(),
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };

@@ -91,8 +91,59 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 
 /// The suggestion index: the database's part on a snapshot, then the topics' notes from the vault.
 fn index(app: &App) -> Result<Index> {
-    let corpus = app.store().read(|r| r.notes().corpus())?;
-    Ok(Index::build(corpus, &app.vault))
+    let snap = app.store().read(|r| snapshot(&app.notes_index, r))?;
+    Ok(Index::build(&app.notes_index, snap, &app.vault))
+}
+
+/// Each topic's words, kept between requests: its linked items' by the
+/// topic's corpus revision (the database bumps it), its note's by the note's
+/// modification time. A page load re-reads only what changed; before, every
+/// load read and split every linked item of every topic (2 s at 200k items).
+#[derive(Default)]
+pub struct IndexCache(std::sync::Mutex<CacheState>);
+
+#[derive(Default)]
+struct CacheState {
+    /// People's names, whose words are left out of every topic's.
+    names: Vec<(i64, String)>,
+    topics: HashMap<i64, CachedTopic>,
+}
+
+#[derive(Default)]
+struct CachedTopic {
+    corpus_rev: i64,
+    item_words: HashSet<String>,
+    note: Option<(String, Option<std::time::SystemTime>)>,
+    note_words: HashSet<String>,
+    /// Both, without people's names.
+    words: std::sync::Arc<HashSet<String>>,
+}
+
+impl IndexCache {
+    fn lock(&self) -> std::sync::MutexGuard<'_, CacheState> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// The database's part of the index: the corpus, and the linked items' text of
+/// topics whose revision the cache hasn't seen.
+struct Snapshot {
+    corpus: Corpus,
+    texts: HashMap<i64, String>,
+}
+
+fn snapshot(cache: &IndexCache, r: &dyn crate::domain::ports::Reads) -> Result<Snapshot> {
+    let corpus = r.notes().corpus()?;
+    let stale: Vec<i64> = {
+        let c = cache.lock();
+        let names_changed = c.names != corpus.people;
+        corpus.topics.iter().filter(|t| names_changed || c.topics.get(&t.id).is_none_or(|x| x.corpus_rev != t.corpus_rev)).map(|t| t.id).collect()
+    };
+    let mut texts = HashMap::new();
+    for id in stale {
+        texts.insert(id, r.notes().topic_text(id)?);
+    }
+    Ok(Snapshot { corpus, texts })
 }
 
 fn page_date(app: &App, args: &Value) -> Result<Date> {
@@ -134,12 +185,12 @@ fn effective(idx: &Index, r: &NoteLine) -> Option<Target> {
 
 fn page(app: &App, date: Date, keys: &HashMap<i64, String>) -> Result<Value> {
     let today = app.clock.today();
-    let (rows, mut jira, corpus) = app.store().read(|r| {
+    let (rows, mut jira, snap) = app.store().read(|r| {
         let rows = r.notes().lines(date)?;
         let ids: Vec<i64> = rows.iter().map(|l| l.id).collect();
-        Ok((rows, r.notes().jira_requests(&ids)?, r.notes().corpus()?))
+        Ok((rows, r.notes().jira_requests(&ids)?, snapshot(&app.notes_index, r)?))
     })?;
-    let idx = Index::build(corpus, &app.vault);
+    let idx = Index::build(&app.notes_index, snap, &app.vault);
     let lines: Vec<Line> = rows
         .iter()
         .map(|r| Line {
@@ -391,7 +442,7 @@ struct TopicDoc {
     name: String,
     category: String,
     name_words: HashSet<String>,
-    words: HashSet<String>,
+    words: std::sync::Arc<HashSet<String>>,
     people: HashSet<i64>,
 }
 
@@ -469,24 +520,51 @@ fn mention(text: &str) -> Option<String> {
 }
 
 impl Index {
-    /// From the database's part and each topic's note in the vault.
-    fn build(corpus: Corpus, vault: &Path) -> Index {
-        let mut people: Vec<PersonDoc> = corpus.people.into_iter().map(|(id, name)| PersonDoc { id, name, topics: vec![] }).collect();
+    /// From the database's part and each topic's note in the vault, reusing
+    /// what the cache holds for topics that didn't change.
+    fn build(cache: &IndexCache, snap: Snapshot, vault: &Path) -> Index {
+        let Snapshot { corpus, mut texts } = snap;
+        let mut people: Vec<PersonDoc> = corpus.people.iter().map(|(id, name)| PersonDoc { id: *id, name: name.clone(), topics: vec![] }).collect();
         let names: HashSet<String> = people.iter().flat_map(|p| words(&p.name)).collect();
+        let without_names = |ws: Vec<String>| -> HashSet<String> { ws.into_iter().filter(|w| !names.contains(w)).collect() };
+        let mut c = cache.lock();
+        if c.names != corpus.people {
+            c.topics.clear();
+            c.names = corpus.people.clone();
+        }
+        c.topics.retain(|id, _| corpus.topics.iter().any(|t| t.id == *id));
         let mut topics: Vec<TopicDoc> = vec![];
         for t in corpus.topics {
-            let mut text = t.text;
-            if let Some(p) = &t.obsidian_path {
-                text.push_str(&std::fs::read_to_string(vault.join(p)).unwrap_or_default());
+            let entry = c.topics.entry(t.id).or_default();
+            let mut changed = false;
+            if let Some(text) = texts.remove(&t.id) {
+                // A request that read a newer revision meanwhile wins.
+                if t.corpus_rev >= entry.corpus_rev {
+                    entry.item_words = without_names(words(&text));
+                    entry.corpus_rev = t.corpus_rev;
+                    changed = true;
+                }
             }
-            let name_words: HashSet<String> = words(&t.name).into_iter().filter(|w| !names.contains(w)).collect();
-            let words: HashSet<String> = words(&text).into_iter().filter(|w| !names.contains(w)).collect();
+            let note = t.obsidian_path.as_ref().map(|p| (p.clone(), std::fs::metadata(vault.join(p)).and_then(|m| m.modified()).ok()));
+            if entry.note != note {
+                entry.note_words = match &note {
+                    Some((p, _)) => without_names(words(&std::fs::read_to_string(vault.join(p)).unwrap_or_default())),
+                    None => HashSet::new(),
+                };
+                entry.note = note;
+                changed = true;
+            }
+            if changed {
+                entry.words = std::sync::Arc::new(entry.item_words.union(&entry.note_words).cloned().collect());
+            }
+            let name_words: HashSet<String> = without_names(words(&t.name));
             let tpeople: HashSet<i64> = t.people.into_iter().collect();
             for p in people.iter_mut().filter(|p| tpeople.contains(&p.id)) {
                 p.topics.push(t.id);
             }
-            topics.push(TopicDoc { id: t.id, name: t.name, category: t.category, name_words, words, people: tpeople });
+            topics.push(TopicDoc { id: t.id, name: t.name, category: t.category, name_words, words: entry.words.clone(), people: tpeople });
         }
+        drop(c);
         let mut issues = vec![];
         for (title, topic_id) in corpus.issues {
             if let Some(c) = key_re().captures(&title) {
@@ -779,6 +857,32 @@ mod tests {
         assert_eq!(by_text(&p, "3y deal")["target"]["label"], "Datadog renewal");
         assert_eq!(by_text(&p, "book dentist")["target"]["app"], "marvin");
         assert_eq!(by_text(&p, "@Lee")["target"]["label"], "Q4 headcount");
+    }
+
+    #[test]
+    fn suggestions_follow_new_links_item_edits_and_note_edits() {
+        let (app, _dir) = app();
+        let suggest = |text: &str| call(&app, "suggest", &json!({ "text": text, "kind": "note" })).unwrap()["label"].as_str().map(str::to_owned);
+        let topic = |name: &str| -> i64 { app.db().query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap() };
+        // Builds the cache: nothing mentions the word yet.
+        assert_eq!(suggest("zanzibar contract"), None);
+        // A signal about it is filed under Conference CFP.
+        let item: i64 = app.db().query_row("SELECT id FROM items WHERE title = 'CFP deadline Nov 15'", [], |r| r.get(0)).unwrap();
+        app.db().execute("UPDATE items SET body = 'Zanzibar contract terms attached' WHERE id = ?1", [item]).unwrap();
+        assert_eq!(suggest("zanzibar contract").as_deref(), Some("Conference CFP"), "a linked item's edited text counts");
+        // Its note mentions another word (written later, so its modification time moves).
+        let q4 = topic("Q4 planning");
+        let note: String = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0)).unwrap();
+        let path = app.vault.join(note);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "## Asks\n- mangosteen budget line\n").unwrap();
+        let f = std::fs::File::options().write(true).open(&path).unwrap();
+        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+        assert_eq!(suggest("mangosteen budget").as_deref(), Some("Q4 planning"), "an edited note counts");
+        // A new link moves the signal to another topic.
+        let career = topic("Career");
+        app.db().execute("UPDATE topic_links SET topic_id = ?2 WHERE item_id = ?1", rusqlite::params![item, career]).unwrap();
+        assert_eq!(suggest("zanzibar contract").as_deref(), Some("Career"), "a moved link counts");
     }
 
     #[test]

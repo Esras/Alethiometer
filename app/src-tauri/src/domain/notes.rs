@@ -82,15 +82,17 @@ pub struct JiraRequest {
     pub url: Option<String>,
 }
 
-/// A topic's words for matching lines to it (its note is read separately).
+/// A topic as the Notes suggestion index matches lines against it. Its
+/// linked items' text is read separately (`NotesViews::topic_text`), only
+/// when `corpus_rev` moved; its note is read from the vault.
 #[derive(Debug, Clone)]
 pub struct TopicText {
     pub id: i64,
     pub name: String,
     pub category: String,
     pub obsidian_path: Option<String>,
-    /// Titles, summaries and bodies of its linked items.
-    pub text: String,
+    /// Bumped by the database when its links or a linked item's text change.
+    pub corpus_rev: i64,
     /// People linked to it by hand.
     pub people: Vec<i64>,
 }
@@ -111,6 +113,8 @@ pub trait NotesViews {
     /// The latest Jira task request per line.
     fn jira_requests(&self, line_ids: &[i64]) -> Result<HashMap<i64, JiraRequest>>;
     fn corpus(&self) -> Result<Corpus>;
+    /// Titles, summaries and bodies of a topic's linked items.
+    fn topic_text(&self, topic_id: i64) -> Result<String>;
     /// Lines on a day's page, and how many of them are held.
     fn page_counts(&self, date: Date) -> Result<(i64, i64)>;
 }
