@@ -31,6 +31,7 @@ pub mod schema;
 pub mod search;
 pub mod sources;
 pub mod splits;
+pub mod suggest;
 pub mod todos;
 pub mod topics;
 pub mod usage;
@@ -209,6 +210,7 @@ ports!(Reads {
     reflect: crate::domain::reflect::ReflectViews,
     search: crate::domain::search::SearchViews,
     sources: crate::domain::sources::SourceViews,
+    suggest: crate::domain::suggest::SuggestViews,
     todos: crate::domain::todos::TodoViews,
     topics: crate::domain::topics::TopicViews,
     usage: crate::domain::usage::UsageViews,
@@ -227,6 +229,7 @@ ports!(UnitOfWork {
     reflections: crate::domain::reflect::Reflections,
     sources: crate::domain::sources::Sources,
     splits: crate::domain::splits::Splits,
+    suggest_runs: crate::domain::suggest::SuggestRuns,
     todos: crate::domain::todos::Todos,
     topics: crate::domain::topics::Topics,
     usage: crate::domain::usage::Usage,

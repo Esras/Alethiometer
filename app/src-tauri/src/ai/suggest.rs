@@ -37,7 +37,8 @@ use super::context::{clip, note_gist};
 use super::{Deps, Tier};
 use crate::error::Result;
 use crate::state::App;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::domain::suggest::{ContextMessage, PromptMessage, UnsortedItem};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -123,133 +124,77 @@ struct TopicInfo {
     gist: String,
 }
 
-/// (item id, source kind, item kind, title, summary, parent id)
-type UnsortedRow = (i64, String, String, String, Option<String>, Option<i64>);
-
-/// Unsorted = unseen work item with no link other than `wrong` (same rule as Incoming).
-fn unsorted(conn: &Connection, limit: usize) -> Result<Vec<UnsortedRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT i.id, s.kind, i.kind, i.title, i.summary, i.parent_id
-           FROM items i JOIN sources s ON s.id = i.source_id
-          WHERE i.seen = 0 AND s.tag = 'work'
-            AND NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong')
-          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC
-          LIMIT ?1",
-    )?;
-    let rows = stmt
-        .query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
+/// What one Unsorted item's prompt is built from.
+struct ItemData {
+    item: UnsortedItem,
+    wrong: Vec<i64>,
+    msgs: Vec<PromptMessage>,
+    /// Replies by the id of the message they reply to, oldest first.
+    threads: std::collections::HashMap<i64, Vec<PromptMessage>>,
+    earlier: Vec<ContextMessage>,
 }
 
-fn topics(conn: &Connection, vault: &std::path::Path) -> Result<Vec<TopicInfo>> {
-    let mut stmt = conn.prepare("SELECT id, name, obsidian_path FROM topics WHERE archived_at IS NULL ORDER BY name")?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows
+/// Build one prompt per item: the data from one snapshot, the topics'
+/// notes read after it closes. No network here.
+fn prepare(app: &App, limit: usize) -> Result<Vec<Pending>> {
+    let (topics, cats, items) = app.store().read(|r| {
+        let topics = r.context().topics_overview()?;
+        let cats = r.categories().list()?;
+        let mut items = vec![];
+        for item in r.suggest().unsorted(limit)? {
+            let mut threads: std::collections::HashMap<i64, Vec<PromptMessage>> = std::collections::HashMap::new();
+            for (parent, m) in r.suggest().replies(item.id)? {
+                threads.entry(parent).or_default().push(m);
+            }
+            items.push(ItemData {
+                wrong: r.suggest().wrong_topics(item.id)?,
+                msgs: r.suggest().own_messages(item.id)?,
+                earlier: r.suggest().context_messages(item.id)?,
+                threads,
+                item,
+            });
+        }
+        Ok((topics, cats, items))
+    })?;
+    let notes = super::context::Notes::read(&app.vault, topics.iter().filter_map(|t| t.note_path.clone()));
+    let all: Vec<TopicInfo> = topics
         .into_iter()
-        .map(|(id, name, path)| {
-            let note = path.map(|p| std::fs::read_to_string(vault.join(p)).unwrap_or_default()).unwrap_or_default();
-            TopicInfo { id, name, gist: note_gist(&note) }
-        })
-        .collect())
-}
-
-fn wrong_topics(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
-    let mut stmt = conn.prepare("SELECT topic_id FROM topic_links WHERE item_id = ?1 AND state = 'wrong'")?;
-    let ids = stmt.query_map([item_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<i64>>>()?;
-    Ok(ids)
-}
-
-/// (id, at, author, text), oldest first. Thread replies aren't listed: they
-/// go with their parent (`replies`).
-fn item_messages(conn: &Connection, item_id: i64) -> Result<Vec<(i64, String, String, String)>> {
-    let mut stmt =
-        conn.prepare_cached("SELECT id, at, author, text FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id")?;
-    let rows = stmt
-        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
-
-/// Thread replies by parent message id: (at, author, text), oldest first.
-type Replies = std::collections::HashMap<i64, Vec<(String, String, String)>>;
-
-fn replies(conn: &Connection, item_id: i64) -> Result<Replies> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT p.id, r.at, r.author, r.text FROM item_messages r
-           JOIN item_messages p ON p.item_id = r.item_id AND p.ext_key = r.reply_to AND p.reply_to IS NULL AND p.context = 0
-          WHERE r.item_id = ?1 ORDER BY r.at, r.id",
-    )?;
-    let mut out = Replies::new();
-    for row in stmt.query_map([item_id], |r| Ok((r.get::<_, i64>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?))))? {
-        let (parent, m) = row?;
-        out.entry(parent).or_default().push(m);
-    }
-    Ok(out)
-}
-
-fn context_messages(conn: &Connection, item_id: i64) -> Result<Vec<(String, String, String, Option<String>)>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT m.at, m.author, m.text,
-                (SELECT t.name FROM item_messages o
-                   JOIN items oi ON oi.id = o.item_id
-                   JOIN topic_links l ON l.item_id = oi.id AND l.state = 'confirmed'
-                   JOIN topics t ON t.id = l.topic_id
-                  WHERE o.ext_key = m.ext_key AND o.context = 0 AND oi.source_id = i.source_id AND oi.id != i.id
-                  LIMIT 1)
-           FROM item_messages m JOIN items i ON i.id = m.item_id
-          WHERE m.item_id = ?1 AND m.context = 1 ORDER BY m.at, m.id",
-    )?;
-    let rows = stmt
-        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
-
-/// Build one prompt per item. Held under the DB lock; no network here.
-fn prepare(conn: &Connection, clock: &crate::clock::Clock, vault: &std::path::Path, limit: usize) -> Result<Vec<Pending>> {
+        .map(|t| TopicInfo { gist: t.note_path.as_deref().map(|p| note_gist(notes.get(p))).unwrap_or_default(), id: t.id, name: t.name })
+        .collect();
     // Message times as the user reads them: wall-clock "HH:MM" here.
-    let hm = |at: &str| crate::time::Ts::parse(at).map(|t| clock.local(t).strftime("%H:%M").to_string()).unwrap_or_else(|| at.to_owned());
-    let all = topics(conn, vault)?;
-    let cats = crate::domain::ports::Reads::categories(&crate::store::over(conn)).list()?;
+    let hm = |at: crate::time::Ts| app.clock.local(at).strftime("%H:%M").to_string();
     let mut out = vec![];
-    for (item_id, source, kind, title, summary, parent) in unsorted(conn, limit)? {
-        let wrong = wrong_topics(conn, item_id)?;
+    for ItemData { item, wrong, msgs, threads, earlier } in items {
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
-        let msgs = item_messages(conn, item_id)?;
-        let threads = replies(conn, item_id)?;
         let thread_of = |p: &mut String, id: i64| {
             let rs = threads.get(&id).map(Vec::as_slice).unwrap_or_default();
-            for (at, author, text) in &rs[rs.len().saturating_sub(REPLIES_SHOWN)..] {
-                let _ = writeln!(p, "    reply {} {}: {}", hm(at), clip(author, 40), clip(text, 240));
+            for m in &rs[rs.len().saturating_sub(REPLIES_SHOWN)..] {
+                let _ = writeln!(p, "    reply {} {}: {}", hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
             }
         };
-        let earlier = context_messages(conn, item_id)?;
-        let splittable = parent.is_none() && kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
-        let mut p = format!("Item\nSource: {source} {kind}\nTitle: {}\n", clip(&title, 300));
-        if let Some(s) = summary.filter(|s| !s.trim().is_empty()) {
+        let splittable = item.parent_id.is_none() && item.kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
+        let mut p = format!("Item\nSource: {} {}\nTitle: {}\n", item.source_kind, item.kind, clip(&item.title, 300));
+        if let Some(s) = item.summary.filter(|s| !s.trim().is_empty()) {
             let _ = writeln!(p, "Summary: {}", clip(&s, 300));
         }
         if !earlier.is_empty() {
             p.push_str("\nEarlier in the conversation (context only, not part of this item; [topic] where the user filed it):\n");
-            for (at, author, text, topic) in &earlier {
-                let filed = topic.as_ref().map(|t| format!(" [{}]", clip(t, 60))).unwrap_or_default();
-                let _ = writeln!(p, "{} {}: {}{filed}", hm(at), clip(author, 40), clip(text, 240));
+            for m in &earlier {
+                let filed = m.topic.as_ref().map(|t| format!(" [{}]", clip(t, 60))).unwrap_or_default();
+                let _ = writeln!(p, "{} {}: {}{filed}", hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
             }
         }
         if splittable {
             p.push_str("\nMessages (numbered, oldest first; a message's thread replies are indented under it and go with it):\n");
-            for (i, (id, at, author, text)) in msgs.iter().enumerate() {
-                let _ = writeln!(p, "{}. {} {}: {}", i + 1, hm(at), clip(author, 40), clip(text, 240));
-                thread_of(&mut p, *id);
+            for (i, m) in msgs.iter().enumerate() {
+                let _ = writeln!(p, "{}. {} {}: {}", i + 1, hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
+                thread_of(&mut p, m.id);
             }
         } else if !msgs.is_empty() {
             p.push_str("\nRecent messages:\n");
-            for (id, at, author, text) in &msgs[msgs.len().saturating_sub(CONTEXT_MSGS)..] {
-                let _ = writeln!(p, "{} {}: {}", hm(at), clip(author, 40), clip(text, 240));
-                thread_of(&mut p, *id);
+            for m in &msgs[msgs.len().saturating_sub(CONTEXT_MSGS)..] {
+                let _ = writeln!(p, "{} {}: {}", hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
+                thread_of(&mut p, m.id);
             }
         }
         let not_about: Vec<&str> = all.iter().filter(|t| wrong.contains(&t.id)).map(|t| t.name.as_str()).collect();
@@ -272,10 +217,10 @@ fn prepare(conn: &Connection, clock: &crate::clock::Clock, vault: &std::path::Pa
             }
         }
         out.push(Pending {
-            item_id,
+            item_id: item.id,
             prompt: p,
             candidates: candidates.iter().map(|t| t.id).collect(),
-            split_ids: if splittable { msgs.iter().map(|m| m.0).collect() } else { vec![] },
+            split_ids: if splittable { msgs.iter().map(|m| m.id).collect() } else { vec![] },
         });
     }
     Ok(out)
@@ -434,27 +379,14 @@ pub fn plan(groups: Vec<Group>, n: usize) -> Plan {
 
 /// Store a suggestion unless the item got a live link meanwhile. Never touches an
 /// existing row, so `wrong` and `confirmed` verdicts stand.
-fn store(conn: &Connection, s: &Suggested) -> Result<bool> {
-    let n = conn.execute(
-        "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
-         SELECT ?1, ?2, 'suggested', ?3, ?4
-          WHERE NOT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')
-         ON CONFLICT (item_id, topic_id) DO NOTHING",
-        params![s.item_id, s.topic_id, s.confidence, s.reason],
-    )?;
-    Ok(n == 1)
+fn store(uow: &dyn UnitOfWork, s: &Suggested) -> Result<bool> {
+    uow.links().suggest_if_unlinked(s.item_id, s.topic_id, s.confidence, &s.reason)
 }
 
 /// Split the item as planned, if it is still the Unsorted item the model saw
 /// (no live link, same messages). Returns the children and suggestions made.
-fn apply_split(conn: &Connection, p: &Pending, groups: &[Group]) -> Result<Option<(Vec<i64>, Vec<Suggested>)>> {
-    let tx = conn.unchecked_transaction()?;
-    let live: bool = tx.query_row(
-        "SELECT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')",
-        [p.item_id],
-        |r| r.get(0),
-    )?;
-    if live || crate::queries::split::message_ids(&tx, p.item_id)? != p.split_ids {
+fn apply_split(uow: &dyn UnitOfWork, p: &Pending, groups: &[Group]) -> Result<Option<(Vec<i64>, Vec<Suggested>)>> {
+    if uow.reads().suggest().has_live_link(p.item_id)? || uow.splits().message_ids(p.item_id)? != p.split_ids {
         return Ok(None);
     }
     let mut children = vec![];
@@ -464,30 +396,22 @@ fn apply_split(conn: &Connection, p: &Pending, groups: &[Group]) -> Result<Optio
             p.item_id
         } else {
             let ids: Vec<i64> = g.messages.iter().map(|&m| p.split_ids[m]).collect();
-            let child = crate::queries::split::split_off(&tx, p.item_id, &ids)?;
+            let child = uow.splits().carve(p.item_id, &ids, false)?;
             children.push(child);
             child
         };
         if let Some(topic_id) = g.topic_id {
             let s = Suggested { item_id, topic_id, confidence: g.confidence, reason: g.reason.clone() };
-            if store(&tx, &s)? {
+            if store(uow, &s)? {
                 suggested.push(s);
             }
         }
     }
-    tx.commit()?;
     Ok(Some((children, suggested)))
 }
 
-pub fn record(conn: &Connection, status: &str, message: Option<&str>, suggested: usize) -> Result<()> {
-    conn.execute(
-        "INSERT INTO ai_suggest_run (id, status, message, suggested, at, last_ok_at)
-         VALUES (1, ?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), CASE ?1 WHEN 'ok' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END)
-         ON CONFLICT (id) DO UPDATE SET status = excluded.status, message = excluded.message, suggested = excluded.suggested,
-           at = excluded.at, last_ok_at = coalesce(excluded.last_ok_at, ai_suggest_run.last_ok_at)",
-        params![status, message, suggested as i64],
-    )?;
-    Ok(())
+pub fn record(uow: &dyn UnitOfWork, status: &str, message: Option<&str>, suggested: usize) -> Result<()> {
+    uow.suggest_runs().record(status, message, suggested as i64)
 }
 
 static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -508,13 +432,11 @@ impl Drop for Running {
     }
 }
 
-pub fn last_run(conn: &Connection) -> Result<Value> {
-    let run = conn
-        .query_row("SELECT status, message, suggested, at, last_ok_at FROM ai_suggest_run", [], |r| {
-            Ok(json!({ "status": r.get::<_, String>(0)?, "message": r.get::<_, Option<String>>(1)?, "suggested": r.get::<_, i64>(2)?, "at": r.get::<_, String>(3)?, "last_ok_at": r.get::<_, Option<String>>(4)? }))
-        })
-        .optional()?;
-    Ok(json!({ "run": run, "waiting": unsorted(conn, u32::MAX as usize)?.len(), "running": RUNNING.load(std::sync::atomic::Ordering::SeqCst) > 0 }))
+pub fn last_run(r: &dyn Reads) -> Result<Value> {
+    let run = r.suggest().last_run()?.map(|run| {
+        json!({ "status": run.status, "message": run.message, "suggested": run.suggested, "at": run.at, "last_ok_at": run.last_ok_at })
+    });
+    Ok(json!({ "run": run, "waiting": r.suggest().unsorted_count()?, "running": RUNNING.load(std::sync::atomic::Ordering::SeqCst) > 0 }))
 }
 
 pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
@@ -522,7 +444,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
         return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), considered: 0, suggested: vec![], split: vec![] });
     }
-    let pending = prepare(&app.db(), &app.clock, &app.vault, limit.clamp(1, 50))?;
+    let pending = prepare(app, limit.clamp(1, 50))?;
     let mut out = Outcome { status: "ok", message: None, considered: 0, suggested: vec![], split: vec![] };
     for p in pending {
         let system = if p.split_ids.is_empty() { SYSTEM } else { SYSTEM_SPLIT };
@@ -539,7 +461,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
         let groups = if p.split_ids.is_empty() { None } else { parse_groups(&reply, &p.candidates, p.split_ids.len()) };
         let whole = match groups.map(|g| plan(g, p.split_ids.len())) {
             Some(Plan::Split(groups)) => {
-                if let Some((children, suggested)) = apply_split(&app.db(), &p, &groups)? {
+                if let Some((children, suggested)) = app.store().write(|uow| apply_split(uow, &p, &groups))? {
                     out.split.push(SplitDone { item_id: p.item_id, children });
                     out.suggested.extend(suggested);
                 }
@@ -552,21 +474,22 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
         if confidence < MIN_CONFIDENCE {
             continue;
         }
-        let topic_id = match pick {
-            Pick::Existing(id) => id,
-            Pick::New(name) => {
-                let conn = app.db();
-                let cat = reply_json(&reply)
-                    .and_then(|v| v.get("new_topic_category")?.as_str().map(str::to_owned))
-                    .filter(|k| crate::queries::categories::exists(&crate::store::over(&conn), k).unwrap_or(false))
-                    .unwrap_or_default();
-                crate::queries::topics::find_or_create(&crate::store::over(&conn), &name, &cat)?
-            }
-        };
-        let s = Suggested { item_id: p.item_id, topic_id, confidence, reason };
-        if store(&app.db(), &s)? {
-            out.suggested.push(s);
-        }
+        // A proposed topic is made in the same unit of work as the suggestion.
+        let stored = app.store().write(|uow| {
+            let topic_id = match &pick {
+                Pick::Existing(id) => *id,
+                Pick::New(name) => {
+                    let cat = reply_json(&reply)
+                        .and_then(|v| v.get("new_topic_category")?.as_str().map(str::to_owned))
+                        .filter(|k| crate::queries::categories::exists(uow.reads(), k).unwrap_or(false))
+                        .unwrap_or_default();
+                    crate::queries::topics::find_or_create(uow, name, &cat)?
+                }
+            };
+            let s = Suggested { item_id: p.item_id, topic_id, confidence, reason: reason.clone() };
+            Ok(store(uow, &s)?.then_some(s))
+        })?;
+        out.suggested.extend(stored);
     }
     Ok(out)
 }
@@ -576,14 +499,15 @@ mod tests {
     use super::super::context::tests::{app, plant_personal, topic_id};
     use super::super::tests::{fake_creds, no_creds};
     use super::*;
+    use rusqlite::params;
 
     #[test]
     fn last_run_keeps_the_last_success_through_failures() {
         let conn = crate::db::open_in_memory().unwrap();
-        assert_eq!(last_run(&conn).unwrap()["run"], Value::Null);
-        record(&conn, "ok", None, 3).unwrap();
-        record(&conn, "failed", Some("throttled"), 0).unwrap();
-        let r = &last_run(&conn).unwrap()["run"];
+        assert_eq!(last_run(&crate::store::over(&conn)).unwrap()["run"], Value::Null);
+        record(&crate::store::over(&conn), "ok", None, 3).unwrap();
+        record(&crate::store::over(&conn), "failed", Some("throttled"), 0).unwrap();
+        let r = &last_run(&crate::store::over(&conn)).unwrap()["run"];
         assert_eq!((r["status"].as_str(), r["message"].as_str()), (Some("failed"), Some("throttled")));
         assert!(r["last_ok_at"].is_string());
     }
@@ -984,7 +908,7 @@ mod tests {
         // The model saw a different set of messages (a sync replaced them meanwhile).
         let p = Pending { item_id: item, prompt: String::new(), candidates: vec![], split_ids: vec![ids[0], ids[1]] };
         let groups = vec![g(&[0], None, 0.9), g(&[1], None, 0.9)];
-        assert!(apply_split(&app.db(), &p, &groups).unwrap().is_none());
+        assert!(app.store().write(|uow| apply_split(uow, &p, &groups)).unwrap().is_none());
         assert_eq!(texts(&app, item).len(), 3);
     }
 

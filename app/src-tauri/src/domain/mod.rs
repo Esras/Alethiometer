@@ -23,6 +23,7 @@ pub mod reflect;
 pub mod search;
 pub mod sources;
 pub mod splits;
+pub mod suggest;
 pub mod todos;
 pub mod topics;
 pub mod usage;

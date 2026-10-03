@@ -88,6 +88,16 @@ impl Links for Sql<'_> {
         )?)
     }
 
+    fn suggest_if_unlinked(&self, item_id: i64, topic_id: i64, confidence: f64, reason: &str) -> Result<bool> {
+        Ok(self.conn().execute(
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
+             SELECT ?1, ?2, 'suggested', ?3, ?4
+              WHERE NOT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')
+             ON CONFLICT (item_id, topic_id) DO NOTHING",
+            params![item_id, topic_id, confidence, reason],
+        )? == 1)
+    }
+
     fn suggest(&self, item_id: i64, topic_id: i64, confidence: f64, reason: &str) -> Result<()> {
         self.conn().execute(
             "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'suggested', ?3, ?4)",

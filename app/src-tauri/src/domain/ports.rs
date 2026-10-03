@@ -20,6 +20,7 @@ use super::reflect::{ReflectViews, Reflections};
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
+use super::suggest::{SuggestRuns, SuggestViews};
 use super::todos::{TodoViews, Todos};
 use super::topics::{TopicViews, Topics};
 use super::usage::{Usage, UsageViews};
@@ -38,6 +39,7 @@ pub trait Reads {
     fn reflect(&self) -> &dyn ReflectViews;
     fn search(&self) -> &dyn SearchViews;
     fn sources(&self) -> &dyn SourceViews;
+    fn suggest(&self) -> &dyn SuggestViews;
     fn todos(&self) -> &dyn TodoViews;
     fn topics(&self) -> &dyn TopicViews;
     fn usage(&self) -> &dyn UsageViews;
@@ -57,6 +59,7 @@ pub trait UnitOfWork {
     fn reflections(&self) -> &dyn Reflections;
     fn sources(&self) -> &dyn Sources;
     fn splits(&self) -> &dyn Splits;
+    fn suggest_runs(&self) -> &dyn SuggestRuns;
     fn todos(&self) -> &dyn Todos;
     fn topics(&self) -> &dyn Topics;
     fn usage(&self) -> &dyn Usage;

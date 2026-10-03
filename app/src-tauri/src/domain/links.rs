@@ -20,6 +20,10 @@ pub trait Links {
     /// A source's items with no link yet, from a repo linked to exactly one
     /// topic (not archived), are suggested for it. How many were.
     fn suggest_from_repos(&self, source_id: i64) -> Result<usize>;
+    /// Suggest `topic_id` unless the item got a live link meanwhile; never
+    /// touches an existing row, so `wrong` and `confirmed` verdicts stand.
+    /// True when it was suggested.
+    fn suggest_if_unlinked(&self, item_id: i64, topic_id: i64, confidence: f64, reason: &str) -> Result<bool>;
     /// Suggest `topic_id` for `item_id`.
     fn suggest(&self, item_id: i64, topic_id: i64, confidence: f64, reason: &str) -> Result<()>;
 }
