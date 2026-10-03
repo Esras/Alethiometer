@@ -5,6 +5,7 @@ pub mod clock;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod fsx;
 pub mod glean;
 pub mod outbox;
 pub mod platform;

@@ -65,11 +65,7 @@ pub fn save(conn: &Connection, path: &Path) -> Result<()> {
     };
     let mut v: Value = serde_json::from_str(&text).map_err(|e| msg(format!("couldn't parse {}: {e}", path.display())))?;
     v["categories"] = json!(list(conn)?);
-    let tmp = path.with_extension("json.tmp");
-    let out = serde_json::to_string_pretty(&v).map_err(|e| msg(e.to_string()))?;
-    std::fs::write(&tmp, out + "\n")
-        .and_then(|_| std::fs::rename(&tmp, path))
-        .map_err(|e| msg(format!("couldn't write {}: {e}", path.display())))
+    crate::settings::live::write_file(path, &v)
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<Category>> {

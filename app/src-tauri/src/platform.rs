@@ -59,49 +59,114 @@ pub trait Platform: Send + Sync {
 
 /// Secrets in `<data dir>/secrets.json`, mode 0600. When each was set goes in
 /// `secrets.meta.json` (names and times only), for the Settings page.
+///
+/// Writes are serialized and atomic (`fsx::write_atomic`). A file that's
+/// there but doesn't parse is never written over: rewriting it from an
+/// empty map would silently drop every other secret.
 pub struct FileSecrets {
     path: PathBuf,
     meta: PathBuf,
+    write: std::sync::Mutex<()>,
 }
 
 impl FileSecrets {
     pub fn new(data_dir: &std::path::Path) -> FileSecrets {
-        FileSecrets { path: data_dir.join("secrets.json"), meta: data_dir.join("secrets.meta.json") }
+        FileSecrets { path: data_dir.join("secrets.json"), meta: data_dir.join("secrets.meta.json"), write: Default::default() }
     }
 
     fn read_meta(&self) -> BTreeMap<String, String> {
         std::fs::read_to_string(&self.meta).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
     }
 
-    fn read(&self) -> BTreeMap<String, String> {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+    /// The secrets; none when the file doesn't exist yet.
+    fn read(&self) -> std::io::Result<BTreeMap<String, String>> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(t) => serde_json::from_str(&t).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{} doesn't parse ({e}); fix it by hand or move it aside, nothing was written", self.path.display()),
+                )
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(e) => Err(e),
+        }
     }
 }
 
 impl Platform for FileSecrets {
     fn secret_get(&self, key: &str) -> Option<String> {
-        self.read().get(key).cloned()
+        match self.read() {
+            Ok(all) => all.get(key).cloned(),
+            Err(e) => {
+                eprintln!("secrets: {e}");
+                None
+            }
+        }
     }
 
     fn secret_set(&self, key: &str, value: &str) -> std::io::Result<()> {
-        let mut all = self.read();
+        let _w = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.read()?;
         all.insert(key.into(), value.into());
-        std::fs::write(&self.path, serde_json::to_string_pretty(&all)?)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        crate::fsx::write_atomic(&self.path, serde_json::to_string_pretty(&all)?.as_bytes(), Some(0o600))?;
         let mut meta = self.read_meta();
         meta.insert(key.into(), chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
-        std::fs::write(&self.meta, serde_json::to_string_pretty(&meta)?)?;
+        crate::fsx::write_atomic(&self.meta, serde_json::to_string_pretty(&meta)?.as_bytes(), Some(0o600))?;
         Ok(())
     }
 
     fn secret_set_at(&self, key: &str) -> Option<String> {
         self.read_meta().get(key).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_that_doesnt_parse_is_never_written_over() {
+        let d = tempfile::tempdir().unwrap();
+        let s = FileSecrets::new(d.path());
+        s.secret_set("a", "1").unwrap();
+        s.secret_set("b", "2").unwrap();
+        // A hand edit gone wrong (or a crash from before writes were atomic).
+        std::fs::write(d.path().join("secrets.json"), "{ \"a\": \"1\", \"b\": ").unwrap();
+        assert!(s.secret_set("c", "3").is_err());
+        assert_eq!(std::fs::read_to_string(d.path().join("secrets.json")).unwrap(), "{ \"a\": \"1\", \"b\": ", "left for the user to fix");
+        assert_eq!(s.secret_get("a"), None);
+    }
+
+    #[test]
+    fn concurrent_sets_keep_every_key() {
+        let d = tempfile::tempdir().unwrap();
+        let s = std::sync::Arc::new(FileSecrets::new(d.path()));
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let s = s.clone();
+                std::thread::spawn(move || {
+                    for j in 0..10 {
+                        s.secret_set(&format!("k{i}.{j}"), "v").unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        for i in 0..8 {
+            for j in 0..10 {
+                assert_eq!(s.secret_get(&format!("k{i}.{j}")).as_deref(), Some("v"), "k{i}.{j}");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_is_private_from_the_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        FileSecrets::new(d.path()).secret_set("a", "1").unwrap();
+        assert_eq!(std::fs::metadata(d.path().join("secrets.json")).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }
