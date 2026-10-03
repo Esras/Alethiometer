@@ -40,28 +40,35 @@ Priorities: accuracy > performance, maintainability > speed of development.
 - **The UI** formats instants in local time at the edge, and Rust stops formatting local strings for storage.
 - **Proven by:** fixtures across a DST fall-back and a zone change (ordering, "today", day strip, Reflect day), plus a migration test on a copy of the sample data.
 
-## Phase 1: storage layer, unit of work, repositories
+## Phase 1: domain models, repositories, unit of work
 
 ```
-store/          the only module with SQL (a test fails on SQL elsewhere)
+domain/         models (Person, Item, Topic, Link, OutboxOp…) and ports (traits): no SQL, no serde_json::Value
+  ports.rs      trait People, Items, Links, Topics, Outbox, SyncState…; trait UnitOfWork { fn people(&self) -> &dyn People; … }
+store/          the only module with SQL (a test fails on SQL anywhere else)
   db.rs         Db { writer, readers }: read(|r| …), write(|uow| …)
-  items.rs      ItemsRepo: get, upsert_from_sync, mark_seen_upto(rev), …
-  links.rs      LinksRepo: suggest, confirm, move_to, wrong, …
-  topics.rs, outbox.rs, sync_state.rs, people.rs, agents.rs, …
-triage/, sync/, ai/, …   application logic: repositories only, no SQL
+  people.rs     SqlPeople<'t> { tx }: impl People (get, update(&Person), …)
+  views.rs      read models for screens: IncomingRow, TopicSummary, DayStripBlock…
+triage/, sync/, ai/, …   application logic: models and ports only
 api.rs          each command opens a read or a unit of work and calls one service
 ```
 
-- **`Db::write(|uow| …)`** is `BEGIN IMMEDIATE`, with commit on Ok and rollback on Err. A unit of work hands out the repositories bound to that transaction, so every multi-step action is atomic by construction. `Db::read(|r| …)` runs on a reader connection inside `BEGIN DEFERRED` (one consistent snapshot) and never waits on the writer (WAL).
-- **No connection or guard leaves a closure**, so holding the database across a network call or file read isn't expressible by accident. In debug builds, a closure holding the writer for more than 100 ms is logged with its caller.
-- **Repositories are concrete SQLite code**, with no trait per repository. Tests use in-memory SQLite, as now. Traits stay where there's a real second implementation: HTTP, the OS (`Platform`), the clock, the AI model. Those ports exist already; the connectors are pure and return a batch.
+- **Repositories take and return models.** `uow.people().update(&person)`, `uow.links().confirm(item, topic)`. SQL, row mapping and the storage format stay behind the port, so a backend can be swapped. People is a real case: a person is an Obsidian note mirrored into SQLite, and `People::update` writes both.
+- **The unit of work owns the transaction.** `Db::write(|uow| …)` is `BEGIN IMMEDIATE`, with commit on Ok and rollback on Err. Every repository it hands out is bound to that transaction, so a multi-step action is atomic by construction. Repositories are not process-wide singletons: one shared transaction is what makes an action atomic, and the ~400 tests each run their own in-memory `App` in parallel. `Db` is the one instance per `App`.
+- **`Db::read(|r| …)`** runs on a reader connection inside `BEGIN DEFERRED` (one consistent snapshot) and never waits on the writer (WAL).
+- **Rules for writing models back:**
+  - Get and update in the same unit of work; never hold a model across transactions and write it back whole.
+  - Models edited in the UI carry their revision, and `update` refuses a stale one (the same compare-and-set as Phase 3).
+- **Lists use read models, not aggregates.** Screens get dedicated queries returning view models; loading a full `Item` per Incoming row would be N+1. Writes always go through repositories.
+- **No guard or connection leaves a closure**, so holding the database across a network call or file read isn't expressible by accident. In debug builds, a closure holding the writer for more than 100 ms is logged with its caller.
+- **Traits are also kept for the outer ports:** HTTP, the OS (`Platform`), the clock, the AI model. Tests use in-memory SQLite behind the same ports, as now.
 - **Migration path.** `app.db()` stays as a deprecated alias while modules move, and goes when nothing calls it. Order:
-  1. hot reads (`incoming.list`, `topics.list`, day strip, search, `notes.page`);
+  1. hot reads (`incoming.list`, `topics.list`, day strip, search, `notes.page`) as read models;
   2. triage actions;
   3. sync apply and outbox;
   4. AI, Glean and agents.
 
-  The UTC types from Phase 0 are what the repositories take and return.
+  The UTC types from Phase 0 are what models carry.
 
 ## Phase 2: one worker per source; message upserts
 
@@ -120,7 +127,7 @@ rusqlite 0.40 exposes the authorizer and the update, commit and rollback hooks (
 | Phase | Proves it with |
 |---|---|
 | 0 Time | DST and zone-change fixtures; a migration test on the sample data |
-| 1 Storage layer | No SQL outside `store/` (test); a 2 s read running while a write commits; failure injected mid-action rolls everything back |
+| 1 Models, repositories | No SQL outside `store/` (test); a 2 s read running while a write commits; failure injected mid-action rolls everything back |
 | 2 Sync workers, messages | Concurrent sync-now, loop and socket nudge on fixtures; one failing stream; a 60-message run keeps all 60 |
 | 3 Triage, outbox | A message arriving mid-render; a crash between claim and send; a retry after an undo |
 | 4 Derived data, live queries | Maintained columns equal their from-scratch queries; the scratch-DB benchmark (topics.list, notes.page < 50 ms); one action re-runs only the subscriptions that read what it changed |
