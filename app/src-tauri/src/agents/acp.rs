@@ -294,7 +294,7 @@ fn expand_home(p: &str) -> String {
     }
 }
 
-fn tilde(p: &str) -> String {
+pub(crate) fn tilde(p: &str) -> String {
     match dirs::home_dir().map(|h| h.display().to_string()) {
         Some(h) if p.starts_with(&h) => format!("~{}", &p[h.len()..]),
         _ => p.to_owned(),

@@ -14,9 +14,13 @@
   // someone without a People note is underlined and clicking them links an
   // account to a person (17b); a frequent unknown sender gets a New person
   // strip under the messages (17a: p create note, l link, Not now).
+  // Agents (2a–2c, app/docs/agents.md): agent signals are one more app group,
+  // after GitHub, oldest first; Agents waiting lists the ones waiting on you
+  // across topics. Open, 1–9 pick the agent's answers, r replies, o opens it
+  // in Agents. An answered row keeps a check until you move off it.
   import { call, openExternal } from '../lib/api';
   import { tick, untrack } from 'svelte';
-  import { catColor, category, refresh, ui } from '../lib/app.svelte';
+  import { catColor, category, refresh, setTab, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
@@ -27,6 +31,11 @@
   import Markdown from '../lib/ui/Markdown.svelte';
   import PersonName from '../lib/ui/PersonName.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
+  import { agentColor } from './agents/look';
+  import { ag, look, openThread } from './agents/state.svelte';
+  import StatusMark from './agents/StatusMark.svelte';
+  import type { Request as AgentRequest, Session as AgentSession, Tree as AgentTree } from './agents/types';
+  import AgentPart from './incoming/AgentPart.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
@@ -35,7 +44,7 @@
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
   // Fixed app order so each app's group always sits in the same place.
-  const APP_ORDER = ['slack', 'gmail', 'gcal', 'jira', 'github', 'obsidian', 'sheets', 'notion'];
+  const APP_ORDER = ['slack', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
 
   let queue = $state<Queue | null>(null);
   let selKey = $state<QueueKey | null>(null);
@@ -58,6 +67,10 @@
   let trashed = $state<Set<number>>(new Set());
   let busy = false;
   let err = $state<string | null>(null);
+  // Agents: the live sessions and requests behind agent signals, and rows answered here.
+  let live = $state<{ sessions: AgentSession[]; requests: AgentRequest[] } | null>(null);
+  let answered = $state<Map<number, string>>(new Map());
+  let parts = $state<Record<number, AgentPart>>({});
 
   type Entry = { key: QueueKey; name: string; category: string | null; count: number };
   const entries = $derived<Entry[]>(
@@ -65,6 +78,7 @@
       ? [
           ...queue.topics.map((t) => ({ key: t.id as QueueKey, name: t.name, category: t.category, count: t.signals.length })),
           { key: 'unsorted' as QueueKey, name: 'Unsorted', category: null, count: queue.unsorted.length },
+          ...(queue.agents.length || selKey === 'agents' ? [{ key: 'agents' as QueueKey, name: 'Agents waiting', category: null, count: queue.agents.length }] : []),
         ]
       : [],
   );
@@ -72,17 +86,31 @@
   function signalsFor(q: Queue | null, key: QueueKey | null): Signal[] {
     if (!q || key === null) return [];
     if (key === 'unsorted') return q.unsorted;
+    if (key === 'agents') return q.agents;
     return q.topics.find((t) => t.id === key)?.signals ?? [];
   }
 
-  function grouped(sigs: Signal[]) {
+  function grouped(sigs: Signal[], key: QueueKey | null = selKey) {
+    // Agents waiting: by project, the way a topic groups by app.
+    if (key === 'agents') {
+      const byProject: { source: string; label: string; signals: Signal[] }[] = [];
+      for (const s of sigs) {
+        const label = s.agent?.project || s.agent?.cwd || 'Agents';
+        const g = byProject.find((g) => g.label === label);
+        if (g) g.signals.push(s);
+        else byProject.push({ source: 'agents', label, signals: [s] });
+      }
+      return byProject;
+    }
     const rank = (s: string) => (APP_ORDER.indexOf(s) + APP_ORDER.length + 1) % (APP_ORDER.length + 1);
-    const groups: { source: string; signals: Signal[] }[] = [];
+    const groups: { source: string; label: string; signals: Signal[] }[] = [];
     for (const s of sigs) {
       const g = groups.find((g) => g.source === s.source);
       if (g) g.signals.push(s);
-      else groups.push({ source: s.source, signals: [s] });
+      else groups.push({ source: s.source, label: sourceLabel(s.source), signals: [s] });
     }
+    // Agents read oldest first, like a conversation.
+    for (const g of groups) if (g.source === 'agents') g.signals.reverse();
     return groups.sort((a, b) => rank(a.source) - rank(b.source));
   }
 
@@ -97,6 +125,52 @@
     void ui.rev;
     call<Queue>('incoming.list').then(apply);
   });
+
+  // Agent signals change with the agents, not a sync: reload when they move.
+  $effect(() => {
+    let rev = -1;
+    const t = setInterval(() => {
+      call<{ rev: number }>('agents.incoming_rev')
+        .then((r) => {
+          if (rev >= 0 && r.rev !== rev) refresh();
+          rev = r.rev;
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(t);
+  });
+
+  const hasAgents = (q: Queue | null) => !!q && (q.agents.length > 0 || [...q.unsorted, ...q.topics.flatMap((t) => t.signals)].some((s) => s.agent));
+  function loadLive() {
+    call<AgentTree>('agents.tree')
+      .then((t) => (live = { sessions: t.sessions, requests: t.requests }))
+      .catch(() => {});
+  }
+  // While an agent row is open its request can still change (Explained arrives): keep it fresh.
+  $effect(() => {
+    if (!current?.agent || !expanded.has(current.item_id)) return;
+    const t = setInterval(loadLive, 1500);
+    return () => clearInterval(t);
+  });
+
+  function openInAgents(s: Signal | null) {
+    const a = s?.agent;
+    if (!a) return false;
+    const key = a.thread?.startsWith('r:') ? a.thread : `s:${a.session}`;
+    setTab('agents');
+    ag.sel = key;
+    openThread(key);
+    return true;
+  }
+
+  function answer(s: Signal, label: string) {
+    answered = new Map(answered).set(s.item_id, label);
+    dismissed = new Set(dismissed).add(s.item_id);
+    selItem = s.item_id;
+    // Out of Incoming now; the check stays until you move off it.
+    call('incoming.dismiss', { item_id: s.item_id }).catch(() => {});
+    loadLive();
+  }
 
   // Keep the selection where it was: same topic and item if they still exist,
   // otherwise the row that moved into the same place.
@@ -115,14 +189,16 @@
     keepDismissed(q);
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
-    const live = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted].map((s) => s.item_id));
-    dismissed = new Set([...dismissed].filter((id) => live.has(id)));
-    const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted'];
+    if (hasAgents(q)) loadLive();
+    const present = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted, ...q.agents].map((s) => s.item_id));
+    dismissed = new Set([...dismissed].filter((id) => present.has(id)));
+    if ([...answered.keys()].some((id) => !present.has(id))) answered = new Map([...answered].filter(([id]) => present.has(id)));
+    const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted', ...(q.agents.length || selKey === 'agents' ? ['agents' as QueueKey] : [])];
     if (selKey === null || !keys.includes(selKey)) {
       selKey = keys[Math.min(topicIdx, keys.length - 1)];
       selItem = null;
     }
-    const now = grouped(signalsFor(q, selKey)).flatMap((g) => g.signals);
+    const now = grouped(signalsFor(q, selKey), selKey).flatMap((g) => g.signals);
     if (!now.some((s) => s.item_id === selItem)) {
       selItem = now[Math.min(itemIdx, now.length - 1)]?.item_id ?? null;
     }
@@ -138,6 +214,13 @@
   function keepDismissed(q: Queue) {
     const id = selItem;
     if (!queue || id === null || !dismissed.has(id)) return;
+    if (selKey === 'agents') {
+      if (!q.agents.some((s) => s.item_id === id) && queue.agents.some((s) => s.item_id === id)) {
+        const i = queue.agents.findIndex((s) => s.item_id === id);
+        q.agents.splice(Math.min(i, q.agents.length), 0, queue.agents[i]);
+      }
+      return;
+    }
     if ([...q.topics.flatMap((t) => t.signals), ...q.unsorted].some((s) => s.item_id === id)) return;
     const put = (list: Signal[], from: Signal[]) => {
       const i = from.findIndex((s) => s.item_id === id);
@@ -271,7 +354,7 @@
     selKey = key;
     picking = false;
     leaveMsgs();
-    selItem = grouped(signalsFor(queue, key)).flatMap((g) => g.signals)[0]?.item_id ?? null;
+    selItem = grouped(signalsFor(queue, key), key).flatMap((g) => g.signals)[0]?.item_id ?? null;
   }
 
   function stepTopic(d: number) {
@@ -346,16 +429,24 @@
     }
   }
 
+  /** The topic a signal is listed under: the selected one, or (Agents waiting) its own. */
+  const topicOf = (s: Signal) => (typeof selKey === 'number' ? selKey : selKey === 'agents' ? (s.topic_id ?? null) : null);
+
   function confirm(s: Signal | null) {
-    if (!s || typeof selKey !== 'number' || dismissed.has(s.item_id)) return;
+    if (!s || dismissed.has(s.item_id)) return;
+    const topic = topicOf(s);
+    // Agents waiting, not filed yet: confirming means picking its topic.
+    if (topic === null) return selKey === 'agents' ? pick(s) : undefined;
     selItem = s.item_id;
-    act('incoming.confirm', { item_id: s.item_id, topic_id: selKey });
+    act('incoming.confirm', { item_id: s.item_id, topic_id: topic });
   }
 
   function wrong(s: Signal | null) {
-    if (!s || typeof selKey !== 'number' || dismissed.has(s.item_id)) return;
+    if (!s || dismissed.has(s.item_id)) return;
+    const topic = topicOf(s);
+    if (topic === null) return;
     selItem = s.item_id;
-    act('incoming.wrong', { item_id: s.item_id, topic_id: selKey });
+    act('incoming.wrong', { item_id: s.item_id, topic_id: topic });
   }
 
   function pick(s: Signal | null) {
@@ -373,7 +464,7 @@
       act('incoming.split', { item_id: current.item_id, message_ids: ids, topic_id: topicId });
       return;
     }
-    act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: typeof selKey === 'number' ? selKey : null });
+    act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: topicOf(current) });
   }
 
   function openTodo(s: Signal | null) {
@@ -421,6 +512,17 @@
     if (plain(e, ']')) return stepTopic(1), true;
     if (plain(e, '[')) return stepTopic(-1), true;
     if (plain(e, 'Enter')) return enter(current), true;
+    // An open agent signal: its answers, a reply, the session in Agents.
+    if (current?.agent && !dismissed.has(current.item_id)) {
+      const part = parts[current.item_id];
+      if (expanded.has(current.item_id) && /^[1-9]$/.test(e.key) && plain(e, e.key) && part?.choose(e.key)) return true;
+      if (plain(e, 'r')) {
+        if (!expanded.has(current.item_id)) toggle(current.item_id);
+        tick().then(() => parts[current.item_id]?.reply());
+        return true;
+      }
+      if (plain(e, 'o')) return openInAgents(current), true;
+    }
     if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return toggle(current.item_id), true;
     if (plain(e, 'c')) return confirm(current), true;
     if (plain(e, 'x')) return wrong(current), true;
@@ -454,10 +556,10 @@
     <div class="label head">Topics with new signals</div>
     {#each entries as t (t.key)}
       {#if t.key === 'unsorted'}<div class="fade-rule"></div>{/if}
-      <button class="topic" data-topic-key={t.key} class:on={t.key === selKey} class:unsorted={t.key === 'unsorted'} onclick={() => selectTopic(t.key)}>
+      <button class="topic" data-topic-key={t.key} class:on={t.key === selKey} class:unsorted={t.key === 'unsorted' || t.key === 'agents'} onclick={() => selectTopic(t.key)}>
         <span class="bar" style:background={t.category ? catColor(t.category) : null}></span>
         <span class="name ellipsis" title={t.name}>
-          {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{/if}{t.name}
+          {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{:else if t.key === 'agents'}<i class="ph ph-robot"></i>{/if}{t.name}
         </span>
         <span class="count tnum">{t.count}</span>
       </button>
@@ -467,21 +569,28 @@
   <div class="main">
     <div class="panel">
       <div class="body scroll">
-        {#each groups as g, gi (g.source)}
+        {#each groups as g, gi (g.source + g.label)}
           <div class="group" class:rule={gi > 0}>
-            <AppIcon source={g.source} size={14} />{sourceLabel(g.source)}<span class="gcount">{g.signals.length}</span>
+            <AppIcon source={g.source} size={14} />{g.label}<span class="gcount">{g.signals.length}</span>
           </div>
           {#each g.signals as s (s.item_id)}
             {@const sel = s.item_id === selItem}
             {@const isOpen = expanded.has(s.item_id)}
             {@const gone = dismissed.has(s.item_id)}
-            <div class="sig" class:sel class:gone data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+            {@const ag_ = s.agent}
+            {@const agSession = ag_ ? live?.sessions.find((x) => x.id === ag_.session) : undefined}
+            <div class="sig" class:sel class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
               {#if reviewing === s.item_id}
                 <SplitReview itemId={s.item_id} onclose={endReview} />
               {:else}
               <div class="row">
+                {#if ag_}<span class="agent-mark"><StatusMark status={agSession?.status ?? (ag_.waiting ? 'waiting' : 'idle')} /></span>{/if}
                 <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
-                  <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
+                  {#if ag_}
+                    <span class="title" class:ellipsis={!isOpen} title={s.title}><span class="agent-name" style:color={ag_.name.startsWith('#') ? 'var(--tx-2)' : agentColor(look(), agSession)}>{ag_.name}</span> {ag_.reason}</span>
+                  {:else}
+                    <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
+                  {/if}
                   {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
                   {#if s.change}
                     <span class="pill change" class:red={s.change === 'Cancelled'} class:green={s.change.startsWith('New')} class:yellow={s.change !== 'Cancelled' && !s.change.startsWith('New')}>{s.change}</span>
@@ -502,7 +611,9 @@
                   {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
                 </button>
                 <div class="actions">
-                  {#if gone}
+                  {#if answered.has(s.item_id)}
+                    <span class="answered"><i class="ph ph-check"></i>{answered.get(s.item_id)}</span>
+                  {:else if gone}
                     {#if trashed.has(s.item_id)}
                       <span class="ghost"><i class="ph ph-trash"></i>Trashed</span>
                     {:else}
@@ -511,10 +622,16 @@
                     <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
                   {:else}
                     <span class="src-actions">
+                      {#if ag_ && (ag_.kind === 'wrote' || ag_.kind === 'turn')}
+                        <button class="btn" onclick={(e) => (e.stopPropagation(), (selItem = s.item_id), expanded.has(s.item_id) || toggle(s.item_id), tick().then(() => parts[s.item_id]?.reply()))}>Reply <kbd>r</kbd></button>
+                      {/if}
+                      {#if ag_?.kind === 'done' && ag_.facts?.pr}
+                        <button class="btn" onclick={(e) => (e.stopPropagation(), ag_.facts?.pr?.url && openExternal(ag_.facts.pr.url))}><i class="ph ph-git-pull-request"></i>{ag_.facts.pr.label}</button>
+                      {/if}
                       <button class="btn" onclick={() => openTodo(s)}>Todo… <kbd>n</kbd></button>
                       {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                     </span>
-                    {#if unsorted}
+                    {#if unsorted || (selKey === 'agents' && s.topic_id == null)}
                       <button class="btn primary" onclick={() => pick(s)}>
                         {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
                       </button>
@@ -607,6 +724,9 @@
                       {/each}
                     {/each}
                   {/if}
+                  {#if ag_ && !answered.has(s.item_id)}
+                    <AgentPart bind:this={parts[s.item_id]} {s} {live} onDone={(label) => answer(s, label)} onOpen={() => openInAgents(s)} />
+                  {/if}
                   {#if s.new_person && !gone}
                     {@const np = s.new_person}
                     <div class="new-person">
@@ -679,10 +799,13 @@
           <span>j/k signal</span><span>↵ expand</span><span>g/G top / end</span>
           <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
         {/if}
+        {#if current?.agent && reviewing === null}
+          {#if expanded.has(current.item_id) && current.agent.waiting}<span>1–9 answer</span>{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span>r reply</span>{/if}<span>o open in Agents</span>
+        {/if}
         {#if reviewing === null}
           {#if current?.split}<span>s review split</span>{:else if reviewable(current)}<span>s split</span>{/if}
           {#if current?.new_person && expanded.has(current.item_id)}<span>p new person</span><span>l link</span>{/if}
-          <span>o open</span><span>[ ] topic</span>
+          {#if !current?.agent}<span>o open</span>{/if}<span>[ ] topic</span>
         {/if}
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
       </div>
@@ -824,6 +947,28 @@
     gap: 12px;
     align-items: center;
     padding: 9px 16px 9px 38px;
+    position: relative;
+  }
+  /* An agent's status mark, as in the tree, in the 38px gutter. */
+  .agent-mark {
+    position: absolute;
+    left: 16px;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .agent-name {
+    font-weight: 500;
+  }
+  .answered {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--green);
+    white-space: nowrap;
   }
   .title-line {
     min-width: 0;

@@ -88,7 +88,8 @@ export type SourceKind =
   | 'notion'
   | 'marvin'
   | 'protoncal'
-  | 'protonmail';
+  | 'protonmail'
+  | 'agents';
 
 export interface TopicDetail {
   topic: TopicRef & { score: number | null; pills: Pill[] };

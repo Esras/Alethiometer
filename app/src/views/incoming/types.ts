@@ -1,6 +1,6 @@
 // Shapes returned by incoming.list (src-tauri/src/queries/incoming.rs).
-import type { NewPerson, Who } from '../../lib/people';
-import type { SourceKind, TopicRef } from '../../lib/types';
+import type { NewPerson, Who } from "../../lib/people";
+import type { SourceKind, TopicRef } from "../../lib/types";
 
 export interface Message {
   id: number;
@@ -25,6 +25,11 @@ export interface Signal {
   title: string;
   /** Muted line next to the title: "42 new · 09:05–10:40", "Sam · 10:41". */
   meta: string;
+  /** An agent signal: who, why, the session, its request. */
+  agent?: AgentInfo;
+  /** Agents waiting: the topic it's filed under (absent: Unsorted). */
+  topic?: string;
+  topic_id?: number;
   summary: string | null;
   url: string | null;
   /** Messages behind the signal (e.g. all Slack messages since you last looked). */
@@ -49,7 +54,7 @@ export interface Signal {
 }
 
 export interface Held {
-  target: 'local' | 'jira';
+  target: "local" | "jira";
   text: string;
   due: string | null;
 }
@@ -61,10 +66,39 @@ export interface TopicSignals extends TopicRef {
 export interface Queue {
   topics: TopicSignals[];
   unsorted: Signal[];
+  /** Agents waiting on you, across topics (2b): the same signals again. */
+  agents: Signal[];
 }
 
-/** A topic id, or Unsorted. */
-export type QueueKey = number | 'unsorted';
+/** A topic id, Unsorted, or Agents waiting. */
+export type QueueKey = number | "unsorted" | "agents";
+
+/** An agent signal (`agents::incoming`): who, why, and what to answer it with. */
+export interface AgentInfo {
+  session: string;
+  name: string;
+  /** approval | ask | undelivered | failed_delivery | failed | wrote | turn | done */
+  kind: string;
+  reason: string;
+  waiting: boolean;
+  project: string;
+  group: string;
+  harness: string;
+  host: string;
+  cwd: string;
+  why: string;
+  request?: string;
+  thread?: string;
+  row?: number;
+  count?: number;
+  facts?: {
+    task: string;
+    ran: string;
+    turns: number;
+    pr: { label: string; detail: string; url: string } | null;
+    ticket: string | null;
+  };
+}
 
 /** One part of a split family in the review (15g/15h). */
 export interface Part {
@@ -81,7 +115,7 @@ export interface Family {
   title: string;
   source: SourceKind;
   url: string | null;
-  conv: 'dm' | 'group' | 'channel' | 'thread' | 'other';
+  conv: "dm" | "group" | "channel" | "thread" | "other";
   parts: Part[];
   messages: Message[];
 }

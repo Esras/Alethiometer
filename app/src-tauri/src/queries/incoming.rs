@@ -92,6 +92,14 @@ pub struct Signal {
     pub change: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// An agent signal (`agents::incoming`): who, why, the session, its request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<Value>,
+    /// Agents waiting: the topic it's filed under (none: Unsorted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_id: Option<i64>,
     #[serde(skip)]
     at: String,
 }
@@ -114,6 +122,8 @@ pub struct TopicSignals {
 pub struct Queue {
     pub topics: Vec<TopicSignals>,
     pub unsorted: Vec<Signal>,
+    /// Agents waiting on you, across topics: the same signals again (2b).
+    pub agents: Vec<Signal>,
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
@@ -186,7 +196,8 @@ fn ids_arg(args: &Value) -> Vec<i64> {
 
 const SIGNAL_COLS: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurred_at, i.ended_at, i.msg_count,
                            (SELECT display_name FROM people p WHERE p.id = i.author_person_id), json_extract(i.raw_json, '$.category'),
-                           json_extract(i.raw_json, '$.change'), json_extract(i.raw_json, '$.moved_from'), CASE WHEN i.kind = 'event' THEN i.body END";
+                           json_extract(i.raw_json, '$.change'), json_extract(i.raw_json, '$.moved_from'), CASE WHEN i.kind = 'event' THEN i.body END,
+                           CASE WHEN s.kind = 'agents' THEN json_extract(i.raw_json, '$.agent') END";
 
 fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Signal> {
     let title: String = r.get(3)?;
@@ -200,8 +211,11 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
     let change: Option<String> = r.get(11)?;
     let moved_from: Option<String> = r.get(12)?;
     let description: Option<String> = r.get(13)?;
+    let agent: Option<Value> = r.get::<_, Option<String>>(14)?.and_then(|a| serde_json::from_str(&a).ok());
     Ok(Signal {
-        meta: if event { event_meta(&at, ended.as_deref(), author.as_deref(), now) } else { meta(&title, &at, ended.as_deref(), msg_count, author.as_deref(), now) },
+        meta: if let Some(a) = &agent {
+            agent_meta(a, None, &meta(&title, &at, ended.as_deref(), msg_count, None, now))
+        } else if event { event_meta(&at, ended.as_deref(), author.as_deref(), now) } else { meta(&title, &at, ended.as_deref(), msg_count, author.as_deref(), now) },
         change: change.as_deref().and_then(|c| change_label(c, moved_from.as_deref(), now)),
         description: description.map(|d| excerpt(d.trim(), 400)).filter(|d| !d.is_empty()),
         item_id: r.get(0)?,
@@ -219,6 +233,9 @@ fn row_to_signal(r: &rusqlite::Row, now: NaiveDateTime) -> rusqlite::Result<Sign
         new_person: None,
         author: None,
         category,
+        agent,
+        topic: None,
+        topic_id: None,
         // Last activity: a thread counts from its latest message.
         at: ended.clone().unwrap_or_else(|| at.clone()),
     })
@@ -274,6 +291,25 @@ fn change_label(change: &str, moved_from: Option<&str>, now: NaiveDateTime) -> O
         "cancelled" => "Cancelled".into(),
         _ => return None,
     })
+}
+
+/// An agent signal's meta: "ingest-svc › Webhooks · 11:22"; in Agents waiting,
+/// "Webhooks · Jira webhooks · 11:22" (its group, then its topic).
+fn agent_meta(a: &Value, topic: Option<Option<&str>>, time: &str) -> String {
+    let s = |k: &str| a.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let (project, group, cwd) = (s("project"), s("group"), s("cwd"));
+    let place = match (project.is_empty(), group.is_empty()) {
+        (false, false) if topic.is_none() => format!("{project} › {group}"),
+        (_, false) => group,
+        (false, true) => project,
+        _ => cwd,
+    };
+    let mut parts = vec![place];
+    if let Some(t) = topic {
+        parts.push(t.unwrap_or("Unsorted").to_owned());
+    }
+    parts.push(time.to_owned());
+    parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" · ")
 }
 
 fn excerpt(s: &str, max: usize) -> String {
@@ -443,8 +479,8 @@ pub fn queue_with(conn: &Connection, now: NaiveDateTime, settings: &PeopleSettin
     ))?;
     let mut topics: Vec<TopicSignals> = vec![];
     let rows = stmt.query_map([], |r| {
-        let sig = Signal { update: r.get(17)?, ..row_to_signal(r, now)? };
-        Ok((sig, r.get::<_, i64>(14)?, r.get::<_, String>(15)?, r.get::<_, String>(16)?))
+        let sig = Signal { update: r.get(18)?, ..row_to_signal(r, now)? };
+        Ok((sig, r.get::<_, i64>(15)?, r.get::<_, String>(16)?, r.get::<_, String>(17)?))
     })?;
     for row in rows {
         let (sig, id, name, category) = row?;
@@ -468,7 +504,37 @@ pub fn queue_with(conn: &Connection, now: NaiveDateTime, settings: &PeopleSettin
     ))?;
     let mut unsorted = stmt.query_map([], |r| row_to_signal(r, now))?.collect::<rusqlite::Result<Vec<_>>>()?;
     load_messages(conn, &look, &mut unsorted)?;
-    Ok(Queue { topics, unsorted })
+
+    // Agents waiting (2b): every agent signal waiting on you, oldest first, with its topic.
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SIGNAL_COLS},
+                (SELECT t.id FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
+                  WHERE tl.item_id = i.id AND tl.state IN ('suggested', 'confirmed') AND t.archived_at IS NULL
+                  ORDER BY tl.state = 'confirmed' DESC LIMIT 1) AS tid,
+                i.title, i.occurred_at, i.ended_at, i.msg_count
+           FROM items i JOIN sources s ON s.id = i.source_id
+          WHERE i.seen = 0 AND s.kind = 'agents' AND json_extract(i.raw_json, '$.agent.waiting') = 1
+          ORDER BY coalesce(i.ended_at, i.occurred_at), i.id"
+    ))?;
+    let mut agents = stmt
+        .query_map([], |r| {
+            let topic_id: Option<i64> = r.get(15)?;
+            let time = meta(&r.get::<_, String>(16)?, &r.get::<_, String>(17)?, r.get::<_, Option<String>>(18)?.as_deref(), r.get(19)?, None, now);
+            Ok((row_to_signal(r, now)?, topic_id, time))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|(mut sig, topic_id, time)| {
+            sig.topic_id = topic_id;
+            sig.topic = topic_id.and_then(|id| conn.query_row("SELECT name FROM topics WHERE id = ?1", [id], |r| r.get(0)).ok());
+            if let Some(a) = &sig.agent {
+                sig.meta = agent_meta(a, Some(sig.topic.as_deref()), &time);
+            }
+            sig
+        })
+        .collect::<Vec<_>>();
+    load_messages(conn, &look, &mut agents)?;
+    Ok(Queue { topics, unsorted, agents })
 }
 
 fn link_state(conn: &Connection, item_id: i64, topic_id: i64) -> Result<Option<String>> {

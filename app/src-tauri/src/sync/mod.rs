@@ -651,7 +651,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         // Scion Hubs show their state in the Agents tab, not here.
         "status" => {
             let conn = app.db();
-            let mut stmt = conn.prepare("SELECT id, kind, tag, name, last_sync_at, last_error FROM sources WHERE kind != 'scion' ORDER BY kind, name")?;
+            let mut stmt = conn.prepare("SELECT id, kind, tag, name, last_sync_at, last_error FROM sources WHERE kind NOT IN ('scion', 'agents') ORDER BY kind, name")?;
             let rows = stmt
                 .query_map([], |r| {
                     Ok(SourceStatus {
