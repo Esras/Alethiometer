@@ -1,16 +1,24 @@
 // Keyboard-first: views register handlers while mounted; the newest wins.
 // A handler returns true when it consumed the key.
+//
+// A modal handler (Settings, the ⌘K palette) is a floor: keys it doesn't
+// consume stop there instead of reaching the view underneath, which would
+// otherwise act on a selection the user can't see. Pickers opened from a
+// modal register after it, so they still come first.
 
 export type KeyHandler = (e: KeyboardEvent) => boolean | void;
 
-const stack: KeyHandler[] = [];
+type Entry = { handler: KeyHandler; modal: boolean };
+
+const stack: Entry[] = [];
 
 /** Call during component init. Unregisters on destroy. */
-export function useKeys(handler: KeyHandler) {
+export function useKeys(handler: KeyHandler, opts: { modal?: boolean } = {}) {
   $effect(() => {
-    stack.push(handler);
+    const entry: Entry = { handler, modal: !!opts.modal };
+    stack.push(entry);
     return () => {
-      const i = stack.lastIndexOf(handler);
+      const i = stack.lastIndexOf(entry);
       if (i >= 0) stack.splice(i, 1);
     };
   });
@@ -18,10 +26,11 @@ export function useKeys(handler: KeyHandler) {
 
 export function dispatchKey(e: KeyboardEvent): boolean {
   for (let i = stack.length - 1; i >= 0; i--) {
-    if (stack[i](e)) {
+    if (stack[i].handler(e)) {
       e.preventDefault();
       return true;
     }
+    if (stack[i].modal) return false;
   }
   return false;
 }
@@ -30,7 +39,7 @@ export function dispatchKey(e: KeyboardEvent): boolean {
 export function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
   if (!t) return false;
-  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
+  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
 }
 
 /** ⌘ on macOS, Ctrl elsewhere. */

@@ -417,7 +417,7 @@
     else if (e.key === 's' && source?.status) call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
     else return false;
     return true;
-  });
+  }, { modal: true });
 
   const counts = $derived<Record<string, number | undefined>>({
     categories: ui.info ? Object.keys(ui.info.categories).length : undefined,

@@ -179,7 +179,7 @@
       reject();
       return true;
     }
-  });
+  }, { modal: true });
 
   $effect(() => {
     document.querySelector(`.palette [data-i="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
