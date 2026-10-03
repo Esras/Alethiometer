@@ -55,7 +55,12 @@
 
   async function send() {
     const t = text.trim();
-    if ((!t && !images.length) || busy) return;
+    if (!t && !images.length) {
+      // Cmd+Enter again on an empty box, with something already held back: same as Send now.
+      if (hasQueued && isLocal) act('interrupt', { session: session!.id }).catch(() => {});
+      return;
+    }
+    if (busy) return;
     busy = true;
     try {
       if (replyingTo) {
@@ -140,6 +145,7 @@
   });
 
   const isLocal = $derived(session?.source === 'acp');
+  const hasQueued = $derived((session?.queued?.length ?? 0) > 0);
   const placeholder = $derived(
     replyingTo
       ? `Reply to ${sessionById(replyingTo.session_id)?.name ?? 'the agent'}`
@@ -188,7 +194,9 @@
     <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<span class="k">N</span></button>
   {/if}
   {#if session?.source === 'acp' && (session.status === 'running' || session.status === 'waiting') && session.live}
-    <button class="btn" onclick={() => act('interrupt', { session: session.id })}><i class="ph ph-stop"></i>Interrupt<span class="k">⌘.</span></button>
+    <button class="btn" class:primary={hasQueued} onclick={() => act('interrupt', { session: session.id })}
+      ><i class="ph {hasQueued ? 'ph-fast-forward' : 'ph-stop'}"></i>{hasQueued ? 'Send now' : 'Interrupt'}<span class="k">⌘.</span></button
+    >
   {/if}
   {#if room || session?.source === 'scion'}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
@@ -225,6 +233,7 @@
   }
   .box i {
     font-size: 1.077rem;
+    margin-bottom: 4px;
   }
   .input-col {
     flex: 1;
@@ -292,6 +301,7 @@
   }
   .kbd {
     margin-left: auto;
+    margin-bottom: 4px;
     font: 0.846rem var(--font-mono);
     color: var(--tx-disabled);
   }
@@ -307,6 +317,11 @@
   }
   .btn:hover {
     border-color: var(--tx-disabled);
+  }
+  .btn.primary {
+    background: rgba(142, 192, 124, 0.14);
+    border-color: var(--aqua);
+    color: var(--aqua);
   }
   .btn.icon {
     padding: 7px 10px;

@@ -12,7 +12,7 @@
 //! session from an earlier run starts the adapter again and resumes it
 //! (`session/resume`, else `session/load` with the replay dropped).
 
-use super::model::{Delivery, Kind, PermOption, Request, Row, RowImage, Session, Status, Tool, Who};
+use super::model::{Delivery, Kind, PermOption, QueuedMessage, Request, Row, RowImage, Session, Status, Tool, Who};
 use super::{now, session_thread};
 use crate::error::{msg, Result};
 use crate::state::App;
@@ -311,6 +311,28 @@ fn rand_u32() -> u32 {
 
 fn state_row(at: &str, text: &str) -> Row {
     Row { at: at.into(), kind: Kind::State, text: text.into(), ..Default::default() }
+}
+
+/// A "N queued" marker stands in for a held-back message until it's actually sent.
+fn queue_message(app: &App, id: &str, text: &str, images: Vec<RowImage>) {
+    let ts = now(app);
+    let key = session_thread(id);
+    let mut i = app.agents.store.lock();
+    let marker = i.sessions.get(id).and_then(|s| s.queue_marker);
+    let n = i.sessions.get(id).map(|s| s.queue_peak + 1).unwrap_or(1);
+    let note = format!("{n} message{} queued", if n == 1 { "" } else { "s" });
+    let marker = match marker {
+        Some(rid) => {
+            i.update_row(&key, rid, |r| r.text = note);
+            rid
+        }
+        None => i.push_row(&key, Row { ext: "queue-marker".into(), ..state_row(&ts, &note) }),
+    };
+    i.update_session(id, |s| {
+        s.queue_marker = Some(marker);
+        s.queue_peak = n;
+        s.queued.push(QueuedMessage { text: text.to_owned(), images });
+    });
 }
 
 fn set_status(app: &App, id: &str, st: Status) {
@@ -1204,25 +1226,20 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     std::thread::spawn(move || {
         let id = c.session.clone();
         let key = session_thread(&id);
-        let first = {
+        {
             let mut t = c.turn.lock().unwrap_or_else(|e| e.into_inner());
             t.in_flight += 1;
-            t.in_flight == 1
-        };
+        }
         {
             let ts = now(&a);
             let mut i = a.agents.store.lock();
-            if first {
-                i.update_row(&key, row, |r| {
-                    if let Some(d) = r.delivery.as_mut() {
-                        d.state = "delivered".into();
-                        d.delivered_at = ts.clone();
-                        d.count = 1;
-                    }
-                });
-            } else {
-                i.update_session(&id, |s| s.queued.push(row));
-            }
+            i.update_row(&key, row, |r| {
+                if let Some(d) = r.delivery.as_mut() {
+                    d.state = "delivered".into();
+                    d.delivered_at = ts.clone();
+                    d.count = 1;
+                }
+            });
             i.update_session(&id, |s| {
                 s.status = Status::Running;
                 s.active_at = ts;
@@ -1239,17 +1256,6 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
         let mut i = a.agents.store.lock();
         for ((k, _), rid) in t.open.drain() {
             i.update_row(&k, rid, |r| r.open = false);
-        }
-        // The next queued message is the one the agent takes now.
-        let next = i.sessions.get(&id).and_then(|s| s.queued.first().copied());
-        if let Some(n) = next {
-            i.update_row(&key, n, |r| {
-                if let Some(d) = r.delivery.as_mut() {
-                    d.state = "delivered".into();
-                    d.delivered_at = ts.clone();
-                    d.count = 1;
-                }
-            });
         }
         let waiting = i.requests.values().any(|r| r.session_id == id);
         let mut problem = None;
@@ -1278,23 +1284,43 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
                 problem = Some(e);
             }
         }
+        // Only truly send the next queued message once this turn (end or cancel) is done.
+        let next = if idle { i.sessions.get(&id).and_then(|s| s.queued.first().cloned()) } else { None };
+        let drained = next.is_some() && i.sessions.get(&id).map(|s| s.queued.len() == 1).unwrap_or(false);
+        let marker = i.sessions.get(&id).and_then(|s| s.queue_marker);
         i.update_session(&id, |s| {
             if next.is_some() {
                 s.queued.remove(0);
+            }
+            if drained {
+                s.queue_marker = None;
+                s.queue_peak = 0;
             }
             s.stats.turns += 1;
             s.active_at = ts.clone();
             if let Some(p) = &problem {
                 s.problem = p.clone();
             }
-            if idle && !waiting {
+            if idle && !waiting && next.is_none() {
                 s.status = if problem.is_some() { Status::Failed } else { Status::Idle };
             }
         });
+        if drained {
+            if let Some(rid) = marker {
+                i.update_row(&key, rid, |r| {
+                    r.delivery = Some(Delivery { state: "delivered".into(), at: ts.clone(), delivered_at: ts.clone(), count: 1, ..Default::default() });
+                });
+            }
+        }
         drop(i);
         drop(t);
-        if idle {
-            super::facts::refresh(&a, &id);
+        match next {
+            Some(q) => {
+                let row2 = push_you(&a, &id, &q.text, false, q.images.clone());
+                prompt(&a, &c, row2, q.text, q.images);
+            }
+            None if idle => super::facts::refresh(&a, &id),
+            None => {}
         }
     });
 }
@@ -1304,13 +1330,18 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
     if id.contains('~') {
         return Err(msg("Subagents take messages through their parent"));
     }
-    let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     if let Some(conn) = app.agents.acp.get(id) {
         let mid = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).in_flight > 0;
-        let row = push_you(app, id, text, mid, images.clone());
-        prompt(&arc, &conn, row, text.to_owned(), images);
+        if mid {
+            queue_message(app, id, text, images);
+        } else {
+            let arc = app.arc().ok_or_else(|| msg("not ready"))?;
+            let row = push_you(app, id, text, false, images.clone());
+            prompt(&arc, &conn, row, text.to_owned(), images);
+        }
         return Ok(());
     }
+    let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
     if !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned()) {
         return Err(msg("Still starting; send again in a moment"));
@@ -1424,6 +1455,41 @@ pub(crate) mod tests {
 
     fn rows(app: &App, key: &str) -> Vec<Row> {
         app.agents.store.lock().threads.get(key).map(|t| t.rows.clone()).unwrap_or_default()
+    }
+
+    /// A `Conn` with no real process: enough to make `send` think a turn is in flight.
+    fn fake_conn(id: &str, in_flight: usize) -> Arc<Conn> {
+        Arc::new(Conn {
+            session: id.to_owned(),
+            stdin: Mutex::new(None),
+            child: Mutex::new(None),
+            next: AtomicU64::new(1),
+            pending: Mutex::new(HashMap::new()),
+            alive: AtomicBool::new(true),
+            replaying: AtomicBool::new(false),
+            acp_session: Mutex::new(String::new()),
+            caps: Mutex::new(Value::Null),
+            turn: Mutex::new(Turn { in_flight, ..Default::default() }),
+            stderr: Mutex::new(vec![]),
+        })
+    }
+
+    #[test]
+    fn a_message_sent_mid_turn_is_held_back_not_fired() {
+        let (app, _d) = app();
+        let id = session(&app);
+        let conn = fake_conn(&id, 1);
+        app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), conn);
+
+        send(&app, &id, "are you there?", vec![]).unwrap();
+
+        let s = app.agents.store.lock().sessions[&id].clone();
+        assert_eq!(s.queued.len(), 1, "held back while the turn is in flight, not fired");
+        assert_eq!(s.queued[0].text, "are you there?");
+        let r = rows(&app, &session_thread(&id));
+        assert!(r.iter().all(|r| r.kind != Kind::You), "not a real row yet");
+        let marker = r.iter().find(|r| r.kind == Kind::State).unwrap();
+        assert_eq!(marker.text, "1 message queued");
     }
 
     #[test]

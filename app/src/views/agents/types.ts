@@ -60,6 +60,8 @@ export interface Session {
   guess: { group_id: string; label: string } | null;
   url: string;
   ext: string;
+  /** Held back while mid-turn, oldest first; not real rows until sent. */
+  queued: { text: string; images?: { data: string; mime: string }[] }[];
 }
 
 export interface Who {

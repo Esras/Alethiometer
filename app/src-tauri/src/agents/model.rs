@@ -95,9 +95,22 @@ pub struct Session {
     /// Agent-side id: the ACP sessionId (to resume or load), the Scion agent id.
     #[serde(default)]
     pub ext: String,
-    /// Composer queue: your messages sent while it was mid-turn, oldest first (row ids).
+    /// Composer queue: held back while mid-turn, oldest first; not real rows until sent.
     #[serde(default)]
-    pub queued: Vec<u64>,
+    pub queued: Vec<QueuedMessage>,
+    /// The queue marker's peak count this busy spell, so it never counts back down.
+    #[serde(default)]
+    pub queue_peak: usize,
+    /// Row id of the active "N queued" marker, if any; cleared once the queue drains.
+    #[serde(default)]
+    pub queue_marker: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct QueuedMessage {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<RowImage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
