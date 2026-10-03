@@ -176,10 +176,8 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
             }
         };
         if !it.messages.is_empty() {
-            let read = ingest.read_keys(item_id)?;
-            let rows: Vec<(&Message, &str, bool)> =
-                it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)).map(|(m, k)| (m, k.as_str(), read.contains(k))).collect();
-            ingest.replace_messages(item_id, &rows)?;
+            let rows: Vec<(&Message, &str)> = it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)).map(|(m, k)| (m, k.as_str())).collect();
+            ingest.upsert_messages(item_id, &rows)?;
             if skipped > 0 {
                 uow.splits().recount(item_id, skipped)?;
             }
@@ -514,6 +512,68 @@ mod tests {
         // One person per handle.
         let people: i64 = conn.query_row("SELECT count(*) FROM people", [], |r| r.get(0)).unwrap();
         assert_eq!(people, 1);
+    }
+
+    /// A Slack-style run of `n` messages from `from`, keyed by ts.
+    fn long_run(from: usize, n: usize) -> ItemUpsert {
+        let ts: Vec<String> = (from..from + n).map(|i| format!("1700000{i:03}.000100")).collect();
+        let messages = (from..from + n)
+            .map(|i| Message { at: Ts::from_unix_secs(1_700_000_000.0 + i as f64).unwrap(), author: "Priya".into(), text: format!("msg {i}"), ..Default::default() })
+            .collect();
+        ItemUpsert {
+            external_id: "D1/run".into(),
+            kind: "thread".into(),
+            title: "DM · Priya".into(),
+            occurred_at: Ts::from_unix_secs(1_700_000_000.0 + from as f64).unwrap(),
+            status: "open".into(),
+            raw_json: serde_json::json!({ "channel": "D1", "msgs": ts }),
+            messages,
+            bump: true,
+            ..Default::default()
+        }
+    }
+
+    fn stored(conn: &Connection) -> Vec<(i64, String)> {
+        conn.prepare("SELECT id, text FROM item_messages ORDER BY at, id").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    #[test]
+    fn a_long_run_keeps_every_message_and_their_ids() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        apply_in(&conn, &src, &Batch { items: vec![long_run(0, 60)], ..Default::default() }, now).unwrap();
+        let first = stored(&conn);
+        assert_eq!(first.len(), 60, "all 60 stored");
+        // The next poll sends only the latest 50 plus 10 new: nothing stored is lost or renumbered.
+        apply_in(&conn, &src, &Batch { items: vec![long_run(10, 60)], ..Default::default() }, now).unwrap();
+        let second = stored(&conn);
+        assert_eq!(second.len(), 70);
+        assert_eq!(second[..60], first[..], "the same rows, the same ids");
+        // An edited message is updated in place.
+        let mut edited = long_run(10, 60);
+        edited.messages[0].text = "msg 10 (edited)".into();
+        apply_in(&conn, &src, &Batch { items: vec![edited], ..Default::default() }, now).unwrap();
+        let third = stored(&conn);
+        assert_eq!(third.len(), 70);
+        assert_eq!(third[10], (second[10].0, "msg 10 (edited)".into()));
+        // Views show the latest 50.
+        let item: i64 = conn.query_row("SELECT id FROM items", [], |r| r.get(0)).unwrap();
+        let shown = crate::store::over(&conn).incoming().messages(&[item]).unwrap();
+        assert_eq!(shown.len(), 50);
+        assert_eq!(shown[0].text, "msg 20");
+    }
+
+    #[test]
+    fn hashed_messages_are_replaced_by_their_new_version() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        let mut it = issue(true);
+        it.messages = vec![Message { at: now, author: "Kim".into(), text: "first draft".into(), ..Default::default() }];
+        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        it.messages[0].text = "final".into();
+        apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap();
+        let texts: Vec<String> = stored(&conn).into_iter().map(|(_, t)| t).collect();
+        assert_eq!(texts, ["final"], "no key to match on: the source's current version only");
     }
 
     #[test]

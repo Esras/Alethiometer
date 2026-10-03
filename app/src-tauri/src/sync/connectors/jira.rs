@@ -226,24 +226,30 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<Ts>, due_field: 
     let status_name = s("/status/name").unwrap_or("Unknown");
     let done = s("/status/statusCategory/key") == Some("done");
     let comments: Vec<&Value> = f.pointer("/comment/comments").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
-    let messages = comments
+    // Keyed by comment id, so a sync updates an edited comment in place.
+    let (ids, messages): (Vec<String>, Vec<Message>) = comments
         .iter()
         .rev()
         .take(KEEP_COMMENTS)
         .rev()
         .filter_map(|c| {
-            Some(Message {
-                at: Ts::parse(c.get("created")?.as_str()?)?,
-                author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
-                text: adf_text(c.get("body")?),
-                author_id: c.pointer("/author/accountId").and_then(Value::as_str).map(str::to_owned),
-                ..Default::default()
-            })
+            let id = c.get("id").and_then(|v| v.as_str().map(str::to_owned).or_else(|| v.as_i64().map(|n| n.to_string())))?;
+            Some((
+                format!("jira:{id}"),
+                Message {
+                    at: Ts::parse(c.get("created")?.as_str()?)?,
+                    author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
+                    text: adf_text(c.get("body")?),
+                    author_id: c.pointer("/author/accountId").and_then(Value::as_str).map(str::to_owned),
+                    ..Default::default()
+                },
+            ))
         })
-        .collect();
+        .unzip();
     let mut raw = issue.clone();
     if let Some(o) = raw.as_object_mut() {
         o.remove("changelog");
+        o.insert("msgs".into(), serde_json::json!(ids));
     }
     Some(ItemUpsert {
         title: format!("{key} · {}", s("/summary").unwrap_or("")),

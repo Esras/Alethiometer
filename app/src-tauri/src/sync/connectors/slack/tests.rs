@@ -147,6 +147,18 @@ fn context(it: &crate::sync::ItemUpsert) -> Vec<&str> {
 }
 
 #[test]
+fn a_run_of_sixty_messages_is_sent_whole() {
+    let http = workspace(HISTORY_INC_1);
+    // Newest first, as conversations.history pages.
+    let msgs: Vec<Value> = (0..60).rev().map(|i| json!({ "type": "message", "user": "U0PRIYA", "text": format!("m{i}"), "ts": format!("{}.000800", 1789997000 + i * 10), "team": "T0ACME" })).collect();
+    http.on("GET", "conversations.history?channel=D0PRIYA", 200, json!({ "ok": true, "messages": msgs, "has_more": false, "response_metadata": { "next_cursor": "" } }).to_string());
+    let b = run_poll(&http, &source(None)).unwrap();
+    let dm = find(&b, "D0PRIYA/1789997000.000800");
+    assert_eq!(texts(dm).len(), 60, "views cap what they show; the connector sends every message");
+    assert_eq!(dm.raw_json["msgs"].as_array().map(Vec::len), Some(60));
+}
+
+#[test]
 fn first_catch_up_turns_unread_runs_into_items() {
     let http = workspace(HISTORY_INC_1);
     let b = run_poll(&http, &source(None)).unwrap();

@@ -4,7 +4,6 @@
 use crate::error::Result;
 use crate::time::{Due, Ts};
 use serde_json::Value;
-use std::collections::HashSet;
 
 #[derive(Debug, Default, Clone)]
 pub struct Batch {
@@ -60,8 +59,9 @@ pub struct ItemUpsert {
     /// Source fields. `msgs`, when it lists one id per message (in order), keys
     /// the messages so a topic split can move some to a child item for good.
     pub raw_json: Value,
-    /// Expanded context (e.g. Slack messages since last look). Replaces stored
-    /// ones, except messages a split child owns (see `queries::split`).
+    /// Expanded context (e.g. Slack messages since last look). Upserted by
+    /// key; stored ones the batch leaves out stay, and messages a split child
+    /// owns are skipped (see `queries::split`).
     pub messages: Vec<Message>,
     /// Set when this is a calendar event.
     pub event: Option<EventFields>,
@@ -121,10 +121,10 @@ pub trait Ingest {
     fn insert_item(&self, source_id: i64, it: &ItemUpsert, author: Option<i64>) -> Result<i64>;
     /// Update an item from the source; `bump` makes it new signal again.
     fn update_item(&self, id: i64, it: &ItemUpsert, author: Option<i64>, bump: bool) -> Result<()>;
-    /// Keys of an item's top-level messages that were there when it was triaged.
-    fn read_keys(&self, item_id: i64) -> Result<HashSet<String>>;
-    /// Replace an item's top-level messages: (message, key, read).
-    fn replace_messages(&self, item_id: i64, messages: &[(&Message, &str, bool)]) -> Result<()>;
+    /// Add or update an item's top-level messages by key; ones the batch
+    /// leaves out stay, except earlier versions of a hashed key ("h:").
+    /// A new message is unread; an updated one keeps its read state.
+    fn upsert_messages(&self, item_id: i64, messages: &[(&Message, &str)]) -> Result<()>;
     /// A triaged item a sync brings back: what it held so far stays read.
     fn mark_read_if_triaged(&self, item_id: i64) -> Result<()>;
     fn put_event(&self, item_id: i64, source_id: i64, title: &str, e: &EventFields) -> Result<()>;

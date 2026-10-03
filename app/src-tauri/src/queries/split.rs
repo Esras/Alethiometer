@@ -230,16 +230,11 @@ mod tests {
         assert_eq!(texts(&conn, parent), ["msg 11", "msg 12", "msg 14"]);
         assert_eq!(texts(&conn, child), ["msg 10"]);
 
-        // Only moved messages left in the run (the rest read in Slack): the
-        // parent keeps nothing of its own, stops being new, isn't deleted, and
-        // the connector's bump doesn't resurface it.
+        // Only moved messages left in the run: the connector's bump doesn't
+        // count, and the parent keeps the messages it stored (a sync never
+        // removes them; triage does).
         assert_eq!(apply_now(&conn, &src, &Batch { items: vec![run(&["10"], true)], ..Default::default() }).unwrap(), 0);
-        let (n, seen): (i64, i64) = conn
-            .query_row("SELECT (SELECT count(*) FROM item_messages WHERE item_id = ?1), seen FROM items WHERE id = ?1", [parent], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-        assert_eq!((n, seen), (0, 1));
+        assert_eq!(texts(&conn, parent), ["msg 11", "msg 12", "msg 14"]);
         assert_eq!(texts(&conn, child), ["msg 10"]);
     }
 

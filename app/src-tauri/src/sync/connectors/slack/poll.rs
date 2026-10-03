@@ -56,7 +56,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// Messages kept per item; `msg_count` still counts the whole unread run.
+/// Earlier replies sent as a thread's context. A run's own messages are all
+/// sent and stored; views show the latest (`store::incoming`).
 pub const MAX_MSGS: usize = 50;
 const CONTEXT_MSGS: usize = 3;
 /// Pages of 200 read per conversation per poll.
@@ -771,7 +772,7 @@ impl Poller<'_> {
             Some((_, t)) => t.to_owned(),
             None => self.base_title(conv)?,
         };
-        let kept = &unread[unread.len().saturating_sub(MAX_MSGS)..];
+        let kept = unread;
         let mut messages = vec![];
         for (m, is_context) in context.iter().map(|m| (m, true)).chain(kept.iter().map(|m| (m, false))) {
             messages.push(Message {

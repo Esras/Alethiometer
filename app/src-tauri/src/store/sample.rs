@@ -114,7 +114,16 @@ impl SampleData for Sql<'_> {
     fn message(&self, m: &SampleMessage) -> Result<i64> {
         self.inserted(
             "INSERT INTO item_messages (item_id, at, author, text, author_id, ext_key, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![m.item_id, m.at, m.author, m.text, m.author_id, m.ext_key, m.reply_to],
+            params![
+                m.item_id,
+                m.at,
+                m.author,
+                m.text,
+                m.author_id,
+                // Every message has a key (`message_keys`): a hash when the sample gives none.
+                m.ext_key.map(str::to_owned).unwrap_or_else(|| crate::domain::splits::content_key(&m.at.to_db(), m.author, m.text)),
+                m.reply_to
+            ],
         )
     }
 

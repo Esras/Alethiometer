@@ -25,6 +25,7 @@ pub mod incoming;
 pub mod ingest;
 pub mod items;
 pub mod links;
+pub mod message_keys;
 pub mod notes;
 pub mod outbox;
 pub mod people;

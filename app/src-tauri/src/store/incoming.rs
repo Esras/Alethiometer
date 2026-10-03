@@ -4,7 +4,10 @@ use super::Sql;
 use crate::domain::incoming::{FiledSignal, IncomingViews, ItemHeader, MessageRow, PartRow, SignalRow, TopicRef, WaitingAgent};
 use crate::error::{msg, Result};
 use crate::time::Ts;
-use rusqlite::{OptionalExtension, Row};
+use rusqlite::{params, OptionalExtension, Row};
+
+/// Top-level messages a view shows per item: the latest. Storage keeps all.
+const SHOWN_MESSAGES: i64 = 50;
 
 /// `SignalRow`'s columns, from `items i JOIN sources s`; `signal` reads them back.
 const SIGNAL: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurred_at, i.ended_at, i.msg_count,
@@ -110,11 +113,17 @@ impl IncomingViews for Sql<'_> {
         Ok(self
             .conn()
             .prepare_cached(
-                "SELECT id, item_id, at, author, text, context, ext_key, reply_to, author_id, read FROM item_messages
-                  WHERE item_id IN (SELECT value FROM json_each(?1))
+                // An item keeps every message a sync gave it; a view shows its
+                // latest SHOWN_MESSAGES top-level ones (and their replies).
+                "WITH m AS (
+                   SELECT *, CASE WHEN reply_to IS NULL
+                                  THEN row_number() OVER (PARTITION BY item_id, reply_to IS NULL ORDER BY at DESC, id DESC) END AS newest
+                     FROM item_messages WHERE item_id IN (SELECT value FROM json_each(?1)))
+                 SELECT id, item_id, at, author, text, context, ext_key, reply_to, author_id, read FROM m
+                  WHERE newest IS NULL OR newest <= ?2
                   ORDER BY item_id, at, id",
             )?
-            .query_map([id_list(item_ids)], |r| {
+            .query_map(params![id_list(item_ids), SHOWN_MESSAGES], |r| {
                 Ok(MessageRow {
                     id: r.get(0)?,
                     item_id: r.get(1)?,

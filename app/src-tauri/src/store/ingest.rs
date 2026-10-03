@@ -5,7 +5,7 @@ use crate::domain::ingest::{Busy, EventFields, Handle, Ingest, ItemUpsert, Messa
 use crate::error::Result;
 use crate::time::{Due, Ts, SQL_NOW};
 use rusqlite::{params, OptionalExtension};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 const SERIES: &str = "json_extract(raw_json, '$.recurringEventId')";
 
@@ -33,10 +33,10 @@ impl Ingest for Sql<'_> {
     }
 
     fn put_reply(&self, holder: i64, m: &Message, key: &str, parent: &str, read: bool) -> Result<()> {
-        let c = self.conn();
-        c.execute("DELETE FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent])?;
-        c.execute(
-            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+        self.conn().execute(
+            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)
+             ON CONFLICT (item_id, ext_key) DO UPDATE SET at = excluded.at, author = excluded.author, text = excluded.text,
+                author_id = excluded.author_id, reply_to = excluded.reply_to, read = read OR excluded.read",
             params![holder, m.at, m.author, m.text, key, m.author_id, parent, read],
         )?;
         Ok(())
@@ -71,23 +71,24 @@ impl Ingest for Sql<'_> {
         Ok(())
     }
 
-    fn read_keys(&self, item_id: i64) -> Result<HashSet<String>> {
-        Ok(self
-            .conn()
-            .prepare_cached("SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL AND read = 1 AND ext_key IS NOT NULL")?
-            .query_map([item_id], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn replace_messages(&self, item_id: i64, messages: &[(&Message, &str, bool)]) -> Result<()> {
+    fn upsert_messages(&self, item_id: i64, messages: &[(&Message, &str)]) -> Result<()> {
         let c = self.conn();
-        c.execute("DELETE FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL", [item_id])?;
-        let mut insert = c.prepare_cached(
-            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        let mut upsert = c.prepare_cached(
+            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)
+             ON CONFLICT (item_id, ext_key) DO UPDATE SET at = excluded.at, author = excluded.author, text = excluded.text,
+                author_id = excluded.author_id, context = excluded.context",
         )?;
-        for (m, key, read) in messages {
-            insert.execute(params![item_id, m.at, m.author, m.text, key, m.author_id, m.context, read])?;
+        for (m, key) in messages {
+            upsert.execute(params![item_id, m.at, m.author, m.text, key, m.author_id, m.context])?;
         }
+        // A hashed key changes with the message: what the source no longer
+        // sends under it is an earlier version, not a message of its own.
+        let keys: Vec<&str> = messages.iter().map(|(_, k)| *k).collect();
+        c.execute(
+            "DELETE FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL AND ext_key LIKE 'h:%'
+               AND ext_key NOT IN (SELECT value FROM json_each(?2))",
+            params![item_id, serde_json::to_string(&keys)?],
+        )?;
         Ok(())
     }
 

@@ -418,6 +418,8 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     // New comments since the cursor: for bump and as expanded context.
     let comment_count = it.get("comments").and_then(Value::as_i64).unwrap_or(0);
     let mut messages = vec![];
+    // Keyed by comment id, so a sync updates an edited comment in place.
+    let mut ids = vec![];
     let mut others_commented = false;
     if let (Some(c), true) = (cursor, comment_count > 0 && changed_since(updated)) {
         let since = urlencode(&c.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ").to_string());
@@ -428,7 +430,9 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
             if changed_since(created) && login != me {
                 others_commented = true;
             }
-            if let Some(at) = created {
+            let id = cm.get("id").and_then(Value::as_i64);
+            if let (Some(at), Some(id)) = (created, id) {
+                ids.push(format!("gh:{id}"));
                 messages.push(Message {
                     at,
                     author: login.to_string(),
@@ -464,7 +468,11 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         status: if closed { "done" } else { "open" }.into(),
         msg_count: Some(comment_count),
         owner,
-        raw_json: it.clone(),
+        raw_json: {
+            let mut raw = it.clone();
+            raw["msgs"] = serde_json::json!(ids);
+            raw
+        },
         messages,
         event: None,
         bump,
