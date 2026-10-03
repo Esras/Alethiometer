@@ -220,6 +220,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     name: opt(args, "name").map(str::to_owned),
                     group_id: opt(args, "group").map(str::to_owned),
                     task: opt(args, "task").unwrap_or("").to_owned(),
+                    model: opt(args, "model").map(str::to_owned),
                 },
             )?;
             Ok(json!({ "id": id }))
@@ -344,6 +345,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             }
             Ok(json!({ "ok": true }))
         }
+        "models" => acp::models(app, &arg_str(args, "harness")?, opt(args, "cwd").unwrap_or("")),
         "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
         // Stop every local agent (Quit no longer does).
         "stop_all" => Ok(json!({ "stopped": acp::stop_all(app) })),

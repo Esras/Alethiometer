@@ -19,7 +19,7 @@
 //! again when you message it, and its ACP session resumed (`session/resume`,
 //! else `session/load` with the replay dropped: the transcript is stored).
 
-use super::model::{Choice, Delivery, Kind, PermOption, Request, Row, RowImage, Session, Status, Tool, Who};
+use super::model::{Choice, Delivery, Kind, PermOption, QueuedMessage, Request, Row, RowImage, Session, Status, Tool, Who};
 use super::store::HostState;
 use super::{daemon, now, session_thread};
 use crate::error::{msg, Result};
@@ -284,6 +284,7 @@ pub struct StartArgs {
     pub name: Option<String>,
     pub group_id: Option<String>,
     pub task: String,
+    pub model: Option<String>,
 }
 
 fn expand_home(p: &str) -> String {
@@ -349,12 +350,16 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         i.push_row(&session_thread(&id), state_row(&ts, &format!("Session started · {} · {} · {}", h.label, host_label(), tilde(&cwd))));
     }
     let task = a.task.trim().to_owned();
+    let model = a.model.clone();
     let Some(arc) = app.arc() else { return Ok(id) };
     let sid = id.clone();
     std::thread::spawn(move || {
         let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true, vec![]));
         match connect(&arc, &sid, None) {
             Ok(conn) => {
+                if let Some(m) = model {
+                    set_model(&arc, &conn, &sid, &m);
+                }
                 if let Some(row) = queued {
                     prompt(&arc, &conn, row, task, vec![]);
                 } else {
@@ -369,6 +374,91 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     Ok(id)
 }
 
+fn set_model(app: &App, conn: &Conn, id: &str, model: &str) {
+    let sid = conn.sid();
+    let by_model = conn.request("session/set_model", json!({ "sessionId": sid, "modelId": model }), Some(CALL_TIMEOUT));
+    let done = by_model.or_else(|_| conn.request("session/set_config_option", json!({ "sessionId": sid, "configId": "model", "value": model }), Some(CALL_TIMEOUT)));
+    match done {
+        Ok(_) => {
+            app.agents.store.lock().update_session(id, |s| s.model = super::explain::short_model(model));
+        }
+        Err(e) => eprintln!("agents: couldn't switch {id} to model {model}: {e}"),
+    }
+}
+
+/// The models a harness offers: the adapter is started briefly, asked for a session, and stopped. Cached per harness.
+pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(v) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(harness) {
+        return Ok(v.clone());
+    }
+    let settings = app.settings();
+    let h = settings.agents.harnesses.iter().find(|h| h.key == harness).ok_or_else(|| msg(format!("no harness '{harness}'")))?;
+    let path = login_path();
+    let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH", h.command)))?;
+    let cwd = expand_home(cwd.trim());
+    let cwd = if std::path::Path::new(&cwd).is_dir() { cwd } else { dirs::home_dir().map(|d| d.display().to_string()).unwrap_or_else(|| ".".into()) };
+    let mut child = Command::new(exe)
+        .args(&h.args)
+        .envs(&h.env)
+        .env("PATH", path)
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| msg(e.to_string()))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| msg("no stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| msg("no stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stdout).lines().map_while(|l| l.ok()) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                if tx.send(v).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}, "clientInfo": { "name": "alethiometer", "version": env!("CARGO_PKG_VERSION") } } });
+    let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new", "params": { "cwd": cwd, "mcpServers": [] } });
+    let sent = {
+        use std::io::Write;
+        writeln!(stdin, "{init}").and_then(|_| writeln!(stdin, "{new}")).and_then(|_| stdin.flush())
+    };
+    let deadline = std::time::Instant::now() + INIT_TIMEOUT;
+    let mut reply = Err(msg("the agent didn't answer"));
+    if sent.is_ok() {
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            let Ok(v) = rx.recv_timeout(left) else { break };
+            if v.get("id") == Some(&json!(2)) {
+                reply = match v.get("error") {
+                    Some(e) => Err(msg(rpc_error(e))),
+                    None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
+                };
+                break;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let r = reply?;
+    let list = |items: Option<&Vec<Value>>, id: &str| -> Vec<Value> {
+        items.map(|a| a.iter().filter_map(|m| Some(json!({ "id": m.get(id)?.as_str()?, "name": m.get("name").and_then(Value::as_str).unwrap_or_default() }))).collect()).unwrap_or_default()
+    };
+    let option = r.get("configOptions").and_then(Value::as_array).and_then(|o| o.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")));
+    let mut models = list(r.pointer("/models/availableModels").and_then(Value::as_array), "modelId");
+    if models.is_empty() {
+        models = list(option.and_then(|o| o.get("options")).and_then(Value::as_array), "value");
+    }
+    let current = r.pointer("/models/currentModelId").and_then(Value::as_str).or_else(|| option.and_then(|o| o.get("currentValue")).and_then(Value::as_str)).unwrap_or_default();
+    let out = json!({ "models": models, "current": current });
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(harness.to_owned(), out.clone());
+    Ok(out)
+}
+
 fn rand_u32() -> u32 {
     let mut b = [0u8; 4];
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut b).ok();
@@ -377,6 +467,28 @@ fn rand_u32() -> u32 {
 
 fn state_row(at: &str, text: &str) -> Row {
     Row { at: at.into(), kind: Kind::State, text: text.into(), ..Default::default() }
+}
+
+/// A "N queued" marker stands in for a held-back message until it's actually sent.
+fn queue_message(app: &App, id: &str, text: &str, images: Vec<RowImage>) {
+    let ts = now(app);
+    let key = session_thread(id);
+    let mut i = app.agents.store.lock();
+    let marker = i.sessions.get(id).and_then(|s| s.queue_marker);
+    let n = i.sessions.get(id).map(|s| s.queue_peak + 1).unwrap_or(1);
+    let note = format!("{n} message{} queued", if n == 1 { "" } else { "s" });
+    let marker = match marker {
+        Some(rid) => {
+            i.update_row(&key, rid, |r| r.text = note);
+            rid
+        }
+        None => i.push_row(&key, Row { ext: "queue-marker".into(), ..state_row(&ts, &note) }),
+    };
+    i.update_session(id, |s| {
+        s.queue_marker = Some(marker);
+        s.queue_peak = n;
+        s.queued.push(QueuedMessage { text: text.to_owned(), images });
+    });
 }
 
 fn set_status(app: &App, id: &str, st: Status) {
@@ -1233,8 +1345,18 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         .unwrap_or_default();
     let ts = now(app);
     let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
-    let (name, detail) = tool_label(&tc, &s.cwd);
-    let kind = tc.get("kind").and_then(Value::as_str).unwrap_or("");
+    let known = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).tools.get(&call).cloned();
+    let known = known.and_then(|(k, id, _)| app.agents.store.lock().find_row(&k, |r| r.id == id).and_then(|r| r.tool.clone()));
+    let (name, detail) = match known {
+        Some(t) if tc.get("kind").is_none() => (t.name, t.detail),
+        _ => tool_label(&tc, &s.cwd),
+    };
+    let kind = tc.get("kind").and_then(Value::as_str).unwrap_or(match name.as_str() {
+        "bash" => "execute",
+        "edit" | "write" => "edit",
+        "read" | "delete" | "move" | "fetch" | "search" => name.as_str(),
+        _ => "",
+    });
     let command = tc.pointer("/rawInput/command").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| edit_preview(&tc).unwrap_or_else(|| detail.clone()));
     let req_id = format!("{session}:{}", rpc_id);
     let options: Vec<PermOption> = p
@@ -1573,25 +1695,17 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     let rpc = conn.next.fetch_add(1, Ordering::SeqCst);
     // The prompt is tracked before anything else is stored, so a crash can't keep one without the other.
     let gate = app.agents.store.gate();
-    let first = {
-        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        t.prompts.insert(rpc, row);
-        t.prompts.len() == 1
-    };
+    conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.insert(rpc, row);
     {
         let ts = now(app);
         let mut i = app.agents.store.lock();
-        if first {
-            i.update_row(&key, row, |r| {
-                if let Some(d) = r.delivery.as_mut() {
-                    d.state = "delivered".into();
-                    d.delivered_at = ts.clone();
-                    d.count = 1;
-                }
-            });
-        } else {
-            i.update_session(&id, |s| s.queued.push(row));
-        }
+        i.update_row(&key, row, |r| {
+            if let Some(d) = r.delivery.as_mut() {
+                d.state = "delivered".into();
+                d.delivered_at = ts.clone();
+                d.count = 1;
+            }
+        });
         i.update_session(&id, |s| {
             s.status = Status::Running;
             s.active_at = ts;
@@ -1620,17 +1734,6 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) {
         let thread = k.split('\u{1f}').next().unwrap_or("").to_owned();
         i.update_row(&thread, rid, |r| r.open = false);
     }
-    // The next queued message is the one the agent takes now.
-    let next = i.sessions.get(&id).and_then(|s| s.queued.first().copied());
-    if let Some(n) = next {
-        i.update_row(&key, n, |r| {
-            if let Some(d) = r.delivery.as_mut() {
-                d.state = "delivered".into();
-                d.delivered_at = ts.to_owned();
-                d.count = 1;
-            }
-        });
-    }
     let waiting = i.requests.values().any(|r| r.session_id == id);
     let mut problem = None;
     match &res {
@@ -1658,23 +1761,43 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) {
             problem = Some(e);
         }
     }
+    // Only truly send the next queued message once this turn (end or cancel) is done.
+    let next = if idle { i.sessions.get(&id).and_then(|s| s.queued.first().cloned()) } else { None };
+    let drained = next.is_some() && i.sessions.get(&id).map(|s| s.queued.len() == 1).unwrap_or(false);
+    let marker = i.sessions.get(&id).and_then(|s| s.queue_marker);
     i.update_session(&id, |s| {
         if next.is_some() {
             s.queued.remove(0);
+        }
+        if drained {
+            s.queue_marker = None;
+            s.queue_peak = 0;
         }
         s.stats.turns += 1;
         s.active_at = ts.to_owned();
         if let Some(p) = &problem {
             s.problem = p.clone();
         }
-        if idle && !waiting {
+        if idle && !waiting && next.is_none() {
             s.status = if problem.is_some() { Status::Failed } else { Status::Idle };
         }
     });
+    if drained {
+        if let Some(rid) = marker {
+            i.update_row(&key, rid, |r| {
+                r.delivery = Some(Delivery { state: "delivered".into(), at: ts.to_owned(), delivered_at: ts.to_owned(), count: 1, ..Default::default() });
+            });
+        }
+    }
     drop(i);
     drop(t);
-    if idle {
-        super::facts::refresh(app, &id);
+    match (next, app.arc(), app.agents.acp.get(&id)) {
+        (Some(q), Some(a), Some(c)) => {
+            let row2 = push_you(app, &id, &q.text, false, q.images.clone());
+            prompt(&a, &c, row2, q.text, q.images);
+        }
+        _ if idle => super::facts::refresh(app, &id),
+        _ => {}
     }
 }
 
@@ -1683,13 +1806,18 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
     if id.contains('~') {
         return Err(msg("Subagents take messages through their parent"));
     }
-    let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     if let Some(conn) = app.agents.acp.get(id) {
         let mid = !conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.is_empty();
-        let row = push_you(app, id, text, mid, images.clone());
-        prompt(&arc, &conn, row, text.to_owned(), images);
+        if mid {
+            queue_message(app, id, text, images);
+        } else {
+            let arc = app.arc().ok_or_else(|| msg("not ready"))?;
+            let row = push_you(app, id, text, false, images.clone());
+            prompt(&arc, &conn, row, text.to_owned(), images);
+        }
         return Ok(());
     }
+    let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
     if !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned()) {
         return Err(msg("Still starting; send again in a moment"));
@@ -1812,6 +1940,49 @@ pub(crate) mod tests {
 
     fn rows(app: &App, key: &str) -> Vec<Row> {
         app.agents.store.lock().threads.get(key).map(|t| t.rows.clone()).unwrap_or_default()
+    }
+
+    /// A `Conn` with no real process: enough to make `send` think a turn is in flight.
+    fn fake_conn(app: &App, id: &str) -> Arc<Conn> {
+        Arc::new(Conn::new(app, id, Turn { prompts: BTreeMap::from([(1, 1)]), ..Default::default() }, true))
+    }
+
+    #[test]
+    fn a_permission_that_only_names_its_tool_call_is_still_parsed_and_explained() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        let key = session_thread(&id);
+        let mut turn = Turn::default();
+        apply(&app, &id, &mut turn, &json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "ls -la", "status": "pending" }), "2026-10-03T10:41:00");
+        conn.turn.lock().unwrap().tools = turn.tools;
+        // pi-acp: the request carries the tool call's id and title, no kind or rawInput.
+        let p = json!({ "options": [{ "kind": "allow_once", "name": "Yes", "optionId": "yes" }], "toolCall": { "toolCallId": "t1", "title": "ls -la", "status": "in_progress" } });
+        permission(&app, &conn, json!(7), &p);
+        let r = app.agents.store.lock().requests.values().next().cloned().unwrap();
+        assert_eq!(r.command, "ls -la");
+        assert!(r.parsed.is_some());
+        assert!(r.explained.is_some());
+        assert_eq!(rows(&app, &key).len(), 1, "the same row, not a second one");
+    }
+
+    #[test]
+    fn a_message_sent_mid_turn_is_held_back_not_fired() {
+        let (app, _d) = app();
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), conn);
+
+        send(&app, &id, "are you there?", vec![]).unwrap();
+
+        let s = app.agents.store.lock().sessions[&id].clone();
+        assert_eq!(s.queued.len(), 1, "held back while the turn is in flight, not fired");
+        assert_eq!(s.queued[0].text, "are you there?");
+        let r = rows(&app, &session_thread(&id));
+        assert!(r.iter().all(|r| r.kind != Kind::You), "not a real row yet");
+        let marker = r.iter().find(|r| r.kind == Kind::State).unwrap();
+        assert_eq!(marker.text, "1 message queued");
     }
 
     #[test]

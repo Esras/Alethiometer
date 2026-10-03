@@ -1,0 +1,94 @@
+diff --git a/src/acp/session.ts b/src/acp/session.ts
+index 6ee24b5..51aff01 100644
+--- a/src/acp/session.ts
++++ b/src/acp/session.ts
+@@ -55,6 +55,15 @@ type QueuedTurn = {
+ 
+ type PermissionResponse = Awaited<ReturnType<AgentSideConnection['requestPermission']>>
+ 
++type ActiveToolCall = {
++  toolCallId: string
++  title: string
++  isBash: boolean
++  toolName: string
++  kind: ToolKind
++  rawInput: unknown
++}
++
+ const CONFIRM_PERMISSION_OPTIONS: PermissionOption[] = [
+   { optionId: 'yes', name: 'Yes', kind: 'allow_once' },
+   { optionId: 'no', name: 'No', kind: 'reject_once' }
+@@ -465,7 +474,7 @@ export class PiAcpSession {
+ 
+   // The tool call pi is currently executing, if any. Permission gates fire while the tool
+   // is held, so prompts can be rendered on that tool call instead of a standalone card.
+-  private activeToolCall: { toolCallId: string; title: string; isBash: boolean; toolName: string } | null = null
++  private activeToolCall: ActiveToolCall | null = null
+ 
+   // A title has been sent for this session; later prompts must not rename the thread.
+   private titleEmitted = false
+@@ -983,7 +992,14 @@ export class PiAcpSession {
+           const locations = toToolCallLocations(args, this.cwd)
+           const existingStatus = this.currentToolCalls.get(toolCallId)
+           this.currentToolCalls.set(toolCallId, 'in_progress')
+-          this.activeToolCall = { toolCallId, title: toToolTitle(toolName, args, this.cwd), isBash: true, toolName }
++          this.activeToolCall = {
++            toolCallId,
++            title: toToolTitle(toolName, args, this.cwd),
++            isBash: true,
++            toolName,
++            kind: 'execute',
++            rawInput: args
++          }
+           this.emitBashToolCall({
+             sessionUpdate: existingStatus ? 'tool_call_update' : 'tool_call',
+             toolCallId,
+@@ -1024,7 +1040,7 @@ export class PiAcpSession {
+         const locations = toToolCallLocations(args, this.cwd, line)
+ 
+         const title = toToolTitle(toolName, args, this.cwd)
+-        this.activeToolCall = { toolCallId, title, isBash: false, toolName }
++        this.activeToolCall = { toolCallId, title, isBash: false, toolName, kind: toToolKind(toolName), rawInput: args }
+ 
+         // If we already surfaced the tool call while the model streamed it, just transition.
+         if (!this.currentToolCalls.has(toolCallId)) {
+@@ -1477,11 +1493,7 @@ export class PiAcpSession {
+     }
+   }
+ 
+-  private permissionPromptOnToolCall(
+-    active: { toolCallId: string; title: string; isBash: boolean; toolName: string },
+-    ev: PiRpcEvent,
+-    extraContent: ToolCallContent[] = []
+-  ) {
++  private permissionPromptOnToolCall(active: ActiveToolCall, ev: PiRpcEvent, extraContent: ToolCallContent[] = []) {
+     const { heading, body } = splitPromptText(stringProp(ev, 'title') ?? '')
+     // `confirm` carries a separate message; `select` folds it into the title.
+     const text = [body || heading, stringProp(ev, 'message')].filter(Boolean).join('\n\n')
+@@ -1491,6 +1503,9 @@ export class PiAcpSession {
+       toolCallId: active.toolCallId,
+       // Repeat the title so clients that do not already know this tool call still render it.
+       title: active.title,
++      // Also repeated for clients that read the request alone: what is gated, and with what input.
++      kind: active.kind,
++      ...(active.rawInput !== undefined ? { rawInput: active.rawInput } : {}),
+       status: 'in_progress' as const,
+       // Keep the terminal block, or the client loses the bash output view.
+       content: [...(active.isBash ? bashTerminalContent(active.toolCallId) : []), ...prompt, ...extraContent]
+diff --git a/test/component/session-permission-prompt.test.ts b/test/component/session-permission-prompt.test.ts
+index 2a3f55a..98165e5 100644
+--- a/test/component/session-permission-prompt.test.ts
++++ b/test/component/session-permission-prompt.test.ts
+@@ -42,6 +42,12 @@ test('PiAcpSession: renders a permission prompt on the tool call being gated', a
+   assert.equal(request.toolCall.toolCallId, 't1', 'prompt is attached to the live tool call, not a synthetic one')
+   assert.equal(request.toolCall.title, 'cd /tmp && ls')
+   assert.equal(request.toolCall.status, 'in_progress')
++  assert.equal(
++    request.toolCall.kind,
++    'execute',
++    'a client reading the request alone still knows it gates a shell command'
++  )
++  assert.deepEqual(request.toolCall.rawInput, { command: 'cd /tmp && ls' })
+   assert.deepEqual(request.toolCall.content, [
+     // The terminal block must survive, or the client loses the bash output view.
+     { type: 'terminal', terminalId: 't1' },
