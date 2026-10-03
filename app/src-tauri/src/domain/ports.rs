@@ -8,6 +8,8 @@
 use super::categories::{Categories, CategoryViews};
 use super::context::ContextViews;
 use super::daystrip::{DayStripViews, Events};
+use super::embed::{VectorViews, Vectors};
+use super::glean::{GleanViews, SearchFeedback};
 use super::incoming::IncomingViews;
 use super::ingest::Ingest;
 use super::items::{ItemViews, Items};
@@ -30,6 +32,7 @@ pub trait Reads {
     fn categories(&self) -> &dyn CategoryViews;
     fn context(&self) -> &dyn ContextViews;
     fn day_strip(&self) -> &dyn DayStripViews;
+    fn glean(&self) -> &dyn GleanViews;
     fn incoming(&self) -> &dyn IncomingViews;
     fn items(&self) -> &dyn ItemViews;
     fn notes(&self) -> &dyn NotesViews;
@@ -43,6 +46,7 @@ pub trait Reads {
     fn todos(&self) -> &dyn TodoViews;
     fn topics(&self) -> &dyn TopicViews;
     fn usage(&self) -> &dyn UsageViews;
+    fn vectors(&self) -> &dyn VectorViews;
 }
 
 /// One request's changes. Reads inside it see its own writes.
@@ -57,10 +61,12 @@ pub trait UnitOfWork {
     fn outbox(&self) -> &dyn Outbox;
     fn people(&self) -> &dyn People;
     fn reflections(&self) -> &dyn Reflections;
+    fn search_feedback(&self) -> &dyn SearchFeedback;
     fn sources(&self) -> &dyn Sources;
     fn splits(&self) -> &dyn Splits;
     fn suggest_runs(&self) -> &dyn SuggestRuns;
     fn todos(&self) -> &dyn Todos;
     fn topics(&self) -> &dyn Topics;
     fn usage(&self) -> &dyn Usage;
+    fn vectors(&self) -> &dyn Vectors;
 }

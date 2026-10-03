@@ -18,7 +18,7 @@ use crate::error::{msg, Result};
 use crate::settings::sources::GleanConfig;
 use crate::state::App;
 use crate::sync::http::Http;
-use rusqlite::{params, Connection};
+use crate::domain::ports::UnitOfWork;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -244,28 +244,12 @@ pub fn system(datasource: &str, mime: &str, doc_type: &str) -> (&'static str, &'
 }
 
 /// Save a pin or reject for a result in a topic (or clear it).
-pub fn feedback(conn: &Connection, topic_id: i64, key: &str, verdict: &str, title: &str, url: &str, source: &str) -> Result<()> {
+pub fn feedback(uow: &dyn UnitOfWork, topic_id: i64, key: &str, verdict: &str, title: &str, url: &str, source: &str) -> Result<()> {
     match verdict {
-        "pin" | "reject" => {
-            conn.execute(
-                "INSERT INTO search_feedback (topic_id, key, verdict, title, url, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (topic_id, key) DO UPDATE SET verdict = excluded.verdict, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                params![topic_id, key, verdict, title, url, source],
-            )?;
-        }
-        "clear" => {
-            conn.execute("DELETE FROM search_feedback WHERE topic_id = ?1 AND key = ?2", params![topic_id, key])?;
-        }
-        other => return Err(msg(format!("unknown verdict '{other}' (pin, reject or clear)"))),
+        "pin" | "reject" => uow.search_feedback().set(topic_id, key, verdict, title, url, source),
+        "clear" => uow.search_feedback().clear(topic_id, key),
+        other => Err(msg(format!("unknown verdict '{other}' (pin, reject or clear)"))),
     }
-    Ok(())
-}
-
-/// A topic's pins and rejects: key → (verdict, when).
-pub fn feedback_for(conn: &Connection, topic_id: i64) -> Result<HashMap<String, (String, String)>> {
-    let mut stmt = conn.prepare("SELECT key, verdict, at FROM search_feedback WHERE topic_id = ?1")?;
-    let rows = stmt.query_map([topic_id], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, String>(1)?, r.get::<_, String>(2)?))))?;
-    Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
 #[cfg(test)]

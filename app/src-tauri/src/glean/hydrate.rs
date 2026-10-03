@@ -18,7 +18,8 @@ use crate::error::Result;
 use crate::state::App;
 use crate::sync::http::Http;
 use crate::time::Ts;
-use rusqlite::Connection;
+use crate::domain::glean::LocalHit;
+use crate::domain::search::HitTopic;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -93,44 +94,49 @@ fn norm_url(u: &str) -> String {
     u.trim().trim_end_matches('/').split('#').next().unwrap_or("").to_lowercase()
 }
 
-pub fn entities(app: &App, conn: &Connection, topic_id: i64) -> Result<Entities> {
+pub fn entities(app: &App, topic_id: i64) -> Result<Entities> {
+    let (name, note) = crate::ai::context::topic_note(app, topic_id)?;
+    entities_with_note(app, topic_id, &name, &note)
+}
+
+/// [`entities`] for a topic whose note the caller read.
+pub fn entities_with_note(app: &App, topic_id: i64, name: &str, note: &str) -> Result<Entities> {
+    let settings = app.settings().people.clone();
+    let (people, signals, repos) = app.store().read(|r| {
+        let resolver = crate::queries::people::Resolver::load(r, &settings)?;
+        let mut people = vec![];
+        for p in crate::queries::people::for_topic(r, &resolver, topic_id, &app.clock, 30)? {
+            let email = match p.id {
+                Some(id) => r.glean().email_of(id)?,
+                None => None,
+            };
+            people.push((p.name, email.unwrap_or_default()));
+        }
+        Ok((people, r.glean().entity_signals(topic_id)?, r.topics().repos(topic_id)?))
+    })?;
     let mut e = Entities::default();
-    let r = crate::queries::people::Resolver::load(&crate::store::over(conn), &app.settings().people)?;
-    for p in crate::queries::people::for_topic(&crate::store::over(conn), &r, topic_id, &app.clock, 30)? {
-        let name = p.name.trim().to_lowercase();
-        let email = p
-            .id
-            .and_then(|id| conn.query_row("SELECT account FROM person_accounts WHERE person_id = ?1 AND kind = 'email' LIMIT 1", [id], |r| r.get::<_, String>(0)).ok())
-            .unwrap_or_default();
+    for (name, email) in people {
+        let name = name.trim().to_lowercase();
         if name.len() >= 3 {
             e.people.push((name, email.to_lowercase()));
         }
     }
-    let mut stmt = conn.prepare(
-        "SELECT i.title, coalesce(i.url, ''), coalesce(json_extract(i.raw_json, '$.channel_name'), '')
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'",
-    )?;
-    for row in stmt.query_map([topic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
-        let (title, url, channel) = row?;
-        e.keys.extend(jira_keys(&title));
-        if let Some(c) = title.strip_prefix('#').and_then(|t| t.split(|ch: char| ch.is_whitespace() || ch == '·').next()) {
+    for s in signals {
+        e.keys.extend(jira_keys(&s.title));
+        if let Some(c) = s.title.strip_prefix('#').and_then(|t| t.split(|ch: char| ch.is_whitespace() || ch == '·').next()) {
             e.channels.insert(c.to_lowercase());
         }
-        if !channel.is_empty() {
-            e.channels.insert(channel.trim_start_matches('#').to_lowercase());
+        if !s.channel.is_empty() {
+            e.channels.insert(s.channel.trim_start_matches('#').to_lowercase());
         }
-        if !url.is_empty() {
-            e.urls.insert(norm_url(&url));
+        if !s.url.is_empty() {
+            e.urls.insert(norm_url(&s.url));
         }
     }
-    let (name, note): (String, Option<String>) = conn.query_row("SELECT name, obsidian_path FROM topics WHERE id = ?1", [topic_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    e.keys.extend(jira_keys(&name));
-    if let Some(text) = note.and_then(|p| std::fs::read_to_string(app.vault.join(p)).ok()) {
-        e.keys.extend(jira_keys(&text));
-    }
-    for repo in conn.prepare("SELECT repo FROM topic_repos WHERE topic_id = ?1")?.query_map([topic_id], |r| r.get::<_, String>(0))? {
-        e.repos.insert(repo?.to_lowercase());
+    e.keys.extend(jira_keys(name));
+    e.keys.extend(jira_keys(note));
+    for repo in repos {
+        e.repos.insert(repo.to_lowercase());
     }
     Ok(e)
 }
@@ -198,39 +204,6 @@ pub fn source_label(kind: &str) -> &'static str {
     }
 }
 
-/// Local work items matching `q`, best match first.
-type LocalHit = (i64, String, Option<String>, String, String, Option<String>, String, i64);
-
-/// Snippets mark matches with `search::HIT_START`/`HIT_END`, as in 18d.
-fn local(conn: &Connection, q: &str, limit: usize) -> Result<Vec<LocalHit>> {
-    let Some(fq) = crate::queries::search::fts_query(q) else { return Ok(vec![]) };
-    let mut stmt = conn.prepare(
-        "SELECT i.id, i.title, i.url, s.kind, coalesce(i.ended_at, i.occurred_at), coalesce(i.summary, ''),
-                snippet(items_fts, 1, char(1), char(2), '…', 14),
-                (SELECT count(*) FROM item_messages m WHERE m.item_id = i.id AND m.context = 0 AND m.reply_to IS NULL)
-           FROM items_fts f JOIN items i ON i.id = f.rowid JOIN sources s ON s.id = i.source_id
-          WHERE items_fts MATCH ?1 AND s.tag = 'work'
-          ORDER BY rank LIMIT ?2",
-    )?;
-    let rows = stmt.query_map(rusqlite::params![fq, limit as i64], |r| {
-        let summary: String = r.get(5)?;
-        let snip: String = r.get(6)?;
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, Some(summary).filter(|s| !s.is_empty()), snip, r.get(7)?))
-    })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
-}
-
-fn topic_of(conn: &Connection, item: i64) -> Option<Value> {
-    conn.query_row(
-        "SELECT t.id, t.name, t.category, tl.state FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
-          WHERE tl.item_id = ?1 AND tl.state != 'wrong' AND t.archived_at IS NULL
-          ORDER BY tl.state = 'confirmed' DESC, tl.updated_at DESC LIMIT 1",
-        [item],
-        |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "category": r.get::<_, String>(2)?, "state": r.get::<_, String>(3)? })),
-    )
-    .ok()
-}
-
 /// Run a hydrated search. `glean: false` gives the local route only (⌘K
 /// before ⌥↵); the Glean route then says it wasn't asked.
 pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
@@ -242,35 +215,44 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     // Local route.
     let mut rows: Vec<Row> = vec![];
     let mut by_url: HashMap<String, usize> = HashMap::new();
-    {
-        let conn = app.db();
-        for (rank, (id, title, url, kind, at, summary, snip, msgs)) in local(&conn, query.q, query.limit)?.into_iter().enumerate() {
-            let topic = topic_of(&conn, id);
-            if let Some(u) = &url {
-                by_url.insert(norm_url(u), rows.len());
+    let local: Vec<(LocalHit, Option<HitTopic>)> = match crate::queries::search::fts_query(query.q) {
+        Some(fq) => app.store().read(|r| {
+            let mut out = vec![];
+            for h in r.glean().local_hits(&fq, query.limit)? {
+                let topic = r.glean().hit_topic(h.id)?;
+                out.push((h, topic));
             }
-            rows.push(Row {
-                key: format!("item:{id}"),
-                title,
-                url,
-                icon: kind.clone(),
-                system: source_label(&kind).into(),
-                routes: vec!["local"],
-                when: when(Some(&at), now),
-                at: Some(at),
-                snippet: if snip.contains(crate::queries::search::HIT_START) || summary.is_none() { snip } else { summary.unwrap_or_default() },
-                item_id: Some(id),
-                msgs,
-                topic,
-                kept: true,
-                reason: String::new(),
-                similarity: None,
-                pinned: false,
-                container: String::new(),
-                people: vec![],
-                score: 1.0 / (1.0 + rank as f32),
-            });
+            Ok(out)
+        })?,
+        None => vec![],
+    };
+    for (rank, (LocalHit { id, title, url, source_kind: kind, at, summary, snippet: snip, msgs }, topic)) in local.into_iter().enumerate() {
+        let at = at.to_db();
+        let topic = topic.map(|t| json!({ "id": t.id, "name": t.name, "category": t.category, "state": t.state }));
+        if let Some(u) = &url {
+            by_url.insert(norm_url(u), rows.len());
         }
+        rows.push(Row {
+            key: format!("item:{id}"),
+            title,
+            url,
+            icon: kind.clone(),
+            system: source_label(&kind).into(),
+            routes: vec!["local"],
+            when: when(Some(&at), now),
+            at: Some(at),
+            snippet: if snip.contains(crate::queries::search::HIT_START) || summary.is_none() { snip } else { summary.unwrap_or_default() },
+            item_id: Some(id),
+            msgs,
+            topic,
+            kept: true,
+            reason: String::new(),
+            similarity: None,
+            pinned: false,
+            container: String::new(),
+            people: vec![],
+            score: 1.0 / (1.0 + rank as f32),
+        });
     }
 
     // Glean route.
@@ -322,12 +304,10 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     // Anchor: the local check.
     let mut anchor = Value::Null;
     if let Some(topic) = query.anchor {
-        let (name, category): (String, String) = app.db().query_row("SELECT name, category FROM topics WHERE id = ?1", [topic], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        anchor = json!({ "id": topic, "name": name, "category": category });
-        let (ents, feedback) = {
-            let conn = app.db();
-            (entities(app, &conn, topic)?, super::feedback_for(&conn, topic)?)
-        };
+        let t = app.store().read(|r| crate::queries::topic_ref(r, topic))?;
+        anchor = json!({ "id": topic, "name": t.name, "category": t.category });
+        let ents = entities(app, topic)?;
+        let feedback = app.store().read(|r| r.glean().feedback(topic))?;
         let tv = crate::embed::topic_vector(app, topic);
         // Similarity: stored vectors for local items, embedded now for Glean results.
         let texts: Vec<String> = rows[glean_start..].iter().map(|r| format!("{}\n{}\n{}", r.title, r.container, r.snippet)).collect();
@@ -338,7 +318,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
         let hits_by_url: HashMap<String, &Hit> = glean_hits.iter().map(|h| (norm_url(&h.url), h)).collect();
         for (i, row) in rows.iter_mut().enumerate() {
             let sim = match (&tv, row.item_id) {
-                (Some(t), Some(id)) => crate::embed::vector(&app.db(), "item", id).ok().flatten().map(|v| crate::embed::cosine(t, &v)),
+                (Some(t), Some(id)) => app.store().read(|r| r.vectors().vector(crate::domain::embed::VecKind::Item, id)).ok().flatten().map(|v| crate::embed::cosine(t, &v)),
                 (Some(t), None) => glean_vecs.as_ref().and_then(|v| v.get(i - glean_start)).map(|v| crate::embed::cosine(t, v)),
                 (None, _) => None,
             };
@@ -348,7 +328,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
             let sim_label = sim.map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)).unwrap_or_default();
             let (kept, reason) = if let Some((v, at)) = fb.filter(|(v, _)| v == "reject") {
                 let _ = v;
-                (false, format!("rejected {}", short_date(at, &app.clock)))
+                (false, format!("rejected {}", short_date(*at, &app.clock)))
             } else if fb.is_some() {
                 row.pinned = true;
                 (true, "pinned".into())
@@ -396,13 +376,12 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     };
     let facets = vec![facet("glean", glean_status), facet("local", json!({ "state": "ok" }))];
     let hidden = rows.iter().filter(|r| !r.kept).count();
-    let topics: Vec<Value> = {
-        let conn = app.db();
-        let like = format!("%{}%", query.q.trim());
-        let mut stmt = conn.prepare("SELECT id, name, category FROM topics WHERE archived_at IS NULL AND name LIKE ?1 ORDER BY name LIMIT 5")?;
-        let rows = stmt.query_map([like], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "category": r.get::<_, String>(2)? })))?;
-        rows.collect::<rusqlite::Result<_>>()?
-    };
+    let topics: Vec<Value> = app
+        .store()
+        .read(|r| r.search().topics_named(query.q, 5))?
+        .into_iter()
+        .map(|t| json!({ "id": t.id, "name": t.name, "category": t.category }))
+        .collect();
     Ok(json!({
         "q": query.q,
         "anchor": anchor,
@@ -414,8 +393,8 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     }))
 }
 
-fn short_date(at: &str, clock: &crate::clock::Clock) -> String {
-    crate::queries::parse_ts(at).map(|t| clock.local(t).strftime("%b %-d").to_string()).unwrap_or_default()
+fn short_date(at: Ts, clock: &crate::clock::Clock) -> String {
+    clock.local(at).strftime("%b %-d").to_string()
 }
 
 pub fn state_name(u: &Unavailable) -> &'static str {
@@ -428,7 +407,7 @@ pub fn state_name(u: &Unavailable) -> &'static str {
     }
 }
 
-/// `search.hydrated {q, anchor?, glean?}`, `search.feedback {topic_id, key, verdict, title?, url?, source?}`.
+/// `search.hydrated {q, anchor?, glean?}`.
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "hydrated" => {
@@ -442,11 +421,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let timeout = super::config(app).map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2).unwrap_or(10);
             let http = crate::sync::http::UreqHttp::with_timeout(timeout);
             run(app, &http, &query)
-        }
-        "feedback" => {
-            let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-            super::feedback(&app.db(), crate::queries::arg_i64(args, "topic_id")?, &crate::queries::arg_str(args, "key")?, &crate::queries::arg_str(args, "verdict")?, &s("title"), &s("url"), &s("source"))?;
-            Ok(json!({ "ok": true }))
         }
         _ => Err(crate::api::unknown(name)),
     }
@@ -519,8 +493,12 @@ mod tests {
         let first_dropped = rows.iter().position(|r| r["kept"] == false).unwrap();
         assert!(rows[first_dropped..].iter().all(|r| r["kept"] == false));
         // Reject and pin, per topic.
-        crate::glean::feedback(&app.db(), dd, "https://docs.google.com/document/d/dd-order-form-v2", "reject", "", "", "").unwrap();
-        crate::glean::feedback(&app.db(), dd, "https://teams.microsoft.com/l/meeting/payroll-renewal", "pin", "", "", "").unwrap();
+        app.store()
+            .write(|uow| {
+                crate::glean::feedback(uow, dd, "https://docs.google.com/document/d/dd-order-form-v2", "reject", "", "", "")?;
+                crate::glean::feedback(uow, dd, "https://teams.microsoft.com/l/meeting/payroll-renewal", "pin", "", "", "")
+            })
+            .unwrap();
         let v = run(&app, &http(), &Query { q: "renewal", anchor: Some(dd), glean: true, limit: 40 }).unwrap();
         let rows = v["rows"].as_array().unwrap();
         let row = |t: &str| rows.iter().find(|r| r["title"] == t).unwrap();

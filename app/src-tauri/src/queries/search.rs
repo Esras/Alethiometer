@@ -2,7 +2,7 @@
 //! (18d, `results`): each hit with its source, a snippet with the matches
 //! marked, its topic (or none) and its date.
 
-use super::arg_str;
+use super::{arg_i64, arg_str};
 use crate::api::{unknown, Ctx, Route};
 use crate::domain::ports::Reads;
 use crate::error::Result;
@@ -13,13 +13,18 @@ pub fn route(name: &str) -> Option<Route> {
     Some(match name {
         "query" => Route::Read(|r, _, args| query(r, &arg_str(args, "q")?)),
         "results" => Route::Read(|r, ctx, args| results(r, ctx, &arg_str(args, "q")?)),
+        "feedback" => Route::Write(|uow, _, args| {
+            let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            crate::glean::feedback(uow, arg_i64(args, "topic_id")?, &arg_str(args, "key")?, &arg_str(args, "verdict")?, &s("title"), &s("url"), &s("source"))?;
+            Ok(json!({ "ok": true }))
+        }),
         _ => return None,
     })
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "hydrated" | "feedback" => crate::glean::hydrate::call(app, name, args),
+        "hydrated" => crate::glean::hydrate::call(app, name, args),
         _ => Err(unknown(name)),
     }
 }

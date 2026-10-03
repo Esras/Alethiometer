@@ -10,6 +10,8 @@
 pub mod categories;
 pub mod context;
 pub mod daystrip;
+pub mod embed;
+pub mod glean;
 pub mod incoming;
 pub mod ingest;
 pub mod items;

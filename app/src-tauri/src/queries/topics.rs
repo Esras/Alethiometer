@@ -752,6 +752,7 @@ mod tests {
 
     #[test]
     fn merging_a_topic_with_glean_pins_and_a_vector() {
+        use crate::domain::embed::VecKind;
         let (app, _dir) = app();
         let dd = topic_id(&app, "Datadog renewal");
         let q4 = topic_id(&app, "Q4 headcount");
@@ -760,9 +761,13 @@ mod tests {
             for (t, key, verdict) in [(dd, "https://a", "pin"), (dd, "https://b", "reject"), (q4, "https://b", "pin")] {
                 conn.execute("INSERT INTO search_feedback (topic_id, key, verdict) VALUES (?1, ?2, ?3)", params![t, key, verdict]).unwrap();
             }
-            crate::embed::store(&conn, "topic", dd, "m", "h1", &[0.5; 384]).unwrap();
-            crate::embed::store(&conn, "topic", q4, "m", "h2", &[0.25; 384]).unwrap();
         }
+        app.store()
+            .write(|uow| {
+                uow.vectors().store(VecKind::Topic, dd, "m", "h1", &[0.5; 384])?;
+                uow.vectors().store(VecKind::Topic, q4, "m", "h2", &[0.25; 384])
+            })
+            .unwrap();
         crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).unwrap();
         let conn = app.db();
         let fb: Vec<(String, String)> = conn
@@ -773,7 +778,9 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert_eq!(fb, [("https://a".to_owned(), "pin".to_owned()), ("https://b".to_owned(), "pin".to_owned())], "moved; the surviving topic's own verdict wins");
-        assert!(crate::embed::vector(&conn, "topic", dd).unwrap().is_none(), "the merged topic's vector is gone");
+        drop(conn);
+        assert!(app.store().read(|r| r.vectors().vector(VecKind::Topic, dd)).unwrap().is_none(), "the merged topic's vector is gone");
+        let conn = app.db();
         let stale: i64 = conn.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![dd, q4], |r| r.get(0)).unwrap();
         assert_eq!(stale, 0, "the surviving topic is re-embedded");
     }

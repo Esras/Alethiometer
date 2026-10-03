@@ -18,7 +18,7 @@ pub mod model;
 
 use crate::error::{msg, Result};
 use crate::state::App;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::domain::embed::{Stored, TopicSource, VecKind};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -71,11 +71,7 @@ impl Engine {
     }
 }
 
-// ------------------------------------------------------------- storage
-
-fn to_blob(v: &[f32]) -> Vec<u8> {
-    v.iter().flat_map(|f| f.to_le_bytes()).collect()
-}
+// ------------------------------------------------------------- what gets embedded
 
 pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     // Both are unit length.
@@ -89,44 +85,10 @@ fn hash(text: &str) -> String {
     format!("{:016x}", h.finish())
 }
 
-fn table(kind: &str) -> &'static str {
-    if kind == "topic" {
-        "vec_topics"
-    } else {
-        "vec_items"
-    }
+/// Whether `stored` was made from other text or by another model.
+fn stale(stored: &Option<Stored>, text: &str, model: &str) -> bool {
+    stored.as_ref().map(|s| (s.hash.as_str(), s.model.as_str())) != Some((hash(text).as_str(), model))
 }
-
-/// Store one vector, replacing any earlier one.
-pub fn store(conn: &Connection, kind: &str, id: i64, model: &str, text_hash: &str, v: &[f32]) -> Result<()> {
-    let t = table(kind);
-    conn.execute(&format!("DELETE FROM {t} WHERE rowid = ?1"), [id])?;
-    conn.execute(&format!("INSERT INTO {t} (rowid, embedding) VALUES (?1, ?2)"), params![id, to_blob(v)])?;
-    conn.execute(
-        "INSERT INTO embed_meta (kind, id, model, hash) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (kind, id) DO UPDATE SET model = excluded.model, hash = excluded.hash, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-        params![kind, id, model, text_hash],
-    )?;
-    Ok(())
-}
-
-pub fn vector(conn: &Connection, kind: &str, id: i64) -> Result<Option<Vec<f32>>> {
-    let blob: Option<Vec<u8>> = conn.query_row(&format!("SELECT embedding FROM {} WHERE rowid = ?1", table(kind)), [id], |r| r.get(0)).optional()?;
-    Ok(blob.map(|b| b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()))
-}
-
-/// Work items nearest to `v`: (item id, cosine similarity), best first.
-pub fn nearest_items(conn: &Connection, v: &[f32], k: usize) -> Result<Vec<(i64, f32)>> {
-    let mut stmt = conn.prepare(
-        "SELECT v.rowid, v.distance FROM vec_items v
-          WHERE v.embedding MATCH ?1 AND k = ?2 ORDER BY v.distance",
-    )?;
-    let rows = stmt.query_map(params![to_blob(v), k as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?;
-    // vec0 reports L2 distance; for unit vectors cos = 1 - d²/2.
-    Ok(rows.filter_map(|r| r.ok()).map(|(id, d)| (id, 1.0 - (d * d / 2.0) as f32)).collect())
-}
-
-// ------------------------------------------------------------- what gets embedded
 
 /// An item's text: title, summary and the start of its body.
 pub fn item_text(title: &str, summary: &str, body: &str) -> String {
@@ -135,76 +97,53 @@ pub fn item_text(title: &str, summary: &str, body: &str) -> String {
 }
 
 /// A topic's text: its name, the titles of its recent confirmed signals and
-/// the start of its note.
-pub fn topic_text(conn: &Connection, topic_id: i64, vault: &std::path::Path) -> Result<String> {
-    let (name, note): (String, Option<String>) = conn.query_row("SELECT name, obsidian_path FROM topics WHERE id = ?1", [topic_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let titles: Vec<String> = conn
-        .prepare(
-            "SELECT i.title FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-              WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'
-              ORDER BY i.occurred_at DESC LIMIT 20",
-        )?
-        .query_map([topic_id], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    let note_text = note
+/// the start of its note. Read the note with no snapshot open.
+fn topic_text(t: &TopicSource, vault: &std::path::Path) -> String {
+    let note: String = t
+        .note_path
+        .as_ref()
         .and_then(|p| std::fs::read_to_string(vault.join(p)).ok())
-        .map(|t| t.chars().take(1500).collect::<String>())
+        .map(|n| n.chars().take(1500).collect())
         .unwrap_or_default();
-    Ok(format!("{name}\n{}\n{note_text}", titles.join("\n")).trim().to_string())
+    format!("{}\n{}\n{note}", t.name, t.titles.join("\n")).trim().to_string()
 }
 
 /// Embed whatever's missing or stale, `batch` texts at a time. Returns how many were embedded.
 pub fn index_pass(app: &App, e: &dyn Embedder, batch: usize) -> Result<usize> {
-    let todo: Vec<(String, i64, String)> = {
-        let conn = app.db();
+    // Items and topics from one snapshot; topic notes are read after it.
+    let (mut todo, topics) = app.store().read(|r| {
         let mut out = vec![];
-        let mut stmt = conn.prepare(
-            "SELECT i.id, i.title, coalesce(i.summary, ''), coalesce(i.body, ''), m.hash, m.model
-               FROM items i JOIN sources s ON s.id = i.source_id
-               LEFT JOIN embed_meta m ON m.kind = 'item' AND m.id = i.id
-              WHERE s.tag = 'work'
-              ORDER BY i.occurred_at DESC",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?))
+        r.vectors().each_work_item(&mut |i| {
+            let text = item_text(&i.title, &i.summary, &i.body);
+            if stale(&i.stored, &text, e.id()) {
+                out.push((VecKind::Item, i.id, text));
+            }
+            out.len() < batch
         })?;
-        for row in rows {
-            let (id, title, summary, body, h, model) = row?;
-            let text = item_text(&title, &summary, &body);
-            if h.as_deref() != Some(&hash(&text)) || model.as_deref() != Some(e.id()) {
-                out.push(("item".to_string(), id, text));
-            }
-            if out.len() >= batch {
-                break;
-            }
+        let topics = if out.len() < batch { r.vectors().active_topics()? } else { vec![] };
+        Ok((out, topics))
+    })?;
+    for t in topics {
+        if todo.len() >= batch {
+            break;
         }
-        if out.len() < batch {
-            let topics: Vec<i64> = conn.prepare("SELECT id FROM topics WHERE archived_at IS NULL")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-            for id in topics {
-                let text = topic_text(&conn, id, &app.vault)?;
-                let stored: Option<(String, String)> = conn.query_row("SELECT hash, model FROM embed_meta WHERE kind = 'topic' AND id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
-                if stored.as_ref().map(|(h, m)| (h.as_str(), m.as_str())) != Some((&hash(&text), e.id())) {
-                    out.push(("topic".to_string(), id, text));
-                }
-                if out.len() >= batch {
-                    break;
-                }
-            }
+        let text = topic_text(&t, &app.vault);
+        if stale(&t.stored, &text, e.id()) {
+            todo.push((VecKind::Topic, t.id, text));
         }
-        out
-    };
+    }
     if todo.is_empty() {
         return Ok(0);
     }
     let texts: Vec<String> = todo.iter().map(|(_, _, t)| t.clone()).collect();
-    // Embedding is the slow part: no database lock held.
+    // Embedding is the slow part: no database held.
     let vecs = e.embed(&texts).map_err(|x| msg(format!("embedding: {x}")))?;
-    let conn = app.db();
-    let tx = conn.unchecked_transaction()?;
-    for ((kind, id, text), v) in todo.iter().zip(vecs) {
-        store(&tx, kind, *id, e.id(), &hash(text), &v)?;
-    }
-    tx.commit()?;
+    app.store().write(|uow| {
+        for ((kind, id, text), v) in todo.iter().zip(vecs) {
+            uow.vectors().store(*kind, *id, e.id(), &hash(text), &v)?;
+        }
+        Ok(())
+    })?;
     Ok(todo.len())
 }
 
@@ -216,13 +155,14 @@ pub fn embed_now(app: &App, texts: &[String]) -> Option<Vec<Vec<f32>>> {
 
 /// A topic's vector, embedding it first if it's missing.
 pub fn topic_vector(app: &App, topic_id: i64) -> Option<Vec<f32>> {
-    if let Ok(Some(v)) = vector(&app.db(), "topic", topic_id) {
+    if let Some(v) = app.store().read(|r| r.vectors().vector(VecKind::Topic, topic_id)).ok()? {
         return Some(v);
     }
-    let text = topic_text(&app.db(), topic_id, &app.vault).ok()?;
-    let v = embed_now(app, &[text.clone()])?.into_iter().next()?;
-    let id = app.embed.get()?.id().to_string();
-    let _ = store(&app.db(), "topic", topic_id, &id, &hash(&text), &v);
+    let source = app.store().read(|r| r.vectors().topic_source(topic_id)).ok()??;
+    let text = topic_text(&source, &app.vault);
+    let e = app.embed.get()?;
+    let v = e.embed(&[text.clone()]).map_err(|x| eprintln!("embedding: {x}")).ok()?.pop()?;
+    let _ = app.store().write(|uow| uow.vectors().store(VecKind::Topic, topic_id, e.id(), &hash(&text), &v));
     Some(v)
 }
 
@@ -256,9 +196,7 @@ pub fn start(app: Arc<App>) {
 pub fn call(app: &App, name: &str, _args: &Value) -> Result<Value> {
     match name {
         "status" => {
-            let conn = app.db();
-            let items: i64 = conn.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'item'", [], |r| r.get(0))?;
-            let work: i64 = conn.query_row("SELECT count(*) FROM items i JOIN sources s ON s.id = i.source_id WHERE s.tag = 'work'", [], |r| r.get(0))?;
+            let (items, work) = app.store().read(|r| r.vectors().counts())?;
             Ok(json!({ "status": app.embed.status(), "model": MODEL_ID, "indexed": items, "items": work, "dir": model::dir(app) }))
         }
         "download" => {
@@ -304,6 +242,10 @@ pub mod tests {
         }
     }
 
+    fn item_vector(app: &App, id: i64) -> Option<Vec<f32>> {
+        app.store().read(|r| r.vectors().vector(VecKind::Item, id)).unwrap()
+    }
+
     #[test]
     fn index_then_find_nearest() {
         let (app, _dir) = app();
@@ -319,15 +261,15 @@ pub mod tests {
         assert!(total > 10, "sample items and topics got vectors ({total})");
         assert_eq!(index_pass(&app, &Stub, 50).unwrap(), 0, "nothing stale on a second pass");
         let q = Stub.embed(&["Datadog renewal counter offer".into()]).unwrap().remove(0);
-        let near = nearest_items(&app.db(), &q, 5).unwrap();
+        let near = app.store().read(|r| r.vectors().nearest_items(&q, 5)).unwrap();
         let title: String = app.db().query_row("SELECT title FROM items WHERE id = ?1", [near[0].0], |r| r.get(0)).unwrap();
         assert!(title.to_lowercase().contains("renewal") || title.to_lowercase().contains("datadog") || title.to_lowercase().contains("counter"), "{title}");
         assert!(near[0].1 > near[4].1);
         // An edited item is re-embedded (and its topic, whose text lists signal titles).
-        let before = vector(&app.db(), "item", near[0].0).unwrap().unwrap();
+        let before = item_vector(&app, near[0].0).unwrap();
         app.db().execute("UPDATE items SET title = 'Something else entirely' WHERE id = ?1", [near[0].0]).unwrap();
         assert!(index_pass(&app, &Stub, 50).unwrap() >= 1);
-        assert_ne!(vector(&app.db(), "item", near[0].0).unwrap().unwrap(), before);
+        assert_ne!(item_vector(&app, near[0].0).unwrap(), before);
     }
 
     #[test]
@@ -336,6 +278,6 @@ pub mod tests {
         let topic = crate::ai::context::tests::topic_id(&app, "Datadog renewal");
         let planted = crate::ai::context::tests::plant_personal(&app, topic);
         while index_pass(&app, &Stub, 100).unwrap() > 0 {}
-        assert!(vector(&app.db(), "item", planted).unwrap().is_none());
+        assert!(item_vector(&app, planted).is_none());
     }
 }

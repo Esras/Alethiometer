@@ -16,7 +16,7 @@
 //! Glean unavailable (not set up, no token, limit, down): the answer comes
 //! from local evidence alone and the reply says why.
 
-use super::hydrate::{entities, shared_entity};
+use super::hydrate::{entities, entities_with_note, shared_entity};
 use super::Hit;
 use crate::ai::{self, context::clip, Deps, Tier};
 use crate::error::{msg, Result};
@@ -40,17 +40,14 @@ pub struct Chip {
 pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Result<Vec<Chip>> {
     let Some(t) = topic else { return Ok(vec![]) };
     let (name, note) = crate::ai::context::topic_note(app, t)?;
-    let conn = app.db();
-    let r = crate::queries::people::Resolver::load(&crate::store::over(&conn), &app.settings().people)?;
-    let people: Vec<String> = crate::queries::people::for_topic(&crate::store::over(&conn), &r, t, &app.clock, 4)?.into_iter().map(|p| p.name).collect();
-    let ents = entities(app, &conn, t)?;
-    let titles: Vec<String> = conn
-        .prepare(
-            "SELECT i.title FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-              WHERE tl.topic_id = ?1 AND (tl.state = 'confirmed' OR (tl.state = 'suggested' AND i.seen = 0)) AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 10",
-        )?
-        .query_map([t], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
+    let settings = app.settings().people.clone();
+    let (people, titles) = app.store().read(|r| {
+        let resolver = crate::queries::people::Resolver::load(r, &settings)?;
+        let people: Vec<String> = crate::queries::people::for_topic(r, &resolver, t, &app.clock, 4)?.into_iter().map(|p| p.name).collect();
+        let titles: Vec<String> = r.glean().recent_signals(t, 10)?.into_iter().map(|(_, title)| title).collect();
+        Ok((people, titles))
+    })?;
+    let ents = entities_with_note(app, t, &name, &note)?;
     let mut keys: Vec<String> = ents.keys.into_iter().collect();
     keys.sort();
     let mut channels: Vec<String> = ents.channels.into_iter().map(|c| format!("#{c}")).collect();
@@ -235,10 +232,7 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     let now = app.clock.now();
     let threshold = cfg.min_similarity as f32;
     let (ents, feedback) = match topic {
-        Some(t) => {
-            let conn = app.db();
-            (Some(entities(app, &conn, t)?), super::feedback_for(&conn, t)?)
-        }
+        Some(t) => (Some(entities(app, t)?), app.store().read(|r| r.glean().feedback(t))?),
         None => (None, HashMap::new()),
     };
     let anchor_vec = match topic {
@@ -376,7 +370,7 @@ fn person(app: &App, p: &Value, sources: &[Source]) -> Option<Person> {
         .map(|s| json!({ "n": s.n, "icon": s.icon, "text": if s.container.is_empty() { s.title.clone() } else { format!("{} · {}", s.title, s.container) } }))
         .collect();
     let email = sources.iter().flat_map(|s| s.people.iter()).find(|w| w.name.eq_ignore_ascii_case(&name)).and_then(|w| w.email.clone());
-    let known = app.db().query_row("SELECT EXISTS (SELECT 1 FROM people WHERE note_path IS NOT NULL AND lower(display_name) = lower(?1))", [&name], |r| r.get(0)).unwrap_or(false);
+    let known = app.store().read(|r| r.glean().has_person_named(&name)).unwrap_or(false);
     Some(Person {
         role: p.get("role").and_then(Value::as_str).unwrap_or("").to_string(),
         why: p.get("why").and_then(Value::as_str).unwrap_or("").to_string(),
@@ -392,63 +386,41 @@ type LocalEvidence = (i64, String, Option<String>, String, String, Option<Value>
 /// Work items for the local route: the topic's own signals first, then items
 /// near the question (embeddings) or matching it (full text).
 fn local_evidence(app: &App, question: &str, topic: Option<i64>) -> Result<Vec<LocalEvidence>> {
-    let mut ids: Vec<(i64, String)> = vec![];
-    if let Some(t) = topic {
-        let conn = app.db();
-        let mut stmt = conn.prepare(
-            "SELECT i.id FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-              WHERE tl.topic_id = ?1 AND (tl.state = 'confirmed' OR (tl.state = 'suggested' AND i.seen = 0)) AND s.tag = 'work' ORDER BY i.occurred_at DESC LIMIT 6",
-        )?;
-        for id in stmt.query_map([t], |r| r.get::<_, i64>(0))? {
-            ids.push((id?, "in topic".into()));
-        }
-    }
+    let mut ids: Vec<(i64, String)> = match topic {
+        Some(t) => app.store().read(|r| r.glean().recent_signals(t, 6))?.into_iter().map(|(id, _)| (id, "in topic".into())).collect(),
+        None => vec![],
+    };
     let near: Vec<(i64, String)> = match crate::embed::embed_now(app, &[question.to_string()]).and_then(|mut v| v.pop()) {
-        Some(v) => crate::embed::nearest_items(&app.db(), &v, 12)?.into_iter().map(|(id, s)| (id, format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32))).collect(),
-        None => {
-            let conn = app.db();
-            match crate::queries::search::fts_query(question) {
-                Some(fq) => {
-                    // OR the words: a question rarely matches as a whole.
-                    let any = fq.trim_end_matches('*').split("\" \"").map(|w| format!("\"{}\"", w.trim_matches('"'))).collect::<Vec<_>>().join(" OR ");
-                    conn.prepare("SELECT rowid FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank LIMIT 8")?
-                        .query_map([any], |r| r.get::<_, i64>(0))?
-                        .filter_map(|r| r.ok())
-                        .map(|id| (id, "matches".into()))
-                        .collect()
-                }
-                None => vec![],
+        Some(v) => app.store().read(|r| r.vectors().nearest_items(&v, 12))?.into_iter().map(|(id, s)| (id, format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32))).collect(),
+        None => match crate::queries::search::fts_query(question) {
+            Some(fq) => {
+                // OR the words: a question rarely matches as a whole.
+                let any = fq.trim_end_matches('*').split("\" \"").map(|w| format!("\"{}\"", w.trim_matches('"'))).collect::<Vec<_>>().join(" OR ");
+                app.store().read(|r| r.glean().fts_items(&any, 8))?.into_iter().map(|id| (id, "matches".into())).collect()
             }
-        }
+            None => vec![],
+        },
     };
     for (id, why) in near {
         if !ids.iter().any(|(x, _)| *x == id) {
             ids.push((id, why));
         }
     }
-    let conn = app.db();
-    let mut out = vec![];
-    for (id, why) in ids {
-        let row = conn.query_row(
-            "SELECT i.title, i.url, s.kind, s.tag, coalesce(i.summary, ''), coalesce(i.body, ''), i.occurred_at FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
-            [id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?)),
-        );
-        let Ok((title, url, kind, tag, summary, body, at)) = row else { continue };
-        if tag != "work" {
-            continue; // boundary rule 4, checked again here
+    app.store().read(|r| {
+        let mut out = vec![];
+        for (id, why) in ids {
+            let Some(i) = r.glean().evidence_item(id)? else { continue };
+            if i.tag != "work" {
+                continue; // boundary rule 4, checked again here
+            }
+            let topic_val = r.glean().confirmed_topic(id)?.map(|t| json!({ "id": t.id, "name": t.name, "category": t.category }));
+            let day = app.clock.local(i.at).date();
+            let summary = if i.summary.is_empty() { String::new() } else { format!(" · {}", i.summary) };
+            let text = format!("{} ({}, {day}){summary}\n{}", i.title, i.source_kind, clip(&i.body, 500));
+            out.push((id, i.title, i.url, i.source_kind, text, topic_val, why));
         }
-        let topic_val = conn
-            .query_row(
-                "SELECT t.id, t.name, t.category FROM topic_links tl JOIN topics t ON t.id = tl.topic_id WHERE tl.item_id = ?1 AND tl.state = 'confirmed' LIMIT 1",
-                [id],
-                |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "category": r.get::<_, String>(2)? })),
-            )
-            .ok();
-        let text = format!("{title} ({kind}, {}){}\n{}", &at[..10.min(at.len())], if summary.is_empty() { String::new() } else { format!(" · {summary}") }, clip(&body, 500));
-        out.push((id, title, url, kind, text, topic_val, why));
-    }
-    Ok(out)
+        Ok(out)
+    })
 }
 
 /// `ai.ask_glean {question, topic_id?, off?, on?}` and `ai.chips {topic_id?, off?, on?}`.
@@ -505,6 +477,25 @@ mod tests {
         let glean = FakeHttp::default();
         glean.on("POST", "/rest/api/v1/search", 200, RESULTS);
         (app, dir, ai, glean)
+    }
+
+    #[test]
+    fn local_evidence_is_dated_where_you_are() {
+        let (mut app, _dir) = app();
+        app.clock = crate::clock::Clock::fixed(crate::time::Ts::parse("2026-10-03T12:00:00Z").unwrap(), jiff::tz::TimeZone::get("America/Los_Angeles").unwrap());
+        {
+            let conn = app.db();
+            let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
+            conn.execute(
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (?1, 'zebra', 'message', 'Zebracorn rollout', '2026-10-03T02:00:00.000Z')",
+                [src],
+            )
+            .unwrap();
+        }
+        let ev = local_evidence(&app, "zebracorn", None).unwrap();
+        // 02:00 UTC on the 3rd is the evening of the 2nd in Los Angeles.
+        assert!(ev[0].4.starts_with("Zebracorn rollout ("), "{}", ev[0].4);
+        assert!(ev[0].4.contains(", 2026-10-02)"), "{}", ev[0].4);
     }
 
     #[test]

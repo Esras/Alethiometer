@@ -18,6 +18,8 @@
 pub mod categories;
 pub mod context;
 pub mod daystrip;
+pub mod embed;
+pub mod glean;
 pub mod incoming;
 pub mod ingest;
 pub mod items;
@@ -201,6 +203,7 @@ ports!(Reads {
     categories: crate::domain::categories::CategoryViews,
     context: crate::domain::context::ContextViews,
     day_strip: crate::domain::daystrip::DayStripViews,
+    glean: crate::domain::glean::GleanViews,
     incoming: crate::domain::incoming::IncomingViews,
     items: crate::domain::items::ItemViews,
     notes: crate::domain::notes::NotesViews,
@@ -214,6 +217,7 @@ ports!(Reads {
     todos: crate::domain::todos::TodoViews,
     topics: crate::domain::topics::TopicViews,
     usage: crate::domain::usage::UsageViews,
+    vectors: crate::domain::embed::VectorViews,
 });
 
 ports!(UnitOfWork {
@@ -222,6 +226,7 @@ ports!(UnitOfWork {
     events: crate::domain::daystrip::Events,
     ingest: crate::domain::ingest::Ingest,
     items: crate::domain::items::Items,
+    search_feedback: crate::domain::glean::SearchFeedback,
     links: crate::domain::links::Links,
     note_lines: crate::domain::notes::NoteLines,
     outbox: crate::domain::outbox::Outbox,
@@ -233,6 +238,7 @@ ports!(UnitOfWork {
     todos: crate::domain::todos::Todos,
     topics: crate::domain::topics::Topics,
     usage: crate::domain::usage::Usage,
+    vectors: crate::domain::embed::Vectors,
 });
 
 #[cfg(test)]
