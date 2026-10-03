@@ -48,6 +48,11 @@ pub trait Items {
     fn set_external_id(&self, id: i64, external_id: &str) -> Result<()>;
     /// False when there's no such item.
     fn set_seen(&self, id: i64, seen: bool) -> Result<bool>;
+    /// The item's revision (`items.rev`): bumped by the database when it
+    /// gains a message or becomes unseen.
+    fn rev(&self, id: i64) -> Result<Option<i64>>;
+    /// Mark these of the item's messages (and replies) read, by key.
+    fn mark_read(&self, id: i64, keys: &[String]) -> Result<()>;
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()>;
     fn set_status(&self, id: i64, status: &str) -> Result<()>;
     fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()>;

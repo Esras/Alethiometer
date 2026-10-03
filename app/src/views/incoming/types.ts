@@ -51,6 +51,10 @@ export interface Signal {
   category?: string | null;
   change?: string | null;
   description?: string | null;
+  /** The item's revision as listed, and the keys of the messages listed.
+   * Triage sends both back so it applies to what you saw. */
+  rev: number;
+  keys: string[];
 }
 
 export interface Held {

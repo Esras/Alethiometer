@@ -168,7 +168,7 @@
     dismissed = new Set(dismissed).add(s.item_id);
     selItem = s.item_id;
     // Out of Incoming now; the check stays until you move off it.
-    call('incoming.dismiss', { item_id: s.item_id }).catch(() => {});
+    call('incoming.dismiss', { item_id: s.item_id, ...saw(s) }).catch(() => {});
     loadLive();
   }
 
@@ -421,13 +421,16 @@
     };
     flip(on);
     try {
-      await call(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id });
+      await call(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id, ...(on ? saw(s) : {}) });
       err = null;
     } catch (e) {
       flip(!on);
       err = String((e as Error).message ?? e);
     }
   }
+
+  /** What you saw of a signal: triage applies to that, and newer messages stay new. */
+  const saw = (s: Signal) => ({ rev: s.rev, keys: s.keys });
 
   /** The topic a signal is listed under: the selected one, or (Agents waiting) its own. */
   const topicOf = (s: Signal) => (typeof selKey === 'number' ? selKey : selKey === 'agents' ? (s.topic_id ?? null) : null);
@@ -438,7 +441,7 @@
     // Agents waiting, not filed yet: confirming means picking its topic.
     if (topic === null) return selKey === 'agents' ? pick(s) : undefined;
     selItem = s.item_id;
-    act('incoming.confirm', { item_id: s.item_id, topic_id: topic });
+    act('incoming.confirm', { item_id: s.item_id, topic_id: topic, ...saw(s) });
   }
 
   function wrong(s: Signal | null) {
@@ -464,7 +467,7 @@
       act('incoming.split', { item_id: current.item_id, message_ids: ids, topic_id: topicId });
       return;
     }
-    act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: topicOf(current) });
+    act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: topicOf(current), ...saw(current) });
   }
 
   function openTodo(s: Signal | null) {

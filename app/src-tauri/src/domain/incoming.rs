@@ -30,6 +30,8 @@ pub struct SignalRow {
     pub agent_json: Option<String>,
     /// A Slack thread item (its parent wasn't captured).
     pub thread: bool,
+    /// `items.rev`: what triage sends back so it applies to what you saw.
+    pub rev: i64,
 }
 
 /// An unseen signal with a live link to a topic.

@@ -62,6 +62,18 @@ impl Items for Sql<'_> {
         Ok(self.conn().execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![id, seen])? == 1)
     }
 
+    fn rev(&self, id: i64) -> Result<Option<i64>> {
+        Ok(self.conn().query_row("SELECT rev FROM items WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+    }
+
+    fn mark_read(&self, id: i64, keys: &[String]) -> Result<()> {
+        self.conn().execute(
+            "UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
+            params![id, serde_json::to_string(keys)?],
+        )?;
+        Ok(())
+    }
+
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()> {
         self.conn().execute(
             "UPDATE items SET seen = ?2 WHERE id IN (SELECT value FROM json_each(?1))",

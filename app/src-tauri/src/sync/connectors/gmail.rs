@@ -29,9 +29,15 @@ impl Connector for Gmail {
         let api = Api { ctx, cache: &oauth::CACHE };
         match op {
             "gmail.file" | "gmail.mark_read" => file(&api, payload),
-            "gmail.archive" => modify(&api, payload, json!({ "removeLabelIds": ["INBOX"] })),
+            "gmail.archive" => match unseen_mail(&api, payload)? {
+                true => Ok(json!({ "thread_id": thread_id(payload)?, "left_in_inbox": "new mail arrived since" })),
+                false => modify(&api, payload, json!({ "removeLabelIds": ["INBOX"] })),
+            },
             "gmail.relabel" => relabel(&api, payload),
-            "gmail.trash" => thread_post(&api, payload, "trash"),
+            "gmail.trash" => match unseen_mail(&api, payload)? {
+                true => Ok(json!({ "thread_id": thread_id(payload)?, "left_in_inbox": "new mail arrived since" })),
+                false => thread_post(&api, payload, "trash"),
+            },
             "gmail.restore" => {
                 thread_post(&api, payload, "untrash")?;
                 modify(&api, payload, json!({ "addLabelIds": ["INBOX"] }))
@@ -385,16 +391,21 @@ fn thread_id(payload: &Value) -> anyhow::Result<&str> {
     payload["thread_id"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| anyhow::anyhow!("payload needs thread_id"))
 }
 
+/// Whether the thread has unread Inbox mail that isn't in `message_ids` (what
+/// you saw here). Without `message_ids`, no.
+fn unseen_mail(api: &Api, payload: &Value) -> anyhow::Result<bool> {
+    let Some(known) = payload["message_ids"].as_array() else { return Ok(false) };
+    let th = api.get(&format!("{API}/threads/{}?format=minimal", enc(thread_id(payload)?)))?.ok()?.json()?;
+    let msgs = th["messages"].as_array().into_iter().flatten();
+    Ok(msgs.filter(|m| unread_in_inbox(m)).any(|m| !known.contains(&m["id"])))
+}
+
 /// `gmail.file {thread_id, message_ids?, label?}`: adds the label (by name) and marks the thread read, unless
 /// unread mail you haven't seen here arrived since; then it only adds the label.
+/// `gmail.archive` and `gmail.trash` with `message_ids` do nothing in that case.
 fn file(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     let thread = thread_id(payload)?;
-    let mut mark_read = true;
-    if let Some(known) = payload["message_ids"].as_array() {
-        let th = api.get(&format!("{API}/threads/{}?format=minimal", enc(thread)))?.ok()?.json()?;
-        let msgs = th["messages"].as_array().into_iter().flatten();
-        mark_read = !msgs.filter(|m| unread_in_inbox(m)).any(|m| !known.contains(&m["id"]));
-    }
+    let mark_read = !unseen_mail(api, payload)?;
     let mut change = json!({});
     if mark_read {
         // Filing also archives (`archive`), but never past mail you haven't seen.
@@ -747,6 +758,22 @@ mod tests {
         );
         let e = send(&http, "gmail.relabel", json!({ "thread_id": A, "add": "Nope" })).unwrap_err().to_string();
         assert!(e.contains("no Gmail label named 'Nope'"), "{e}");
+    }
+
+    #[test]
+    fn archive_and_trash_leave_a_thread_with_mail_you_didnt_see() {
+        let http = google();
+        http.on("GET", &format!("/threads/{A}?format=minimal"), 200, fixture!("thread_a.json"));
+        http.on("POST", "/threads/", 200, fixture!("modify.json"));
+        for op in ["gmail.archive", "gmail.trash"] {
+            let r = send(&http, op, json!({ "thread_id": A, "message_ids": ["18f0a1b2c3d4e601"] })).unwrap();
+            assert!(r["left_in_inbox"].is_string(), "{op}");
+        }
+        assert!(posts(&http).is_empty());
+        // Everything seen: done as asked.
+        let known = json!(["18f0a1b2c3d4e5f6", "18f0a1b2c3d4e601", "18f0a1b2c3d4e602"]);
+        send(&http, "gmail.archive", json!({ "thread_id": A, "message_ids": known })).unwrap();
+        assert_eq!(posts(&http), [(format!("{A}/modify"), Some(json!({ "removeLabelIds": ["INBOX"] })))]);
     }
 
     #[test]

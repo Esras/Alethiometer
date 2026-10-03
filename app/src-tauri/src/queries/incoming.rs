@@ -111,6 +111,10 @@ pub struct Signal {
     author_name: Option<String>,
     #[serde(skip)]
     thread: bool,
+    /// The item's revision as listed. Triage sends it back with `keys`.
+    pub rev: i64,
+    /// Keys of the messages listed (`item_messages.ext_key`).
+    pub keys: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -167,28 +171,28 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         "review_confirm" => Route::Write(|uow, ctx, args| Ok(json!({ "ok": true, "confirmed": review_confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?)? }))),
         "confirm" => Route::Write(|uow, ctx, args| {
-            confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?)?;
-            Ok(json!({ "ok": true }))
+            let changed = confirm_seen(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed }))
         }),
         "wrong" => Route::Write(|uow, _, args| {
             wrong(uow, arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?)?;
             Ok(json!({ "ok": true }))
         }),
         "move" => Route::Write(|uow, ctx, args| {
-            move_to(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"))?;
-            Ok(json!({ "ok": true }))
+            let changed = move_seen(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"), saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed }))
         }),
         "dismiss" => Route::Write(|uow, _, args| {
-            dismiss(uow, arg_i64(args, "item_id")?, true)?;
-            Ok(json!({ "ok": true }))
+            let changed = dismiss_seen(uow, arg_i64(args, "item_id")?, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed }))
         }),
         "undismiss" => Route::Write(|uow, _, args| {
             dismiss(uow, arg_i64(args, "item_id")?, false)?;
             Ok(json!({ "ok": true }))
         }),
         "trash" => Route::Write(|uow, _, args| {
-            trash(uow, arg_i64(args, "item_id")?)?;
-            Ok(json!({ "ok": true }))
+            let changed = trash_seen(uow, arg_i64(args, "item_id")?, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed }))
         }),
         "split" => Route::Write(|uow, ctx, args| {
             let child = split_to(uow, ctx.clock.now(), arg_i64(args, "item_id")?, &ids_arg(args), arg_i64(args, "topic_id")?)?;
@@ -201,6 +205,35 @@ pub fn route(name: &str) -> Option<Route> {
 /// A split review of filed signals (18c/18d) names the parts it works on; Incoming's doesn't.
 fn scope_arg(args: &Value) -> Option<Vec<i64>> {
     args.get("parts").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect())
+}
+
+/// What the list showed of a signal when you acted on it: its revision and
+/// the keys of its messages (`Signal::rev`, `Signal::keys`). Triage applies
+/// to that: those messages are read, Gmail and Slack act only up to them,
+/// and if the item gained messages or came back since, it stays in Incoming
+/// with only the newer ones new (`app/docs/db-plan.md`, Phase 3).
+#[derive(Debug, Clone, Default)]
+pub struct Saw {
+    pub rev: i64,
+    pub keys: Vec<String>,
+}
+
+fn saw_arg(args: &Value) -> Option<Saw> {
+    let rev = args.get("rev").and_then(Value::as_i64)?;
+    let keys = args.get("keys").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+    Some(Saw { rev, keys })
+}
+
+/// After triage: the messages you saw are read; if the item changed since you
+/// saw it, it stays in Incoming. Returns whether it had changed.
+fn settle_saw(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<bool> {
+    let Some(saw) = saw else { return Ok(false) };
+    uow.items().mark_read(item_id, &saw.keys)?;
+    let changed = uow.items().rev(item_id)? != Some(saw.rev);
+    if changed {
+        uow.items().set_seen(item_id, false)?;
+    }
+    Ok(changed)
 }
 
 fn ids_arg(args: &Value) -> Vec<i64> {
@@ -240,6 +273,8 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         author_handle: row.author_handle,
         author_name: row.author_name,
         thread: row.thread,
+        rev: row.rev,
+        keys: vec![],
     }
 }
 
@@ -429,7 +464,9 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal]) -> Result<()
     let mut messages = messages_by_item(r, &ids)?;
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
     for s in sigs {
-        let rows = message_rows(look, &s.source, messages.remove(&s.item_id).unwrap_or_default());
+        let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
+        s.keys = raw_rows.iter().filter_map(|m| m.ext_key.clone()).collect();
+        let rows = message_rows(look, &s.source, raw_rows);
         let author_ids: Vec<(String, String)> =
             rows.iter().filter(|r| !r.1).filter_map(|r| r.4.clone().map(|id| (r.0.author.clone(), id))).collect();
         let (mut own, context) = nest(rows);
@@ -495,16 +532,21 @@ pub fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings) -> Re
 
 /// File the signal under its suggested (or already confirmed) topic.
 pub fn confirm(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64) -> Result<()> {
+    confirm_seen(uow, now, item_id, topic_id, None).map(|_| ())
+}
+
+/// `confirm` of what you saw (`Saw`). Returns whether the item had changed since.
+pub fn confirm_seen(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, saw: Option<&Saw>) -> Result<bool> {
     if !uow.links().set_state(item_id, topic_id, "confirmed")? {
         return Err(msg("no suggested link to confirm"));
     }
     uow.items().set_seen(item_id, true)?;
     confirm_series(uow, item_id, topic_id)?;
-    mark_read_remote(uow, item_id, topic_id)?;
+    mark_read_remote(uow, item_id, topic_id, saw)?;
     // A todo held on the signal is made with the topic. (A Gmail thread
     // leaves the Inbox through filing itself, todo or not: `file_gmail`.)
     super::todos::settle(uow, now, item_id, topic_id)?;
-    Ok(())
+    settle_saw(uow, item_id, saw)
 }
 
 /// A recurring event is triaged once: every instance of its series gets the topic.
@@ -526,39 +568,48 @@ fn confirm_series(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64) -> Result<(
 /// while another part of the family is still new, nothing is marked; the last
 /// part to leave Incoming marks the conversation up to the family's newest
 /// marker.
-fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64) -> Result<()> {
+fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64, saw: Option<&Saw>) -> Result<()> {
     let Some((source_id, kind, raws)) = settled_family(uow, item_id)? else { return Ok(()) };
     match kind.as_str() {
-        "slack" => mark_slack_read(uow, source_id, item_id, &raws),
-        "gmail" => file_gmail(uow, source_id, item_id, &raws, topic_id),
+        "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
+        "gmail" => file_gmail(uow, source_id, item_id, &raws, topic_id, saw),
         _ => Ok(()),
     }
 }
 
-/// Source, kind and every family part's `raw_json`; `None` while another part of the family is still new.
-fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, String, Vec<Value>)>> {
+/// Source, kind and every family part's id and `raw_json`; `None` while another part of the family is still new.
+fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, String, Vec<(i64, Value)>)>> {
     let family = uow.items().family(item_id)?;
     let Some(first) = family.first() else { return Ok(None) };
     if family.iter().any(|p| !p.seen && p.id != item_id) {
         return Ok(None);
     }
     let (source_id, kind) = (first.source_id, first.source_kind.clone());
-    let raws = family.into_iter().map(|p| serde_json::from_str(&p.raw_json).unwrap_or_default()).collect();
+    let raws = family.into_iter().map(|p| (p.id, serde_json::from_str(&p.raw_json).unwrap_or_default())).collect();
     Ok(Some((source_id, kind, raws)))
 }
 
-fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[Value]) -> Result<()> {
+fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(i64, Value)], saw: Option<&Saw>) -> Result<()> {
     // A read-only source gets no remote op (the request would refuse it, after Confirm had done half its work).
     if crate::outbox::is_read_only(uow.reads(), source_id)? {
         return Ok(());
     }
+    let ts = |k: &str| k.parse::<f64>().ok();
     let mut newest: Option<(f64, String, String)> = None;
-    for raw in raws {
-        if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) {
-            let n = ts.parse::<f64>().unwrap_or(0.0);
-            if newest.as_ref().is_none_or(|b| n > b.0) {
-                newest = Some((n, channel.to_owned(), ts.to_owned()));
+    for (id, raw) in raws {
+        let (Some(channel), Some(mut mark)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) else { continue };
+        // This item: no further than the newest of its messages you saw.
+        if let (true, Some(saw)) = (*id == item_id, saw) {
+            let msgs: Vec<&str> = raw.get("msgs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+            let seen = saw.keys.iter().map(String::as_str).filter(|k| msgs.contains(k) && ts(k) <= ts(mark)).max_by(|a, b| ts(a).partial_cmp(&ts(b)).unwrap_or(std::cmp::Ordering::Equal));
+            match seen {
+                Some(k) => mark = k,
+                None => continue,
             }
+        }
+        let n = ts(mark).unwrap_or(0.0);
+        if newest.as_ref().is_none_or(|b| n > b.0) {
+            newest = Some((n, channel.to_owned(), mark.to_owned()));
         }
     }
     if let Some((_, channel, ts)) = newest {
@@ -575,15 +626,16 @@ fn category_label(config_json: &str, category: &str) -> Option<String> {
 
 /// The thread, every Gmail message id the user saw in it (so `gmail.file` can spot mail that came later), and the
 /// Gmail label of the topic's category (`config.category_labels`), if any.
-fn file_gmail(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[Value], topic_id: i64) -> Result<()> {
+fn file_gmail(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(i64, Value)], topic_id: i64, saw: Option<&Saw>) -> Result<()> {
     let source = uow.reads().sources().get(source_id)?.ok_or_else(|| msg("no such source"))?;
     if crate::outbox::read_only_name(&source).is_some() {
         return Ok(());
     }
-    let Some(thread) = raws.iter().find_map(|r| r.get("thread_id").and_then(Value::as_str)) else { return Ok(()) };
+    let Some(thread) = raws.iter().find_map(|(_, r)| r.get("thread_id").and_then(Value::as_str)) else { return Ok(()) };
     let mut ids: Vec<&str> = vec![];
-    for id in raws.iter().filter_map(|r| r.get("msgs").and_then(Value::as_array)).flatten().filter_map(Value::as_str) {
-        if !ids.contains(&id) {
+    for id in raws.iter().filter_map(|(_, r)| r.get("msgs").and_then(Value::as_array)).flatten().filter_map(Value::as_str) {
+        // Only mail you saw: anything later keeps the thread in the Inbox.
+        if !ids.contains(&id) && saw.is_none_or(|s| s.keys.iter().any(|k| k == id)) {
             ids.push(id);
         }
     }
@@ -597,10 +649,15 @@ fn file_gmail(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[Value]
     Ok(())
 }
 
-fn gmail_op(uow: &dyn UnitOfWork, item_id: i64, op: &str) -> Result<()> {
+fn gmail_op(uow: &dyn UnitOfWork, item_id: i64, op: &str, saw: Option<&Saw>) -> Result<()> {
     match uow.items().get(item_id)? {
         Some(i) if i.source_kind == "gmail" && !crate::outbox::is_read_only(uow.reads(), i.source_id)? => {
-            request(uow, i.source_id, op, &json!({ "thread_id": i.external_id }), Some(item_id))?;
+            let mut payload = json!({ "thread_id": i.external_id });
+            // Archive or trash only what you saw: newer unread mail keeps the thread.
+            if let Some(saw) = saw {
+                payload["message_ids"] = json!(saw.keys);
+            }
+            request(uow, i.source_id, op, &payload, Some(item_id))?;
             Ok(())
         }
         _ => Ok(()),
@@ -636,21 +693,42 @@ pub fn dismiss(uow: &dyn UnitOfWork, item_id: i64, on: bool) -> Result<()> {
         return Err(msg("no such item"));
     }
     uow.todos().set_discarded(item_id, on)?;
-    gmail_op(uow, item_id, if on { "gmail.archive" } else { "gmail.restore" })
+    gmail_op(uow, item_id, if on { "gmail.archive" } else { "gmail.restore" }, None)
+}
+
+/// Dismiss what you saw (`Saw`). Returns whether the item had changed since.
+pub fn dismiss_seen(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<bool> {
+    if !uow.items().set_seen(item_id, true)? {
+        return Err(msg("no such item"));
+    }
+    uow.todos().set_discarded(item_id, true)?;
+    gmail_op(uow, item_id, "gmail.archive", saw)?;
+    settle_saw(uow, item_id, saw)
 }
 
 pub fn trash(uow: &dyn UnitOfWork, item_id: i64) -> Result<()> {
+    trash_seen(uow, item_id, None).map(|_| ())
+}
+
+/// Trash what you saw (`Saw`). Returns whether the item had changed since.
+pub fn trash_seen(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<bool> {
     let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
     if item.source_kind != "gmail" {
         return Err(msg("only Gmail threads can be trashed"));
     }
     uow.items().set_seen(item_id, true)?;
-    gmail_op(uow, item_id, "gmail.trash")
+    gmail_op(uow, item_id, "gmail.trash", saw)?;
+    settle_saw(uow, item_id, saw)
 }
 
 /// The user picked the topic, so it's confirmed. If the item came from another
 /// topic's suggestion, that suggestion was wrong.
 pub fn move_to(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, from: Option<i64>) -> Result<()> {
+    move_seen(uow, now, item_id, topic_id, from, None).map(|_| ())
+}
+
+/// `move_to` of what you saw (`Saw`). Returns whether the item had changed since.
+pub fn move_seen(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, from: Option<i64>, saw: Option<&Saw>) -> Result<bool> {
     if let Some(f) = from.filter(|f| *f != topic_id) {
         wrong(uow, item_id, f)?;
     }
@@ -659,11 +737,11 @@ pub fn move_to(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, from:
     confirm_series(uow, item_id, topic_id)?;
     if let Some((source_id, kind, raws)) = settled_family(uow, item_id)? {
         if kind == "gmail" {
-            file_gmail(uow, source_id, item_id, &raws, topic_id)?;
+            file_gmail(uow, source_id, item_id, &raws, topic_id, saw)?;
         }
     }
     super::todos::settle(uow, now, item_id, topic_id)?;
-    Ok(())
+    settle_saw(uow, item_id, saw)
 }
 
 // ---------------------------------------------------------------------------
@@ -924,7 +1002,7 @@ pub fn reclassify(uow: &dyn UnitOfWork, now: Ts, item_id: i64, from: Option<i64>
     // its category label changes.
     let was_new = moved.iter().any(|m| m.item_id == item_id && !m.seen);
     match (was_new, settled_family(uow, item_id)?) {
-        (true, Some((source_id, kind, raws))) if kind == "gmail" => file_gmail(uow, source_id, item_id, &raws, to)?,
+        (true, Some((source_id, kind, raws))) if kind == "gmail" => file_gmail(uow, source_id, item_id, &raws, to, None)?,
         _ => relabel_gmail(uow, item_id, from_cat.as_deref(), &to_cat)?,
     }
     super::todos::settle(uow, now, item_id, to)?;
@@ -1724,6 +1802,101 @@ mod tests {
         assert!(split_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, &[all[0], other], q4).is_err());
         let after: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(before, after);
+    }
+
+    /// A run of DM messages in the sample Slack source, keyed by ts, suggested to `topic`.
+    fn slack_run(conn: &Connection, ts: &[&str]) -> i64 {
+        use crate::sync::{apply_now, Batch, ItemUpsert, Message as M};
+        let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        let src = crate::sync::load_source(conn, sid).unwrap();
+        let messages = ts.iter().map(|t| M { at: crate::time::Ts::from_unix_secs(1_790_000_000.0 + t.parse::<f64>().unwrap()).unwrap(), author: "Ana".into(), text: format!("m {t}"), ..Default::default() }).collect();
+        let it = ItemUpsert {
+            external_id: "D9/100.1".into(),
+            kind: "thread".into(),
+            title: "DM · Ana".into(),
+            occurred_at: crate::time::t("2026-09-27T09:00:00"),
+            status: "open".into(),
+            raw_json: json!({ "channel": "D9", "mark_ts": ts[ts.len() - 1], "msgs": ts }),
+            messages,
+            bump: true,
+            ..Default::default()
+        };
+        apply_now(conn, &src, &Batch { items: vec![it], ..Default::default() }).unwrap();
+        conn.query_row("SELECT id FROM items WHERE external_id = 'D9/100.1'", [], |r| r.get(0)).unwrap()
+    }
+
+    fn listed(conn: &Connection, now: &Clock, item: i64) -> Saw {
+        let q = queue(&crate::store::over(conn), now).unwrap();
+        let s = q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|s| s.item_id == item).unwrap();
+        Saw { rev: s.rev, keys: s.keys.clone() }
+    }
+
+    #[test]
+    fn a_message_arriving_mid_render_stays_new() {
+        let (conn, now, _d) = setup();
+        let item = slack_run(&conn, &["100.1", "100.2"]);
+        let topic = topic_named(&conn, "Q4 planning");
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![item, topic]).unwrap();
+        let saw = listed(&conn, &now, item);
+        assert_eq!(saw.keys, ["100.1", "100.2"]);
+        // A sync lands a third message after the list was rendered.
+        slack_run(&conn, &["100.1", "100.2", "100.3"]);
+        let changed = confirm_seen(&crate::store::over(&conn), now.now(), item, topic, Some(&saw)).unwrap();
+        assert!(changed);
+        // Filed under the topic, still in Incoming, with only the new message new.
+        assert_eq!(link_state(&conn, item, topic).unwrap().as_deref(), Some("confirmed"));
+        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        assert!(!seen);
+        let read: Vec<(String, bool)> = conn
+            .prepare("SELECT ext_key, read FROM item_messages WHERE item_id = ?1 ORDER BY at")
+            .unwrap()
+            .query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(read, vec![("100.1".into(), true), ("100.2".into(), true), ("100.3".into(), false)]);
+        // Slack is marked read up to what you saw, not past it.
+        let mark: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&mark).unwrap()["ts"], "100.2");
+    }
+
+    #[test]
+    fn nothing_new_since_you_saw_it_leaves_incoming() {
+        let (conn, now, _d) = setup();
+        let item = slack_run(&conn, &["100.1", "100.2"]);
+        let saw = listed(&conn, &now, item);
+        assert!(!dismiss_seen(&crate::store::over(&conn), item, Some(&saw)).unwrap());
+        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        assert!(seen);
+    }
+
+    #[test]
+    fn gmail_files_and_archives_only_the_mail_you_saw() {
+        let (conn, now, _d) = setup();
+        let thread = q_gmail_thread(&conn);
+        let topic = topic_named(&conn, "Acme outage");
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![thread, topic]).unwrap();
+        // You saw g1; g2 came in after.
+        let saw = Saw { rev: -1, keys: vec!["g1".into()] };
+        confirm_seen(&crate::store::over(&conn), now.now(), thread, topic, Some(&saw)).unwrap();
+        let payload = |op: &str| -> Value {
+            let p: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = ?1", [op], |r| r.get(0)).unwrap();
+            serde_json::from_str(&p).unwrap()
+        };
+        assert_eq!(payload("gmail.file")["message_ids"], json!(["g1"]));
+        dismiss_seen(&crate::store::over(&conn), thread, Some(&saw)).unwrap();
+        assert_eq!(payload("gmail.archive")["message_ids"], json!(["g1"]));
+    }
+
+    /// A Gmail thread item of the sample Gmail source with messages g1 and g2.
+    fn q_gmail_thread(conn: &Connection) -> i64 {
+        let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'gmail'", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            r#"INSERT INTO items (source_id, external_id, kind, title, occurred_at, raw_json) VALUES (?1, 'th1', 'thread', 'Re: renewal', '2026-09-27T09:00:00.000Z', '{"thread_id":"th1","msgs":["g1","g2"]}')"#,
+            [sid],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
     }
 
     #[test]
