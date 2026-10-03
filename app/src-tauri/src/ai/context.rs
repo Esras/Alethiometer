@@ -8,10 +8,13 @@
 //! Context is capped at `BUDGET` characters, filled newest first, so a busy
 //! topic can't blow up the request.
 
-use crate::error::Result;
 use crate::clock::Clock;
-use crate::time::{Date, Ts};
-use rusqlite::{params, Connection};
+use crate::domain::context::ContextItem;
+use crate::domain::ports::Reads;
+use crate::error::{msg, Result};
+use crate::state::App;
+use crate::time::{Date, Due, Ts};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
@@ -59,60 +62,52 @@ pub fn clip(s: &str, n: usize) -> String {
     out
 }
 
-/// A topic's Obsidian note, or "" if it has none or it can't be read.
-pub fn topic_note(conn: &Connection, vault: &Path, topic_id: i64) -> Result<(String, String)> {
-    let (name, path): (String, Option<String>) =
-        conn.query_row("SELECT name, obsidian_path FROM topics WHERE id = ?1", [topic_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let text = path.map(|p| std::fs::read_to_string(vault.join(p)).unwrap_or_default()).unwrap_or_default();
-    Ok((name, text))
+/// Vault notes a prompt quotes, read after the snapshot that named them has
+/// closed (the database is never held across a file read).
+#[derive(Debug, Default)]
+pub struct Notes(HashMap<String, String>);
+
+impl Notes {
+    pub fn read(vault: &Path, paths: impl IntoIterator<Item = String>) -> Notes {
+        Notes(paths.into_iter().map(|p| (p.clone(), std::fs::read_to_string(vault.join(&p)).unwrap_or_default())).collect())
+    }
+
+    /// The note's text, or "" if it wasn't read or isn't there.
+    pub fn get(&self, path: &str) -> &str {
+        self.0.get(path).map_or("", String::as_str)
+    }
 }
 
-struct ItemRow {
-    id: i64,
-    tag: String,
-    source: String,
-    kind: String,
-    title: String,
-    summary: Option<String>,
-    body: String,
-    at: String,
-    ended: Option<String>,
-    due: Option<String>,
-    status: String,
-    owner: Option<String>,
+/// A topic's name and its Obsidian note ("" if it has none or it can't be read).
+pub fn topic_note(app: &App, topic_id: i64) -> Result<(String, String)> {
+    let head = app.store().read(|r| r.topics().head(topic_id))?.ok_or_else(|| msg("no such topic"))?;
+    let text = head.obsidian_path.map(|p| std::fs::read_to_string(app.vault.join(p)).unwrap_or_default()).unwrap_or_default();
+    Ok((head.name, text))
 }
 
-const ITEM_COLS: &str = "i.id, s.tag, s.kind, i.kind, i.title, i.summary, i.body, i.occurred_at, i.ended_at, i.due_at, i.status, i.owner";
-
-fn item_row(r: &rusqlite::Row) -> rusqlite::Result<ItemRow> {
-    Ok(ItemRow {
-        id: r.get(0)?,
-        tag: r.get(1)?,
-        source: r.get(2)?,
-        kind: r.get(3)?,
-        title: r.get(4)?,
-        summary: r.get(5)?,
-        body: r.get(6)?,
-        at: r.get(7)?,
-        ended: r.get(8)?,
-        due: r.get(9)?,
-        status: r.get(10)?,
-        owner: r.get(11)?,
-    })
+/// "2026-10-03 10:52" here.
+fn local(clock: &Clock, t: Ts) -> String {
+    clock.local(t).strftime("%Y-%m-%d %H:%M").to_string()
 }
 
-fn is_open_task(r: &ItemRow) -> bool {
+fn is_open_task(r: &ContextItem) -> bool {
     matches!(r.kind.as_str(), "task" | "issue" | "email") && r.owner.is_some() && r.status == "open"
 }
 
-fn item_block(conn: &Connection, clock: &Clock, r: &ItemRow) -> Result<String> {
-    let mut b = format!("\n[item {}] {} {} · {}", r.id, r.source, r.kind, r.at.replace('T', " "));
-    if let Some(e) = &r.ended {
-        let _ = write!(b, " to {}", e.replace('T', " "));
+fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem) -> Result<String> {
+    let mut b = format!("\n[item {}] {} {} · {}", r.id, r.source_kind, r.kind, local(clock, r.at));
+    if let Some(e) = r.ended {
+        let _ = write!(b, " to {}", local(clock, e));
     }
     let _ = write!(b, " · {}", if is_open_task(r) { "OPEN TASK" } else { &r.status });
-    if let Some(d) = &r.due {
-        let _ = write!(b, " · due {}", d.replace('T', " "));
+    match r.due {
+        Some(Due::At(t)) => {
+            let _ = write!(b, " · due {}", local(clock, t));
+        }
+        Some(Due::Day(d)) => {
+            let _ = write!(b, " · due {d}");
+        }
+        None => {}
     }
     if let Some(o) = &r.owner {
         let _ = write!(b, " · owner {o}");
@@ -125,56 +120,56 @@ fn item_block(conn: &Connection, clock: &Clock, r: &ItemRow) -> Result<String> {
         let _ = writeln!(b, "Body: {}", clip(&r.body, BODY_CAP));
     }
     // Most recent messages, shown oldest to newest.
-    let mut stmt = conn.prepare("SELECT at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2")?;
-    let mut msgs = stmt
-        .query_map(params![r.id, MSGS_PER_ITEM as i64], |m| Ok((m.get::<_, Ts>(0)?, m.get::<_, String>(1)?, m.get::<_, String>(2)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    msgs.reverse();
-    for (at, author, text) in msgs {
+    for (at, author, text) in reads.context().latest_messages(r.id, MSGS_PER_ITEM)? {
         let _ = writeln!(b, "  {} {author}: {}", clock.local(at).strftime("%H:%M"), clip(&text, MSG_CAP));
     }
     Ok(b)
 }
 
-fn topic_rows(conn: &Connection, topic_id: i64, state: &str) -> Result<Vec<ItemRow>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {ITEM_COLS}
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-          WHERE tl.topic_id = ?1 AND tl.state = ?2 AND s.tag = 'work' AND (?2 = 'confirmed' OR i.seen = 0)
-          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
-    ))?;
-    let rows = stmt.query_map(params![topic_id, state], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows.into_iter().filter(|r| r.tag == "work").collect())
+/// A topic's work items in `state`, checked again for the work tag.
+fn topic_rows(reads: &dyn Reads, topic_id: i64, state: &str) -> Result<Vec<ContextItem>> {
+    Ok(reads.context().topic_items(topic_id, state)?.into_iter().filter(|r| r.tag == "work").collect())
 }
 
 /// Context for questions about one topic: its note, its new signals still in
 /// Incoming (suggested, not confirmed), open tasks, then confirmed items newest first.
-pub fn for_topic(conn: &Connection, clock: &Clock, vault: &Path, topic_id: i64) -> Result<Context> {
-    let (name, note) = topic_note(conn, vault, topic_id)?;
+pub fn for_topic(app: &App, topic_id: i64) -> Result<Context> {
+    let paths = app.store().read(|r| {
+        let mut paths: Vec<String> = r.topics().head(topic_id)?.and_then(|h| h.obsidian_path).into_iter().collect();
+        paths.extend(crate::queries::people::agent_note_paths(r, topic_id, &app.clock)?);
+        Ok(paths)
+    })?;
+    let notes = Notes::read(&app.vault, paths);
+    app.store().read(|r| topic_context(r, &app.clock, &notes, topic_id))
+}
+
+fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64) -> Result<Context> {
+    let head = reads.topics().head(topic_id)?.ok_or_else(|| msg("no such topic"))?;
+    let note = head.obsidian_path.as_deref().map_or("", |p| notes.get(p));
     let mut ctx = Context::default();
-    ctx.push(&format!("Topic: {name}\n"), None);
+    ctx.push(&format!("Topic: {}\n", head.name), None);
     if !note.trim().is_empty() {
-        ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(&note, NOTE_CAP)), None);
+        ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(note, NOTE_CAP)), None);
     }
-    let people = crate::queries::people::agent_context(&crate::store::over(conn), vault, topic_id, clock)?;
+    let people = crate::queries::people::agent_context(reads, notes, topic_id, clock)?;
     if !people.is_empty() {
         ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
     }
-    let suggested = topic_rows(conn, topic_id, "suggested")?;
+    let suggested = topic_rows(reads, topic_id, "suggested")?;
     if !suggested.is_empty() {
         ctx.push("\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n", None);
         for r in &suggested {
-            if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
+            if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
                 break;
             }
         }
     }
-    let rows = topic_rows(conn, topic_id, "confirmed")?;
+    let rows = topic_rows(reads, topic_id, "confirmed")?;
     // Open tasks first so the budget never drops them; then everything else newest first.
-    let (open, rest): (Vec<&ItemRow>, Vec<&ItemRow>) = rows.iter().partition(|r| is_open_task(r));
+    let (open, rest): (Vec<&ContextItem>, Vec<&ContextItem>) = rows.iter().partition(|r| is_open_task(r));
     ctx.push("\nItems linked to this topic (newest first):\n", None);
     for r in open.into_iter().chain(rest) {
-        if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
+        if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
             break;
         }
     }
@@ -183,100 +178,53 @@ pub fn for_topic(conn: &Connection, clock: &Clock, vault: &Path, topic_id: i64) 
 
 /// Context for reviewing the topic list (Topics index): every active topic with its
 /// note gist, size, last activity and a few recent work item titles.
-pub fn for_topics(conn: &Connection, clock: &Clock, vault: &Path) -> Result<Context> {
-    let mut ctx = Context::default();
-    ctx.push("Active topics (id, name, linked work items, last activity, note gist, recent items):\n", None);
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.obsidian_path,
-                (SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-                  WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work'),
-                (SELECT max(i.occurred_at) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-                  WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work')
-           FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
-    )?;
-    let topics = stmt
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?, r.get::<_, Option<Ts>>(4)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut recent = conn.prepare(
-        "SELECT i.title, s.tag FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'
-          ORDER BY i.occurred_at DESC LIMIT 5",
-    )?;
-    for (id, name, path, n, last) in topics {
-        let titles: Vec<String> = recent
-            .query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
-            .filter_map(|r| r.ok())
-            .filter(|(_, tag)| tag == "work")
-            .map(|(t, _)| clip(&t, 80))
-            .collect();
-        let gist = path.map(|p| note_gist(&std::fs::read_to_string(vault.join(p)).unwrap_or_default())).unwrap_or_default();
-        let last = last.map(|l| clock.day_of(l).to_string()).unwrap_or_else(|| "never".into());
-        let block = format!("- [topic {id}] {name} · {n} items · last {last}\n  note: {gist}\n  recent: {}\n", titles.join("; "));
-        if !ctx.push(&block, None) {
-            break;
+pub fn for_topics(app: &App) -> Result<Context> {
+    let topics = app.store().read(|r| r.context().topics_overview())?;
+    let notes = Notes::read(&app.vault, topics.iter().filter_map(|t| t.note_path.clone()));
+    app.store().read(|r| {
+        let mut ctx = Context::default();
+        ctx.push("Active topics (id, name, linked work items, last activity, note gist, recent items):\n", None);
+        for t in &topics {
+            let titles: Vec<String> = r.context().recent_titles(t.id, 5)?.iter().map(|t| clip(t, 80)).collect();
+            let gist = t.note_path.as_deref().map(|p| note_gist(notes.get(p))).unwrap_or_default();
+            let last = t.last.map(|l| app.clock.day_of(l).to_string()).unwrap_or_else(|| "never".into());
+            let block = format!("- [topic {}] {} · {} items · last {last}\n  note: {gist}\n  recent: {}\n", t.id, t.name, t.items, titles.join("; "));
+            if !ctx.push(&block, None) {
+                break;
+            }
         }
-    }
-    Ok(ctx)
+        Ok(ctx)
+    })
 }
 
 /// Context for "today": today's work calendar and work items touched today.
-pub fn for_today(conn: &Connection, clock: &Clock, today: Date) -> Result<Context> {
+pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Context> {
     let (day_start, day_end) = clock.day_range(today);
     let mut ctx = Context::default();
     ctx.push(&format!("Today is {}.\n\nWork calendar today:\n", today.strftime("%A %Y-%m-%d")), None);
-
-    let mut stmt = conn.prepare(
-        "SELECT e.item_id, s.tag, e.start, e.end, e.title, e.attendees, e.tentative
-           FROM events e JOIN sources s ON s.id = e.source_id
-          WHERE s.tag = 'work' AND e.is_life_busy = 0 AND e.title IS NOT NULL AND e.start >= ?1 AND e.start < ?2
-          ORDER BY e.start",
-    )?;
-    let events = stmt
-        .query_map(params![day_start, day_end], |r| {
-            Ok((
-                r.get::<_, Option<i64>>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Ts>(2)?,
-                r.get::<_, Ts>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, bool>(6)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (item, tag, start, end, title, attendees, tentative) in events {
-        if tag != "work" {
+    for e in reads.context().work_events(day_start, day_end)? {
+        if e.tag != "work" {
             continue;
         }
-        let mut line = format!("- {}–{} {}", clock.local(start).strftime("%H:%M"), clock.local(end).strftime("%H:%M"), clip(&title, 200));
-        if let Some(a) = attendees.filter(|a| !a.is_empty()) {
+        let mut line = format!("- {}–{} {}", clock.local(e.start).strftime("%H:%M"), clock.local(e.end).strftime("%H:%M"), clip(&e.title, 200));
+        if let Some(a) = e.attendees.filter(|a| !a.is_empty()) {
             let _ = write!(line, " (with {})", clip(&a, 200));
         }
-        if tentative {
+        if e.tentative {
             line.push_str(" [tentative]");
         }
-        if let Some(id) = item {
+        if let Some(id) = e.item_id {
             let _ = write!(line, " [item {id}]");
         }
         line.push('\n');
-        if !ctx.push(&line, item) {
+        if !ctx.push(&line, e.item_id) {
             return Ok(ctx);
         }
     }
-
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {ITEM_COLS}
-           FROM items i JOIN sources s ON s.id = i.source_id
-          WHERE s.tag = 'work' AND i.kind != 'event'
-            AND ((i.occurred_at >= ?1 AND i.occurred_at < ?2) OR (i.ended_at >= ?1 AND i.ended_at < ?2)
-                 OR EXISTS (SELECT 1 FROM item_messages m WHERE m.item_id = i.id AND m.at >= ?1 AND m.at < ?2))
-          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
-    ))?;
-    let rows: Vec<ItemRow> =
-        stmt.query_map(params![day_start, day_end], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|r| r.tag == "work").collect();
+    let rows: Vec<ContextItem> = reads.context().touched(day_start, day_end)?.into_iter().filter(|r| r.tag == "work").collect();
     ctx.push("\nWork items touched today (newest first):\n", None);
     for r in &rows {
-        if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
+        if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
             break;
         }
     }
@@ -307,6 +255,7 @@ pub fn note_gist(note: &str) -> String {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use rusqlite::params;
     use crate::settings::Settings;
     use crate::state::App;
 
@@ -358,14 +307,14 @@ pub mod tests {
             let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
             for (ext, title, seen) in [("n1", "FRESH-SUGGESTION renewal quote", 0), ("n2", "OLD-SUGGESTION already triaged", 1)] {
                 conn.execute(
-                    "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, ?2, 'message', ?3, '2026-09-01T09:00:00', 'open', ?4)",
+                    "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, ?2, 'message', ?3, '2026-09-01T09:00:00.000Z', 'open', ?4)",
                     params![src, ext, title, seen],
                 )
                 .unwrap();
                 conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![conn.last_insert_rowid(), id]).unwrap();
             }
         }
-        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
+        let ctx = for_topic(&app, id).unwrap();
         assert!(ctx.text.contains("not yet confirmed"));
         assert!(ctx.text.contains("FRESH-SUGGESTION"));
         assert!(!ctx.text.contains("OLD-SUGGESTION"));
@@ -375,7 +324,7 @@ pub mod tests {
     fn topic_context_has_note_items_and_messages() {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
-        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
+        let ctx = for_topic(&app, id).unwrap();
         assert!(ctx.text.contains("Topic: Datadog renewal"));
         assert!(ctx.text.contains("True-down at 12 months"), "note text included");
         assert!(ctx.text.contains("[item "));
@@ -391,8 +340,8 @@ pub mod tests {
         let id = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, id);
         let today = app.clock.today();
-        let topic = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
-        let day = for_today(&app.db(), &app.clock, today).unwrap();
+        let topic = for_topic(&app, id).unwrap();
+        let day = app.store().read(|r| for_today(r, &app.clock, today)).unwrap();
         for ctx in [topic, day] {
             assert!(!ctx.text.contains("PERSONAL-SECRET"), "{}", ctx.text);
             assert!(!ctx.used.contains(&personal));
@@ -402,7 +351,7 @@ pub mod tests {
     #[test]
     fn today_has_work_meetings_but_no_life_blocks() {
         let (app, _dir) = app();
-        let ctx = for_today(&app.db(), &app.clock, app.clock.today()).unwrap();
+        let ctx = app.store().read(|r| for_today(r, &app.clock, app.clock.today())).unwrap();
         assert!(ctx.text.contains("Q4 headcount"), "{}", ctx.text);
         assert!(ctx.text.contains("Acme call") && ctx.text.contains("[tentative]"));
         // Life blocks (12:00–13:00 etc.) have no title and must not appear at all.
@@ -420,14 +369,14 @@ pub mod tests {
             for n in 0..200 {
                 conn.execute(
                     "INSERT INTO items (source_id, external_id, kind, title, body, occurred_at, status) VALUES (?1, ?2, 'thread', ?3, ?4, ?5, 'open')",
-                    params![src, format!("bulk-{n}"), format!("Bulk {n}"), "x".repeat(500), format!("2020-01-01T{:02}:{:02}:00", n / 60, n % 60)],
+                    params![src, format!("bulk-{n}"), format!("Bulk {n}"), "x".repeat(500), format!("2020-01-01T{:02}:{:02}:00.000Z", n / 60, n % 60)],
                 )
                 .unwrap();
                 let item = conn.last_insert_rowid();
                 conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![item, id]).unwrap();
             }
         }
-        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
+        let ctx = for_topic(&app, id).unwrap();
         assert!(ctx.text.len() <= BUDGET);
         assert!(ctx.text.contains("Bulk 199"), "newest kept");
         assert!(!ctx.text.contains("Bulk 0\n"), "oldest dropped");

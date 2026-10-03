@@ -719,7 +719,17 @@ pub fn for_topic(reads: &dyn Reads, r: &Resolver, topic_id: i64, clock: &Clock, 
 /// What the assistant may know about a topic's people, one link away only:
 /// each known person's note (gist), the notes that link to it, and which
 /// topics their signals were filed under, how often and how recently.
-pub fn agent_context(reads: &dyn Reads, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
+/// The People notes `agent_context` quotes, to read before it runs.
+pub fn agent_note_paths(reads: &dyn Reads, topic_id: i64, clock: &Clock) -> Result<Vec<String>> {
+    let r = Resolver::load(reads, &PeopleSettings::default())?;
+    Ok(for_topic(reads, &r, topic_id, clock, 9)?
+        .into_iter()
+        .filter(|p| p.known)
+        .filter_map(|p| p.id.and_then(|id| r.person(id)).map(|p| p.note_path.clone()))
+        .collect())
+}
+
+pub fn agent_context(reads: &dyn Reads, notes: &crate::ai::context::Notes, topic_id: i64, clock: &Clock) -> Result<String> {
     let r = Resolver::load(reads, &PeopleSettings::default())?;
     let mut out = String::new();
     for p in for_topic(reads, &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
@@ -729,8 +739,7 @@ pub fn agent_context(reads: &dyn Reads, vault: &Path, topic_id: i64, clock: &Clo
             out.push_str(&format!(" ({role})"));
         }
         out.push_str(&format!(", note {}\n", person.note_path));
-        let note = std::fs::read_to_string(vault.join(&person.note_path)).unwrap_or_default();
-        let gist = crate::ai::context::note_gist(&note);
+        let gist = crate::ai::context::note_gist(notes.get(&person.note_path));
         if !gist.is_empty() {
             out.push_str(&format!("  Note: {gist}\n"));
         }

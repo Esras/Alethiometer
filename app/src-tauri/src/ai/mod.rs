@@ -153,15 +153,12 @@ pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope:
     if question.is_empty() {
         return Err(msg("Ask a question first"));
     }
-    let ctx = {
-        let conn = app.db();
-        match (scope, topic_id) {
-            (Some("today"), _) | (None, None) => context::for_today(&conn, &app.clock, app.clock.today())?,
-            (Some("topic") | None, Some(id)) => context::for_topic(&conn, &app.clock, &app.vault, id)?,
-            (Some("topics"), _) => context::for_topics(&conn, &app.clock, &app.vault)?,
-            (Some("topic"), None) => return Err(msg("scope 'topic' needs a topic_id")),
-            (Some(other), _) => return Err(msg(format!("unknown scope '{other}' (use 'topic', 'topics' or 'today')"))),
-        }
+    let ctx = match (scope, topic_id) {
+        (Some("today"), _) | (None, None) => app.store().read(|r| context::for_today(r, &app.clock, app.clock.today()))?,
+        (Some("topic") | None, Some(id)) => context::for_topic(app, id)?,
+        (Some("topics"), _) => context::for_topics(app)?,
+        (Some("topic"), None) => return Err(msg("scope 'topic' needs a topic_id")),
+        (Some(other), _) => return Err(msg(format!("unknown scope '{other}' (use 'topic', 'topics' or 'today')"))),
     };
     let user = format!("<context>\n{}\n</context>\n\nQuestion: {}", ctx.text, context::clip(question, QUESTION_CAP));
     let answer = complete(app, deps, Tier::Large, ASK_SYSTEM, &user, ASK_MAX_TOKENS)?;

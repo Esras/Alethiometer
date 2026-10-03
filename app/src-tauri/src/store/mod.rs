@@ -16,6 +16,7 @@
 //! on [`Sql`], a connection in the request's transaction.
 
 pub mod categories;
+pub mod context;
 pub mod daystrip;
 pub mod incoming;
 pub mod ingest;
@@ -197,6 +198,7 @@ macro_rules! ports {
 
 ports!(Reads {
     categories: crate::domain::categories::CategoryViews,
+    context: crate::domain::context::ContextViews,
     day_strip: crate::domain::daystrip::DayStripViews,
     incoming: crate::domain::incoming::IncomingViews,
     items: crate::domain::items::ItemViews,

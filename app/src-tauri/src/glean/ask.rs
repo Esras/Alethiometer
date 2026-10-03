@@ -39,8 +39,8 @@ pub struct Chip {
 /// `on` lists ones they added (the note is off unless added).
 pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Result<Vec<Chip>> {
     let Some(t) = topic else { return Ok(vec![]) };
+    let (name, note) = crate::ai::context::topic_note(app, t)?;
     let conn = app.db();
-    let (name, note) = crate::ai::context::topic_note(&conn, &app.vault, t)?;
     let r = crate::queries::people::Resolver::load(&crate::store::over(&conn), &app.settings().people)?;
     let people: Vec<String> = crate::queries::people::for_topic(&crate::store::over(&conn), &r, t, &app.clock, 4)?.into_iter().map(|p| p.name).collect();
     let ents = entities(app, &conn, t)?;

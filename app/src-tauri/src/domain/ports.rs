@@ -6,6 +6,7 @@
 //! ports and models are in `domain/<area>.rs`.
 
 use super::categories::{Categories, CategoryViews};
+use super::context::ContextViews;
 use super::daystrip::{DayStripViews, Events};
 use super::incoming::IncomingViews;
 use super::ingest::Ingest;
@@ -26,6 +27,7 @@ use super::usage::{Usage, UsageViews};
 /// Read models, one port per screen or area.
 pub trait Reads {
     fn categories(&self) -> &dyn CategoryViews;
+    fn context(&self) -> &dyn ContextViews;
     fn day_strip(&self) -> &dyn DayStripViews;
     fn incoming(&self) -> &dyn IncomingViews;
     fn items(&self) -> &dyn ItemViews;

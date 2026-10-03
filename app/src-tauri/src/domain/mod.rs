@@ -8,6 +8,7 @@
 //!   aggregate per row (`ports::Reads`).
 
 pub mod categories;
+pub mod context;
 pub mod daystrip;
 pub mod incoming;
 pub mod ingest;
