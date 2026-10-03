@@ -19,3 +19,8 @@ pub trait SourceViews {
     /// Sources of a kind, in id order.
     fn of_kind(&self, kind: &str) -> Result<Vec<SourceRow>>;
 }
+
+pub trait Sources {
+    /// The app's own work source of `kind` ("notes"), made if missing.
+    fn ensure_local(&self, kind: &str, name: &str) -> Result<i64>;
+}

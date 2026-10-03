@@ -35,6 +35,8 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let route = match area {
         "daystrip" => queries::daystrip::route(name),
         "incoming" => queries::incoming::route(name),
+        "topics" => queries::topics::route(name),
+        "search" => queries::search::route(name),
         _ => None,
     };
     if let Some(route) = route {

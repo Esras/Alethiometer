@@ -3,15 +3,22 @@
 //! marked, its topic (or none) and its date.
 
 use super::arg_str;
-use crate::api::unknown;
+use crate::api::{unknown, Ctx, Route};
+use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::state::App;
 use serde_json::{json, Value};
 
+pub fn route(name: &str) -> Option<Route> {
+    Some(match name {
+        "query" => Route::Read(|r, _, args| query(r, &arg_str(args, "q")?)),
+        "results" => Route::Read(|r, ctx, args| results(r, ctx, &arg_str(args, "q")?)),
+        _ => return None,
+    })
+}
+
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "query" => query(app, &arg_str(args, "q")?),
-        "results" => results(app, &arg_str(args, "q")?),
         "hydrated" | "feedback" => crate::glean::hydrate::call(app, name, args),
         _ => Err(unknown(name)),
     }
@@ -30,36 +37,21 @@ pub fn fts_query(q: &str) -> Option<String> {
     Some(format!("{}*", words.join(" ")))
 }
 
-fn query(app: &App, q: &str) -> Result<Value> {
-    let conn = app.db();
-    let like = format!("%{}%", q.trim());
-    let topics = conn
-        .prepare("SELECT id, name, category FROM topics WHERE archived_at IS NULL AND name LIKE ?1 ORDER BY name LIMIT 5")?
-        .query_map([&like], |r| {
-            Ok(json!({ "type": "topic", "id": r.get::<_, i64>(0)?, "title": r.get::<_, String>(1)?, "category": r.get::<_, String>(2)? }))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let items = match fts_query(q) {
+fn query(r: &dyn Reads, q: &str) -> Result<Value> {
+    let topics: Vec<Value> = r
+        .search()
+        .topics_named(q, 5)?
+        .into_iter()
+        .map(|t| json!({ "type": "topic", "id": t.id, "title": t.name, "category": t.category }))
+        .collect();
+    let items: Vec<Value> = match fts_query(q) {
         None => vec![],
-        Some(fq) => conn
-            .prepare(
-                "SELECT i.id, i.title, s.kind, i.occurred_at,
-                        (SELECT tl.topic_id FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong' LIMIT 1)
-                   FROM items_fts f JOIN items i ON i.id = f.rowid JOIN sources s ON s.id = i.source_id
-                  WHERE items_fts MATCH ?1 AND s.tag = 'work'
-                  ORDER BY rank LIMIT 20",
-            )?
-            .query_map([fq], |r| {
-                Ok(json!({
-                    "type": "item",
-                    "id": r.get::<_, i64>(0)?,
-                    "title": r.get::<_, String>(1)?,
-                    "source": r.get::<_, String>(2)?,
-                    "at": r.get::<_, String>(3)?,
-                    "topic_id": r.get::<_, Option<i64>>(4)?,
-                }))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?,
+        Some(fq) => r
+            .search()
+            .quick(&fq, 20)?
+            .into_iter()
+            .map(|h| json!({ "type": "item", "id": h.id, "title": h.title, "source": h.source_kind, "at": h.at, "topic_id": h.topic_id }))
+            .collect(),
     };
     Ok(json!({ "topics": topics, "items": items }))
 }
@@ -72,46 +64,25 @@ pub const HIT_END: char = '\u{2}';
 /// `snippet` marks matches with `HIT_START`/`HIT_END`; `topic` is the item's
 /// confirmed topic (else a suggested one), `msgs` its top-level message count
 /// (the split review needs two).
-fn results(app: &App, q: &str) -> Result<Value> {
+fn results(r: &dyn Reads, ctx: &Ctx, q: &str) -> Result<Value> {
     let Some(fq) = fts_query(q) else { return Ok(json!({ "q": q, "results": [] })) };
-    let conn = app.db();
-    let mut stmt = conn.prepare(
-        "WITH hits AS (
-           SELECT rowid AS id, rank, snippet(items_fts, 1, char(1), char(2), '…', 14) AS snip
-             FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank LIMIT 300)
-         SELECT i.id, i.title, s.kind, coalesce(i.ended_at, i.occurred_at), h.snip, coalesce(i.summary, ''),
-                t.id, t.name, t.category, tl.state,
-                (SELECT count(*) FROM item_messages m WHERE m.item_id = i.id AND m.context = 0 AND m.reply_to IS NULL)
-           FROM hits h JOIN items i ON i.id = h.id JOIN sources s ON s.id = i.source_id
-           LEFT JOIN topic_links tl ON tl.rowid = (
-                SELECT x.rowid FROM topic_links x JOIN topics y ON y.id = x.topic_id
-                 WHERE x.item_id = i.id AND x.state != 'wrong' AND y.archived_at IS NULL
-                 ORDER BY x.state = 'confirmed' DESC, x.updated_at DESC LIMIT 1)
-           LEFT JOIN topics t ON t.id = tl.topic_id
-          WHERE s.tag = 'work'
-          ORDER BY h.rank LIMIT 100",
-    )?;
-    let rows = stmt
-        .query_map([&fq], |r| {
-            let at: String = r.get(3)?;
-            let snippet: String = r.get(4)?;
-            let summary: String = r.get(5)?;
-            let topic: Option<i64> = r.get(6)?;
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "title": r.get::<_, String>(1)?,
-                "source": r.get::<_, String>(2)?,
-                "when": super::parse_ts(&at).map(|t| super::ts_label(t, &app.clock, false)).unwrap_or_default(),
-                "at": at,
-                "snippet": if snippet.contains(HIT_START) || summary.is_empty() { snippet } else { summary },
-                "topic": match topic {
-                    Some(id) => json!({ "id": id, "name": r.get::<_, String>(7)?, "category": r.get::<_, String>(8)?, "state": r.get::<_, String>(9)? }),
-                    None => Value::Null,
-                },
-                "msgs": r.get::<_, i64>(10)?,
-            }))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let rows: Vec<Value> = r
+        .search()
+        .results(&fq, 100)?
+        .into_iter()
+        .map(|h| {
+            json!({
+                "id": h.id,
+                "title": h.title,
+                "source": h.source_kind,
+                "when": super::ts_label(h.at, ctx.clock, false),
+                "at": h.at,
+                "snippet": if h.snippet.contains(HIT_START) || h.summary.is_empty() { h.snippet } else { h.summary },
+                "topic": h.topic.map(|t| json!({ "id": t.id, "name": t.name, "category": t.category, "state": t.state })),
+                "msgs": h.msgs,
+            })
+        })
+        .collect();
     Ok(json!({ "q": q, "results": rows }))
 }
 

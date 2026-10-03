@@ -1,7 +1,7 @@
 //! People notes, accounts and source profiles.
 
 use super::Sql;
-use crate::domain::people::{AccountRow, Directory, PeopleViews, PersonRow, Profile, SeenAuthor};
+use crate::domain::people::{AccountRow, Directory, LinkedPerson, PeopleViews, PersonRow, Profile, SeenAuthor, TopicAuthor};
 use crate::error::Result;
 use crate::time::Ts;
 
@@ -63,6 +63,33 @@ impl PeopleViews for Sql<'_> {
                   WHERE i.occurred_at >= ?1 AND s.tag = 'work'",
             )?
             .query_map([since], |r| Ok(SeenAuthor { source_kind: r.get(0)?, handle: r.get(1)?, name: r.get(2)?, root: r.get(3)?, at: r.get(4)? }))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn topic_authors(&self, topic_id: i64) -> Result<Vec<TopicAuthor>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT s.kind, m.author_id, m.author, i.id, m.at
+                   FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                   JOIN item_messages m ON m.item_id = i.id
+                  WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND m.context = 0 AND s.tag = 'work'
+                 UNION ALL
+                 SELECT s.kind, h.handle, p.display_name, i.id, i.occurred_at
+                   FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                   JOIN people p ON p.id = i.author_person_id
+                   LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = s.kind
+                  WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'",
+            )?
+            .query_map([topic_id], |r| Ok(TopicAuthor { source_kind: r.get(0)?, handle: r.get(1)?, name: r.get(2)?, item_id: r.get(3)?, at: r.get(4)? }))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn linked_to_topic(&self, topic_id: i64) -> Result<Vec<LinkedPerson>> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT p.id, p.display_name, p.role FROM topic_people tp JOIN people p ON p.id = tp.person_id WHERE tp.topic_id = ?1")?
+            .query_map([topic_id], |r| Ok(LinkedPerson { id: r.get(0)?, name: r.get(1)?, role: r.get(2)? }))?
             .collect::<rusqlite::Result<_>>()?)
     }
 }

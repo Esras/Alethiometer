@@ -9,7 +9,13 @@
 
 pub mod daystrip;
 pub mod incoming;
+pub mod items;
+pub mod links;
+pub mod notes;
+pub mod outbox;
 pub mod people;
 pub mod ports;
+pub mod search;
 pub mod sources;
 pub mod todos;
+pub mod topics;

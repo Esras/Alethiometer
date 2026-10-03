@@ -17,10 +17,16 @@
 
 pub mod daystrip;
 pub mod incoming;
+pub mod items;
+pub mod links;
+pub mod notes;
+pub mod outbox;
 pub mod people;
 pub mod schema;
+pub mod search;
 pub mod sources;
 pub mod todos;
+pub mod topics;
 pub mod utc_migration;
 
 use crate::domain::ports::{Reads, UnitOfWork};
@@ -174,32 +180,35 @@ impl std::ops::DerefMut for LegacyGuard<'_> {
     }
 }
 
-impl Reads for Sql<'_> {
-    fn day_strip(&self) -> &dyn crate::domain::daystrip::DayStripViews {
-        self
-    }
-    fn incoming(&self) -> &dyn crate::domain::incoming::IncomingViews {
-        self
-    }
-    fn people(&self) -> &dyn crate::domain::people::PeopleViews {
-        self
-    }
-    fn sources(&self) -> &dyn crate::domain::sources::SourceViews {
-        self
-    }
-    fn todos(&self) -> &dyn crate::domain::todos::TodoViews {
-        self
-    }
+/// Each port is implemented on `Sql` in its own file; these hand it out.
+macro_rules! ports {
+    ($tr:ident { $($name:ident: $port:path),* $(,)? }) => {
+        impl $tr for Sql<'_> {
+            $(fn $name(&self) -> &dyn $port { self })*
+        }
+    };
 }
 
-impl UnitOfWork for Sql<'_> {
-    fn reads(&self) -> &dyn Reads {
-        self
-    }
-    fn events(&self) -> &dyn crate::domain::daystrip::Events {
-        self
-    }
-}
+ports!(Reads {
+    day_strip: crate::domain::daystrip::DayStripViews,
+    incoming: crate::domain::incoming::IncomingViews,
+    notes: crate::domain::notes::NotesViews,
+    people: crate::domain::people::PeopleViews,
+    search: crate::domain::search::SearchViews,
+    sources: crate::domain::sources::SourceViews,
+    todos: crate::domain::todos::TodoViews,
+    topics: crate::domain::topics::TopicViews,
+});
+
+ports!(UnitOfWork {
+    reads: Reads,
+    events: crate::domain::daystrip::Events,
+    items: crate::domain::items::Items,
+    links: crate::domain::links::Links,
+    note_lines: crate::domain::notes::NoteLines,
+    outbox: crate::domain::outbox::Outbox,
+    sources: crate::domain::sources::Sources,
+});
 
 #[cfg(test)]
 mod tests {

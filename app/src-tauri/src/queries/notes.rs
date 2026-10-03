@@ -16,13 +16,16 @@
 
 use super::{arg_str, opt_i64, parse_date};
 use crate::api::unknown;
+use crate::domain::items::NewItem;
+use crate::domain::notes::{Corpus, NoteLine};
+use crate::domain::ports::UnitOfWork;
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
-use crate::time::Date;
+use crate::time::{Date, Ts};
 use jiff::ToSpan;
 use regex::Regex;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -33,67 +36,7 @@ const KINDS: &[&str] = &["note", "do", "research", "delegated", "life"];
 /// States a line can still be edited (and sent) in.
 const EDITABLE: &[&str] = &["draft", "held"];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Target {
-    /// topic | person | app | keep
-    #[serde(rename = "type")]
-    pub ty: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<i64>,
-    pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-    /// For app targets: jira | marvin.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app: Option<String>,
-    /// Jira key for app targets ("PLAT-1201").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-    /// Topic behind an app/person target, used to file the Incoming signal.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic_id: Option<i64>,
-    /// Quiet offer shown under the destination ("create Jira task"). Never acted on by itself.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offer: Option<String>,
-    /// The user accepted the offer: on send, a create-issue write is queued in the outbox.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub create: bool,
-    /// True for a suggestion; false for the user's own pick.
-    #[serde(default)]
-    pub auto: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-impl Target {
-    /// Same destination, ignoring suggestion details.
-    fn same(&self, o: &Target) -> bool {
-        self.ty == o.ty && self.id == o.id && self.key == o.key && self.label == o.label
-    }
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
-/// What `notes_lines.target_json` stores.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Meta {
-    #[serde(flatten, default)]
-    to: Option<Target>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    bare: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    receipt_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-impl Meta {
-    fn parse(s: Option<&str>) -> Meta {
-        s.and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()
-    }
-}
+pub use crate::domain::notes::{LineMeta, Target};
 
 #[derive(Debug, Serialize)]
 struct Line {
@@ -114,47 +57,43 @@ struct Line {
     jira: Option<Value>,
 }
 
-struct Row {
-    id: i64,
-    kind: String,
-    text: String,
-    state: String,
-    meta: Meta,
-}
-
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "page" => {
+        "page" => page(app, page_date(app, args)?, &HashMap::new()),
+        "save" => {
             let date = page_date(app, args)?;
-            page(app, &app.db(), date, &HashMap::new())
+            let lines: Vec<SaveLine> = serde_json::from_value(args.get("lines").cloned().unwrap_or(json!([])))?;
+            let keys = app.store().write(|uow| save(uow, date, &lines))?;
+            page(app, date, &keys)
         }
-        "save" => save(app, args),
         "send" => {
             let date = page_date(app, args)?;
-            send(app, date)?;
-            page(app, &app.db(), date, &HashMap::new())
+            // Suggestions are worked out before the write: they read the vault.
+            let idx = index(app)?;
+            let now = app.clock.now();
+            app.store().write(|uow| send(uow, &idx, date, now))?;
+            page(app, date, &HashMap::new())
         }
         "suggest" => {
-            let conn = app.db();
-            let idx = Index::load(&conn, &app.vault)?;
+            let idx = index(app)?;
             let text = arg_str(args, "text")?;
             let kind = args.get("kind").and_then(Value::as_str).unwrap_or("note");
             Ok(json!(idx.suggest(kind, &text)))
         }
-        "options" => options(app, args),
+        "options" => options(&index(app)?, args),
         "retry" => {
             let date = page_date(app, args)?;
-            retry(&app.db(), date, opt_i64(args, "id"))?;
-            // ⌘R also retries this page's failed Jira task creations.
-            app.db().execute(
-                "UPDATE outbox SET state = 'pending' WHERE state = 'failed' AND op = 'jira.create_issue'
-                   AND json_extract(payload_json, '$.notes_line_id') IN (SELECT id FROM notes_lines WHERE page_date = ?1)",
-                [date.to_string()],
-            )?;
-            page(app, &app.db(), date, &HashMap::new())
+            app.store().write(|uow| retry(uow, date, opt_i64(args, "id")))?;
+            page(app, date, &HashMap::new())
         }
         _ => Err(unknown(name)),
     }
+}
+
+/// The suggestion index: the database's part on a snapshot, then the topics' notes from the vault.
+fn index(app: &App) -> Result<Index> {
+    let corpus = app.store().read(|r| r.notes().corpus())?;
+    Ok(Index::build(corpus, &app.vault))
 }
 
 fn page_date(app: &App, args: &Value) -> Result<Date> {
@@ -162,19 +101,6 @@ fn page_date(app: &App, args: &Value) -> Result<Date> {
         Some(d) if !d.is_empty() => parse_date(d),
         _ => Ok(app.clock.today()),
     }
-}
-
-fn load_rows(conn: &Connection, date: Date) -> Result<Vec<Row>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, kind, text, state, target_json FROM notes_lines WHERE page_date = ?1 ORDER BY position, id",
-    )?;
-    let rows = stmt
-        .query_map([date.to_string()], |r| {
-            let meta: Option<String> = r.get(4)?;
-            Ok(Row { id: r.get(0)?, kind: r.get(1)?, text: r.get(2)?, state: r.get(3)?, meta: Meta::parse(meta.as_deref()) })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
 }
 
 fn marvin() -> Target {
@@ -194,7 +120,7 @@ fn marvin() -> Target {
 }
 
 /// The destination shown for a line: stored choice, else a fresh suggestion.
-fn effective(idx: &Index, r: &Row) -> Option<Target> {
+fn effective(idx: &Index, r: &NoteLine) -> Option<Target> {
     if r.kind == "life" {
         return Some(marvin());
     }
@@ -207,32 +133,14 @@ fn effective(idx: &Index, r: &Row) -> Option<Target> {
     idx.suggest(&r.kind, &r.text)
 }
 
-/// Latest `jira.create_issue` write queued for a line, with the new key once
-/// Jira confirmed it.
-fn jira_create(conn: &Connection, line_id: i64) -> Option<Value> {
-    conn.query_row(
-        "SELECT state, error, receipt_json FROM outbox
-          WHERE op = 'jira.create_issue' AND json_extract(payload_json, '$.notes_line_id') = ?1
-          ORDER BY id DESC LIMIT 1",
-        [line_id],
-        |r| {
-            let receipt: Option<String> = r.get(2)?;
-            let receipt: Value = receipt.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
-            Ok(json!({
-                "state": r.get::<_, String>(0)?,
-                "error": r.get::<_, Option<String>>(1)?,
-                "key": receipt.get("key"),
-                "url": receipt.get("url"),
-            }))
-        },
-    )
-    .ok()
-}
-
-fn page(app: &App, conn: &Connection, date: Date, keys: &HashMap<i64, String>) -> Result<Value> {
+fn page(app: &App, date: Date, keys: &HashMap<i64, String>) -> Result<Value> {
     let today = app.clock.today();
-    let idx = Index::load(conn, &app.vault)?;
-    let rows = load_rows(conn, date)?;
+    let (rows, mut jira, corpus) = app.store().read(|r| {
+        let rows = r.notes().lines(date)?;
+        let ids: Vec<i64> = rows.iter().map(|l| l.id).collect();
+        Ok((rows, r.notes().jira_requests(&ids)?, r.notes().corpus()?))
+    })?;
+    let idx = Index::build(corpus, &app.vault);
     let lines: Vec<Line> = rows
         .iter()
         .map(|r| Line {
@@ -246,7 +154,7 @@ fn page(app: &App, conn: &Connection, date: Date, keys: &HashMap<i64, String>) -
             receipt_at: r.meta.receipt_at.clone(),
             error: r.meta.error.clone(),
             locked: !EDITABLE.contains(&r.state.as_str()),
-            jira: jira_create(conn, r.id),
+            jira: jira.remove(&r.id).map(|j| json!({ "state": j.state, "error": j.error, "key": j.key, "url": j.url })),
         })
         .collect();
     let label = match (date - today).get_days() {
@@ -281,52 +189,32 @@ struct SaveLine {
 
 /// Autosave: the whole page, in order. Lines missing from the list are removed,
 /// but only while still editable (draft/held); sent or receipt-tracked lines
-/// are never deleted here.
-fn save(app: &App, args: &Value) -> Result<Value> {
-    let date = page_date(app, args)?;
-    let lines: Vec<SaveLine> = serde_json::from_value(args.get("lines").cloned().unwrap_or(json!([])))?;
-    let mut conn = app.db();
-    let tx = conn.transaction()?;
-    let existing: HashMap<i64, Row> = load_rows(&tx, date)?.into_iter().map(|r| (r.id, r)).collect();
+/// are never deleted here. Returns the client's key for each saved line.
+fn save(uow: &dyn UnitOfWork, date: Date, lines: &[SaveLine]) -> Result<HashMap<i64, String>> {
+    let notes = uow.note_lines();
+    let existing: HashMap<i64, NoteLine> = uow.reads().notes().lines(date)?.into_iter().map(|r| (r.id, r)).collect();
     let mut keep: HashSet<i64> = HashSet::new();
     let mut keys = HashMap::new();
     for (pos, l) in lines.iter().enumerate() {
+        let pos = pos as i64;
         if !KINDS.contains(&l.kind.as_str()) {
             return Err(msg(format!("bad kind '{}'", l.kind)));
         }
-        let old = l.id.and_then(|id| existing.get(&id));
-        let id = match old {
+        let own = |t: &Option<Target>| t.clone().filter(|t| !t.auto && l.kind != "life");
+        let id = match l.id.and_then(|id| existing.get(&id)) {
             Some(r) if !EDITABLE.contains(&r.state.as_str()) => {
                 // Locked: only its position can change.
-                tx.execute("UPDATE notes_lines SET position = ?1 WHERE id = ?2", params![pos as i64, r.id])?;
+                notes.set_position(r.id, pos)?;
                 r.id
             }
             Some(r) => {
                 let mut meta = r.meta.clone();
                 meta.bare = l.bare && l.kind == "note";
-                meta.to = l.target.clone().filter(|t| !t.auto && l.kind != "life").map(|mut t| {
-                    t.auto = false;
-                    t
-                });
-                tx.execute(
-                    "UPDATE notes_lines SET position = ?1, kind = ?2, text = ?3, target_json = ?4 WHERE id = ?5",
-                    params![pos as i64, l.kind, l.text, serde_json::to_string(&meta)?, r.id],
-                )?;
+                meta.to = own(&l.target).map(|t| Target { auto: false, ..t });
+                notes.update(r.id, pos, &l.kind, &l.text, &meta)?;
                 r.id
             }
-            None => {
-                let meta = Meta {
-                    to: l.target.clone().filter(|t| !t.auto && l.kind != "life"),
-                    bare: l.bare && l.kind == "note",
-                    ..Default::default()
-                };
-                tx.execute(
-                    "INSERT INTO notes_lines (page_date, position, kind, text, target_json, state)
-                     VALUES (?1, ?2, ?3, ?4, ?5, 'draft')",
-                    params![date.to_string(), pos as i64, l.kind, l.text, serde_json::to_string(&meta)?],
-                )?;
-                tx.last_insert_rowid()
-            }
+            None => notes.insert(date, pos, &l.kind, &l.text, &LineMeta { to: own(&l.target), bare: l.bare && l.kind == "note", ..Default::default() })?,
         };
         keep.insert(id);
         if let Some(k) = &l.key {
@@ -335,42 +223,31 @@ fn save(app: &App, args: &Value) -> Result<Value> {
     }
     for r in existing.values() {
         if !keep.contains(&r.id) && EDITABLE.contains(&r.state.as_str()) {
-            tx.execute("DELETE FROM notes_lines WHERE id = ?1", [r.id])?;
+            notes.delete(r.id)?;
         }
     }
-    let out = page(app, &tx, date, &keys)?;
-    tx.commit()?;
-    Ok(out)
+    Ok(keys)
 }
 
 /// Local work source that Notes signals come from.
 pub(crate) fn alethiometer_source(conn: &Connection) -> Result<i64> {
-    let id: Option<i64> = conn.query_row("SELECT id FROM sources WHERE kind = 'notes'", [], |r| r.get(0)).optional()?;
-    match id {
-        Some(id) => Ok(id),
-        None => {
-            conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('notes', 'work', 'Alethiometer Notes')", [])?;
-            Ok(conn.last_insert_rowid())
-        }
-    }
+    UnitOfWork::sources(&crate::store::over(conn)).ensure_local("notes", NOTES_SOURCE)
 }
+
+const NOTES_SOURCE: &str = "Alethiometer Notes";
 
 /// Each editable work line with a destination becomes a new Incoming signal
 /// (an unseen item). Lines with no destination are held. Life lines and
 /// "keep as a note" lines stay where they are.
-fn send(app: &App, date: Date) -> Result<()> {
-    let now = app.clock.now();
-    let mut conn = app.db();
-    let tx = conn.transaction()?;
-    let idx = Index::load(&tx, &app.vault)?;
-    let rows = load_rows(&tx, date)?;
-    let src = alethiometer_source(&tx)?;
+fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
+    let rows = uow.reads().notes().lines(date)?;
+    let src = uow.sources().ensure_local("notes", NOTES_SOURCE)?;
     for r in rows {
         if r.kind == "life" || !EDITABLE.contains(&r.state.as_str()) || r.text.trim().is_empty() {
             continue;
         }
-        let Some(t) = effective(&idx, &r) else {
-            tx.execute("UPDATE notes_lines SET state = 'held' WHERE id = ?1", [r.id])?;
+        let Some(t) = effective(idx, &r) else {
+            uow.note_lines().set_state(r.id, "held", &r.meta)?;
             continue;
         };
         if t.ty == "keep" {
@@ -395,21 +272,18 @@ fn send(app: &App, date: Date) -> Result<()> {
             _ => None,
         };
         let item_kind = if matches!(r.kind.as_str(), "do" | "delegated") { "task" } else { "note" };
-        tx.execute(
-            "INSERT INTO items (source_id, external_id, kind, title, summary, occurred_at, status, owner, seen, raw_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7, 0, ?8)",
-            params![
-                src,
-                format!("notes-line-{}", r.id),
-                item_kind,
-                r.text.trim(),
-                summary,
-                now,
-                owner,
-                json!({ "notes_line_id": r.id, "page_date": date.to_string(), "kind": r.kind, "target": t }).to_string(),
-            ],
-        )?;
-        let item = tx.last_insert_rowid();
+        let item = uow.items().insert(&NewItem {
+            source_id: src,
+            external_id: format!("notes-line-{}", r.id),
+            kind: item_kind.into(),
+            title: r.text.trim().into(),
+            summary: Some(summary),
+            occurred_at: now,
+            status: "open".into(),
+            owner,
+            seen: false,
+            raw_json: json!({ "notes_line_id": r.id, "page_date": date.to_string(), "kind": r.kind, "target": t }).to_string(),
+        })?;
         // Filed under its topic as a suggestion, so it lands in that topic's Incoming
         // list for confirm / wrong-topic. Person targets without a single home topic
         // stay unlinked and show up in Unsorted.
@@ -419,50 +293,39 @@ fn send(app: &App, date: Date) -> Result<()> {
         };
         if let Some(topic) = topic {
             let reason = t.reason.clone().unwrap_or_else(|| if t.auto { "Notes suggestion".into() } else { "you picked it in Notes".into() });
-            tx.execute(
-                "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'suggested', ?3, ?4)",
-                params![item, topic, if t.auto { 0.7 } else { 1.0 }, reason],
-            )?;
+            uow.links().suggest(item, topic, if t.auto { 0.7 } else { 1.0 }, &reason)?;
         }
         if t.create {
-            let jira: Option<i64> = tx.query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).optional()?;
-            if let Some(jira) = jira {
-                tx.execute(
-                    "INSERT INTO outbox (source_id, op, payload_json, item_id) VALUES (?1, 'jira.create_issue', ?2, ?3)",
-                    params![jira, json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item }).to_string(), item],
-                )?;
+            if let Some(jira) = uow.reads().sources().of_kind("jira")?.first() {
+                let payload = json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item });
+                uow.outbox().enqueue(jira.id, "jira.create_issue", &payload.to_string(), Some(item))?;
             }
         }
         let mut meta = r.meta.clone();
         meta.to = Some(Target { auto: t.auto, ..t });
-        tx.execute(
-            "UPDATE notes_lines SET state = 'incoming', target_json = ?1 WHERE id = ?2",
-            params![serde_json::to_string(&meta)?, r.id],
-        )?;
+        uow.note_lines().set_state(r.id, "incoming", &meta)?;
     }
-    tx.commit()?;
     Ok(())
 }
 
 /// ⌘R: failed life lines go back to pending. They were never removed.
-fn retry(conn: &Connection, date: Date, id: Option<i64>) -> Result<()> {
-    let rows = load_rows(conn, date)?;
-    for r in rows.into_iter().filter(|r| r.kind == "life" && r.state == "failed" && id.map_or(true, |i| i == r.id)) {
+/// ⌘R: failed life lines go back to pending (they were never removed), and
+/// the page's failed Jira task requests are sent again.
+fn retry(uow: &dyn UnitOfWork, date: Date, id: Option<i64>) -> Result<()> {
+    let rows = uow.reads().notes().lines(date)?;
+    let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    for r in rows.into_iter().filter(|r| r.kind == "life" && r.state == "failed" && id.is_none_or(|i| i == r.id)) {
         let mut meta = r.meta;
         meta.error = None;
-        conn.execute(
-            "UPDATE notes_lines SET state = 'pending', target_json = ?1 WHERE id = ?2",
-            params![serde_json::to_string(&meta)?, r.id],
-        )?;
+        uow.note_lines().set_state(r.id, "pending", &meta)?;
     }
+    uow.outbox().retry_line_requests(&ids)?;
     Ok(())
 }
 
 /// Picker contents: with no query, the next likely destinations after the
 /// current one; with a query, topics / people / Jira keys matching it.
-fn options(app: &App, args: &Value) -> Result<Value> {
-    let conn = app.db();
-    let idx = Index::load(&conn, &app.vault)?;
+fn options(idx: &Index, args: &Value) -> Result<Value> {
     let text = args.get("text").and_then(Value::as_str).unwrap_or("");
     let kind = args.get("kind").and_then(Value::as_str).unwrap_or("note");
     let q = args.get("q").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
@@ -610,58 +473,33 @@ fn mention(text: &str) -> Option<String> {
 }
 
 impl Index {
-    fn load(conn: &Connection, vault: &Path) -> Result<Index> {
-        let mut people: Vec<PersonDoc> = conn
-            .prepare("SELECT id, display_name FROM people ORDER BY id")?
-            .query_map([], |r| Ok(PersonDoc { id: r.get(0)?, name: r.get(1)?, topics: vec![] }))?
-            .collect::<rusqlite::Result<_>>()?;
+    /// From the database's part and each topic's note in the vault.
+    fn build(corpus: Corpus, vault: &Path) -> Index {
+        let mut people: Vec<PersonDoc> = corpus.people.into_iter().map(|(id, name)| PersonDoc { id, name, topics: vec![] }).collect();
         let names: HashSet<String> = people.iter().flat_map(|p| words(&p.name)).collect();
-
         let mut topics: Vec<TopicDoc> = vec![];
-        let mut stmt = conn.prepare(
-            "SELECT id, name, category, obsidian_path FROM topics WHERE archived_at IS NULL ORDER BY coalesce(score, 0) DESC, name",
-        )?;
-        let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut items = conn.prepare(
-            "SELECT i.title, coalesce(i.summary, ''), i.body FROM topic_links tl JOIN items i ON i.id = tl.item_id
-              WHERE tl.topic_id = ?1 AND tl.state != 'wrong'",
-        )?;
-        let mut tp = conn.prepare("SELECT person_id FROM topic_people WHERE topic_id = ?1")?;
-        for (id, name, category, path) in rows {
-            let mut text = String::new();
-            for r in items.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
-                let (a, b, c) = r?;
-                text.push_str(&format!("{a}\n{b}\n{c}\n"));
-            }
-            if let Some(p) = &path {
+        for t in corpus.topics {
+            let mut text = t.text;
+            if let Some(p) = &t.obsidian_path {
                 text.push_str(&std::fs::read_to_string(vault.join(p)).unwrap_or_default());
             }
-            let name_words: HashSet<String> = words(&name).into_iter().filter(|w| !names.contains(w)).collect();
+            let name_words: HashSet<String> = words(&t.name).into_iter().filter(|w| !names.contains(w)).collect();
             let words: HashSet<String> = words(&text).into_iter().filter(|w| !names.contains(w)).collect();
-            let tpeople: HashSet<i64> = tp.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            let tpeople: HashSet<i64> = t.people.into_iter().collect();
             for p in people.iter_mut().filter(|p| tpeople.contains(&p.id)) {
-                p.topics.push(id);
+                p.topics.push(t.id);
             }
-            topics.push(TopicDoc { id, name, category, name_words, words, people: tpeople });
+            topics.push(TopicDoc { id: t.id, name: t.name, category: t.category, name_words, words, people: tpeople });
         }
-
         let mut issues = vec![];
-        let mut stmt = conn.prepare(
-            "SELECT i.title, (SELECT tl.topic_id FROM topic_links tl WHERE tl.item_id = i.id AND tl.state = 'confirmed' LIMIT 1)
-               FROM items i JOIN sources s ON s.id = i.source_id
-              WHERE s.kind = 'jira' AND i.kind = 'issue' ORDER BY i.occurred_at DESC",
-        )?;
-        for r in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))? {
-            let (title, topic_id) = r?;
+        for (title, topic_id) in corpus.issues {
             if let Some(c) = key_re().captures(&title) {
                 let key = c[1].to_string();
                 let rest = title.replacen(&key, "", 1);
                 issues.push(IssueDoc { words: words(&rest).into_iter().filter(|w| w.len() >= 4).collect(), key, title, topic_id });
             }
         }
-        Ok(Index { topics, people, issues, names })
+        Index { topics, people, issues, names }
     }
 
     fn topic_target(&self, t: &TopicDoc, reason: Option<String>) -> Target {

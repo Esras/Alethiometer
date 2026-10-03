@@ -3,9 +3,10 @@
 
 use super::{arg_i64, arg_str, due_label, dur_label, ts_label, Pill};
 use crate::clock::Clock;
-use crate::time::{Date, Due, Ts};
+use crate::time::{Due, Ts};
 use jiff::{SignedDuration, ToSpan};
-use crate::api::unknown;
+use crate::api::{unknown, Route};
+use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
@@ -68,9 +69,15 @@ struct Entry {
     open: bool,
 }
 
+pub fn route(name: &str) -> Option<Route> {
+    Some(match name {
+        "list" => Route::Read(|r, ctx, args| list(r, ctx, args.get("archived").and_then(Value::as_bool).unwrap_or(false))),
+        _ => return None,
+    })
+}
+
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "list" => list(app, args.get("archived").and_then(Value::as_bool).unwrap_or(false)),
         "set_category" => {
             let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
             let conn = app.db();
@@ -292,48 +299,28 @@ fn default_note_path(name: &str) -> String {
     format!("Topics/{}.md", file.trim().trim_start_matches('.'))
 }
 
-fn list(app: &App, archived: bool) -> Result<Value> {
-    let clock = &app.clock;
+fn list(r: &dyn Reads, ctx: &crate::api::Ctx, archived: bool) -> Result<Value> {
+    let clock = ctx.clock;
     let now = clock.now();
-    let conn = app.db();
-    let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
-    let mine = "tl.topic_id = t.id AND tl.state = 'confirmed'";
-    let mut stmt = conn.prepare(&format!(
-        "SELECT t.id, t.name, t.category, t.obsidian_path,
-                (SELECT count(*) FROM {links} WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0),
-                (SELECT count(*) FROM {links}
-                  WHERE {mine} AND i.kind IN ('task', 'issue', 'email') AND i.owner IS NOT NULL AND i.status = 'open'),
-                (SELECT max(coalesce(i.ended_at, i.occurred_at)) FROM {links} WHERE {mine} AND i.occurred_at <= ?1),
-                (SELECT s.kind FROM {links} JOIN sources s ON s.id = i.source_id WHERE {mine} AND i.occurred_at <= ?1
-                  ORDER BY coalesce(i.ended_at, i.occurred_at) DESC LIMIT 1),
-                (SELECT e.start || char(9) || coalesce(e.title, '') FROM {links} JOIN events e ON e.item_id = i.id
-                  WHERE {mine} AND e.start > ?1 AND e.start <= ?2 ORDER BY e.start LIMIT 1)
-           FROM topics t WHERE (t.archived_at IS NOT NULL) = ?3"
-    ))?;
     let week = now + SignedDuration::from_hours(24 * 7);
-    let quiet_before = now - SignedDuration::from_hours(24 * app.settings().quiet_days);
-    let mut rows = stmt
-        .query_map(params![now, week, archived], |r| {
-            let last: Option<Ts> = r.get(6)?;
-            let source: Option<String> = r.get(7)?;
-            let meeting: Option<String> = r.get(8)?;
-            Ok(TopicRow {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                category: r.get(2)?,
-                obsidian_path: r.get(3)?,
-                new_count: r.get(4)?,
-                open_count: r.get(5)?,
-                last_signal: last.map(|t| last_label(t, clock, source.as_deref())),
-                quiet: last.is_none_or(|l| l < quiet_before),
-                last_signal_at: last,
-                next_meeting: meeting.and_then(|m| {
-                    let (start, title) = m.split_once('\t')?;
-                    Some(Meeting { start: Ts::parse(start)?, title: title.into() })
-                }),
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let quiet_before = now - SignedDuration::from_hours(24 * ctx.settings.quiet_days);
+    let mut rows: Vec<TopicRow> = r
+        .topics()
+        .list(archived, now, week)?
+        .into_iter()
+        .map(|t| TopicRow {
+            id: t.id,
+            name: t.name,
+            category: t.category,
+            obsidian_path: t.obsidian_path,
+            new_count: t.new_count,
+            open_count: t.open_count,
+            last_signal: t.last_signal_at.map(|l| last_label(l, clock, t.last_source.as_deref())),
+            quiet: t.last_signal_at.is_none_or(|l| l < quiet_before),
+            last_signal_at: t.last_signal_at,
+            next_meeting: t.next_meeting.map(|(start, title)| Meeting { start, title }),
+        })
+        .collect();
     // Active first (next meeting soonest, then most recent signal), then quiet.
     rows.sort_by(|a, b| {
         let meet = |t: &TopicRow| t.next_meeting.as_ref().map(|m| m.start);
@@ -387,58 +374,30 @@ fn source_label(kind: &str) -> &'static str {
     }
 }
 
+/// A topic's page. The note is read from the vault after the snapshot is closed.
 fn get(app: &App, id: i64) -> Result<Value> {
-    let clock = &app.clock;
+    let settings = app.settings();
+    let ctx = crate::api::Ctx { clock: &app.clock, settings: &settings };
+    let (mut page, path) = app.store().read(|r| page(r, &ctx, id))?;
+    // `base` is what an edit starts from and must still be there when it saves
+    // (null: no file yet). The file on disk is what Obsidian last saved.
+    let abs = app.vault.join(&path);
+    let disk = std::fs::read_to_string(&abs).ok();
+    page["note"] = json!({ "path": path, "abs_path": abs.to_string_lossy(), "text": disk.clone().unwrap_or_default(), "base": disk });
+    Ok(page)
+}
+
+/// Everything on a topic's page but the note, and the note's vault path.
+fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, String)> {
+    let clock = ctx.clock;
     let now = clock.now();
     let today = clock.today();
-    let conn = app.db();
+    let head = reads.topics().head(id)?.ok_or_else(|| crate::error::msg("no such topic"))?;
+    let (name, category, path, score) = (head.name, head.category, head.obsidian_path, head.score);
+    let pills: Vec<Pill> = serde_json::from_str(&head.pills_json).unwrap_or_default();
 
-    let (name, category, path, score, pills): (String, String, Option<String>, Option<f64>, String) = conn.query_row(
-        "SELECT name, category, obsidian_path, score, pills_json FROM topics WHERE id = ?1",
-        [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-    )?;
-    let pills: Vec<Pill> = serde_json::from_str(&pills).unwrap_or_default();
-
-    // All non-wrong links; suggestions still waiting in Incoming are left out.
-    let mut stmt = conn.prepare(
-        "SELECT i.id, s.kind, i.kind, i.title, i.summary, i.occurred_at, i.ended_at, i.due_at, i.status,
-                i.msg_count, i.owner, json_extract(i.raw_json, '$.recurringEventId'), i.due_day
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed'",
-    )?;
-    struct Row {
-        id: i64,
-        source: String,
-        kind: String,
-        title: String,
-        summary: Option<String>,
-        at: Ts,
-        ended: Option<Ts>,
-        due: Option<Due>,
-        status: String,
-        msgs: Option<i64>,
-        owner: Option<String>,
-        series: Option<String>,
-    }
-    let rows = stmt
-        .query_map([id], |r| {
-            Ok(Row {
-                id: r.get(0)?,
-                source: r.get(1)?,
-                kind: r.get(2)?,
-                title: r.get(3)?,
-                summary: r.get(4)?,
-                at: r.get(5)?,
-                ended: r.get(6)?,
-                due: Due::from_columns(r.get(7)?, r.get::<_, Option<Date>>(12)?),
-                status: r.get(8)?,
-                msgs: r.get(9)?,
-                owner: r.get(10)?,
-                series: r.get(11)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    // All confirmed links; suggestions still waiting in Incoming are left out.
+    let rows = reads.topics().confirmed_items(id)?;
     let mut next_of_series: std::collections::HashMap<&str, Ts> = std::collections::HashMap::new();
     for r in rows.iter().filter(|r| r.at > now) {
         if let Some(s) = &r.series {
@@ -461,7 +420,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 item_id: r.id,
                 when: ts_label(at, clock, true),
                 today: clock.day_of(at) == today,
-                source: r.source.clone(),
+                source: r.source_kind.clone(),
                 title: r.title.clone(),
                 sub: match (mins, &r.summary) {
                     (Some(m), Some(s)) => Some(format!("{} · {s}", dur_label(m))),
@@ -474,7 +433,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
         if is_task && r.status == "open" {
             open.push(OpenItem {
                 item_id: r.id,
-                source: r.source.clone(),
+                source: r.source_kind.clone(),
                 title: r.title.clone(),
                 due: r.due.map(|d| Pill {
                     label: format!("due {}", due_label(d, clock)),
@@ -487,14 +446,14 @@ fn get(app: &App, id: i64) -> Result<Value> {
         // Timeline: open tasks sit at their due date; everything else at when it happened.
         let (t, title, sub, right) = if is_task && r.status == "open" {
             match r.due {
-                Some(d) => (d.deadline(clock), r.title.clone(), Some("due".to_string()), source_label(&r.source).to_string()),
+                Some(d) => (d.deadline(clock), r.title.clone(), Some("due".to_string()), source_label(&r.source_kind).to_string()),
                 None => continue,
             }
         } else {
-            let right = match (mins, r.msgs) {
+            let right = match (mins, r.msg_count) {
                 (Some(m), _) if is_event => dur_label(m),
                 (_, Some(n)) => format!("{n} msgs"),
-                _ => source_label(&r.source).to_string(),
+                _ => source_label(&r.source_kind).to_string(),
             };
             let names = is_event && r.summary.as_deref().map_or(false, is_names);
             let (title, sub) = match &r.summary {
@@ -519,7 +478,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
             when: ts_label(t, clock, has_time),
             // Only today's meetings are lit; due dates stay grey like everything else.
             today: !is_due && clock.day_of(t) == today,
-            source: r.source.clone(),
+            source: r.source_kind.clone(),
             title,
             range,
             sub,
@@ -539,25 +498,13 @@ fn get(app: &App, id: i64) -> Result<Value> {
     }
 
     let people = {
-        let r = super::people::Resolver::load(&crate::store::over(&conn), &app.settings().people)?;
-        super::people::for_topic(&conn, &r, id, clock, 9)?
+        let r = super::people::Resolver::load(reads, &ctx.settings.people)?;
+        super::people::for_topic(reads, &r, id, clock, 9)?
     };
+    let repos = reads.topics().repos(id)?;
+    let path = path.unwrap_or_else(|| default_note_path(&name));
 
-    let repos = conn
-        .prepare("SELECT repo FROM topic_repos WHERE topic_id = ?1 ORDER BY repo")?
-        .query_map([id], |r| r.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    // `base` is what an edit starts from and must still be there when it saves
-    // (null: no file yet). The file on disk is what Obsidian last saved.
-    let p = path.unwrap_or_else(|| default_note_path(&name));
-    let note = {
-        let abs = app.vault.join(&p);
-        let disk = std::fs::read_to_string(&abs).ok();
-        json!({ "path": p, "abs_path": abs.to_string_lossy(), "text": disk.clone().unwrap_or_default(), "base": disk })
-    };
-
-    Ok(json!({
+    Ok((json!({
         "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills },
         "upcoming": upcoming.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
         "open": open,
@@ -565,8 +512,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
         "filters": filters.into_iter().map(|(source, count)| json!({ "source": source, "count": count })).collect::<Vec<_>>(),
         "people": people,
         "repos": repos,
-        "note": note,
-    }))
+    }), path))
 }
 
 /// Attendee summaries ("Ravi, Kim") read better inline with the title.

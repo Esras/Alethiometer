@@ -54,6 +54,25 @@ pub struct SeenAuthor {
     pub at: Ts,
 }
 
+/// Someone who wrote in a topic's confirmed work signals: a message's sender
+/// or the item's author.
+#[derive(Debug, Clone)]
+pub struct TopicAuthor {
+    pub source_kind: String,
+    pub handle: Option<String>,
+    pub name: String,
+    pub item_id: i64,
+    pub at: Ts,
+}
+
+/// A person linked to a topic by hand.
+#[derive(Debug, Clone)]
+pub struct LinkedPerson {
+    pub id: i64,
+    pub name: String,
+    pub role: Option<String>,
+}
+
 pub trait PeopleViews {
     fn directory(&self) -> Result<Directory>;
     /// Accounts whose new-person suggestion is snoozed past `now`.
@@ -62,4 +81,6 @@ pub trait PeopleViews {
     fn bots(&self) -> Result<Vec<(String, String)>>;
     /// Authors in work signals since `since`.
     fn authors_since(&self, since: Ts) -> Result<Vec<SeenAuthor>>;
+    fn topic_authors(&self, topic_id: i64) -> Result<Vec<TopicAuthor>>;
+    fn linked_to_topic(&self, topic_id: i64) -> Result<Vec<LinkedPerson>>;
 }

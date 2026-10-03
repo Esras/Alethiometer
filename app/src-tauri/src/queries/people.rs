@@ -640,25 +640,11 @@ pub fn initials(name: &str) -> String {
 /// The topic's People panel: whoever wrote in its confirmed signals (by how
 /// many, then how recently) and anyone linked to the topic by hand. You're
 /// left out. Unknown senders show in their hash colour.
-pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, max: usize) -> Result<Vec<TopicPerson>> {
-    let mut stmt = conn.prepare(
-        "SELECT s.kind, m.author_id, m.author, i.id, m.at
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-           JOIN item_messages m ON m.item_id = i.id
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND m.context = 0 AND s.tag = 'work'
-         UNION ALL
-         SELECT s.kind, h.handle, p.display_name, i.id, i.occurred_at
-           FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-           JOIN people p ON p.id = i.author_person_id
-           LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = s.kind
-          WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'",
-    )?;
-    let mut acc: Vec<(TopicPerson, HashSet<i64>, String)> = vec![];
+pub fn for_topic(reads: &dyn Reads, r: &Resolver, topic_id: i64, clock: &Clock, max: usize) -> Result<Vec<TopicPerson>> {
+    let mut acc: Vec<(TopicPerson, HashSet<i64>, Option<Ts>)> = vec![];
     let mut index: HashMap<String, usize> = HashMap::new();
-    for row in stmt.query_map([topic_id], |x| {
-        Ok((x.get::<_, String>(0)?, x.get::<_, Option<String>>(1)?, x.get::<_, String>(2)?, x.get::<_, i64>(3)?, x.get::<_, String>(4)?))
-    })? {
-        let (source, handle, author, item, at) = row?;
+    for a in reads.people().topic_authors(topic_id)? {
+        let (source, handle, author, item, at) = (a.source_kind, a.handle, a.name, a.item_id, a.at);
         let who = r.who(&source, handle.as_deref(), &author);
         if who.me || author.trim().is_empty() {
             continue;
@@ -684,22 +670,18 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, 
                     last: None,
                 },
                 HashSet::new(),
-                String::new(),
+                None,
             ));
             acc.len() - 1
         });
         let e = &mut acc[i];
         e.1.insert(item);
-        if at > e.2 {
-            e.2 = at;
+        if e.2.is_none_or(|t| at > t) {
+            e.2 = Some(at);
         }
     }
     // Linked by hand (topic_people), even with nothing confirmed yet.
-    let manual: Vec<(i64, String, Option<String>)> = conn
-        .prepare("SELECT p.id, p.display_name, p.role FROM topic_people tp JOIN people p ON p.id = tp.person_id WHERE tp.topic_id = ?1")?
-        .query_map([topic_id], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    for (id, name, role) in manual {
+    for crate::domain::people::LinkedPerson { id, name, role } in reads.people().linked_to_topic(topic_id)? {
         let known = r.person(id).is_some();
         let key = if known { format!("p:{id}") } else { format!("n:{}", name.trim().to_lowercase()) };
         let i = match index.get(&key).copied().or_else(|| if known { None } else { index.get(&format!("p:{id}")).copied() }) {
@@ -719,7 +701,7 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, 
                         last: None,
                     },
                     HashSet::new(),
-                    String::new(),
+                    None,
                 ));
                 index.insert(key, acc.len() - 1);
                 acc.len() - 1
@@ -735,7 +717,7 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, 
         .take(max)
         .map(|(mut p, items, last)| {
             p.signals = items.len() as i64;
-            p.last = crate::queries::parse_ts(&last).map(|t| crate::queries::ts_label(t, clock, false));
+            p.last = last.map(|t| crate::queries::ts_label(t, clock, false));
             p
         })
         .collect())
@@ -749,7 +731,7 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, 
 pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
     let r = Resolver::load(&crate::store::over(conn), &PeopleSettings::default())?;
     let mut out = String::new();
-    for p in for_topic(conn, &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
+    for p in for_topic(&crate::store::over(conn), &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
         let Some(person) = p.id.and_then(|id| r.person(id)) else { continue };
         out.push_str(&format!("- {}", person.name));
         if let Some(role) = &person.role {

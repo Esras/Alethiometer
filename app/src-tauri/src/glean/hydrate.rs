@@ -96,7 +96,7 @@ fn norm_url(u: &str) -> String {
 pub fn entities(app: &App, conn: &Connection, topic_id: i64) -> Result<Entities> {
     let mut e = Entities::default();
     let r = crate::queries::people::Resolver::load(&crate::store::over(conn), &app.settings().people)?;
-    for p in crate::queries::people::for_topic(conn, &r, topic_id, &app.clock, 30)? {
+    for p in crate::queries::people::for_topic(&crate::store::over(conn), &r, topic_id, &app.clock, 30)? {
         let name = p.name.trim().to_lowercase();
         let email = p
             .id

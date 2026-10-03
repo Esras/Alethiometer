@@ -14,14 +14,13 @@
 9 queries/categories.rs
 34 queries/incoming.rs
 1 queries/mod.rs
-22 queries/notes.rs
-17 queries/people.rs
+1 queries/notes.rs
+15 queries/people.rs
 5 queries/priorities.rs
 25 queries/reflect.rs
-3 queries/search.rs
 22 queries/split.rs
 19 queries/todos.rs
-26 queries/topics.rs
+22 queries/topics.rs
 14 seed.rs
 2 settings/api.rs
 5 settings/live.rs

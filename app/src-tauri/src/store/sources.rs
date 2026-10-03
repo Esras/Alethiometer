@@ -15,3 +15,17 @@ impl SourceViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 }
+
+impl crate::domain::sources::Sources for Sql<'_> {
+    fn ensure_local(&self, kind: &str, name: &str) -> Result<i64> {
+        use rusqlite::OptionalExtension;
+        let id: Option<i64> = self.conn().query_row("SELECT id FROM sources WHERE kind = ?1", [kind], |r| r.get(0)).optional()?;
+        match id {
+            Some(id) => Ok(id),
+            None => {
+                self.conn().execute("INSERT INTO sources (kind, tag, name) VALUES (?1, 'work', ?2)", [kind, name])?;
+                Ok(self.conn().last_insert_rowid())
+            }
+        }
+    }
+}
