@@ -303,7 +303,6 @@ mod tests {
     use super::*;
     use crate::sync::http::{FakeHttp, Response};
     use std::sync::Mutex;
-    use std::time::{Duration, UNIX_EPOCH};
 
     const SECRET: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 
@@ -312,8 +311,7 @@ mod tests {
     }
 
     fn at(rfc3339: &str) -> SystemTime {
-        let secs = chrono::DateTime::parse_from_rfc3339(rfc3339).unwrap().timestamp() as u64;
-        UNIX_EPOCH + Duration::from_secs(secs)
+        SystemTime::try_from(rfc3339.parse::<jiff::Timestamp>().unwrap()).unwrap()
     }
 
     fn header<'a>(h: &'a [(String, String)], name: &str) -> &'a str {

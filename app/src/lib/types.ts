@@ -18,6 +18,8 @@ export interface AppInfo {
   life_buffer_min: number;
   quiet_days: number;
   clock_offset_ms: number;
+  /** The core's time zone (IANA name); wall-clock times in the UI use it. */
+  tz: string | null;
   ai_label: string;
   incoming_count: number;
   todo_count: number;

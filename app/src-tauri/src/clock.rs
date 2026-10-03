@@ -77,6 +77,11 @@ impl Clock {
         self.local_now().date()
     }
 
+    /// Today here by the real time, ignoring `fake_now` (for external quotas).
+    pub fn real_today(&self) -> Date {
+        self.day_of(Ts::new(Timestamp::now()))
+    }
+
     /// The calendar day an instant falls on here.
     pub fn day_of(&self, t: Ts) -> Date {
         self.local(t).date()
@@ -127,5 +132,33 @@ mod tests {
     fn fake_now_is_that_time_today_in_the_zone() {
         let c = Clock::in_zone("10:52", la());
         assert_eq!(c.local_now().strftime("%H:%M").to_string(), "10:52");
+    }
+
+    /// Wall-clock time comes from `Clock` only. Protoncal hands its zone to
+    /// `rrule` as chrono values, converted from the clock's; this file and the
+    /// UTC migration name the old forms in prose.
+    #[test]
+    fn nothing_else_reads_local_time() {
+        let banned = ["chrono::Local", "Local::now", "TimeZone::system", "Zoned::now", "localtime", "datetime('now", "date('now", "CURRENT_TIMESTAMP"];
+        let allowed = ["clock.rs", "utc_migration.rs", "protoncal.rs"];
+        let mut bad = vec![];
+        let mut dirs = vec![std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))];
+        while let Some(dir) = dirs.pop() {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    dirs.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") && !allowed.iter().any(|a| p.ends_with(a)) {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    bad.extend(banned.iter().filter(|b| text.contains(*b)).map(|b| format!("{}: {b}", p.display())));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "local time read outside Clock: {bad:#?}");
+        // Column defaults in the migrated schema.
+        let conn = crate::db::open_in_memory().unwrap();
+        let schema: Vec<String> = conn.prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        let bad: Vec<&String> = schema.iter().filter(|s| banned.iter().any(|b| s.contains(b))).collect();
+        assert!(bad.is_empty(), "defaults that aren't UTC instants: {bad:#?}");
     }
 }

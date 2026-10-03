@@ -1,6 +1,7 @@
 // The Settings page as `settings.get` returns it, plus path helpers.
 
 import { call } from '../../lib/api';
+import { ui } from '../../lib/app.svelte';
 
 export type Seg = string | number;
 
@@ -151,16 +152,15 @@ export async function patch(edits: Edit[]): Promise<State> {
   return call<State>('settings.patch', { edits });
 }
 
-/** "Sep 14" from "2026-09-14T10:02:00". */
+/** "Sep 14" for an instant. */
 export function shortDate(ts: string | null): string {
   if (!ts) return '';
-  const d = new Date(ts.replace(' ', 'T'));
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: ui.info?.tz ?? undefined });
 }
 
 export function ago(ts: string | null, nowMs: number): string {
   if (!ts) return 'never';
-  const mins = Math.round((nowMs - new Date(ts.replace(' ', 'T')).getTime()) / 60000);
+  const mins = Math.round((nowMs - new Date(ts).getTime()) / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m`;
   if (mins < 60 * 24) return `${Math.round(mins / 60)}h`;

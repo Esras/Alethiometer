@@ -124,5 +124,12 @@ mod tests {
         assert_eq!(due_label(day("2026-09-30"), &clock), "Wed");
         assert_eq!(due_label(at("2026-10-01T00:30:00Z"), &clock), "Wed 17:30");
         assert_eq!(due_label(day("2026-10-09"), &clock), "Oct 9");
+        // Moving to Zurich (19:52 there): a calendar day stays that day; an instant moves with the wall clock.
+        let zurich = Clock::fixed(Ts::parse("2026-09-28T17:52:00Z").unwrap(), jiff::tz::TimeZone::get("Europe/Zurich").unwrap());
+        assert_eq!(due_label(day("2026-09-28"), &zurich), "today");
+        assert_eq!(due_label(at("2026-09-28T22:00:00Z"), &zurich), "Tue 00:00");
+        // A day-only due is due by the end of that day where you are.
+        assert_eq!(day("2026-09-28").deadline(&clock).to_db(), "2026-09-29T06:59:59.999Z");
+        assert_eq!(day("2026-09-28").deadline(&zurich).to_db(), "2026-09-28T21:59:59.999Z");
     }
 }

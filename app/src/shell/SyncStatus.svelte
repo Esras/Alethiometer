@@ -55,7 +55,7 @@
 
   function ago(ts: string | null): string {
     if (!ts) return 'never';
-    const mins = Math.round((ui.nowMs - new Date(ts.replace(' ', 'T')).getTime()) / 60000);
+    const mins = Math.round((ui.nowMs - new Date(ts).getTime()) / 60000);
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins}m ago`;
     const h = Math.round(mins / 60);

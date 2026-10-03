@@ -4,6 +4,7 @@
   // on the agent; the row's own actions (c x t d) only ever touch the signal.
   import { tick } from 'svelte';
   import { call } from '../../lib/api';
+  import { clockHM, ui } from '../../lib/app.svelte';
   import { mod } from '../../lib/keys.svelte';
   import Panels from '../agents/Panels.svelte';
   import { ag } from '../agents/state.svelte';
@@ -30,7 +31,7 @@
   let busy = false;
   let box = $state<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>();
 
-  const hm = () => new Date().toTimeString().slice(0, 5);
+  const hm = () => clockHM(ui.nowMs);
 
   async function run(cmd: string, args: Record<string, unknown>, label: string) {
     if (busy) return;

@@ -66,7 +66,8 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
             Ok(Block {
                 id: r.get(0)?,
                 start_min: minute(start),
-                end_min: minute(end),
+                // A block ending in the repeated hour of a fall-back can end "before" it starts on the wall.
+                end_min: minute(end).max(minute(start)),
                 title: if life { None } else { r.get(3)? },
                 category: r.get(4)?,
                 tentative: r.get::<_, i64>(5)? == 1,
@@ -109,4 +110,49 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
         "blocks": blocks,
         "note": note,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::Clock;
+    use crate::settings::Settings;
+    use jiff::tz::TimeZone;
+
+    fn blocks(app: &App) -> Vec<(String, i64, i64)> {
+        let v = get(app, None).unwrap();
+        v["blocks"].as_array().unwrap().iter().filter(|b| b["title"].as_str().is_some_and(|t| t.starts_with("dst-"))).map(|b| (b["title"].as_str().unwrap().to_owned(), b["start_min"].as_i64().unwrap(), b["end_min"].as_i64().unwrap())).collect()
+    }
+
+    #[test]
+    fn the_strip_on_a_fall_back_day_and_from_another_zone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
+        // Nov 1 2026, 10:00 in Los Angeles: the day runs 07:00Z to 08:00Z the next day (25 hours).
+        app.clock = Clock::fixed(Ts::parse("2026-11-01T18:00:00Z").unwrap(), TimeZone::get("America/Los_Angeles").unwrap());
+        {
+            let conn = app.db();
+            conn.execute("INSERT INTO sources (id, kind, tag, name) VALUES (99, 'gcal', 'work', 'cal')", []).unwrap();
+            for (title, start, end) in [
+                ("dst-before", "2026-11-01T06:30:00Z", "2026-11-01T07:00:00Z"), // Oct 31, 23:30 PDT
+                ("dst-fold", "2026-11-01T08:30:00Z", "2026-11-01T09:15:00Z"),   // 01:30 PDT to 01:15 PST
+                ("dst-morning", "2026-11-01T17:00:00Z", "2026-11-01T18:00:00Z"), // 09:00 PST
+                ("dst-late", "2026-11-02T07:30:00Z", "2026-11-02T08:30:00Z"),   // 23:30 PST into Nov 2
+                ("dst-after", "2026-11-02T08:30:00Z", "2026-11-02T09:00:00Z"),  // Nov 2
+            ] {
+                let (start, end) = (Ts::parse(start).unwrap(), Ts::parse(end).unwrap());
+                conn.execute("INSERT INTO events (source_id, start, end, title, category) VALUES (99, ?1, ?2, ?3, 'work')", params![start, end, title]).unwrap();
+            }
+        }
+        assert_eq!(
+            blocks(&app),
+            [("dst-fold".into(), 90, 90), ("dst-morning".into(), 540, 600), ("dst-late".into(), 1410, 1440)],
+        );
+        // The same events seen from Zurich on its Nov 1 (CET since Oct 25).
+        app.clock = Clock::fixed(Ts::parse("2026-11-01T09:00:00Z").unwrap(), TimeZone::get("Europe/Zurich").unwrap());
+        assert_eq!(
+            blocks(&app),
+            [("dst-before".into(), 450, 480), ("dst-fold".into(), 570, 615), ("dst-morning".into(), 1080, 1140)],
+        );
+    }
 }

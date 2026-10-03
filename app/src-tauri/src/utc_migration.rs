@@ -59,6 +59,7 @@ const UTC: &[(&str, &str)] = &[
 const JSON: &[(&str, &str)] = &[
     ("items", "raw_json"),
     ("outbox", "payload_json"),
+    ("outbox", "receipt_json"),
     ("notes_lines", "target_json"),
     ("agent_rows", "data"),
     ("agent_sessions", "data"),

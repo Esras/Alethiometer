@@ -69,7 +69,8 @@ fn init(mut conn: Connection) -> anyhow::Result<Connection> {
 }
 
 /// Foreign keys are off while migrating (a table rebuild drops and renames a
-/// table others point at) and checked once at the end.
+/// table others point at) and checked at the end: a broken reference the
+/// migration made fails it; one that was already there doesn't.
 fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if current as usize > MIGRATIONS.len() {
@@ -79,6 +80,7 @@ fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
         return Ok(());
     }
     conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let before = broken_references(conn)?;
     for (i, step) in MIGRATIONS.iter().enumerate().take(to).skip(current as usize) {
         let tx = conn.transaction()?;
         match step {
@@ -88,14 +90,18 @@ fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
         tx.pragma_update(None, "user_version", (i + 1) as i64)?;
         tx.commit()?;
     }
-    let broken: Vec<String> = conn
-        .prepare("PRAGMA foreign_key_check")?
-        .query_map([], |r| Ok(format!("{} row {:?} -> {}", r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    if !broken.is_empty() {
-        anyhow::bail!("migration left broken references: {}", broken.join(", "));
+    let new: Vec<String> = broken_references(conn)?.difference(&before).cloned().collect();
+    if !new.is_empty() {
+        anyhow::bail!("migration left broken references: {}", new.join(", "));
     }
     Ok(())
+}
+
+fn broken_references(conn: &Connection) -> anyhow::Result<std::collections::BTreeSet<String>> {
+    Ok(conn
+        .prepare("PRAGMA foreign_key_check")?
+        .query_map([], |r| Ok(format!("{} row {:?} -> {}", r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 /// An in-memory database migrated only up to schema `version`, for testing a later step.
@@ -105,4 +111,34 @@ pub fn open_in_memory_at(version: usize) -> Connection {
     let mut conn = Connection::open_in_memory().unwrap();
     migrate(&mut conn, version).unwrap();
     conn
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebuilt_tables_keep_their_rows_and_an_old_broken_reference_doesnt_block_startup() {
+        let mut conn = open_in_memory_at(19);
+        conn.execute_batch(
+            "INSERT INTO sources (id, kind, tag, name) VALUES (1, 'slack', 'work', 'Slack');
+             INSERT INTO items (id, source_id, external_id, kind, title, occurred_at) VALUES (1, 1, 'a', 'thread', 'x', '2026-09-28T10:52:00');
+             INSERT INTO topics (id, name, category) VALUES (1, 'T', 'work');
+             INSERT INTO topic_links (item_id, topic_id, state, updated_at) VALUES (1, 1, 'confirmed', '2026-09-28 08:52:00');
+             INSERT INTO topic_links (item_id, topic_id, state) VALUES (404, 1, 'suggested');
+             INSERT INTO outbox (source_id, op, payload_json, created_at, receipt_json) VALUES (1, 'x', '{}', '2026-09-28 08:52:00', '{\"start\":\"2026-09-28T10:52:00\"}');",
+        )
+        .unwrap();
+        migrate(&mut conn, MIGRATIONS.len()).unwrap();
+        let links: Vec<(i64, String)> = conn.prepare("SELECT item_id, updated_at FROM topic_links ORDER BY item_id").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect();
+        assert_eq!(links.len(), 2, "the dangling link (item 404) was already there and stays");
+        assert_eq!(links[0], (1, "2026-09-28T08:52:00.000Z".into()));
+        let (created, receipt): (String, String) = conn.query_row("SELECT created_at, receipt_json FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(created, "2026-09-28T08:52:00.000Z");
+        assert!(receipt.contains(".000Z"), "{receipt}");
+        // New rows get UTC defaults.
+        conn.execute("INSERT INTO outbox (source_id, op, payload_json) VALUES (1, 'y', '{}')", []).unwrap();
+        let fresh: String = conn.query_row("SELECT created_at FROM outbox WHERE op = 'y'", [], |r| r.get(0)).unwrap();
+        assert!(crate::time::Ts::parse(&fresh).is_some(), "{fresh}");
+    }
 }

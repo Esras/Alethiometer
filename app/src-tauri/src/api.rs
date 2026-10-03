@@ -59,6 +59,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "life_buffer_min": app.settings().life_buffer_min,
                 "quiet_days": app.settings().quiet_days,
                 "clock_offset_ms": app.clock.offset_ms(),
+                "tz": app.clock.tz().iana_name(),
                 "ai_label": crate::ai::label(&app.settings().ai),
                 "incoming_count": incoming,
                 "todo_count": queries::todos::list(&app.db(), &app.clock)?.len(),

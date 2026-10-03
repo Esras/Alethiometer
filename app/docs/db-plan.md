@@ -28,7 +28,9 @@ Priorities: accuracy > performance, maintainability > speed of development.
 | `topics.list` 1.7 s, the Notes index ~2 s, embedding backfill O(N²) | Derived data recomputed from all history on every call |
 | Every action reloads every view (~10 calls per refresh) | One global `ui.rev`, polled |
 
-## Phase 0: time
+## Phase 0: time (done)
+
+Built as planned, with `jiff` in place of chrono (`src/time.rs`, `src/clock.rs`, migration 21 in `src/utc_migration.rs`). Instants are stored as `YYYY-MM-DDTHH:MM:SS.sssZ`. Day-only dues moved to `items.due_day`. The migration converted the 200k-item scratch database (1.2M values) in 8 seconds. The plan as written:
 
 - **Two kinds of time, two types.**
   - An **instant** (a message was sent, a meeting starts) is stored as UTC RFC 3339 (`2026-10-03T08:52:00Z`) and is `DateTime<Utc>` in Rust.

@@ -97,7 +97,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 - `src/shell/`: title bar, tabs, day strip, search, assistant pane.
 - `src/views/`: one component per tab.
 
-Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine for one person on one machine; revisit if you travel across time zones with it.
+Instants are stored in UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`, fixed width so text order is time order); calendar days (a Reflect day, a day-only due date) as `YYYY-MM-DD`. The app's `Clock` (`src-tauri/src/clock.rs`) is the only place that turns either into wall-clock time, using the system zone; the UI uses the same zone (`app.info.tz`). Times use `jiff`; see `src-tauri/src/time.rs`. Databases from before this were converted by migration 21 (`src-tauri/src/utc_migration.rs`).
 
 ## Keys
 

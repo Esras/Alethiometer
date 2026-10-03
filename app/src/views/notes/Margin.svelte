@@ -1,7 +1,7 @@
 <script lang="ts">
   // The "Goes to" cell for one line: a quiet destination before send, the
   // result after (11a), and the life-line receipt states.
-  import { catColor } from '../../lib/app.svelte';
+  import { catColor, clockHM } from '../../lib/app.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import type { EditLine } from './types';
 
@@ -11,7 +11,7 @@
   const empty = $derived(!line.text.trim());
   /** "Incoming · …" uses the short form: topic name, People/Name, or the Jira key. */
   const short = $derived(t ? (t.key ?? t.label) : '');
-  const receipt = $derived(line.receipt_at ? line.receipt_at.slice(11, 16) : '');
+  const receipt = $derived(clockHM(line.receipt_at));
 </script>
 
 {#if line.kind === 'life'}
