@@ -12,7 +12,7 @@ use super::ingest::Ingest;
 use super::items::{ItemViews, Items};
 use super::links::Links;
 use super::notes::{NoteLines, NotesViews};
-use super::outbox::Outbox;
+use super::outbox::{Outbox, OutboxViews};
 use super::people::{People, PeopleViews};
 use super::priorities::PriorityViews;
 use super::reflect::{ReflectViews, Reflections};
@@ -29,6 +29,7 @@ pub trait Reads {
     fn incoming(&self) -> &dyn IncomingViews;
     fn items(&self) -> &dyn ItemViews;
     fn notes(&self) -> &dyn NotesViews;
+    fn outbox(&self) -> &dyn OutboxViews;
     fn people(&self) -> &dyn PeopleViews;
     fn priorities(&self) -> &dyn PriorityViews;
     fn reflect(&self) -> &dyn ReflectViews;

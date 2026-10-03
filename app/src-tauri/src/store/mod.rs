@@ -200,6 +200,7 @@ ports!(Reads {
     incoming: crate::domain::incoming::IncomingViews,
     items: crate::domain::items::ItemViews,
     notes: crate::domain::notes::NotesViews,
+    outbox: crate::domain::outbox::OutboxViews,
     people: crate::domain::people::PeopleViews,
     priorities: crate::domain::priorities::PriorityViews,
     reflect: crate::domain::reflect::ReflectViews,

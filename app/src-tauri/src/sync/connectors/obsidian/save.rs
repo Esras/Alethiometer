@@ -18,7 +18,6 @@
 use super::rest::{CONFLICT, NOT_OPEN};
 use crate::error::{msg, Result};
 use crate::state::App;
-use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::{Component, Path};
 
@@ -31,18 +30,16 @@ pub enum Saved {
     Queued(i64),
 }
 
-/// The enabled obsidian source that reads the app's vault, if any.
-pub fn writer(conn: &Connection, vault: &Path) -> Result<Option<i64>> {
-    let rows: Vec<(i64, String)> = conn
-        .prepare("SELECT id, config_json FROM sources WHERE kind = 'obsidian' AND enabled = 1 ORDER BY id")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
+/// The enabled obsidian source that reads the app's vault, if any. Paths
+/// are compared after the snapshot closes (it touches the filesystem).
+pub fn writer(app: &App) -> Result<Option<i64>> {
+    let sources = app.store().read(|r| r.sources().of_kind("obsidian"))?;
     let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    let want = canon(vault);
-    Ok(rows.into_iter().find_map(|(id, cfg)| {
-        let cfg: Value = serde_json::from_str(&cfg).ok()?;
-        let v = cfg.get("vault").and_then(Value::as_str).filter(|s| !s.is_empty())?;
-        (canon(Path::new(v)) == want).then_some(id)
+    let want = canon(&app.vault);
+    Ok(sources.into_iter().filter(|s| s.enabled).find_map(|s| {
+        let cfg: Value = serde_json::from_str(&s.config_json).ok()?;
+        let v = cfg.get("vault").and_then(Value::as_str).filter(|v| !v.is_empty())?;
+        (canon(Path::new(v)) == want).then_some(s.id)
     }))
 }
 
@@ -64,38 +61,21 @@ pub fn disk_text(app: &App, rel: &str) -> Option<String> {
 /// holds `base` (None: it doesn't exist yet).
 pub fn save_note(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result<Saved> {
     check_rel(rel)?;
-    let conn = app.db();
-    let Some(source) = writer(&conn, &app.vault)? else {
-        drop(conn);
-        return write_direct(app, rel, base, text);
-    };
-    // Continue a queued (or failed) row for this note when this save follows from it.
-    let queued: Option<(i64, String)> = conn
-        .query_row(
-            "SELECT id, payload_json FROM outbox
-              WHERE source_id = ?1 AND op = 'obsidian.replace' AND state IN ('pending', 'failed')
-                AND json_extract(payload_json, '$.path') = ?2
-              ORDER BY id DESC LIMIT 1",
-            params![source, rel],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    if let Some((id, payload)) = queued {
-        let mut p: Value = serde_json::from_str(&payload)?;
-        if p.get("text").and_then(Value::as_str) == base {
-            p["text"] = json!(text);
-            let n = conn.execute(
-                "UPDATE outbox SET payload_json = ?2 WHERE id = ?1 AND state IN ('pending', 'failed')",
-                params![id, p.to_string()],
-            )?;
-            if n == 1 {
-                crate::outbox::wake();
-                return Ok(Saved::Queued(id));
+    let Some(source) = writer(app)? else { return write_direct(app, rel, base, text) };
+    let id = app.store().write(|uow| {
+        // Continue a queued (or failed) row for this note when this save follows from it.
+        if let Some(q) = uow.reads().outbox().open_for_path(source, "obsidian.replace", rel)? {
+            let mut p: Value = serde_json::from_str(&q.payload_json)?;
+            if p.get("text").and_then(Value::as_str) == base {
+                p["text"] = json!(text);
+                if uow.outbox().update_open(q.id, &p.to_string())? {
+                    return Ok(q.id);
+                }
+                // It was picked up meanwhile: queue behind it.
             }
-            // It was picked up meanwhile: queue behind it.
         }
-    }
-    let id = crate::outbox::enqueue(&conn, source, "obsidian.replace", &json!({ "path": rel, "base": base, "text": text }), None)?;
+        crate::outbox::request(uow, source, "obsidian.replace", &json!({ "path": rel, "base": base, "text": text }), None)
+    })?;
     crate::outbox::wake();
     Ok(Saved::Queued(id))
 }
@@ -120,16 +100,12 @@ fn write_direct(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result<
 /// `saving` | `saved` | `conflict` (+ `disk`, the note as it is now) |
 /// `offline` (Obsidian isn't open) | `failed` (+ `error`).
 pub fn status(app: &App, outbox_id: i64) -> Result<Value> {
-    let (state, error, payload): (String, Option<String>, String) = app.db().query_row(
-        "SELECT state, error, payload_json FROM outbox WHERE id = ?1 AND op = 'obsidian.replace'",
-        [outbox_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
-    let error = error.unwrap_or_default();
-    Ok(match state.as_str() {
+    let row = queued_save(app, outbox_id)?;
+    let error = row.error.unwrap_or_default();
+    Ok(match row.state.as_str() {
         "confirmed" => json!({ "state": "saved" }),
         "failed" if error.starts_with(CONFLICT) => {
-            let p: Value = serde_json::from_str(&payload)?;
+            let p: Value = serde_json::from_str(&row.payload_json)?;
             let path = p.get("path").and_then(Value::as_str).unwrap_or_default();
             json!({ "state": "conflict", "disk": disk_text(app, path) })
         }
@@ -139,28 +115,25 @@ pub fn status(app: &App, outbox_id: i64) -> Result<Value> {
     })
 }
 
+fn queued_save(app: &App, outbox_id: i64) -> Result<crate::domain::outbox::OutboxEntry> {
+    app.store().read(|r| r.outbox().get(outbox_id))?.filter(|e| e.op == "obsidian.replace").ok_or_else(|| msg("no such save"))
+}
+
 /// "Keep mine" after a conflict: the user saw the note changed and chose their
 /// text. The row's base becomes the note as it is now on disk (which is what
 /// Obsidian saved) and it's sent again, still guarded: if Obsidian has moved on
 /// since, it's a conflict again.
 pub fn keep_mine(app: &App, outbox_id: i64) -> Result<Value> {
-    let conn = app.db();
-    let (state, error, payload): (String, Option<String>, String) = conn.query_row(
-        "SELECT state, error, payload_json FROM outbox WHERE id = ?1 AND op = 'obsidian.replace'",
-        [outbox_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
-    if state != "failed" || !error.unwrap_or_default().starts_with(CONFLICT) {
+    let row = queued_save(app, outbox_id)?;
+    if row.state != "failed" || !row.error.unwrap_or_default().starts_with(CONFLICT) {
         return Err(msg("that save isn't in conflict"));
     }
-    let mut p: Value = serde_json::from_str(&payload)?;
+    let mut p: Value = serde_json::from_str(&row.payload_json)?;
     let path = p.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
     p["base"] = json!(disk_text(app, &path));
-    conn.execute(
-        "UPDATE outbox SET payload_json = ?2, state = 'pending', error = NULL WHERE id = ?1 AND state = 'failed'",
-        params![outbox_id, p.to_string()],
-    )?;
-    drop(conn);
+    if !app.store().write(|uow| uow.outbox().resend(outbox_id, &p.to_string()))? {
+        return Err(msg("that save isn't in conflict"));
+    }
     crate::outbox::wake();
     Ok(json!({ "state": "saving" }))
 }
@@ -168,6 +141,7 @@ pub fn keep_mine(app: &App, outbox_id: i64) -> Result<Value> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use rusqlite::params;
     use crate::settings::{Settings, SourceConfig};
     use crate::sync::http::FakeHttp;
 
@@ -200,7 +174,7 @@ pub(crate) mod tests {
     fn sample_data_writes_directly() {
         let dir = tempfile::tempdir().unwrap();
         let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
-        assert!(writer(&app.db(), &app.vault).unwrap().is_none(), "the sample Obsidian row has no vault");
+        assert!(writer(&app).unwrap().is_none(), "the sample Obsidian row has no vault");
         let rel = "Topics/Q4 headcount.md";
         let before = disk_text(&app, rel).unwrap();
         assert!(matches!(save_note(&app, rel, Some("stale"), "x").unwrap(), Saved::Conflict(Some(ref d)) if *d == before));

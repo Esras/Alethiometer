@@ -8,8 +8,8 @@ use crate::domain::sources::SourceRow;
 use crate::time::Ts;
 use crate::error::{msg, Result};
 use crate::state::App;
-use crate::sync::{connectors, http, load_source, Ctx};
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::sync::{connectors, http, Ctx};
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -48,26 +48,21 @@ pub fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
 }
 
 /// Apply the local side of a confirmed write.
-fn on_confirmed(conn: &Connection, now: Ts, op: &str, item_id: Option<i64>, payload: &Value, receipt: &Value) -> Result<()> {
+fn on_confirmed(uow: &dyn UnitOfWork, now: Ts, op: &str, item_id: Option<i64>, payload: &Value, receipt: &Value) -> Result<()> {
     if op == "jira.create_issue" && payload.get("assign_me").and_then(Value::as_bool) == Some(true) {
-        crate::queries::todos::issue_created(&crate::store::over(conn), now, payload, receipt)?;
+        crate::queries::todos::issue_created(uow, now, payload, receipt)?;
     }
     if let (Some(id), Some(done)) = (item_id, payload.get("done").and_then(Value::as_bool)) {
         if op == "jira.transition" || op == "obsidian.toggle_task" {
-            conn.execute("UPDATE items SET status = ?2 WHERE id = ?1", params![id, if done { "done" } else { "open" }])?;
+            uow.items().set_status(id, if done { "done" } else { "open" })?;
         }
     }
     if let Some(id) = item_id {
         match op {
             // The Notes line's Incoming item now points at the new Jira issue.
             "jira.create_issue" => {
-                let key = receipt.get("key").and_then(Value::as_str);
-                let url = receipt.get("url").and_then(Value::as_str);
-                if let Some(key) = key {
-                    conn.execute(
-                        "UPDATE items SET url = COALESCE(?2, url), summary = ?3 WHERE id = ?1",
-                        params![id, url, format!("Jira · {key}")],
-                    )?;
+                if let Some(key) = receipt.get("key").and_then(Value::as_str) {
+                    uow.items().set_url_and_summary(id, receipt.get("url").and_then(Value::as_str), &format!("Jira · {key}"))?;
                 }
             }
             // Nothing local: Confirm already took the item out of Incoming, and a
@@ -81,46 +76,36 @@ fn on_confirmed(conn: &Connection, now: Ts, op: &str, item_id: Option<i64>, payl
     Ok(())
 }
 
-/// Send one pending row. Returns false when there was nothing to send.
+/// Send one pending row: claimed in one unit of work, sent with no database
+/// access, and its outcome (with the local side of a confirmed write)
+/// recorded in another. Returns false when there was nothing to send.
 pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
-    let row: Option<(i64, i64, String, String, Option<i64>)> = app
-        .db()
-        .query_row(
-            "SELECT id, source_id, op, payload_json, item_id FROM outbox WHERE state = 'pending' ORDER BY id LIMIT 1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-        )
-        .optional()?;
-    let Some((id, source_id, op, payload, item_id)) = row else { return Ok(false) };
-    app.db().execute(
-        "UPDATE outbox SET state = 'sent', sent_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), attempts = attempts + 1 WHERE id = ?1",
-        [id],
-    )?;
-    let source = load_source(&app.db(), source_id)?;
-    // Rows queued straight into the table (not via `enqueue`) still respect read-only.
-    let blocked = read_only(&app.db(), source_id)?;
+    let claimed = app.store().write(|uow| {
+        let Some(row) = uow.outbox().claim_next()? else { return Ok(None) };
+        let source = crate::sync::source(uow.reads(), row.source_id)?;
+        // Rows queued straight into the table (not via `request`) still respect read-only.
+        let blocked = uow.reads().sources().get(row.source_id)?.as_ref().and_then(|s| read_only_name(s).map(str::to_owned));
+        Ok(Some((row, source, blocked)))
+    })?;
+    let Some((row, source, blocked)) = claimed else { return Ok(false) };
+    let payload: Value = serde_json::from_str(&row.payload_json).unwrap_or_default();
     let result = match connectors::for_kind(&source.kind) {
         _ if blocked.is_some() => Err(anyhow::anyhow!("'{}' is read-only (read_only in settings.json)", source.name)),
         None => Err(anyhow::anyhow!("no connector for '{}'", source.kind)),
         Some(c) => {
             let secret = |k: &str| app.platform.secret_get(k);
             let ctx = Ctx { source: &source, http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
-            c.send(&ctx, &op, &serde_json::from_str(&payload)?)
+            c.send(&ctx, &row.op, &payload)
         }
     };
-    let conn = app.db();
-    match result {
+    let now = app.clock.now();
+    app.store().write(|uow| match &result {
         Ok(receipt) => {
-            conn.execute(
-                "UPDATE outbox SET state = 'confirmed', confirmed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), receipt_json = ?2, error = NULL WHERE id = ?1",
-                params![id, receipt.to_string()],
-            )?;
-            on_confirmed(&conn, app.clock.now(), &op, item_id, &serde_json::from_str(&payload).unwrap_or_default(), &receipt)?;
+            uow.outbox().confirm(row.id, &receipt.to_string())?;
+            on_confirmed(uow, now, &row.op, row.item_id, &payload, receipt)
         }
-        Err(e) => {
-            conn.execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, e.to_string()])?;
-        }
-    }
+        Err(e) => uow.outbox().fail(row.id, &e.to_string()),
+    })?;
     Ok(true)
 }
 
@@ -164,57 +149,46 @@ struct Row {
     state: String,
     error: Option<String>,
     item_id: Option<i64>,
-    created_at: String,
-    confirmed_at: Option<String>,
+    created_at: Ts,
+    confirmed_at: Option<Ts>,
 }
 
-pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
-    match name {
-        "list" => {
-            let conn = app.db();
-            let mut stmt = conn.prepare(
-                "SELECT o.id, s.name, o.op, o.state, o.error, o.item_id, o.created_at, o.confirmed_at
-                   FROM outbox o JOIN sources s ON s.id = o.source_id
-                  WHERE o.state != 'confirmed' OR o.confirmed_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')
-                  ORDER BY o.id DESC LIMIT 200",
-            )?;
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok(Row {
-                        id: r.get(0)?,
-                        source: r.get(1)?,
-                        op: r.get(2)?,
-                        state: r.get(3)?,
-                        error: r.get(4)?,
-                        item_id: r.get(5)?,
-                        created_at: r.get(6)?,
-                        confirmed_at: r.get(7)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+pub fn route(name: &str) -> Option<crate::api::Route> {
+    use crate::api::Route;
+    Some(match name {
+        "list" => Route::Read(|r, ctx, _| {
+            let since = ctx.clock.now() - jiff::SignedDuration::from_hours(24);
+            let rows: Vec<Row> = r
+                .outbox()
+                .recent(since, 200)?
+                .into_iter()
+                .map(|e| Row {
+                    id: e.id,
+                    source: e.source_name,
+                    op: e.op,
+                    state: e.state,
+                    error: e.error,
+                    item_id: e.item_id,
+                    created_at: e.created_at,
+                    confirmed_at: e.confirmed_at,
+                })
+                .collect();
             Ok(json!(rows))
-        }
+        }),
         // ⌘R: failed rows go back to pending. Without an id, retry every failed row.
-        "retry" => {
-            let n = match crate::queries::opt_i64(args, "id") {
-                Some(id) => app.db().execute("UPDATE outbox SET state = 'pending' WHERE id = ?1 AND state = 'failed'", [id])?,
-                None => app.db().execute("UPDATE outbox SET state = 'pending' WHERE state = 'failed'", [])?,
-            };
-            wake();
-            Ok(json!({ "retried": n }))
-        }
-        _ => Err(crate::api::unknown(name)),
-    }
+        "retry" => Route::Write(|uow, _, args| Ok(json!({ "retried": uow.outbox().retry(crate::queries::opt_i64(args, "id"))? }))),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
 pub fn tests_on_confirmed(conn: &Connection, op: &str, payload: &Value, receipt: &Value) {
-    on_confirmed(conn, crate::time::Ts::new(jiff::Timestamp::now()), op, None, payload, receipt).unwrap();
+    on_confirmed(&crate::store::over(conn), crate::time::Ts::new(jiff::Timestamp::now()), op, None, payload, receipt).unwrap();
 }
 
 #[cfg(test)]
 pub fn tests_on_confirmed_item(conn: &Connection, op: &str, item_id: i64, payload: &Value) {
-    on_confirmed(conn, crate::time::Ts::new(jiff::Timestamp::now()), op, Some(item_id), payload, &json!({})).unwrap();
+    on_confirmed(&crate::store::over(conn), crate::time::Ts::new(jiff::Timestamp::now()), op, Some(item_id), payload, &json!({})).unwrap();
 }
 
 #[cfg(test)]
@@ -267,7 +241,7 @@ mod integration_tests {
         let item = conn.last_insert_rowid();
         // Confirmed (seen = 1); then a thread reply arrives before the outbox sends.
         conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
-        super::on_confirmed(&conn, crate::time::t("2026-10-03T09:00:00"), "slack.mark_read", Some(item), &json!({ "channel": "C1", "ts": "1727.1" }), &json!({})).unwrap();
+        super::on_confirmed(&crate::store::over(&conn), crate::time::t("2026-10-03T09:00:00"), "slack.mark_read", Some(item), &json!({ "channel": "C1", "ts": "1727.1" }), &json!({})).unwrap();
         let seen: i64 = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
         assert_eq!(seen, 0, "the reply is still in Incoming");
     }
@@ -313,7 +287,7 @@ mod integration_tests {
         let (app, _d) = app();
         let conn = app.db();
         let item: i64 = conn.query_row("SELECT id FROM items LIMIT 1", [], |r| r.get(0)).unwrap();
-        super::on_confirmed(&conn, crate::time::t("2026-10-03T09:00:00"), "jira.create_issue", Some(item), &json!({}), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
+        super::on_confirmed(&crate::store::over(&conn), crate::time::t("2026-10-03T09:00:00"), "jira.create_issue", Some(item), &json!({}), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
         let (url, summary): (String, String) =
             conn.query_row("SELECT url, summary FROM items WHERE id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(url, "https://x/browse/PLAT-9");

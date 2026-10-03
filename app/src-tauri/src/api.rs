@@ -41,6 +41,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "people" => queries::people::route(name),
         "priorities" => queries::priorities::route(name),
         "sync" => crate::sync::route(name),
+        "outbox" => crate::outbox::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
     };
@@ -71,7 +72,6 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "sync" => crate::sync::call(app, name, args),
         "settings" => crate::settings::api::call(app, name, args),
         "embed" => crate::embed::call(app, name, args),
-        "outbox" => crate::outbox::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
         "ai" => {
             let out = crate::ai::call(app, name, args);
