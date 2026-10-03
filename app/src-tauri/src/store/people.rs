@@ -54,12 +54,14 @@ impl PeopleViews for Sql<'_> {
         Ok(self
             .conn()
             .prepare_cached(
+                // CROSS JOIN: start from what's recent (indexes on time), not
+                // from each work source's every item.
                 "SELECT s.kind, m.author_id, m.author, coalesce(i.parent_id, i.id), m.at
-                   FROM item_messages m JOIN items i ON i.id = m.item_id JOIN sources s ON s.id = i.source_id
+                   FROM item_messages m CROSS JOIN items i ON i.id = m.item_id CROSS JOIN sources s ON s.id = i.source_id
                   WHERE m.author_id IS NOT NULL AND m.context = 0 AND m.at >= ?1 AND s.tag = 'work'
                  UNION ALL
                  SELECT s.kind, h.handle, p.display_name, coalesce(i.parent_id, i.id), i.occurred_at
-                   FROM items i JOIN sources s ON s.id = i.source_id
+                   FROM items i CROSS JOIN sources s ON s.id = i.source_id
                    JOIN person_handles h ON h.person_id = i.author_person_id AND h.source_kind = s.kind
                    JOIN people p ON p.id = i.author_person_id
                   WHERE i.occurred_at >= ?1 AND s.tag = 'work'",

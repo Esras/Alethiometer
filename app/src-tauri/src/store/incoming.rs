@@ -76,8 +76,10 @@ impl IncomingViews for Sql<'_> {
         Ok(self
             .conn()
             .prepare_cached(&format!(
+                // CROSS JOIN: start from the unseen items (a partial index), not
+                // from each work source's every item.
                 "SELECT {SIGNAL}
-                   FROM items i JOIN sources s ON s.id = i.source_id
+                   FROM items i CROSS JOIN sources s ON s.id = i.source_id
                   WHERE i.seen = 0 AND s.tag = 'work'
                     AND NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong')
                   ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
