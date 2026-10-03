@@ -23,6 +23,8 @@ pub struct App {
     pub hooks: OnceLock<Hooks>,
     /// Local embeddings (`embed`): the model once loaded, and its status.
     pub embed: crate::embed::Engine,
+    /// Agents tab: sessions, transcripts, local agent processes, Scion Hubs.
+    pub agents: crate::agents::Agents,
     settings_state: Mutex<crate::settings::live::State>,
     /// Set by `shared`, so code holding `&App` can start background work.
     this: OnceLock<std::sync::Weak<App>>,
@@ -69,6 +71,7 @@ impl App {
             settings: RwLock::new(Arc::new(settings)),
             hooks: OnceLock::new(),
             embed: Default::default(),
+            agents: Default::default(),
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };

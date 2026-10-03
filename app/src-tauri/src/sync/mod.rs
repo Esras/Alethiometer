@@ -597,8 +597,8 @@ pub fn start_source(app: std::sync::Arc<App>, id: i64) {
     let Ok(source) = load_source(&app.db(), id) else { return };
     let settings = app.settings();
     let Some(cfg) = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name) else { return };
-    // Glean is search-only: queried on demand, never polled.
-    if !cfg.enabled || cfg.kind == "glean" {
+    // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
+    if !cfg.enabled || cfg.kind == "glean" || cfg.kind == "scion" {
         return;
     }
     let name = cfg.name.clone();
@@ -648,9 +648,10 @@ pub struct SourceStatus {
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
+        // Scion Hubs show their state in the Agents tab, not here.
         "status" => {
             let conn = app.db();
-            let mut stmt = conn.prepare("SELECT id, kind, tag, name, last_sync_at, last_error FROM sources ORDER BY kind, name")?;
+            let mut stmt = conn.prepare("SELECT id, kind, tag, name, last_sync_at, last_error FROM sources WHERE kind != 'scion' ORDER BY kind, name")?;
             let rows = stmt
                 .query_map([], |r| {
                     Ok(SourceStatus {

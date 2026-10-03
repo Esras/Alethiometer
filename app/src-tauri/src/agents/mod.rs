@@ -1,0 +1,337 @@
+//! Agents tab (design "Agents Final" 01–08, `app/docs/agents.md`): coding-agent
+//! sessions from two kinds of source in one tree.
+//!
+//! - Local ACP sessions (`acp`): Alethiometer is the ACP client and launches the
+//!   agent itself. It only sees sessions it started. Local sessions can't
+//!   take part in rooms, and nothing here builds a channel between them.
+//! - Scion agents (`scion`): Alethiometer is a Hub client. Rooms, DMs and
+//!   delivery states all come from the Hub; there's no messaging layer here.
+//!
+//! The UI polls `agents.poll` with the last revision it saw (`store`).
+
+pub mod acp;
+pub mod explain;
+pub mod facts;
+pub mod guess;
+pub mod model;
+pub mod scion;
+pub mod shell;
+pub mod store;
+
+use crate::error::{msg, Result};
+use crate::queries::arg_str;
+use crate::state::App;
+use model::{Group, Request, Row, Session, Status};
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+#[derive(Default)]
+pub struct Agents {
+    pub store: store::Store,
+    pub acp: acp::Host,
+    pub scion: scion::Hubs,
+}
+
+/// Load local state, then keep it flushed and the Scion Hubs connected.
+pub fn start(app: Arc<App>) {
+    if let Err(e) = app.agents.store.load(&app.db()) {
+        eprintln!("agents: couldn't load sessions: {e}");
+    }
+    let a = app.clone();
+    std::thread::Builder::new()
+        .name("agents-flush".into())
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if let Err(e) = a.agents.store.flush(&a.db()) {
+                eprintln!("agents: flush failed: {e}");
+            }
+        })
+        .ok();
+    scion::start(app);
+}
+
+/// Stop every local agent process (the app is quitting).
+pub fn shutdown(app: &App) {
+    let _ = app.agents.store.flush(&app.db());
+    app.agents.acp.stop_all();
+}
+
+/// Local agents still running: closing the window hides it instead of quitting.
+pub fn any_running(app: &App) -> bool {
+    app.agents.acp.any_alive()
+}
+
+pub fn now(app: &App) -> String {
+    app.clock.now().format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
+/// The thread key a session's transcript lives under.
+pub fn session_thread(id: &str) -> String {
+    format!("s:{id}")
+}
+
+fn tree(app: &App) -> Value {
+    let i = app.agents.store.lock();
+    let mut groups: Vec<&Group> = i.groups.values().collect();
+    groups.sort_by(|a, b| (a.source != "acp", &a.project, &a.created_at).cmp(&(b.source != "acp", &b.project, &b.created_at)));
+    let mut sessions: Vec<&Session> = i.sessions.values().collect();
+    sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    let mut requests: Vec<&Request> = i.requests.values().collect();
+    requests.sort_by(|a, b| a.at.cmp(&b.at));
+    let count = |st: Status| sessions.iter().filter(|s| s.status == st).count();
+    json!({
+        "rev": i.tree_rev,
+        "groups": groups,
+        "sessions": sessions,
+        "requests": requests,
+        "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
+        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
+        "hubs": scion::hubs(app),
+        "host": acp::host_label(),
+    })
+}
+
+/// A thread's rows changed since `since`. `tab = "messages"` is screen 04:
+/// you ↔ the agent, your mentions of it in rooms, and its asks.
+fn thread(app: &App, key: &str, since: u64, tab: &str) -> Result<Value> {
+    app.agents.store.ensure_loaded(&app.db(), key)?;
+    let i = app.agents.store.lock();
+    let rows: Vec<Row> = match (tab, key.strip_prefix("s:")) {
+        ("messages", Some(id)) => messages_view(&i, id),
+        _ => i.threads.get(key).map(|t| t.rows.clone()).unwrap_or_default(),
+    };
+    // The messages view is computed, so it's always sent whole.
+    let reset = since == 0 || tab == "messages";
+    let ids: Vec<u64> = rows.iter().map(|r| r.id).collect();
+    let changed: Vec<&Row> = rows.iter().filter(|r| reset || r.rev > since).collect();
+    Ok(json!({ "key": key, "tab": tab, "rev": i.rev, "reset": reset, "rows": changed, "ids": ids }))
+}
+
+fn messages_view(i: &store::Inner, id: &str) -> Vec<Row> {
+    let Some(s) = i.sessions.get(id) else { return vec![] };
+    let own = i.threads.get(&session_thread(id)).map(|t| t.rows.as_slice()).unwrap_or_default();
+    let mentions = |r: &Row| r.text.contains(&format!("@{}", s.name)) || r.to.as_ref().is_some_and(|t| t.session.as_deref() == Some(id));
+    let mut out: Vec<Row> = own
+        .iter()
+        .filter(|r| matches!(r.kind, model::Kind::You | model::Kind::Ask) || (r.kind == model::Kind::Message && r.to.as_ref().is_some_and(|t| t.kind == "you")))
+        .cloned()
+        .collect();
+    let room = s.group_id.as_ref().and_then(|g| i.groups.get(g)).and_then(|g| g.room.as_ref()).map(|r| format!("r:{}", r.id));
+    if let Some(room) = room.and_then(|k| i.threads.get(&k)) {
+        let mut next = 1_000_000;
+        for r in room.rows.iter().filter(|r| r.who.as_ref().is_some_and(|w| w.kind == "you") && mentions(r)) {
+            next += 1;
+            out.push(Row { id: next, ..r.clone() });
+        }
+    }
+    out.sort_by(|a, b| a.at.cmp(&b.at));
+    out
+}
+
+fn opt<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
+    args.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+fn session_of(app: &App, id: &str) -> Result<Session> {
+    app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg(format!("no agent session '{id}'")))
+}
+
+/// `agents.<name>` commands.
+pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
+    match name {
+        // One call per tick: the tree when it changed, and the open thread's new rows.
+        "poll" => {
+            let since = args.get("rev").and_then(Value::as_u64).unwrap_or(0);
+            let tree_rev = app.agents.store.lock().tree_rev;
+            let mut out = json!({ "rev": app.agents.store.rev(), "tree": null, "thread": null });
+            if tree_rev > since || since == 0 {
+                out["tree"] = tree(app);
+            }
+            if let Some(key) = opt(args, "thread") {
+                let trev = args.get("thread_rev").and_then(Value::as_u64).unwrap_or(0);
+                if trev == 0 || app.agents.store.rev() > trev {
+                    out["thread"] = thread(app, key, trev, opt(args, "tab").unwrap_or("transcript"))?;
+                }
+            }
+            Ok(out)
+        }
+        "tree" => Ok(tree(app)),
+        "thread" => thread(app, &arg_str(args, "key")?, 0, opt(args, "tab").unwrap_or("transcript")),
+        // Message a session or a room. `to` addresses one room member (@).
+        "send" => {
+            let key = arg_str(args, "thread")?;
+            let text = arg_str(args, "text")?;
+            if text.trim().is_empty() {
+                return Err(msg("Write a message first"));
+            }
+            match key.strip_prefix("s:") {
+                Some(id) if id.starts_with("acp-") => acp::send(app, id, &text)?,
+                _ => scion::send(app, &key, &text, opt(args, "to"))?,
+            }
+            Ok(json!({ "ok": true }))
+        }
+        "interrupt" => {
+            let id = arg_str(args, "session")?;
+            if id.starts_with("acp-") {
+                acp::interrupt(app, &id)?
+            } else {
+                scion::interrupt(app, &id)?
+            }
+            Ok(json!({ "ok": true }))
+        }
+        // Approval: pick one of the agent's own options (O/S/A/D).
+        "respond" => {
+            let req = arg_str(args, "request")?;
+            let option = arg_str(args, "option")?;
+            acp::respond(app, &req, &option, opt(args, "reason"))?;
+            Ok(json!({ "ok": true }))
+        }
+        // Ask: a choice (1–3) or a written reply.
+        "answer" => {
+            let req = arg_str(args, "request")?;
+            let text = arg_str(args, "text")?;
+            scion::answer(app, &req, &text)?;
+            Ok(json!({ "ok": true }))
+        }
+        "start_local" => {
+            let id = acp::start_session(
+                app,
+                &acp::StartArgs {
+                    harness: arg_str(args, "harness")?,
+                    cwd: arg_str(args, "cwd")?,
+                    name: opt(args, "name").map(str::to_owned),
+                    group_id: opt(args, "group").map(str::to_owned),
+                    task: opt(args, "task").unwrap_or("").to_owned(),
+                },
+            )?;
+            Ok(json!({ "id": id }))
+        }
+        "start_scion" => Ok(json!({ "id": scion::start_agent(app, args)? })),
+        "catalog" => scion::catalog(app, &arg_str(args, "group")?),
+        "stop" => {
+            let id = arg_str(args, "session")?;
+            if id.starts_with("acp-") {
+                acp::stop(app, &id);
+            } else {
+                scion::stop(app, &id)?;
+            }
+            Ok(json!({ "ok": true }))
+        }
+        "remove" => {
+            let id = arg_str(args, "session")?;
+            if !id.starts_with("acp-") {
+                return Err(msg("Scion agents are removed on the Hub"));
+            }
+            acp::stop(app, &id);
+            app.agents.store.lock().remove_session(&id);
+            Ok(json!({ "ok": true }))
+        }
+        "group_create" => {
+            let name = arg_str(args, "name")?;
+            let id = format!("local:{}", next_local_id(app));
+            let project = opt(args, "project").map(str::to_owned).unwrap_or_else(|| {
+                opt(args, "cwd").map(facts::project_of).unwrap_or_default()
+            });
+            app.agents.store.lock().put_group(Group {
+                id: id.clone(),
+                source: "acp".into(),
+                project,
+                name: name.trim().into(),
+                goal: opt(args, "goal").unwrap_or("").trim().into(),
+                host: acp::host_label(),
+                room: None,
+                created_at: now(app),
+            });
+            Ok(json!({ "id": id }))
+        }
+        "group_update" => {
+            let id = arg_str(args, "group")?;
+            let mut i = app.agents.store.lock();
+            let mut g = i.groups.get(&id).cloned().ok_or_else(|| msg("no such group"))?;
+            if g.source != "acp" {
+                return Err(msg("Scion groups are edited on the Hub"));
+            }
+            if let Some(n) = opt(args, "name") {
+                g.name = n.trim().into();
+            }
+            if let Some(goal) = args.get("goal").and_then(Value::as_str) {
+                g.goal = goal.trim().into();
+            }
+            i.put_group(g);
+            Ok(json!({ "ok": true }))
+        }
+        "group_delete" => {
+            let id = arg_str(args, "group")?;
+            if !id.starts_with("local:") {
+                return Err(msg("Scion groups are removed on the Hub"));
+            }
+            app.agents.store.lock().remove_group(&id);
+            Ok(json!({ "ok": true }))
+        }
+        // File a local session under a group (or back to Unsorted).
+        "move" => {
+            let id = arg_str(args, "session")?;
+            let group = opt(args, "group").map(str::to_owned);
+            if !id.starts_with("acp-") {
+                return Err(msg("Scion agents belong to their Hub group"));
+            }
+            let color = {
+                let s = session_of(app, &id)?;
+                let palette = app.settings().agents.names.palette.len();
+                store::color_for(&app.db(), group.as_deref().unwrap_or("unsorted"), &s.id, palette)?
+            };
+            app.agents.store.lock().update_session(&id, |s| {
+                s.group_id = group;
+                s.guess = None;
+                s.color = color;
+            });
+            Ok(json!({ "ok": true }))
+        }
+        "guess_dismiss" => {
+            let id = arg_str(args, "session")?;
+            app.agents.store.lock().update_session(&id, |s| {
+                if let Some(g) = &mut s.guess {
+                    g.group_id.clear();
+                }
+            });
+            Ok(json!({ "ok": true }))
+        }
+        "explain" => {
+            explain::request(app, &arg_str(args, "request")?);
+            Ok(json!({ "ok": true }))
+        }
+        "facts" => {
+            facts::refresh(app, &arg_str(args, "session")?);
+            Ok(json!({ "ok": true }))
+        }
+        // Retry, forward or discard an undelivered message (08).
+        "delivery" => scion::delivery(app, &arg_str(args, "thread")?, args.get("row").and_then(Value::as_u64).unwrap_or(0), &arg_str(args, "action")?, opt(args, "to")),
+        // Open in Zed / on the Hub / a terminal attached to the session.
+        "open" => {
+            let id = arg_str(args, "session")?;
+            let how = opt(args, "how").unwrap_or("app");
+            let s = session_of(app, &id).or_else(|_| {
+                // A room: Open on Hub.
+                let i = app.agents.store.lock();
+                i.groups
+                    .values()
+                    .find_map(|g| g.room.as_ref().filter(|r| format!("r:{}", r.id) == id).map(|r| Session { url: r.url.clone(), source: "scion".into(), ..Default::default() }))
+                    .ok_or_else(|| msg("nothing to open"))
+            })?;
+            match (s.source.as_str(), how) {
+                ("acp", "terminal") => app.platform.open_terminal(&s.cwd, None).map_err(|e| msg(e.to_string()))?,
+                ("acp", _) => acp::open_in_editor(app, &s.cwd)?,
+                (_, "terminal") => app.platform.open_terminal("", Some(&scion::attach_command(&s))).map_err(|e| msg(e.to_string()))?,
+                _ => app.platform.open_url(&s.url).map_err(|e| msg(e.to_string()))?,
+            }
+            Ok(json!({ "ok": true }))
+        }
+        "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
+        _ => Err(crate::api::unknown(name)),
+    }
+}
+
+fn next_local_id(app: &App) -> u64 {
+    let i = app.agents.store.lock();
+    i.groups.keys().filter_map(|k| k.strip_prefix("local:")?.parse::<u64>().ok()).max().unwrap_or(0) + 1
+}

@@ -29,6 +29,8 @@ export interface AppInfo {
   reading_font_size: number;
   settings_rev: number;
   glean: boolean;
+  agents: import('../views/agents/types').AgentsLook;
+  agents_waiting: number;
 }
 
 export interface Block {

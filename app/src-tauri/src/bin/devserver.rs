@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
     alethiometer_lib::settings::live::watch(app.clone());
     alethiometer_lib::embed::start(app.clone());
     alethiometer_lib::outbox::start(app.clone());
+    alethiometer_lib::agents::start(app.clone());
     let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;
     eprintln!("alethiometer devserver on http://{addr} (data: {})", app.data_dir.display());

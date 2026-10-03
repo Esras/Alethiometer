@@ -1,0 +1,7 @@
+{
+  "projects": [
+    {"id":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","name":"ingest-svc","slug":"ingest-svc","gitRemote":"github.com/acme/ingest-svc","defaultRuntimeBrokerId":"e1000000-0000-4000-8000-000000000001","created":"2026-09-01T10:00:00Z","updated":"2026-10-01T10:00:00Z","_capabilities":{"actions":["read"]}},
+    {"id":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d02","name":"billing","slug":"billing","created":"2026-09-01T10:00:00Z","updated":"2026-10-01T10:00:00Z"}
+  ],
+  "totalCount": 2
+}

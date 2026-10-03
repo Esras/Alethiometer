@@ -28,6 +28,9 @@
     type SourceRow,
     type State,
   } from './model';
+  import { DEFAULT_LOOK } from '../../views/agents/look';
+  import type { AgentsLook } from '../../views/agents/types';
+  import AgentsPreview from './AgentsPreview.svelte';
   import Row from './Row.svelte';
   import SlackReview from './SlackReview.svelte';
 
@@ -293,6 +296,32 @@
     }
   }
 
+  /** ←/→ on a swatch or segmented row: the next preset. */
+  function pickNext(dir: number): boolean {
+    const it = items[focus];
+    if (it?.t !== 'field') return false;
+    const list = it.field.widget === 'swatches' ? (it.field.opts?.presets ?? []) : it.field.widget === 'segmented' ? (it.field.opts?.enum ?? []) : null;
+    if (!list?.length) return false;
+    const i = list.findIndex((x) => x.toLowerCase() === String(it.value ?? '').toLowerCase());
+    const next = list[(i + dir + list.length) % list.length];
+    setField(it, next);
+    return true;
+  }
+
+  /** ⌫ on an agents.* row: back to its default. */
+  function resetAgents(): boolean {
+    const it = items[focus];
+    if (it?.t !== 'field' || it.path[0] !== 'agents') return false;
+    const d = get(DEFAULT_LOOK, it.path.slice(1));
+    if (d === undefined) return false;
+    setField(it, d);
+    return true;
+  }
+
+  function resetColors() {
+    apply([{ path: ['agents', 'colors'], value: { ...DEFAULT_LOOK.colors } }]);
+  }
+
   function step(dir: number) {
     const it = items[focus];
     if (it?.t !== 'field') return;
@@ -365,7 +394,9 @@
     }
     if (e.key === 'j' || e.key === 'ArrowDown') focus = Math.min(focus + 1, items.length - 1);
     else if (e.key === 'k' || e.key === 'ArrowUp') focus = Math.max(focus - 1, 0);
-    else if (/^[1-6]$/.test(e.key)) goSection(sectionIds[Number(e.key) - 1]);
+    else if (/^[1-7]$/.test(e.key)) goSection(sectionIds[Number(e.key) - 1]);
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && pickNext(e.key === 'ArrowRight' ? 1 : -1)) return true;
+    else if (e.key === 'Backspace' && resetAgents()) return true;
     else if (e.key === 'Tab') {
       const i = sectionIds.indexOf(section);
       goSection(sectionIds[(i + (e.shiftKey ? sectionIds.length - 1 : 1)) % sectionIds.length]);
@@ -395,9 +426,10 @@
   const attention = $derived(page?.sources.some((s) => s.attention) ?? false);
   const sectionInfo = $derived(SECTIONS.find((s) => s.id === section)!);
   const hints = $derived.by(() => {
-    const base = ['j/k setting', '1–6 or ⇥ section', '↵ edit', '−/+ step', 'space toggle', '/ find', 'esc close'];
+    const base = ['j/k setting', '1–7 or ⇥ section', '↵ edit', '−/+ step', 'space toggle', '/ find', 'esc close'];
     if (section === 'sources') return ['j/k setting', '⌥j/⌥k previous / next source', '↵ edit', 'space toggle', 'r replace secret', 'a add', '⇧X remove', 's sync now', 'esc close'];
-    if (section === 'ai') return ['j/k setting', '1–6 section', '↵ edit', '/ find', 'esc close'];
+    if (section === 'ai') return ['j/k setting', '1–7 section', '↵ edit', '/ find', 'esc close'];
+    if (section === 'agents') return ['j/k setting', '1–7 section', '←/→ pick a color', '↵ edit', 'space toggle', '⌫ reset', 'esc close'];
     return base;
   });
 </script>
@@ -480,6 +512,8 @@
 
         {#if section === 'categories'}
           <div class="card cats"><CategoryManager /></div>
+        {:else if section === 'agents'}
+          <AgentsPreview look={(get(page.values, ['agents']) as AgentsLook) ?? DEFAULT_LOOK} />
         {:else if section === 'developer' && !page.dev}
           <p class="blurb">Developer settings only show in dev builds.</p>
         {/if}
@@ -490,6 +524,7 @@
               {GROUP_LABELS[g.name] ?? g.name}
               {#if g.name === 'secrets'}<span class="gnote">secrets.json (0600), never shown</span>{/if}
               {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD</span>{/if}
+              {#if g.name === 'Message colors'}<span class="gnote">Box, icon and legend for each kind</span><button class="reset" onclick={resetColors}>Reset to default</button>{/if}
             </div>
           {/if}
           <div class="card" class:table={g.name === 'Models' || g.name === 'Prices'}>
@@ -867,11 +902,23 @@
     color: var(--orange);
   }
   .glabel {
+    display: flex;
+    align-items: baseline;
     margin: 24px 0 8px 4px;
     font-size: 0.8077rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--tx-label);
+  }
+  .reset {
+    margin-left: auto;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: 0.9231rem;
+    color: var(--tx-muted-2);
+  }
+  .reset:hover {
+    color: var(--tx-2);
   }
   .gnote {
     margin-left: 8px;
