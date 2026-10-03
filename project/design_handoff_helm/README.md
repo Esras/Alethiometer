@@ -548,7 +548,6 @@ The Agents tab shows coding-agent sessions from two kinds of source, in one tree
 
   Buttons: **Allow once** (`O`, primary), **This session** (`S`), **Always: `pattern`** (`A`, editable), **Deny…** (`D`), and "Esc later" at the right. The request also shows in Incoming (see Agents in Incoming).
 - **Ask** (Scion `input-needed`): a header ("handler is waiting for you · input-needed · 4m", with a link to the session or room), then the question at 14px `#fbf1c7`. The choices read from the message become option cards, keyed `1` and `2`. Then **Write a reply…** (`R`) and **Later** (`Esc`).
-- **One-line form:** while the new-agent form is open, the card shrinks to a single line and comes back when the form closes.
 
 **Composer row:** "Message <agent or #room>" with a hint and `⌘⏎`. Then **Agent** (`N`, rooms only), **Open on Hub** or **Open in Zed**, and a terminal button that attaches to the session.
 
@@ -561,7 +560,10 @@ The Agents tab shows coding-agent sessions from two kinds of source, in one tree
 - **02 Local session.** A local session's transcript. The `settings-scan` subagent is one message box: task, its tool calls folded to one line, then result. There are no other agents.
 - **03 Scion session.** Messages from planner, reviewer and the room are part of the agent's input, so they appear in its transcript. Its outgoing replies are Scion message calls; show them as "to planner" message rows, not raw tool calls.
 - **04 Direct messages.** A tab on the agent, not a separate place in the tree: Transcript (`T`) or Messages (`M`). Messages filters to you ↔ the agent, your mentions of it in rooms, and its asks. The composer sends a Scion DM.
-- **05 New agent.** `N` (or the Agent button) replaces the composer with a form whose fields follow Scion:
+- **05 New agent.** `N` (or the Agent button) opens a modal over the whole tab, below the title bar. Scrim `rgba(15,16,18,.68)`. Modal 740px wide, `#282828`, 1px `#504945` border, radius 10px, shadow `0 24px 64px rgba(0,0,0,.55)`. Header: user-plus icon `#8ec07c`, "New agent", then "Scion Hub · grove <grove>" in mono `#928374`, and `Esc` at the right. The modal takes the keyboard: `Tab` moves through its fields, letters type, `Esc` closes it.
+  - **Joins block** at the top (`#1d2021`, 1px `#3c3836`, radius 7px): a "Joins <project>" label, then the group's row as the tree draws it (caret, name, goal, host chip), then the room and members with their status marks. The new agent comes last, dashed in `#8ec07c`, and its label follows the Name field. Turning off "Add to #room" takes the room out of the block.
+
+  The fields follow Scion:
   - Name (unique in the grove)
   - Template: chips with versions from the Hub catalog. A template is a role: harness-agnostic `agent_instructions` plus skills.
   - Harness: the harness config, meaning harness, model and auth together.
