@@ -14,6 +14,15 @@ impl Outbox for Sql<'_> {
         Ok(self.conn().last_insert_rowid())
     }
 
+    fn cancel_pending_hold(&self, item_id: i64, period: crate::time::Date) -> Result<usize> {
+        Ok(self.conn().execute(
+            "UPDATE outbox SET state = 'failed', error = 'cancelled before sending'
+              WHERE op = 'gcal.hold' AND state = 'pending'
+                AND json_extract(payload_json, '$.item_id') = ?1 AND json_extract(payload_json, '$.carried_from') = ?2",
+            params![item_id, period],
+        )?)
+    }
+
     fn retry_line_requests(&self, line_ids: &[i64]) -> Result<usize> {
         Ok(self.conn().execute(
             "UPDATE outbox SET state = 'pending' WHERE state = 'failed' AND op = 'jira.create_issue'

@@ -30,7 +30,9 @@ use crate::clock::Clock;
 use crate::time::{Date, Ts};
 use jiff::civil::DateTime;
 use jiff::ToSpan;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::settings::Settings;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -41,7 +43,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "save" => save(app, args),
         "save_status" => save::status(app, arg_i64(args, "outbox_id")?),
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
-        "carry" => carry(app, arg_i64(args, "item_id")?, &arg_str(args, "period")?, &arg_str(args, "action")?),
+        "carry" => {
+            let today = app.clock.today();
+            app.store().write(|uow| carry(uow, today, arg_i64(args, "item_id")?, &arg_str(args, "period")?, &arg_str(args, "action")?))
+        }
         "nudge" => nudge(app),
         "nudge_answer" => nudge_answer(app, &arg_str(args, "answer")?),
         _ => Err(unknown(name)),
@@ -248,44 +253,24 @@ fn keep(ev: &Ev, lens: &str) -> bool {
 
 /// Events starting on the calendar days `[from, to)` here, with their times
 /// as wall-clock times here (Reflect thinks in days and minutes of the day).
-fn events(conn: &Connection, clock: &Clock, from: Date, to: Date) -> Result<Vec<Ev>> {
-    let mut stmt = conn.prepare(
-        "SELECT e.start, e.end, e.title, e.category, e.is_life_busy, i.raw_json,
-                (SELECT t.name FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
-                  WHERE tl.item_id = e.item_id AND tl.state = 'confirmed' ORDER BY t.id LIMIT 1)
-           FROM events e LEFT JOIN items i ON i.id = e.item_id
-          WHERE e.start >= ?1 AND e.start < ?2
-          ORDER BY e.start",
-    )?;
-    let rows = stmt
-        .query_map(params![clock.day_range(from).0, clock.day_range(to).0], |r| {
-            Ok((
-                r.get::<_, Ts>(0)?,
-                r.get::<_, Ts>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, i64>(4)? == 1,
-                r.get::<_, Option<String>>(5)?,
-                r.get::<_, Option<String>>(6)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows
+fn events(r: &dyn Reads, clock: &Clock, from: Date, to: Date) -> Result<Vec<Ev>> {
+    Ok(r.reflect()
+        .events(clock.day_range(from).0, clock.day_range(to).0)?
         .into_iter()
-        .map(|(s, e, title, category, life, raw, topic)| {
-            let actual = raw.as_deref().and_then(|raw| {
+        .map(|e| {
+            let actual = e.raw_json.as_deref().and_then(|raw| {
                 let v: Value = serde_json::from_str(raw).ok()?;
                 Some((clock.local(parse_ts(v.get("actual_start")?.as_str()?)?), clock.local(parse_ts(v.get("actual_end")?.as_str()?)?)))
             });
             Ev {
-                start: clock.local(s),
-                end: clock.local(e),
+                start: clock.local(e.start),
+                end: clock.local(e.end),
                 // Rule 3: Life blocks never carry a title or topic.
-                title: if life { None } else { title },
-                topic: if life { None } else { topic },
-                category,
-                life,
-                actual: if life { None } else { actual },
+                title: if e.life { None } else { e.title },
+                topic: if e.life { None } else { e.topic },
+                category: e.category,
+                life: e.life,
+                actual: if e.life { None } else { actual },
             }
         })
         .collect())
@@ -417,7 +402,19 @@ fn get(app: &App, args: &Value) -> Result<Value> {
     let s = period_start(scope, d);
     let e = period_end(scope, s);
     let (title, context) = titles(scope, s);
+    let settings = app.settings();
 
+    let (brief, children, carry) = app.store().read(|r| {
+        let brief = if scope == Scope::Day { Some(day_brief(r, &app.clock, &settings, s, &lens)?) } else { None };
+        let children = match scope.child() {
+            Some(child) => Some(rollup(r, &app.clock, child, s, e, &lens)?),
+            None => None,
+        };
+        let carry = if lens == "life" { vec![] } else { carry_rows(r, scope, s, e)? };
+        Ok((brief, children, carry))
+    })?;
+    // The vault after the snapshot: the notes, and each child period's own note.
+    let children = children.map(|cs| cs.into_iter().map(|c| c.with_note(&app.vault, &lens)).collect::<Vec<_>>());
     let path = note_path(scope, s, &lens);
     let abs = app.vault.join(&path);
     let disk = std::fs::read_to_string(&abs).ok();
@@ -427,14 +424,6 @@ fn get(app: &App, args: &Value) -> Result<Value> {
         "text": disk.clone().unwrap_or_else(|| template(scope).to_string()),
         "base": disk,
     });
-
-    let conn = app.db();
-    let brief = if scope == Scope::Day { Some(day_brief(app, &conn, s, &lens)?) } else { None };
-    let children = match scope.child() {
-        Some(child) => Some(rollup(app, &conn, scope, child, s, e, &lens)?),
-        None => None,
-    };
-    let carry = if lens == "life" { vec![] } else { carry_rows(&conn, scope, s, e)? };
 
     Ok(json!({
         "scope": scope.key(),
@@ -453,17 +442,21 @@ fn get(app: &App, args: &Value) -> Result<Value> {
     }))
 }
 
-fn day_brief(app: &App, conn: &Connection, day: Date, lens: &str) -> Result<Value> {
-    let now = app.clock.local_now();
-    let (day_from, day_to) = app.clock.day_range(day);
-    let all = events(conn, &app.clock, day, day + (1).days())?;
+fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens: &str) -> Result<Value> {
+    let now = clock.local_now();
+    let (day_from, day_to) = clock.day_range(day);
+    let all = events(r, clock, day, day + (1).days())?;
     let evs: Vec<&Ev> = all.iter().filter(|e| keep(e, lens)).collect();
-    let (h0, h1) = (app.settings().day_start_hour as i64 * 60, app.settings().day_end_hour as i64 * 60);
+    let (h0, h1) = (settings.day_start_hour as i64 * 60, settings.day_end_hour as i64 * 60);
     // Free time counts every block as busy (time math on Life is allowed).
     let free = gaps(&busy(&all), h0, h1);
     let free_total: i64 = free.iter().map(|g| g.1 - g.0).sum();
     let longest = free.iter().map(|g| g.1 - g.0).max().unwrap_or(0);
-    let ds = day.strftime("%Y-%m-%d").to_string();
+    let decided: Vec<Decision> = if lens == "life" {
+        vec![]
+    } else {
+        r.reflect().decisions(day_from, day_to)?.into_iter().map(|(title, topic)| Decision { title, topic }).collect()
+    };
 
     let tiles = if lens == "life" {
         let life: Vec<&&Ev> = evs.iter().filter(|e| e.life).collect();
@@ -475,16 +468,8 @@ fn day_brief(app: &App, conn: &Connection, day: Date, lens: &str) -> Result<Valu
         ]
     } else {
         let meetings: Vec<&&Ev> = evs.iter().filter(|e| e.is_meeting()).collect();
-        let decisions: i64 = conn.query_row(
-            "SELECT count(*) FROM items WHERE kind = 'decision' AND occurred_at >= ?1 AND occurred_at < ?2",
-            params![day_from, day_to],
-            |r| r.get(0),
-        )?;
-        let (jotted, held): (i64, i64) = conn.query_row(
-            "SELECT count(*), coalesce(sum(state = 'held'), 0) FROM notes_lines WHERE page_date = ?1",
-            [&ds],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+        let decisions = decided.len();
+        let (jotted, held) = r.notes().page_counts(day)?;
         vec![
             Tile {
                 value: meetings.len().to_string(),
@@ -540,20 +525,6 @@ fn day_brief(app: &App, conn: &Connection, day: Date, lens: &str) -> Result<Valu
         w.dur = dur_label(w.minutes);
     }
 
-    let decided = if lens == "life" {
-        vec![]
-    } else {
-        conn.prepare(
-            "SELECT i.title, (SELECT t.name FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
-                                WHERE tl.item_id = i.id AND tl.state = 'confirmed' LIMIT 1)
-               FROM items i JOIN sources s ON s.id = i.source_id
-              WHERE i.kind = 'decision' AND s.tag = 'work' AND i.occurred_at >= ?1 AND i.occurred_at < ?2
-              ORDER BY i.occurred_at",
-        )?
-        .query_map(params![day_from, day_to], |r| Ok(Decision { title: r.get(0)?, topic: r.get(1)? }))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-
     Ok(json!({
         "tiles": tiles,
         "range": { "start_min": h0, "end_min": h1 },
@@ -565,43 +536,61 @@ fn day_brief(app: &App, conn: &Connection, day: Date, lens: &str) -> Result<Valu
     }))
 }
 
-fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: Date, lens: &str) -> Result<(Option<String>, bool)> {
-    // The note is the truth (edited in Obsidian, or saved through it); the
-    // stored summary is for when the file isn't there.
-    if let Ok(text) = std::fs::read_to_string(app.vault.join(note_path(scope, s, lens))) {
-        return Ok((summarize(&text), true));
-    }
-    let row: Option<Option<String>> = conn
-        .query_row(
-            "SELECT summary FROM reflections WHERE scope = ?1 AND period_start = ?2 AND lens = ?3",
-            params![scope.key(), s.strftime("%Y-%m-%d").to_string(), lens],
-            |r| r.get(0),
-        )
-        .optional()?;
-    Ok(match row {
-        Some(summary) => (summary, true),
-        None => (None, false),
-    })
+/// A child period in a rollup, before its note is looked at.
+struct ChildRow {
+    scope: Scope,
+    start: Date,
+    label: String,
+    weekend: bool,
+    events: bool,
+    /// The stored reflection, if any: Some(summary).
+    stored: Option<Option<String>>,
+    cats: Vec<CatMin>,
 }
 
-fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: Date, e: Date, lens: &str) -> Result<Vec<Child>> {
-    let all = events(conn, &app.clock, period_start(child, s), period_end(child, period_start(child, e - (1).days())))?;
+impl ChildRow {
+    /// The note is the truth (edited in Obsidian, or saved through it); the
+    /// stored summary is for when the file isn't there. Weekends only show up
+    /// when something happened.
+    fn with_note(self, vault: &Path, lens: &str) -> Option<Child> {
+        let (summary, has_entry) = match std::fs::read_to_string(vault.join(note_path(self.scope, self.start, lens))) {
+            Ok(text) => (summarize(&text), true),
+            Err(_) => match self.stored {
+                Some(summary) => (summary, true),
+                None => (None, false),
+            },
+        };
+        (!self.weekend || has_entry || self.events).then(|| Child {
+            label: self.label,
+            period: self.start.strftime("%Y-%m-%d").to_string(),
+            summary,
+            has_entry,
+            cats: self.cats,
+        })
+    }
+}
+
+fn rollup(r: &dyn Reads, clock: &Clock, child: Scope, s: Date, e: Date, lens: &str) -> Result<Vec<ChildRow>> {
+    let all = events(r, clock, period_start(child, s), period_end(child, period_start(child, e - (1).days())))?;
     let mut out = vec![];
     let mut c = period_start(child, s);
     while c < e {
         let ce = period_end(child, c);
         let evs: Vec<&Ev> = all.iter().filter(|x| keep(x, lens) && x.start.date() >= c && x.start.date() < ce).collect();
-        let (summary, has_entry) = reflection_summary(app, conn, child, c, lens)?;
         let label = match child {
             Scope::Day => c.strftime("%a").to_string(),
             Scope::Week => format!("W{:02}", c.iso_week_date().week()),
             _ => c.strftime("%b").to_string(),
         };
-        let weekend = child == Scope::Day && c.weekday().to_monday_zero_offset() >= 5;
-        // Weekends only show up when something happened.
-        if !weekend || has_entry || !evs.is_empty() {
-            out.push(Child { label, period: c.strftime("%Y-%m-%d").to_string(), summary, has_entry, cats: cat_totals(&evs) });
-        }
+        out.push(ChildRow {
+            scope: child,
+            start: c,
+            label,
+            weekend: child == Scope::Day && c.weekday().to_monday_zero_offset() >= 5,
+            events: !evs.is_empty(),
+            stored: r.reflect().summary(child.key(), c, lens)?,
+            cats: cat_totals(&evs),
+        });
         c = ce;
     }
     Ok(out)
@@ -609,57 +598,25 @@ fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: Date, e:
 
 /// Day: that day's carry list (acted rows included, faded in the UI).
 /// Week and up: items still open at the end of their latest carry in range.
-fn carry_rows(conn: &Connection, scope: Scope, s: Date, e: Date) -> Result<Vec<CarryRow>> {
-    let (from, to) = (s.strftime("%Y-%m-%d").to_string(), e.strftime("%Y-%m-%d").to_string());
-    let sql = if scope == Scope::Day {
-        "SELECT c.item_id, c.period, i.title, i.owner, i.raw_json, c.action
-           FROM carry c JOIN items i ON i.id = c.item_id
-          WHERE c.period >= ?1 AND c.period < ?2
-          ORDER BY c.rowid"
-    } else {
-        "SELECT c.item_id, c.period, i.title, i.owner, i.raw_json, c.action
-           FROM carry c JOIN items i ON i.id = c.item_id
-          WHERE c.period >= ?1 AND c.period < ?2 AND c.action IS NULL
-            AND c.period = (SELECT max(c2.period) FROM carry c2 WHERE c2.item_id = c.item_id AND c2.period < ?2)
-          ORDER BY c.period, c.rowid"
-    };
-    let mut rows = conn
-        .prepare(sql)?
-        .query_map(params![from, to], |r| {
-            let raw: String = r.get(4)?;
-            let glyph = serde_json::from_str::<Value>(&raw)
-                .ok()
-                .and_then(|v| v.get("glyph").and_then(Value::as_str).map(str::to_owned))
-                .unwrap_or_else(|| "do".into());
-            Ok(CarryRow {
-                item_id: r.get(0)?,
-                period: r.get(1)?,
-                title: r.get(2)?,
-                owner: r.get(3)?,
-                glyph,
-                action: r.get(5)?,
-                outbox: None,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for row in &mut rows {
-        if row.action.as_deref() == Some("schedule") {
-            row.outbox = outbox_state(conn, row.item_id, &row.period)?;
-        }
+fn carry_rows(r: &dyn Reads, scope: Scope, s: Date, e: Date) -> Result<Vec<CarryRow>> {
+    let mut rows = vec![];
+    for c in r.reflect().carry(s, e, scope != Scope::Day)? {
+        let glyph = serde_json::from_str::<Value>(&c.raw_json)
+            .ok()
+            .and_then(|v| v.get("glyph").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_else(|| "do".into());
+        let outbox = if c.action.as_deref() == Some("schedule") { r.reflect().hold_state(c.item_id, c.period)? } else { None };
+        rows.push(CarryRow {
+            item_id: c.item_id,
+            period: c.period.to_string(),
+            title: c.title,
+            owner: c.owner,
+            glyph,
+            action: c.action,
+            outbox,
+        });
     }
     Ok(rows)
-}
-
-fn outbox_state(conn: &Connection, item_id: i64, period: &str) -> Result<Option<String>> {
-    Ok(conn
-        .query_row(
-            "SELECT state FROM outbox WHERE op = 'gcal.hold'
-               AND json_extract(payload_json, '$.item_id') = ?1 AND json_extract(payload_json, '$.carried_from') = ?2
-             ORDER BY id DESC LIMIT 1",
-            params![item_id, period],
-            |r| r.get(0),
-        )
-        .optional()?)
 }
 
 // ---------------------------------------------------------------- save
@@ -682,47 +639,33 @@ fn save(app: &App, args: &Value) -> Result<Value> {
         save::Saved::Written => {}
     }
     let summary = summarize(&text);
-    app.db().execute(
-        "INSERT INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT (scope, period_start, lens) DO UPDATE SET obsidian_path = excluded.obsidian_path, summary = excluded.summary",
-        params![scope.key(), s.strftime("%Y-%m-%d").to_string(), lens, path, summary],
-    )?;
+    app.store().write(|uow| uow.reflections().save_summary(scope.key(), s, &lens, &path, summary.as_deref()))?;
     Ok(json!({ "ok": true, "base": text, "summary": summary }))
 }
 
 // ---------------------------------------------------------------- carry
 
-fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
+fn carry(uow: &dyn UnitOfWork, today: Date, item_id: i64, period: &str, action: &str) -> Result<Value> {
     let p = parse_date(period)?;
-    let today = app.clock.today();
-    let conn = app.db();
-    let current: Option<Option<String>> = conn
-        .query_row("SELECT action FROM carry WHERE item_id = ?1 AND period = ?2", params![item_id, period], |r| r.get(0))
-        .optional()?;
-    let Some(current) = current else {
+    let Some(current) = uow.reflections().carry_action(item_id, p)? else {
         return Err(msg("not on the carry list"));
     };
     // Tomorrow is relative to the later of the carry day and today.
     let target = p.max(today) + (1).days();
-    let target_s = target.strftime("%Y-%m-%d").to_string();
     match action {
         "tomorrow" | "schedule" | "let_go" => {
             if current.is_some() {
                 return Err(msg("already decided; undo first"));
             }
-            conn.execute("UPDATE carry SET action = ?1 WHERE item_id = ?2 AND period = ?3", params![action, item_id, period])?;
+            uow.reflections().set_carry_action(item_id, p, Some(action))?;
             match action {
-                "tomorrow" => {
-                    conn.execute("INSERT OR IGNORE INTO carry (item_id, period) VALUES (?1, ?2)", params![item_id, target_s])?;
-                }
+                "tomorrow" => uow.reflections().carry_to(item_id, target)?,
                 "schedule" => {
                     // A calendar hold goes through the outbox; the item itself stays open.
-                    let title: String = conn.query_row("SELECT title FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
-                    let gcal: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'gcal' LIMIT 1", [], |r| r.get(0))?;
-                    conn.execute(
-                        "INSERT INTO outbox (source_id, op, payload_json) VALUES (?1, 'gcal.hold', ?2)",
-                        params![gcal, json!({ "item_id": item_id, "title": title, "carried_from": period }).to_string()],
-                    )?;
+                    let title = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?.title;
+                    let gcal = uow.reads().sources().of_kind("gcal")?.into_iter().next().ok_or_else(|| msg("no Google Calendar source for the hold"))?;
+                    let payload = json!({ "item_id": item_id, "title": title, "carried_from": p.to_string() });
+                    uow.outbox().enqueue(gcal.id, "gcal.hold", &payload.to_string(), None)?;
                 }
                 _ => {} // let go: nothing is deleted; it just leaves the list.
             }
@@ -730,26 +673,15 @@ fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
         "undo" => {
             match current.as_deref() {
                 None => return Ok(json!({ "ok": true })),
-                Some("tomorrow") => {
-                    conn.execute(
-                        "DELETE FROM carry WHERE item_id = ?1 AND period = ?2 AND action IS NULL",
-                        params![item_id, target_s],
-                    )?;
-                }
+                Some("tomorrow") => uow.reflections().uncarry(item_id, target)?,
                 Some("schedule") => {
-                    let n = conn.execute(
-                        "UPDATE outbox SET state = 'failed', error = 'cancelled before sending'
-                          WHERE op = 'gcal.hold' AND state = 'pending'
-                            AND json_extract(payload_json, '$.item_id') = ?1 AND json_extract(payload_json, '$.carried_from') = ?2",
-                        params![item_id, period],
-                    )?;
-                    if n == 0 {
+                    if uow.outbox().cancel_pending_hold(item_id, p)? == 0 {
                         return Err(msg("the hold was already sent; remove it in the calendar"));
                     }
                 }
                 _ => {}
             }
-            conn.execute("UPDATE carry SET action = NULL WHERE item_id = ?1 AND period = ?2", params![item_id, period])?;
+            uow.reflections().set_carry_action(item_id, p, None)?;
         }
         _ => return Err(msg(format!("bad carry action '{action}'"))),
     }
@@ -807,10 +739,7 @@ fn nudge(app: &App) -> Result<Value> {
     let ds = today.strftime("%Y-%m-%d").to_string();
     let now_min = minute_of_day(now);
     let mut st = load_nudge(app, &ds);
-    let conn = app.db();
-    let evs = events(&conn, &app.clock, today, today + (1).days())?;
-    let open: i64 = conn.query_row("SELECT count(*) FROM carry WHERE period = ?1 AND action IS NULL", [&ds], |r| r.get(0))?;
-    drop(conn);
+    let (evs, open) = app.store().read(|r| Ok((events(r, &app.clock, today, today + (1).days())?, r.reflect().open_carry(today)?)))?;
 
     let gap = nudge_gap(&busy(&evs), now_min);
     // A snooze is an instant (it can run past midnight).
@@ -1106,8 +1035,9 @@ mod tests {
         assert_eq!(call(&app, "save_status", &json!({ "outbox_id": id })).unwrap()["state"], "saved");
         // Obsidian writes the file; the rollup summary then comes from it.
         std::fs::write(app.vault.join(&path), "Calm day.\n").unwrap();
-        let (summary, has) = reflection_summary(&app, &app.db(), Scope::Day, parse_date(&t).unwrap(), "work").unwrap();
-        assert_eq!((summary.as_deref(), has), (Some("Calm day."), true));
+        let week = get(&app, &json!({ "scope": "week", "lens": "work", "period": t })).unwrap();
+        let day = week["children"].as_array().unwrap().iter().find(|c| c["period"] == t.as_str()).unwrap().clone();
+        assert_eq!((day["summary"].as_str(), day["has_entry"].as_bool()), (Some("Calm day."), Some(true)));
     }
 
     #[test]
@@ -1119,23 +1049,23 @@ mod tests {
         assert_eq!(rows.len(), 4);
         let id = |i: usize| rows[i]["item_id"].as_i64().unwrap();
 
-        carry(&app, id(0), &t, "tomorrow").unwrap();
+        call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "tomorrow" })).unwrap();
         let tomorrow = (app.clock.today() + (1).days()).to_string();
         let n: i64 = app.db().query_row("SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2", params![id(0), tomorrow], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
-        assert!(carry(&app, id(0), &t, "let_go").is_err(), "must undo first");
-        carry(&app, id(0), &t, "undo").unwrap();
+        assert!(call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "let_go" })).is_err(), "must undo first");
+        call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "undo" })).unwrap();
         let n: i64 = app.db().query_row("SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2", params![id(0), tomorrow], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
 
-        carry(&app, id(1), &t, "schedule").unwrap();
+        call(&app, "carry", &json!({ "item_id": id(1), "period": t, "action": "schedule" })).unwrap();
         let state: String = app.db().query_row("SELECT state FROM outbox WHERE op = 'gcal.hold'", [], |r| r.get(0)).unwrap();
         assert_eq!(state, "pending");
         let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         assert_eq!(got["carry"][1]["outbox"], "pending");
 
         // Let go never deletes the item.
-        carry(&app, id(2), &t, "let_go").unwrap();
+        call(&app, "carry", &json!({ "item_id": id(2), "period": t, "action": "let_go" })).unwrap();
         let n: i64 = app.db().query_row("SELECT count(*) FROM items WHERE id = ?1", [id(2)], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
         let week = get(&app, &json!({ "scope": "week", "lens": "work" })).unwrap();

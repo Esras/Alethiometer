@@ -82,6 +82,20 @@ impl NotesViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?;
         Ok(Corpus { people, topics, issues })
     }
+
+    fn page_counts(&self, date: Date) -> Result<(i64, i64)> {
+        self.page_counts_impl(date)
+    }
+}
+
+impl Sql<'_> {
+    fn page_counts_impl(&self, date: Date) -> Result<(i64, i64)> {
+        Ok(self.conn().query_row(
+            "SELECT count(*), coalesce(sum(state = 'held'), 0) FROM notes_lines WHERE page_date = ?1",
+            [date],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
 }
 
 impl NoteLines for Sql<'_> {

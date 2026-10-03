@@ -14,6 +14,7 @@ use super::notes::{NoteLines, NotesViews};
 use super::outbox::Outbox;
 use super::people::{People, PeopleViews};
 use super::priorities::PriorityViews;
+use super::reflect::{ReflectViews, Reflections};
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
@@ -28,6 +29,7 @@ pub trait Reads {
     fn notes(&self) -> &dyn NotesViews;
     fn people(&self) -> &dyn PeopleViews;
     fn priorities(&self) -> &dyn PriorityViews;
+    fn reflect(&self) -> &dyn ReflectViews;
     fn search(&self) -> &dyn SearchViews;
     fn sources(&self) -> &dyn SourceViews;
     fn todos(&self) -> &dyn TodoViews;
@@ -44,6 +46,7 @@ pub trait UnitOfWork {
     fn note_lines(&self) -> &dyn NoteLines;
     fn outbox(&self) -> &dyn Outbox;
     fn people(&self) -> &dyn People;
+    fn reflections(&self) -> &dyn Reflections;
     fn sources(&self) -> &dyn Sources;
     fn splits(&self) -> &dyn Splits;
     fn todos(&self) -> &dyn Todos;

@@ -24,6 +24,7 @@ pub mod notes;
 pub mod outbox;
 pub mod people;
 pub mod priorities;
+pub mod reflect;
 pub mod schema;
 pub mod search;
 pub mod sources;
@@ -199,6 +200,7 @@ ports!(Reads {
     notes: crate::domain::notes::NotesViews,
     people: crate::domain::people::PeopleViews,
     priorities: crate::domain::priorities::PriorityViews,
+    reflect: crate::domain::reflect::ReflectViews,
     search: crate::domain::search::SearchViews,
     sources: crate::domain::sources::SourceViews,
     todos: crate::domain::todos::TodoViews,
@@ -214,6 +216,7 @@ ports!(UnitOfWork {
     note_lines: crate::domain::notes::NoteLines,
     outbox: crate::domain::outbox::Outbox,
     people: crate::domain::people::People,
+    reflections: crate::domain::reflect::Reflections,
     sources: crate::domain::sources::Sources,
     splits: crate::domain::splits::Splits,
     todos: crate::domain::todos::Todos,

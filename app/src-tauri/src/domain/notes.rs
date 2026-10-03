@@ -111,6 +111,8 @@ pub trait NotesViews {
     /// The latest Jira task request per line.
     fn jira_requests(&self, line_ids: &[i64]) -> Result<HashMap<i64, JiraRequest>>;
     fn corpus(&self) -> Result<Corpus>;
+    /// Lines on a day's page, and how many of them are held.
+    fn page_counts(&self, date: Date) -> Result<(i64, i64)>;
 }
 
 /// A day page's lines.
