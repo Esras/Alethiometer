@@ -34,9 +34,13 @@ export interface Signal {
   url: string | null;
   /** Messages behind the signal (e.g. all Slack messages since you last looked). */
   msg_count: number | null;
-  /** `id` is what `incoming.split` takes. */
+  /** `id` is what `incoming.split` takes. `incoming.list` leaves these
+   *  empty (but for agent signals); an expanded row gets them from
+   *  `incoming.messages` (`Bodies`). */
   messages: Message[];
   context: Message[];
+  /** How many top-level messages the signal has: a collapsed row's count. */
+  n_messages: number;
   /** Already filed under this topic: new activity rather than a suggestion. */
   update: boolean;
   /** A todo waiting for this signal to be confirmed (22c). */
@@ -122,4 +126,14 @@ export interface Family {
   conv: "dm" | "group" | "channel" | "thread" | "other";
   parts: Part[];
   messages: Message[];
+}
+
+/** An expanded row's messages (`incoming.messages`), with the revision and
+ *  keys triage sends back for what it showed. */
+export interface Bodies {
+  item_id: number;
+  rev: number;
+  keys: string[];
+  messages: Message[];
+  context: Message[];
 }

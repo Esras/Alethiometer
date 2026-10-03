@@ -110,6 +110,11 @@ pub trait IncomingViews {
     fn waiting_agents(&self) -> Result<Vec<WaitingAgent>>;
     /// The messages of these items, by item, oldest first.
     fn messages(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>>;
+    /// `messages` without their text (left empty), which a collapsed row
+    /// doesn't show: Gmail threads carry kilobytes per message.
+    fn message_heads(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>>;
+    /// One work item as Incoming lists it, whether or not it's unseen.
+    fn signal(&self, item_id: i64) -> Result<Option<SignalRow>>;
     /// Times of the top-level messages the other parts of an item's split family hold.
     fn split_sibling_times(&self, item_id: i64) -> Result<Vec<Ts>>;
     fn item_header(&self, item_id: i64) -> Result<Option<ItemHeader>>;

@@ -73,9 +73,12 @@ pub struct Signal {
     pub url: Option<String>,
     /// Messages behind the signal (e.g. total in a Slack thread since you last looked).
     pub msg_count: Option<i64>,
-    /// Stored context messages, oldest first.
+    /// Stored context messages, oldest first. Empty in `list`, which leaves
+    /// them to `messages` for the rows you expand (agent signals excepted).
     pub messages: Vec<Message>,
     pub context: Vec<Message>,
+    /// How many top-level messages `messages` holds (or would).
+    pub n_messages: usize,
     /// Already filed under this topic: new activity, not a suggestion.
     pub update: bool,
     /// A todo waiting for this signal to be confirmed.
@@ -141,11 +144,12 @@ pub struct Queue {
 
 pub fn route(name: &str) -> Option<Route> {
     Some(match name {
-        "list" => Route::Read(|r, ctx, _| Ok(json!(queue_with(r, ctx.clock, &ctx.settings.people)?))),
+        "list" => Route::Read(|r, ctx, _| Ok(json!(list(r, ctx.clock, &ctx.settings.people)?))),
         "family" => Route::Read(|r, ctx, args| {
             Ok(json!(family(r, ctx.clock, arg_i64(args, "item_id")?, scope_arg(args).as_deref(), &ctx.settings.people)?))
         }),
         "detail" => Route::Read(|r, ctx, args| Ok(json!(detail(r, ctx.clock, arg_i64(args, "item_id")?, &ctx.settings.people)?))),
+        "messages" => Route::Read(|r, ctx, args| messages(r, ctx.clock, arg_i64(args, "item_id")?, &ctx.settings.people)),
         "reclassify" => Route::Write(|uow, ctx, args| {
             let moved = reclassify(uow, ctx.clock.now(), arg_i64(args, "item_id")?, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
             Ok(json!({ "ok": true, "moved": moved }))
@@ -259,6 +263,7 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         url: row.url,
         msg_count: row.msg_count,
         messages: vec![],
+        n_messages: 0,
         context: vec![],
         update: false,
         held: None,
@@ -405,11 +410,15 @@ type MsgRow = (Message, bool, Option<String>, Option<String>, Option<String>, Ts
 
 /// Messages of several items, by item.
 fn messages_by_item(r: &dyn Reads, item_ids: &[i64]) -> Result<HashMap<i64, Vec<MessageRow>>> {
+    Ok(by_item(r.incoming().messages(item_ids)?))
+}
+
+fn by_item(rows: Vec<MessageRow>) -> HashMap<i64, Vec<MessageRow>> {
     let mut by: HashMap<i64, Vec<MessageRow>> = HashMap::new();
-    for m in r.incoming().messages(item_ids)? {
+    for m in rows {
         by.entry(m.item_id).or_default().push(m);
     }
-    Ok(by)
+    by
 }
 
 fn message_rows(look: &Lookup, source: &str, rows: Vec<MessageRow>) -> Vec<MsgRow> {
@@ -459,9 +468,23 @@ fn item_author(look: &Lookup, s: &Signal) -> Option<Author> {
     Some(Author { who: look.people.who(&s.source, s.author_handle.as_deref(), &name), name })
 }
 
-fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal]) -> Result<()> {
+/// How much of each signal's messages to send.
+#[derive(Clone, Copy, PartialEq)]
+enum Bodies {
+    /// Everything.
+    All,
+    /// Keys and counts only, except for agent signals (their part reads the
+    /// last message): `list`, where a row's messages come with `messages`
+    /// once you expand it.
+    AgentsOnly,
+}
+
+fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodies) -> Result<()> {
     let ids: Vec<i64> = sigs.iter().map(|s| s.item_id).collect();
-    let mut messages = messages_by_item(r, &ids)?;
+    let full = |s: &Signal| bodies == Bodies::All || s.source == "agents";
+    let (with_text, heads): (Vec<&Signal>, Vec<&Signal>) = sigs.iter().partition(|s| full(s));
+    let mut messages = messages_by_item(r, &with_text.iter().map(|s| s.item_id).collect::<Vec<_>>())?;
+    messages.extend(by_item(r.incoming().message_heads(&heads.iter().map(|s| s.item_id).collect::<Vec<_>>())?));
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
     for s in sigs {
         let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
@@ -479,6 +502,11 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal]) -> Result<()
         s.messages = own.into_iter().map(|r| r.0).collect();
         let triaged = s.messages.iter().any(|m| m.read || m.replies.iter().any(|r| r.read));
         s.context = if triaged && !s.thread { vec![] } else { context };
+        s.n_messages = s.messages.len();
+        if !full(s) {
+            s.messages.clear();
+            s.context.clear();
+        }
         s.held = held.remove(&s.item_id);
         s.new_person = new_person(look, s, &author_ids);
         s.author = item_author(look, s);
@@ -486,12 +514,29 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal]) -> Result<()
     Ok(())
 }
 
-/// Topics with new signals (most recent signal first), then Unsorted.
-pub fn queue(r: &dyn Reads, clock: &Clock) -> Result<Queue> {
-    queue_with(r, clock, &PeopleSettings::default())
+/// An expanded row's messages, as `list` would have sent them, with the
+/// revision and keys triage sends back for what you saw.
+pub fn messages(r: &dyn Reads, clock: &Clock, item_id: i64, settings: &PeopleSettings) -> Result<Value> {
+    let row = r.incoming().signal(item_id)?.ok_or_else(|| msg("no such item"))?;
+    let look = Lookup::plain(r, settings, clock)?;
+    let mut sigs = [to_signal(row, clock)];
+    load_messages(r, &look, &mut sigs, Bodies::All)?;
+    let [s] = sigs;
+    Ok(json!({ "item_id": s.item_id, "rev": s.rev, "keys": s.keys, "messages": s.messages, "context": s.context }))
 }
 
-pub fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings) -> Result<Queue> {
+/// Topics with new signals (most recent signal first), then Unsorted, with
+/// every signal's messages: what `list` and `messages` show together.
+pub fn queue(r: &dyn Reads, clock: &Clock) -> Result<Queue> {
+    queue_with(r, clock, &PeopleSettings::default(), Bodies::All)
+}
+
+/// `list`: the queue with message keys and counts but not the messages.
+fn list(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings) -> Result<Queue> {
+    queue_with(r, clock, settings, Bodies::AgentsOnly)
+}
+
+fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings, bodies: Bodies) -> Result<Queue> {
     let look = Lookup::load(r, settings, clock)?;
     let mut topics: Vec<TopicSignals> = vec![];
     for f in r.incoming().filed_signals()? {
@@ -504,11 +549,11 @@ pub fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings) -> Re
     // Most recent signal first (rows arrive newest first, so push order already is).
     topics.sort_by(|a, b| b.signals[0].at.cmp(&a.signals[0].at));
     for t in &mut topics {
-        load_messages(r, &look, &mut t.signals)?;
+        load_messages(r, &look, &mut t.signals, bodies)?;
     }
 
     let mut unsorted: Vec<Signal> = r.incoming().unsorted_signals()?.into_iter().map(|row| to_signal(row, clock)).collect();
-    load_messages(r, &look, &mut unsorted)?;
+    load_messages(r, &look, &mut unsorted, bodies)?;
 
     // Agents waiting (2b): every agent signal waiting on you, oldest first, with its topic.
     let mut agents: Vec<Signal> = r
@@ -526,7 +571,7 @@ pub fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings) -> Re
             sig
         })
         .collect();
-    load_messages(r, &look, &mut agents)?;
+    load_messages(r, &look, &mut agents, Bodies::All)?;
     Ok(Queue { topics, unsorted, agents })
 }
 
@@ -1412,6 +1457,39 @@ mod tests {
         let la = &Clock::fixed(crate::time::t("2026-09-28T17:00:00"), jiff::tz::TimeZone::get("America/Los_Angeles").unwrap());
         assert_eq!(event_meta("2026-10-02T00:00:00Z".into(), Some("2026-10-02T02:00:00Z".into()), Some("Sam"), la), "Sam · Thu 17:00–19:00");
         assert_eq!(excerpt("abcdef", 3), "abc…");
+    }
+
+    #[test]
+    fn the_list_leaves_messages_to_the_row_you_expand() {
+        let (conn, now, _d) = setup();
+        let r = crate::store::over(&conn);
+        let people = PeopleSettings::default();
+        let all = |q: &Queue| q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).chain(&q.agents).map(|s| json!(s)).collect::<Vec<_>>();
+        let (full, lazy) = (all(&queue(&r, &now).unwrap()), all(&list(&r, &now, &people).unwrap()));
+        assert_eq!(full.len(), lazy.len());
+        let mut lazy_rows = 0;
+        for (f, l) in full.iter().zip(&lazy) {
+            assert_eq!(f["item_id"], l["item_id"]);
+            // What triage sends back, and what a collapsed row shows, are the same.
+            for k in ["rev", "keys", "n_messages", "split", "new_person", "author", "held", "meta"] {
+                assert_eq!(f[k], l[k], "{k} of item {}", f["item_id"]);
+            }
+            assert_eq!(f["n_messages"], f["messages"].as_array().unwrap().len());
+            if l["source"] == "agents" {
+                assert_eq!(f["messages"], l["messages"], "agent signals keep theirs");
+                continue;
+            }
+            assert_eq!(l["messages"], json!([]));
+            assert_eq!(l["context"], json!([]));
+            // Expanding it brings exactly what the full queue had.
+            let m = messages(&r, &now, l["item_id"].as_i64().unwrap(), &people).unwrap();
+            for k in ["rev", "keys", "messages", "context"] {
+                assert_eq!(m[k], f[k], "{k} of item {}", f["item_id"]);
+            }
+            lazy_rows += f["n_messages"].as_u64().unwrap();
+        }
+        assert!(lazy_rows > 0, "the sample data has signals with messages");
+        assert!(messages(&r, &now, 999_999, &people).is_err());
     }
 
     #[test]

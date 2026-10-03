@@ -20,7 +20,7 @@
   // in Agents. An answered row keeps a check until you move off it.
   import { call, openExternal } from '../lib/api';
   import { live as liveQuery } from '../lib/live';
-  import { tick, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { catColor, category, refresh, setTab, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
@@ -40,7 +40,7 @@
   import PersonPicker from './incoming/PersonPicker.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
-  import type { Message, Queue, QueueKey, Signal } from './incoming/types';
+  import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
@@ -51,6 +51,9 @@
   let selKey = $state<QueueKey | null>(null);
   let selItem = $state<number | null>(null);
   let expanded = $state<Set<number>>(new Set());
+  // Expanded rows' messages, each its own live query: the list leaves them out
+  // (an Inbox of Gmail threads is megabytes of text nobody has opened).
+  let bodies = $state<Map<number, Bodies>>(new Map());
   let fullContext = $state<Set<number>>(new Set());
   let todoFor = $state<number | null>(null);
   let jira = $state<JiraTarget | null>(null);
@@ -115,16 +118,51 @@
     return groups.sort((a, b) => rank(a.source) - rank(b.source));
   }
 
-  const groups = $derived(grouped(signalsFor(queue, selKey)));
+  /** A signal as shown: with its messages once its row is expanded. */
+  const shown = (s: Signal): Signal => {
+    const b = bodies.get(s.item_id);
+    return b ? { ...s, messages: b.messages, context: b.context } : s;
+  };
+  const groups = $derived(grouped(signalsFor(queue, selKey).map(shown)));
   const flat = $derived(groups.flatMap((g) => g.signals));
   const current = $derived(flat.find((s) => s.item_id === selItem) ?? null);
   const unsorted = $derived(selKey === 'unsorted');
   const topicName = $derived(entries.find((e) => e.key === selKey)?.name ?? '');
-  const splittable = (s: Signal | null) => unsorted && !!s && s.source !== 'gmail' && s.messages.length > 1;
+  const splittable = (s: Signal | null) => unsorted && !!s && s.source !== 'gmail' && s.n_messages > 1;
 
   // Kept current by the core (lib/live.ts): syncs, agents and writes here
   // all show up on their own.
   $effect(() => liveQuery<Queue>('incoming.list', {}, apply));
+
+  // One live query per expanded row still listed (agent signals come with
+  // theirs); dropped when the row closes or leaves.
+  const bodySubs = new Map<number, () => void>();
+  $effect(() => {
+    const q = queue;
+    const listed = new Set(q ? [...q.topics.flatMap((t) => t.signals), ...q.unsorted].filter((s) => s.source !== 'agents').map((s) => s.item_id) : []);
+    const want = new Set([...expanded].filter((id) => listed.has(id)));
+    untrack(() => {
+      for (const [id, off] of bodySubs) {
+        if (want.has(id)) continue;
+        off();
+        bodySubs.delete(id);
+        if (bodies.has(id)) {
+          const next = new Map(bodies);
+          next.delete(id);
+          bodies = next;
+        }
+      }
+      for (const id of want) {
+        if (bodySubs.has(id)) continue;
+        const off = liveQuery<Bodies>('incoming.messages', { item_id: id }, (b) => {
+          bodies = new Map(bodies).set(id, b);
+          keepMsgs(b);
+        });
+        bodySubs.set(id, off);
+      }
+    });
+  });
+  onDestroy(() => bodySubs.forEach((off) => off()));
 
   const hasAgents = (q: Queue | null) => !!q && (q.agents.length > 0 || [...q.unsorted, ...q.topics.flatMap((t) => t.signals)].some((s) => s.agent));
   function loadLive() {
@@ -189,12 +227,16 @@
       selItem = now[Math.min(itemIdx, now.length - 1)]?.item_id ?? null;
     }
     // A sync may have changed the messages under an open selection.
-    const msgs = now.find((s) => s.item_id === selItem)?.messages ?? [];
-    if (selKey !== 'unsorted' || msgs.length < 2) leaveMsgs();
-    else {
-      chosen = new Set([...chosen].filter((id) => msgs.some((m) => m.id === id)));
-      msgIdx = Math.min(msgIdx, msgs.length - 1);
-    }
+    const sig = now.find((s) => s.item_id === selItem);
+    if (selKey !== 'unsorted' || !sig || sig.n_messages < 2) leaveMsgs();
+    else keepMsgs(bodies.get(sig.item_id));
+  }
+
+  /** Keep the message selection to messages the selected row still shows. */
+  function keepMsgs(b: Bodies | undefined) {
+    if (!b || b.item_id !== selItem) return;
+    chosen = new Set([...chosen].filter((id) => b.messages.some((m) => m.id === id)));
+    msgIdx = Math.max(0, Math.min(msgIdx, b.messages.length - 1));
   }
 
   function keepDismissed(q: Queue) {
@@ -295,7 +337,7 @@
   });
 
   /** The split review applies: an AI-split signal, or any Slack signal with several messages. */
-  const reviewable = (s: Signal | null) => !!s && (s.split || (s.source === 'slack' && s.messages.length > 1));
+  const reviewable = (s: Signal | null) => !!s && (s.split || (s.source === 'slack' && s.n_messages > 1));
 
   function review(s: Signal | null) {
     if (!s || !reviewable(s) || dismissed.has(s.item_id)) return;
@@ -416,7 +458,12 @@
   }
 
   /** What you saw of a signal: triage applies to that, and newer messages stay new. */
-  const saw = (s: Signal) => ({ rev: s.rev, keys: s.keys });
+  // What the row showed: an expanded row's own messages once they're in
+  // (they can be older or newer than the list's), else the list's.
+  const saw = (s: Signal) => {
+    const b = expanded.has(s.item_id) ? bodies.get(s.item_id) : undefined;
+    return b ? { rev: b.rev, keys: b.keys } : { rev: s.rev, keys: s.keys };
+  };
 
   /** The topic a signal is listed under: the selected one, or (Agents waiting) its own. */
   const topicOf = (s: Signal) => (typeof selKey === 'number' ? selKey : selKey === 'agents' ? (s.topic_id ?? null) : null);
@@ -622,7 +669,7 @@
                     </span>
                     {#if unsorted || (selKey === 'agents' && s.topic_id == null)}
                       <button class="btn primary" onclick={() => pick(s)}>
-                        {sel && chosen.size ? `Move ${chosen.size} of ${s.messages.length}` : 'Move to topic'}
+                        {sel && chosen.size ? `Move ${chosen.size} of ${s.n_messages}` : 'Move to topic'}
                       </button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {:else}
@@ -734,7 +781,7 @@
                   {/if}
                   {#if s.url}
                     <div class="links">
-                      {#if s.msg_count && s.msg_count > s.messages.length}
+                      {#if s.msg_count && s.msg_count > s.n_messages}
                         <button class="all" onclick={() => open(s)}>All {s.msg_count}</button>
                       {/if}
                       <button class="app" onclick={() => open(s)}>Open in {sourceLabel(s.source)}</button>

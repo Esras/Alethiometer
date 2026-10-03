@@ -48,6 +48,40 @@ fn id_list(ids: &[i64]) -> String {
     serde_json::to_string(ids).expect("ids serialize")
 }
 
+impl Sql<'_> {
+    /// `messages`, with `text` as the text column (`''` leaves it unread).
+    fn message_rows(&self, item_ids: &[i64], text: &str) -> Result<Vec<MessageRow>> {
+        Ok(self
+            .conn()
+            .prepare_cached(&format!(
+                // An item keeps every message a sync gave it; a view shows its
+                // latest SHOWN_MESSAGES top-level ones (and their replies).
+                "WITH m AS (
+                   SELECT id, item_id, at, author, {text} AS text, context, ext_key, reply_to, author_id, read, CASE WHEN reply_to IS NULL
+                                  THEN row_number() OVER (PARTITION BY item_id, reply_to IS NULL ORDER BY at DESC, id DESC) END AS newest
+                     FROM item_messages WHERE item_id IN (SELECT value FROM json_each(?1)))
+                 SELECT id, item_id, at, author, text, context, ext_key, reply_to, author_id, read FROM m
+                  WHERE newest IS NULL OR newest <= ?2
+                  ORDER BY item_id, at, id"
+            ))?
+            .query_map(params![id_list(item_ids), SHOWN_MESSAGES], |r| {
+                Ok(MessageRow {
+                    id: r.get(0)?,
+                    item_id: r.get(1)?,
+                    at: r.get(2)?,
+                    author: r.get(3)?,
+                    text: r.get(4)?,
+                    context: r.get(5)?,
+                    ext_key: r.get(6)?,
+                    reply_to: r.get(7)?,
+                    author_id: r.get(8)?,
+                    read: r.get(9)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+}
+
 impl IncomingViews for Sql<'_> {
     fn unseen_count(&self) -> Result<i64> {
         Ok(self.conn().query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))?)
@@ -113,36 +147,19 @@ impl IncomingViews for Sql<'_> {
     }
 
     fn messages(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>> {
-        Ok(self
-            .conn()
-            .prepare_cached(
-                // An item keeps every message a sync gave it; a view shows its
-                // latest SHOWN_MESSAGES top-level ones (and their replies).
-                "WITH m AS (
-                   SELECT *, CASE WHEN reply_to IS NULL
-                                  THEN row_number() OVER (PARTITION BY item_id, reply_to IS NULL ORDER BY at DESC, id DESC) END AS newest
-                     FROM item_messages WHERE item_id IN (SELECT value FROM json_each(?1)))
-                 SELECT id, item_id, at, author, text, context, ext_key, reply_to, author_id, read FROM m
-                  WHERE newest IS NULL OR newest <= ?2
-                  ORDER BY item_id, at, id",
-            )?
-            .query_map(params![id_list(item_ids), SHOWN_MESSAGES], |r| {
-                Ok(MessageRow {
-                    id: r.get(0)?,
-                    item_id: r.get(1)?,
-                    at: r.get(2)?,
-                    author: r.get(3)?,
-                    text: r.get(4)?,
-                    context: r.get(5)?,
-                    ext_key: r.get(6)?,
-                    reply_to: r.get(7)?,
-                    author_id: r.get(8)?,
-                    read: r.get(9)?,
-                })
-            })?
-            .collect::<rusqlite::Result<_>>()?)
+        self.message_rows(item_ids, "text")
     }
 
+    fn message_heads(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>> {
+        self.message_rows(item_ids, "''")
+    }
+
+    fn signal(&self, item_id: i64) -> Result<Option<SignalRow>> {
+        Ok(self
+            .conn()
+            .query_row(&format!("SELECT {SIGNAL} FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1 AND s.tag = 'work'"), [item_id], signal)
+            .optional()?)
+    }
     fn split_sibling_times(&self, item_id: i64) -> Result<Vec<Ts>> {
         Ok(self
             .conn()
