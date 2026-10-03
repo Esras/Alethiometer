@@ -178,7 +178,7 @@ fn meeting_pill(conn: &Connection, item_id: i64, topic_id: Option<i64>, now: Nai
     let next: Option<(String, String)> = conn
         .query_row(
             "SELECT e.start, e.end FROM events e
-              WHERE e.is_life_busy = 0 AND e.end > ?1 AND substr(e.start, 1, 10) = ?2
+              WHERE e.is_life_busy = 0 AND e.end > ?1 AND e.start >= ?2 AND e.start < date(?2, '+1 day')
                 AND (e.item_id = ?3 OR e.item_id IN
                      (SELECT tl.item_id FROM topic_links tl WHERE tl.topic_id = ?4 AND tl.state != 'wrong'))
               ORDER BY e.item_id = ?3 DESC, e.start LIMIT 1",

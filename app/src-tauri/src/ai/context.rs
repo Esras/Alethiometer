@@ -227,7 +227,7 @@ pub fn for_today(conn: &Connection, today: chrono::NaiveDate) -> Result<Context>
     let mut stmt = conn.prepare(
         "SELECT e.item_id, s.tag, e.start, e.end, e.title, e.attendees, e.tentative
            FROM events e JOIN sources s ON s.id = e.source_id
-          WHERE s.tag = 'work' AND e.is_life_busy = 0 AND e.title IS NOT NULL AND substr(e.start, 1, 10) = ?1
+          WHERE s.tag = 'work' AND e.is_life_busy = 0 AND e.title IS NOT NULL AND e.start >= ?1 AND e.start < date(?1, '+1 day')
           ORDER BY e.start",
     )?;
     let events = stmt

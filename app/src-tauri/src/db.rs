@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0016_glean.sql"),
     include_str!("../migrations/0017_agents.sql"),
     include_str!("../migrations/0018_agent_hosts.sql"),
+    include_str!("../migrations/0019_indexes.sql"),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.
@@ -48,12 +49,20 @@ pub fn open_in_memory() -> anyhow::Result<Connection> {
 fn init(mut conn: Connection) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // Another process (the devserver and the app on one data dir) waits
+    // instead of failing with "database is locked".
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     migrate(&mut conn)?;
+    // Planner statistics for the tables that changed a lot since last time.
+    conn.execute_batch("PRAGMA optimize = 0x10002;")?;
     Ok(conn)
 }
 
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if current as usize > MIGRATIONS.len() {
+        anyhow::bail!("the database is from a newer Alethiometer (schema {current}, this build knows {}): use that version", MIGRATIONS.len());
+    }
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;

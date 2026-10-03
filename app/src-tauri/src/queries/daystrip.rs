@@ -49,7 +49,7 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
                 (SELECT group_concat(tl.topic_id) FROM topic_links tl
                   WHERE tl.item_id = e.item_id AND tl.state != 'wrong')
            FROM events e
-          WHERE substr(e.start, 1, 10) = ?1
+          WHERE e.start >= ?1 AND e.start < date(?1, '+1 day')
           ORDER BY e.start",
     )?;
     let default_buffer = app.settings().life_buffer_min;
