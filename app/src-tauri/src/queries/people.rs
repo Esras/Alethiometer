@@ -889,6 +889,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::params;
 
     #[test]
     fn frontmatter_subset() {
