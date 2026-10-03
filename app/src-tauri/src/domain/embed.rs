@@ -49,8 +49,9 @@ pub trait VectorViews {
     fn vector(&self, kind: VecKind, id: i64) -> Result<Option<Vec<f32>>>;
     /// Work items nearest to `v`: (item id, cosine similarity), best first.
     fn nearest_items(&self, v: &[f32], k: usize) -> Result<Vec<(i64, f32)>>;
-    /// Work items, newest first, until `f` returns false.
-    fn each_work_item(&self, f: &mut dyn FnMut(ItemSource) -> bool) -> Result<()>;
+    /// Work items queued for embedding (`embed_dirty`), newest first, with
+    /// the queue generation read (`Vectors::dequeue`).
+    fn queued_items(&self, limit: usize) -> Result<Vec<(ItemSource, i64)>>;
     fn topic_source(&self, id: i64) -> Result<Option<TopicSource>>;
     /// Topics not archived, by id.
     fn active_topics(&self) -> Result<Vec<TopicSource>>;
@@ -61,4 +62,9 @@ pub trait VectorViews {
 pub trait Vectors {
     /// Store one vector, replacing any earlier one.
     fn store(&self, kind: VecKind, id: i64, model: &str, text_hash: &str, v: &[f32]) -> Result<()>;
+    /// Take an item off the embedding queue, unless it changed again since
+    /// `gen` was read.
+    fn dequeue(&self, item_id: i64, gen: i64) -> Result<()>;
+    /// Queue items embedded by another model. Returns how many.
+    fn requeue_other_models(&self, model: &str) -> Result<usize>;
 }

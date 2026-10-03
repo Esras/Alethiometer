@@ -108,43 +108,63 @@ fn topic_text(t: &TopicSource, vault: &std::path::Path) -> String {
     format!("{}\n{}\n{note}", t.name, t.titles.join("\n")).trim().to_string()
 }
 
-/// Embed whatever's missing or stale, `batch` texts at a time. Returns how many were embedded.
+/// Embed whatever's missing or stale, `batch` texts at a time: queued work
+/// items (`embed_dirty`, filled by the database), then topics whose text
+/// moved. Returns how many queued items and topics it handled.
 pub fn index_pass(app: &App, e: &dyn Embedder, batch: usize) -> Result<usize> {
-    // Items and topics from one snapshot; topic notes are read after it.
-    let (mut todo, topics) = app.store().read(|r| {
-        let mut out = vec![];
-        r.vectors().each_work_item(&mut |i| {
-            let text = item_text(&i.title, &i.summary, &i.body);
-            if stale(&i.stored, &text, e.id()) {
-                out.push((VecKind::Item, i.id, text));
-            }
-            out.len() < batch
-        })?;
-        let topics = if out.len() < batch { r.vectors().active_topics()? } else { vec![] };
-        Ok((out, topics))
+    // Another model made some vectors (a model change): queue those, once per process and model.
+    static REQUEUED: Mutex<Option<String>> = Mutex::new(None);
+    {
+        let mut done = REQUEUED.lock().unwrap_or_else(|x| x.into_inner());
+        if done.as_deref() != Some(e.id()) {
+            app.store().write(|uow| uow.vectors().requeue_other_models(e.id()))?;
+            *done = Some(e.id().to_owned());
+        }
+    }
+    // Queued items and topics from one snapshot; topic notes are read after it.
+    let (queued, topics) = app.store().read(|r| {
+        let queued = r.vectors().queued_items(batch)?;
+        let topics = if queued.len() < batch { r.vectors().active_topics()? } else { vec![] };
+        Ok((queued, topics))
     })?;
+    let mut todo = vec![];
+    let mut unchanged = vec![];
+    for (i, gen) in queued {
+        let text = item_text(&i.title, &i.summary, &i.body);
+        if stale(&i.stored, &text, e.id()) {
+            todo.push((VecKind::Item, i.id, text, Some(gen)));
+        } else {
+            unchanged.push((i.id, gen));
+        }
+    }
     for t in topics {
         if todo.len() >= batch {
             break;
         }
         let text = topic_text(&t, &app.vault);
         if stale(&t.stored, &text, e.id()) {
-            todo.push((VecKind::Topic, t.id, text));
+            todo.push((VecKind::Topic, t.id, text, None));
         }
     }
-    if todo.is_empty() {
+    if todo.is_empty() && unchanged.is_empty() {
         return Ok(0);
     }
-    let texts: Vec<String> = todo.iter().map(|(_, _, t)| t.clone()).collect();
+    let texts: Vec<String> = todo.iter().map(|(_, _, t, _)| t.clone()).collect();
     // Embedding is the slow part: no database held.
-    let vecs = e.embed(&texts).map_err(|x| msg(format!("embedding: {x}")))?;
+    let vecs = if texts.is_empty() { vec![] } else { e.embed(&texts).map_err(|x| msg(format!("embedding: {x}")))? };
     app.store().write(|uow| {
-        for ((kind, id, text), v) in todo.iter().zip(vecs) {
+        for ((kind, id, text, gen), v) in todo.iter().zip(vecs) {
             uow.vectors().store(*kind, *id, e.id(), &hash(text), &v)?;
+            if let Some(g) = gen {
+                uow.vectors().dequeue(*id, *g)?;
+            }
+        }
+        for (id, gen) in &unchanged {
+            uow.vectors().dequeue(*id, *gen)?;
         }
         Ok(())
     })?;
-    Ok(todo.len())
+    Ok(todo.len() + unchanged.len())
 }
 
 /// Embed one text now (a query, a Glean result). None while the model isn't ready.
@@ -270,6 +290,26 @@ pub mod tests {
         app.db().execute("UPDATE items SET title = 'Something else entirely' WHERE id = ?1", [near[0].0]).unwrap();
         assert!(index_pass(&app, &Stub, 50).unwrap() >= 1);
         assert_ne!(item_vector(&app, near[0].0).unwrap(), before);
+    }
+
+    #[test]
+    fn an_edit_made_while_embedding_stays_queued() {
+        let (app, _dir) = app();
+        while index_pass(&app, &Stub, 100).unwrap() > 0 {}
+        let item: i64 = app.db().query_row("SELECT i.id FROM items i JOIN sources s ON s.id = i.source_id WHERE s.tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
+        app.db().execute("UPDATE items SET title = 'first edit' WHERE id = ?1", [item]).unwrap();
+        // The embedder reads the queue…
+        let (_, gen) = app.store().read(|r| r.vectors().queued_items(10)).unwrap().into_iter().find(|(i, _)| i.id == item).unwrap();
+        // …the item changes again while it embeds…
+        app.db().execute("UPDATE items SET title = 'second edit' WHERE id = ?1", [item]).unwrap();
+        // …and taking off what it read leaves the newer change queued.
+        app.store().write(|uow| uow.vectors().dequeue(item, gen)).unwrap();
+        let queued = app.store().read(|r| r.vectors().queued_items(10)).unwrap();
+        assert!(queued.iter().any(|(i, _)| i.id == item && i.title == "second edit"));
+        // An unchanged rewrite (a sync re-sending the same text) queues nothing.
+        while index_pass(&app, &Stub, 100).unwrap() > 0 {}
+        app.db().execute("UPDATE items SET title = title WHERE id = ?1", [item]).unwrap();
+        assert!(app.store().read(|r| r.vectors().queued_items(10)).unwrap().is_empty());
     }
 
     #[test]

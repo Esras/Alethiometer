@@ -70,22 +70,20 @@ impl VectorViews for Sql<'_> {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(id, d)| (id, 1.0 - (d * d / 2.0) as f32)).collect())
     }
 
-    fn each_work_item(&self, f: &mut dyn FnMut(ItemSource) -> bool) -> Result<()> {
-        let mut stmt = self.conn().prepare_cached(
-            "SELECT i.id, i.title, coalesce(i.summary, ''), coalesce(i.body, ''), m.hash, m.model
-               FROM items i JOIN sources s ON s.id = i.source_id
-               LEFT JOIN embed_meta m ON m.kind = 'item' AND m.id = i.id
-              WHERE s.tag = 'work'
-              ORDER BY i.occurred_at DESC",
-        )?;
-        let mut rows = stmt.query([])?;
-        while let Some(r) = rows.next()? {
-            let item = ItemSource { id: r.get(0)?, title: r.get(1)?, summary: r.get(2)?, body: r.get(3)?, stored: stored(r.get(4)?, r.get(5)?) };
-            if !f(item) {
-                break;
-            }
-        }
-        Ok(())
+    fn queued_items(&self, limit: usize) -> Result<Vec<(ItemSource, i64)>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT i.id, i.title, coalesce(i.summary, ''), coalesce(i.body, ''), m.hash, m.model, d.gen
+                   FROM embed_dirty d JOIN items i ON i.id = d.item_id JOIN sources s ON s.id = i.source_id
+                   LEFT JOIN embed_meta m ON m.kind = 'item' AND m.id = i.id
+                  WHERE s.tag = 'work'
+                  ORDER BY d.item_id DESC LIMIT ?1",
+            )?
+            .query_map([limit as i64], |r| {
+                Ok((ItemSource { id: r.get(0)?, title: r.get(1)?, summary: r.get(2)?, body: r.get(3)?, stored: stored(r.get(4)?, r.get(5)?) }, r.get(6)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     fn topic_source(&self, id: i64) -> Result<Option<TopicSource>> {
@@ -105,6 +103,19 @@ impl VectorViews for Sql<'_> {
 }
 
 impl Vectors for Sql<'_> {
+    fn dequeue(&self, item_id: i64, gen: i64) -> Result<()> {
+        self.conn().execute("DELETE FROM embed_dirty WHERE item_id = ?1 AND gen = ?2", params![item_id, gen])?;
+        Ok(())
+    }
+
+    fn requeue_other_models(&self, model: &str) -> Result<usize> {
+        Ok(self.conn().execute(
+            "INSERT INTO embed_dirty (item_id) SELECT id FROM embed_meta WHERE kind = 'item' AND model != ?1
+             ON CONFLICT (item_id) DO UPDATE SET gen = gen + 1",
+            [model],
+        )?)
+    }
+
     fn store(&self, kind: VecKind, id: i64, model: &str, text_hash: &str, v: &[f32]) -> Result<()> {
         let t = table(kind);
         let c = self.conn();
