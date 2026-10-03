@@ -320,6 +320,7 @@ mod tests {
     #[test]
     fn no_new_sql_outside_store() {
         let re = regex::Regex::new(r#"(?i)"\s*(SELECT|INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE|DROP\s+TABLE|WITH\s+\w+\s+AS)\b"#).unwrap();
+        let test_mod = regex::Regex::new(r"#\[cfg\(test\)\]\s*(pub(\(crate\))?\s+)?mod\s+\w+").unwrap();
         let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
         let mut found = std::collections::BTreeMap::new();
         let mut dirs = vec![root.clone()];
@@ -330,10 +331,10 @@ mod tests {
                     if p != root.join("store") {
                         dirs.push(p);
                     }
-                } else if p.extension().is_some_and(|x| x == "rs") {
+                } else if p.extension().is_some_and(|x| x == "rs") && !p.ends_with("tests.rs") {
                     let text = std::fs::read_to_string(&p).unwrap();
-                    // Test fixtures may write rows directly.
-                    let code = text.split("#[cfg(test)]\nmod tests").next().unwrap();
+                    // Test fixtures may write rows directly: a file's test modules are left out.
+                    let code = test_mod.split(&text).next().unwrap();
                     let n = re.find_iter(code).count();
                     if n > 0 {
                         found.insert(p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"), n);

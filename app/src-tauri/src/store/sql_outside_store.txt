@@ -1,15 +1,14 @@
 3 agents/facts.rs
 8 agents/incoming.rs
 16 agents/store.rs
-19 ai/context.rs
+7 ai/context.rs
 3 ai/estimate.rs
-3 ai/mod.rs
+2 ai/mod.rs
 10 ai/suggest.rs
-14 embed/mod.rs
+12 embed/mod.rs
 6 glean/ask.rs
 8 glean/hydrate.rs
 5 glean/mod.rs
-21 outbox.rs
 2 queries/incoming.rs
 1 queries/notes.rs
 3 queries/priorities.rs
@@ -18,7 +17,4 @@
 14 seed.rs
 2 settings/api.rs
 5 settings/live.rs
-3 sync/connectors/gcal.rs
 1 sync/connectors/gcal/oauth.rs
-2 sync/connectors/obsidian/save.rs
-8 sync/connectors/slack/tests.rs
