@@ -229,7 +229,6 @@ pub fn tests_on_confirmed_item(conn: &Connection, op: &str, item_id: i64, payloa
 
 #[cfg(test)]
 mod integration_tests {
-    use crate::domain::ports::{Reads, UnitOfWork};
     use crate::settings::Settings;
     use crate::state::App;
     use serde_json::json;
