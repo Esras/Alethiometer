@@ -1,7 +1,8 @@
 <script lang="ts">
   // Add, rename, recolor and remove categories. Changes save as you make them.
   import { call } from '../../lib/api';
-  import { refresh, ui } from '../../lib/app.svelte';
+  import { refresh } from '../../lib/app.svelte';
+  import { live } from '../../lib/live';
   import type { CategoryRow } from '../../lib/types';
 
   let cats = $state<CategoryRow[]>([]);
@@ -9,10 +10,7 @@
   let name = $state('');
   let color = $state('#8ec07c');
 
-  $effect(() => {
-    void ui.rev;
-    call<CategoryRow[]>('categories.list').then((c) => (cats = c));
-  });
+  $effect(() => live<CategoryRow[]>('categories.list', {}, (c) => (cats = c)));
 
   async function run(cmd: string, args: Record<string, unknown>) {
     try {

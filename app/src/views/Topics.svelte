@@ -6,6 +6,7 @@
   import { call } from '../lib/api';
   import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
+  import { live } from '../lib/live';
   import { cancelMerge, commitMerges, mergingAway, merges, pendingMerge, stageMerge } from '../lib/merges.svelte';
   import { untrack } from 'svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
@@ -60,17 +61,15 @@
     refresh();
   }
 
-  $effect(() => {
-    void ui.rev;
-    call<TopicRow[]>('topics.list').then((t) => (topics = t));
-  });
+  $effect(() => live<TopicRow[]>('topics.list', { archived: false }, (t) => (topics = t)));
 
+  // A live query that also reads the note file: re-run when the topic's
+  // signals change or the vault does.
   $effect(() => {
     const id = ui.openTopicId;
-    void ui.rev;
     if (id === null) return;
     ui.topicId = id;
-    call<TopicDetail>('topics.get', { id }).then((r) => {
+    return live<TopicDetail>('topics.get', { id }, (r) => {
       if (ui.openTopicId === id) d = r;
     });
   });

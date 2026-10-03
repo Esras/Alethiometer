@@ -28,6 +28,11 @@ pub enum Route {
     Read(fn(&dyn Reads, &Ctx, &Value) -> Result<Value>),
     /// Changes, in one unit of work.
     Write(fn(&dyn UnitOfWork, &Ctx, &Value) -> Result<Value>),
+    /// Reads the database in short snapshots and vault files between them,
+    /// with nothing open while it reads a file. No network, no writes: like
+    /// `Read`, it can be a live query (`crate::live`), which also re-runs it
+    /// when the vault changes.
+    ReadFiles(fn(&App, &Value) -> Result<Value>),
 }
 
 /// How `cmd` runs, if it's routed (read or write) rather than a module's own `call`.
@@ -44,6 +49,7 @@ pub fn route_of(cmd: &str) -> Option<Route> {
         "sync" => crate::sync::route(name),
         "outbox" => crate::outbox::route(name),
         "todos" => queries::todos::route(name),
+        "reflect" => queries::reflect::route(name),
         _ => None,
     }
 }
@@ -55,6 +61,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         let ctx = Ctx { clock: &app.clock, settings: &settings };
         return match route {
             Route::Read(f) => app.store().read(|r| f(r, &ctx, args)),
+            Route::ReadFiles(f) => f(app, args),
             Route::Write(f) => {
                 let out = app.store().write(|uow| f(uow, &ctx, args))?;
                 // Anything it queued goes out now rather than at the next tick.

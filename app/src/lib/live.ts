@@ -10,6 +10,7 @@ type Sub = {
   cmd: string;
   args: Record<string, unknown>;
   onResult: (r: never) => void;
+  onError?: (e: unknown) => void;
   id: number | null;
   /** Orders results: an older one never replaces a newer one. */
   seq: number;
@@ -45,6 +46,7 @@ async function open(s: Sub) {
     if (e) deliver(s, e.seq, e.result);
   } catch (e) {
     console.error(`live ${s.cmd}:`, e);
+    if (!s.closed) s.onError?.(e);
   }
   startWaiting();
 }
@@ -84,9 +86,10 @@ async function startWaiting() {
 }
 
 /** Run `cmd` now and again whenever its result changes; returns the
- *  unsubscribe, so it can be an `$effect`'s return value. */
-export function live<T>(cmd: string, args: Record<string, unknown>, onResult: (r: T) => void): () => void {
-  const s: Sub = { cmd, args, onResult: onResult as (r: never) => void, id: null, seq: 0, closed: false };
+ *  unsubscribe, so it can be an `$effect`'s return value. `onError` hears
+ *  a subscription the core refused (bad arguments, say). */
+export function live<T>(cmd: string, args: Record<string, unknown>, onResult: (r: T) => void, onError?: (e: unknown) => void): () => void {
+  const s: Sub = { cmd, args, onResult: onResult as (r: never) => void, onError, id: null, seq: 0, closed: false };
   void open(s);
   return () => {
     s.closed = true;

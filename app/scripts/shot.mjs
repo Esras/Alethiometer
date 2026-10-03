@@ -11,7 +11,7 @@ page.on('console', (m) => m.type() === 'error' && console.error('console:', m.te
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
 await page.goto(process.env.ALETHIOMETER_UI_URL ?? 'http://localhost:1420/');
 await page.waitForTimeout(800);
-const idx = ['incoming', 'priorities', 'topics', 'notes', 'reflect'].indexOf(tab) + 1;
+const idx = ['incoming', 'priorities', 'topics', 'todos', 'notes', 'reflect', 'agents'].indexOf(tab) + 1;
 await page.keyboard.press(`Control+${idx}`);
 await page.waitForTimeout(500);
 for (const k of keys) { await page.keyboard.press(k); await page.waitForTimeout(250); }

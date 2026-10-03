@@ -11,6 +11,7 @@
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
   import { isTyping, plain, useKeys } from '../lib/keys.svelte';
+  import { live } from '../lib/live';
   import CarryList from './reflect/CarryList.svelte';
   import DayBrief from './reflect/DayBrief.svelte';
   import NoteEditor from './reflect/NoteEditor.svelte';
@@ -44,15 +45,18 @@
 
   ui.topicId = null;
 
+  // A live query that also reads the period's notes.
   $effect(() => {
     const args = { scope: rs.scope, period: rs.period ?? '', lens: rs.lens };
-    void ui.rev;
-    call<ReflectData>('reflect.get', args)
-      .then((r) => {
+    return live<ReflectData>(
+      'reflect.get',
+      args,
+      (r) => {
         if (r.scope === rs.scope && r.lens === rs.lens) d = r;
         err = '';
-      })
-      .catch((e) => (err = String(e.message ?? e)));
+      },
+      (e) => (err = String((e as Error).message ?? e)),
+    );
   });
 
   // Keep the carry selection in range as rows come and go.

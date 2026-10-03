@@ -48,7 +48,7 @@ use crate::error::Result;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::hooks::{AuthContext, Authorization};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -82,10 +82,24 @@ impl<'t> Sql<'t> {
     }
 }
 
+type Seen = Arc<Mutex<BTreeSet<String>>>;
+
 thread_local! {
     /// This thread is inside `Db::write` (or holds the legacy guard): taking
     /// the writer again would deadlock.
     static WRITING: Cell<bool> = const { Cell::new(false) };
+    /// Set while `Db::traced` runs: every read on this thread notes the
+    /// tables it read here.
+    static TRACE: RefCell<Option<Seen>> = const { RefCell::new(None) };
+}
+
+/// Ends a `Db::traced` on this thread, even if its closure panics.
+struct Tracing;
+
+impl Drop for Tracing {
+    fn drop(&mut self) {
+        TRACE.with(|t| t.borrow_mut().take());
+    }
 }
 
 struct Writing;
@@ -138,7 +152,31 @@ impl Db {
     /// authorizer reports them as statements are prepared, so the
     /// connection's statement cache is emptied first).
     pub fn read_traced<T>(&self, f: impl FnOnce(&dyn Reads) -> Result<T>) -> Result<(T, BTreeSet<String>)> {
-        let seen = Arc::new(Mutex::new(BTreeSet::new()));
+        let seen = Seen::default();
+        let out = self.read_noting(&seen, f)?;
+        let tables = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
+        Ok((out, tables))
+    }
+
+    /// Run `f`, which may take several reads (and read files between them,
+    /// with nothing open), returning every table those reads touched. A
+    /// write inside it is refused: what's traced is only ever re-run.
+    pub fn traced<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<(T, BTreeSet<String>)> {
+        let seen = Seen::default();
+        TRACE.with(|t| {
+            let mut t = t.borrow_mut();
+            assert!(t.is_none(), "Db::traced inside Db::traced");
+            *t = Some(seen.clone());
+        });
+        let out = {
+            let _t = Tracing;
+            f()
+        }?;
+        let tables = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
+        Ok((out, tables))
+    }
+
+    fn read_noting<T>(&self, seen: &Seen, f: impl FnOnce(&dyn Reads) -> Result<T>) -> Result<T> {
         let trace = |c: &Connection| -> rusqlite::Result<()> {
             c.flush_prepared_statement_cache();
             let seen = seen.clone();
@@ -148,7 +186,7 @@ impl Db {
         // databases read through it) to its own.
         let untrace = |c: &Connection| c.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
         let untrace_writer = |c: &Connection| c.authorizer(Some(|ctx: AuthContext<'_>| changes::authorize(ctx, None)));
-        let out = match &self.readers {
+        match &self.readers {
             Some(pool) => {
                 let mut c = pool.get()?;
                 trace(&c)?;
@@ -164,13 +202,14 @@ impl Db {
                 untrace_writer(&c)?;
                 out
             }
-        }?;
-        let tables = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
-        Ok((out, tables))
+        }
     }
 
     /// One consistent snapshot, on a reader connection.
     pub fn read<T>(&self, f: impl FnOnce(&dyn Reads) -> Result<T>) -> Result<T> {
+        if let Some(seen) = TRACE.with(|t| t.borrow().clone()) {
+            return self.read_noting(&seen, f);
+        }
         match &self.readers {
             Some(pool) => {
                 let mut c = pool.get()?;
@@ -191,6 +230,9 @@ impl Db {
     #[track_caller]
     pub fn write<T>(&self, f: impl FnOnce(&dyn UnitOfWork) -> Result<T>) -> Result<T> {
         let caller = std::panic::Location::caller();
+        if TRACE.with(|t| t.borrow().is_some()) {
+            return Err(crate::error::msg(format!("a write from {caller} inside a traced read")));
+        }
         let _w = Writing::enter();
         let mut c = self.lock();
         let started = Instant::now();

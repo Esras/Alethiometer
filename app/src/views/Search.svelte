@@ -36,11 +36,19 @@
   let moves = $state<Move[]>([]);
   let err = $state<string | null>(null);
   let asking = $state(false);
+  // Bumped after this view's own changes. Not a live query: results are for
+  // the query as asked, and asking again can call Glean.
+  let again = $state(0);
+
+  function reload() {
+    again++;
+    refresh();
+  }
 
   $effect(() => {
     const q = ui.searchQuery;
     const glean = ui.searchGlean;
-    void ui.rev;
+    void again;
     asking = glean;
     hydrated(q, null, glean)
       .then((r) => {
@@ -91,7 +99,7 @@
       const m = await moveSignal(r.item_id, r.topic?.id ?? null, to, name);
       moves = [...moves.filter((x) => x.itemId !== r.item_id), m];
       err = null;
-      refresh();
+      reload();
     } catch (e) {
       err = String((e as Error).message ?? e);
     }
@@ -105,7 +113,7 @@
       moves = moves.filter((x) => x !== m);
       sel = `item:${m.itemId}`;
       err = null;
-      refresh();
+      reload();
     } catch (e) {
       err = String((e as Error).message ?? e);
     }
@@ -113,7 +121,7 @@
 
   function endReview(changed: boolean) {
     reviewing = null;
-    if (changed) refresh();
+    if (changed) reload();
   }
 
   const local = $derived(current?.item_id != null);

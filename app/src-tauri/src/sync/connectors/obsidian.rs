@@ -599,6 +599,7 @@ pub fn watch(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, n
                 match rx.recv_timeout(Duration::from_secs(1)) {
                     Ok(Ok(ev)) if relevant(&ev) => {
                         while rx.recv_timeout(Duration::from_millis(1000)).is_ok() {}
+                        crate::live::Live::vault_changed(&app);
                         crate::sync::nudge(&app, source_id);
                     }
                     Ok(_) | Err(RecvTimeoutError::Timeout) => {}

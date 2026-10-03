@@ -22,7 +22,7 @@
 
 use crate::domain::sample::{ItemPatch, SampleData};
 use super::{arg_i64, arg_str, dur_label, minute_of_day, parse_date, parse_ts};
-use crate::api::unknown;
+use crate::api::{unknown, Route};
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
@@ -38,9 +38,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
+pub fn route(name: &str) -> Option<Route> {
+    match name {
+        "get" => Some(Route::ReadFiles(get)),
+        _ => None,
+    }
+}
+
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "get" => get(app, args),
         "save" => save(app, args),
         "save_status" => save::status(app, arg_i64(args, "outbox_id")?),
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),

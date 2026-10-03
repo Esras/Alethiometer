@@ -72,6 +72,7 @@ struct Entry {
 pub fn route(name: &str) -> Option<Route> {
     Some(match name {
         "list" => Route::Read(|r, ctx, args| list(r, ctx, args.get("archived").and_then(Value::as_bool).unwrap_or(false))),
+        "get" => Route::ReadFiles(|app, args| get(app, arg_i64(args, "id")?)),
         "set_category" => Route::Write(|uow, _, args| {
             let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
             if !super::categories::exists(uow.reads(), &cat)? {
@@ -92,7 +93,6 @@ pub fn route(name: &str) -> Option<Route> {
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "get" => get(app, arg_i64(args, "id")?),
         "merge" => merge(app, arg_i64(args, "from")?, arg_i64(args, "into")?),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),

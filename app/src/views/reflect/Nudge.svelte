@@ -22,10 +22,10 @@
     }
   }
 
-  // Re-check on every clock tick (the shell ticks every 15 s) and after writes.
+  // Re-check on every clock tick (the shell ticks every 15 s). Not a live
+  // query: asking can raise the notification and records that it did.
   $effect(() => {
     void ui.nowMs;
-    void ui.rev;
     poll();
   });
 

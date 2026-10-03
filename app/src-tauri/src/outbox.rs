@@ -138,6 +138,9 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         }
         Err(e) => uow.outbox().fail(row.id, &e.to_string()),
     })?;
+    if result.is_ok() && source.kind == "obsidian" {
+        crate::live::Live::vault_changed(app);
+    }
     Ok(true)
 }
 

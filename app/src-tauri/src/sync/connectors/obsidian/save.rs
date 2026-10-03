@@ -93,6 +93,7 @@ fn write_direct(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result<
         std::fs::create_dir_all(dir)?;
     }
     super::write_checked(&abs, disk.as_deref(), text).map_err(|e| msg(e.to_string()))?;
+    crate::live::Live::vault_changed(app);
     Ok(Saved::Written)
 }
 

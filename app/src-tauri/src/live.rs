@@ -11,8 +11,11 @@
 //!   `since` (or empty after `WAIT`). A result's `seq` orders it against
 //!   others for the same subscription; `gone` lists the `ids` the core no
 //!   longer has (dropped while the client was idle), to subscribe again.
+//! - A command that also reads vault files (`Route::ReadFiles`) counts the
+//!   vault as one more table, `VAULT`, changed by `vault_changed`.
 //! - Every subscription is also re-run each `REFRESH`: results that depend on
-//!   the time, and writes no hook here saw (another app on the same data dir).
+//!   the time, and writes no hook here saw (another app on the same data dir,
+//!   a vault edit without a watcher).
 //! - A client that stops waiting for `IDLE` has its subscriptions dropped.
 
 use crate::api::{Ctx, Route};
@@ -28,6 +31,8 @@ const REFRESH: Duration = Duration::from_secs(60);
 const IDLE: Duration = Duration::from_secs(120);
 /// A table name meaning "all of them": settings changed.
 const ALL: &str = "*";
+/// Not a table: the vault's files, read by `Route::ReadFiles` commands.
+const VAULT: &str = "vault:";
 
 #[derive(Default)]
 pub struct Live {
@@ -70,25 +75,39 @@ impl Live {
     pub fn refresh_all(app: &App) {
         app.store().changes().touch([ALL.to_owned()]);
     }
+
+    /// Re-run what read vault files soon: a note changed on disk.
+    pub fn vault_changed(app: &App) {
+        app.store().changes().touch([VAULT.to_owned()]);
+    }
 }
 
-fn read_fn(cmd: &str) -> Result<fn(&dyn crate::domain::ports::Reads, &Ctx, &Value) -> Result<Value>> {
+fn read_route(cmd: &str) -> Result<Route> {
     match crate::api::route_of(cmd) {
-        Some(Route::Read(f)) => Ok(f),
+        Some(r @ (Route::Read(_) | Route::ReadFiles(_))) => Ok(r),
         _ => Err(msg(format!("'{cmd}' can't be a live query (only routed reads can)"))),
     }
 }
 
 /// Run a read command, with the tables it read.
 fn run(app: &App, cmd: &str, args: &Value) -> Result<(Value, BTreeSet<String>)> {
-    let f = read_fn(cmd)?;
-    let settings = app.settings();
-    let ctx = Ctx { clock: &app.clock, settings: &settings };
-    app.store().read_traced(|r| f(r, &ctx, args))
+    match read_route(cmd)? {
+        Route::Read(f) => {
+            let settings = app.settings();
+            let ctx = Ctx { clock: &app.clock, settings: &settings };
+            app.store().read_traced(|r| f(r, &ctx, args))
+        }
+        Route::ReadFiles(f) => {
+            let (out, mut tables) = app.store().traced(|| f(app, args))?;
+            tables.insert(VAULT.to_owned());
+            Ok((out, tables))
+        }
+        Route::Write(_) => unreachable!("read_route returns reads only"),
+    }
 }
 
 pub fn subscribe(app: &App, client: &str, cmd: &str, args: Value) -> Result<Value> {
-    read_fn(cmd)?;
+    read_route(cmd)?;
     start(app);
     // Registered before its first run, matching every table: a commit that
     // lands meanwhile re-runs it, and the newer run's result is kept.
@@ -325,6 +344,72 @@ mod tests {
         changed(&app);
         app.store().write(|uow| uow.categories().replace(&[])).unwrap();
         assert!(changed(&app).contains("categories"));
+    }
+
+    #[test]
+    fn a_query_that_reads_notes_reruns_when_the_vault_or_its_tables_change() {
+        let (app, _d) = app();
+        let id: i64 = app.store().read(|r| Ok(r.topics().list(false, app.clock.now(), app.clock.now())?[0].id)).unwrap();
+        let sub = subscribe(&app, "c1", "topics.get", json!({ "id": id })).unwrap();
+        let sid = sub["id"].as_u64().unwrap();
+        let path = sub["result"]["note"]["abs_path"].as_str().unwrap().to_owned();
+        {
+            let st = app.live.lock();
+            let tables = &st.subs[&sid].tables;
+            assert!(tables.contains("topics") && tables.contains("topic_links") && tables.contains(VAULT), "{tables:?}");
+        }
+        changed(&app);
+        let t0 = ticket(&app, sid);
+
+        // The note edited outside any write: re-run once the vault is announced.
+        std::fs::write(&path, "Edited in Obsidian\n").unwrap();
+        Live::vault_changed(&app);
+        let tables = changed(&app);
+        assert_eq!(rerun_now(&app, &tables), 1);
+        assert_eq!(app.live.lock().subs[&sid].result["note"]["text"], "Edited in Obsidian\n");
+
+        // A Notes line touches nothing it read; a rename does.
+        let today = app.clock.today();
+        app.store().write(|uow| uow.note_lines().insert(today, 0, "note", "x", &Default::default())).unwrap();
+        let t1 = ticket(&app, sid);
+        assert!(t1 > t0);
+        assert_eq!(rerun_now(&app, &changed(&app)), 0);
+        assert_eq!(ticket(&app, sid), t1);
+        app.store().write(|uow| uow.topics().rename(id, "Renamed live")).unwrap();
+        assert_eq!(rerun_now(&app, &changed(&app)), 1);
+        assert!(app.live.lock().subs[&sid].result.to_string().contains("Renamed live"));
+    }
+
+    #[test]
+    fn reflect_is_live_too() {
+        let (app, _d) = app();
+        let sub = subscribe(&app, "c1", "reflect.get", json!({ "scope": "week" })).unwrap();
+        let sid = sub["id"].as_u64().unwrap();
+        assert!(app.live.lock().subs[&sid].tables.contains(VAULT));
+        // The week's note, written where the page reads it.
+        let path = app.vault.join(sub["result"]["note"]["path"].as_str().unwrap());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "A calm week.\n").unwrap();
+        Live::vault_changed(&app);
+        assert_eq!(rerun_now(&app, &changed(&app)), 1);
+        assert_eq!(app.live.lock().subs[&sid].result["note"]["text"], "A calm week.\n");
+    }
+
+    #[test]
+    fn a_traced_read_notes_every_snapshot_and_refuses_writes() {
+        let (app, _d) = app();
+        let ((), tables) = app
+            .store()
+            .traced(|| {
+                app.store().read(|r| r.topics().list(false, app.clock.now(), app.clock.now()).map(drop))?;
+                app.store().read(|r| r.categories().list().map(drop))
+            })
+            .unwrap();
+        assert!(tables.contains("topics") && tables.contains("categories"), "{tables:?}");
+        let refused = app.store().traced(|| app.store().write(|uow| uow.topics().rename(1, "nope")));
+        assert!(refused.is_err());
+        // Tracing ended with the closure: reads and writes are ordinary again.
+        app.store().write(|uow| uow.categories().replace(&[])).unwrap();
     }
 
     #[test]

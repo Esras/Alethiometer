@@ -4,9 +4,10 @@
   // counts (Can wait starts compact). Clicking or j/k/h/l *selects* (tinted row,
   // aqua right edge) and fills the Selected bar; ↵ opens the topic, o opens the
   // item in its app, p peeks, v toggles the selected quadrant's eye.
-  import { call, openExternal } from '../lib/api';
+  import { openExternal } from '../lib/api';
   import { catColor, openTopic, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
+  import { live } from '../lib/live';
   import { sourceLabel } from '../lib/sources';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Pill from '../lib/ui/Pill.svelte';
@@ -30,16 +31,14 @@
   let mainEl = $state<HTMLElement>();
   const rowEls: Record<string, HTMLElement> = {};
 
-  // Reload on writes and once a minute (the "meeting in 8m" pill is computed live).
-  const minute = $derived(Math.floor(ui.nowMs / 60_000));
-  $effect(() => {
-    void ui.rev;
-    void minute;
-    call<PrioritiesData>('priorities.list').then((d) => {
+  // A live query: re-run on writes, and once a minute (the "meeting in 8m"
+  // pill is computed from the time).
+  $effect(() =>
+    live<PrioritiesData>('priorities.list', {}, (d) => {
       quads = d.quadrants;
       clampSel();
-    });
-  });
+    }),
+  );
 
   function chipsOf(items: PriorityRow[]): TopicChip[] {
     const out: TopicChip[] = [];
