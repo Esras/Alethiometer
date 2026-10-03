@@ -21,6 +21,7 @@ use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
 use super::todos::{TodoViews, Todos};
 use super::topics::{TopicViews, Topics};
+use super::usage::{Usage, UsageViews};
 
 /// Read models, one port per screen or area.
 pub trait Reads {
@@ -37,6 +38,7 @@ pub trait Reads {
     fn sources(&self) -> &dyn SourceViews;
     fn todos(&self) -> &dyn TodoViews;
     fn topics(&self) -> &dyn TopicViews;
+    fn usage(&self) -> &dyn UsageViews;
 }
 
 /// One request's changes. Reads inside it see its own writes.
@@ -55,4 +57,5 @@ pub trait UnitOfWork {
     fn splits(&self) -> &dyn Splits;
     fn todos(&self) -> &dyn Todos;
     fn topics(&self) -> &dyn Topics;
+    fn usage(&self) -> &dyn Usage;
 }

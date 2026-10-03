@@ -272,17 +272,17 @@ fn rename_sources(app: &App, before: &Value, new: &Settings) -> Result<()> {
     if old.len() != new.sources.len() {
         return Ok(());
     }
-    let conn = app.db();
-    for ((kind, was), now) in old.iter().zip(&new.sources) {
-        if *kind == now.kind && *was != now.name {
-            let taken: bool = conn.query_row("SELECT EXISTS (SELECT 1 FROM sources WHERE kind = ?1 AND name = ?2)", rusqlite::params![kind, now.name], |r| r.get(0))?;
-            if taken {
-                return Err(msg(format!("a {kind} source named '{}' already has data here; pick another name", now.name)));
+    app.store().write(|uow| {
+        for ((kind, was), now) in old.iter().zip(&new.sources) {
+            if *kind == now.kind && *was != now.name {
+                if uow.reads().sources().find(kind, &now.name)?.is_some() {
+                    return Err(msg(format!("a {kind} source named '{}' already has data here; pick another name", now.name)));
+                }
+                uow.sources().rename(kind, was, &now.name)?;
             }
-            conn.execute("UPDATE sources SET name = ?3 WHERE kind = ?1 AND name = ?2", rusqlite::params![kind, was, now.name])?;
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -389,13 +389,12 @@ fn join_names(names: &[String]) -> String {
 /// Register sources and restart the ones whose settings changed. Returns their names.
 fn restart_changed_sources(app: &App, old: &[SourceConfig], new: &[SourceConfig]) -> Vec<String> {
     let ids: Vec<(i64, String)> = {
-        let conn = app.db();
-        if let Err(e) = crate::sync::register_sources(&conn, new) {
+        if let Err(e) = app.store().write(|uow| crate::sync::register(uow, new)) {
             eprintln!("settings: {e}");
         }
         let gone: Vec<&SourceConfig> = old.iter().filter(|o| !new.iter().any(|n| n.kind == o.kind && n.name == o.name)).collect();
-        for g in gone {
-            let _ = conn.execute("UPDATE sources SET enabled = 0 WHERE kind = ?1 AND name = ?2", rusqlite::params![g.kind, g.name]);
+        if let Err(e) = app.store().write(|uow| gone.iter().try_for_each(|g| uow.sources().disable(&g.kind, &g.name))) {
+            eprintln!("settings: {e}");
         }
         let changed = |s: &SourceConfig| old.iter().find(|o| o.kind == s.kind && o.name == s.name) != Some(s);
         let mut ids = vec![];
@@ -408,7 +407,7 @@ fn restart_changed_sources(app: &App, old: &[SourceConfig], new: &[SourceConfig]
             if !differs {
                 continue;
             }
-            if let Ok(id) = conn.query_row("SELECT id FROM sources WHERE kind = ?1 AND name = ?2", rusqlite::params![s.kind, s.name], |r| r.get::<_, i64>(0)) {
+            if let Ok(Some(id)) = app.store().read(|r| r.sources().find(&s.kind, &s.name)) {
                 if !ids.iter().any(|(i, _)| *i == id) {
                     ids.push((id, s.name.clone()));
                 }
@@ -434,8 +433,7 @@ pub fn restart_sources_using(app: &App, secret: &str) -> Vec<String> {
     let s = app.settings();
     let mut names = vec![];
     for src in s.sources.iter().filter(|x| x.enabled && sources::secrets(&x.kind, &x.config).iter().any(|k| k.name == secret)) {
-        let id = app.db().query_row("SELECT id FROM sources WHERE kind = ?1 AND name = ?2", rusqlite::params![src.kind, src.name], |r| r.get::<_, i64>(0));
-        if let Ok(id) = id {
+        if let Ok(Some(id)) = app.store().read(|r| r.sources().find(&src.kind, &src.name)) {
             if let Some(a) = app.arc().filter(|_| crate::sync::running_threads()) {
                 crate::sync::start_source(a, id);
             }

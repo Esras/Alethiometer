@@ -23,6 +23,9 @@ pub trait SourceViews {
     fn get(&self, id: i64) -> Result<Option<SourceRow>>;
     /// Every source, by kind and name.
     fn all(&self) -> Result<Vec<SourceRow>>;
+    fn find(&self, kind: &str, name: &str) -> Result<Option<i64>>;
+    /// Per Slack channel of a source: the latest message since `since` and how many.
+    fn channel_activity(&self, source_id: i64, since: crate::time::Ts) -> Result<Vec<(String, crate::time::Ts, i64)>>;
 }
 
 pub trait Sources {
@@ -30,6 +33,10 @@ pub trait Sources {
     fn ensure_local(&self, kind: &str, name: &str) -> Result<i64>;
     /// A source from settings: its row (by kind and name) made or updated.
     fn register(&self, kind: &str, name: &str, tag: &str, config_json: &str, enabled: bool) -> Result<()>;
+    /// A source renamed in settings keeps its data. False when there's no such source.
+    fn rename(&self, kind: &str, from: &str, to: &str) -> Result<bool>;
+    /// Gone from settings: kept, but off.
+    fn disable(&self, kind: &str, name: &str) -> Result<()>;
     /// The last sync failed.
     fn set_error(&self, id: i64, error: &str) -> Result<()>;
     /// Mark it synced now (the UI reloads on this).

@@ -66,10 +66,9 @@ fn get(app: &App) -> Result<Value> {
         values["sources"] = s.clone();
     }
     let status = crate::api::call(app, "sync.status", &json!({}))?;
-    let glean_used = crate::glean::used_today(&app.db(), &app.clock).unwrap_or(0);
+    let glean_used = crate::glean::used_today(app).unwrap_or(0);
     let embed = crate::embed::call(app, "status", &json!({}))?;
     let settings = app.settings();
-    let conn = app.db();
     let mut srcs = vec![];
     for (i, s) in settings.sources.iter().enumerate() {
         let row = status.as_array().and_then(|a| a.iter().find(|r| r["kind"] == s.kind.as_str() && r["name"] == s.name.as_str())).cloned();
@@ -96,13 +95,12 @@ fn get(app: &App) -> Result<Value> {
         }));
     }
     let (day_start, day_end) = app.clock.day_range(app.clock.today());
-    let usage: Vec<Value> = conn
-        .prepare(
-            "SELECT model, count(*), sum(input_tokens) + sum(output_tokens) FROM ai_usage
-              WHERE at >= ?1 AND at < ?2 GROUP BY model",
-        )?
-        .query_map(rusqlite::params![day_start, day_end], |r| Ok(json!({ "model": r.get::<_, String>(0)?, "calls": r.get::<_, i64>(1)?, "tokens": r.get::<_, i64>(2)? })))?
-        .collect::<rusqlite::Result<_>>()?;
+    let usage: Vec<Value> = app
+        .store()
+        .read(|r| r.usage().ai_by_model(day_start, day_end))?
+        .into_iter()
+        .map(|(model, calls, tokens)| json!({ "model": model, "calls": calls, "tokens": tokens }))
+        .collect();
     let kinds: Vec<Value> = sources::KINDS
         .iter()
         .map(|(k, label)| json!({ "kind": k, "label": label, "fields": schema::source_fields(k), "defaults": sources::defaults(k) }))
@@ -141,7 +139,7 @@ pub fn fonts() -> Vec<Value> {
 
 /// Channels you're in, with what Alethiometer saw of them in the last 14 days.
 fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
-    let source = crate::sync::load_source(&app.db(), source_id)?;
+    let source = app.store().read(|r| crate::sync::source(r, source_id))?;
     if source.kind != "slack" {
         return Err(msg("not a Slack source"));
     }
@@ -150,21 +148,13 @@ fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
     let http = crate::sync::http::UreqHttp::default();
     let chans = crate::sync::connectors::slack::member_channels(&http, token).map_err(|e| msg(e.to_string()))?;
     let since = app.clock.now() - jiff::SignedDuration::from_hours(24 * 14);
-    let conn = app.db();
-    let mut stmt = conn.prepare(
-        "SELECT json_extract(i.raw_json, '$.channel'), max(m.at), count(m.id)
-           FROM items i JOIN item_messages m ON m.item_id = i.id
-          WHERE i.source_id = ?1 AND m.at >= ?2 AND m.context = 0 GROUP BY 1",
-    )?;
-    let stats: std::collections::HashMap<String, (String, i64)> = stmt
-        .query_map(rusqlite::params![source_id, since], |r| Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), (r.get::<_, String>(1)?, r.get::<_, i64>(2)?))))?
-        .filter_map(|r| r.ok())
-        .collect();
+    let stats: std::collections::HashMap<String, (crate::time::Ts, i64)> =
+        app.store().read(|r| r.sources().channel_activity(source_id, since))?.into_iter().map(|(c, last, n)| (c, (last, n))).collect();
     let out: Vec<Value> = chans
         .into_iter()
         .map(|(id, name, private)| {
-            let (last, n) = stats.get(&id).cloned().unwrap_or_default();
-            json!({ "id": id, "name": name, "private": private, "last": if last.is_empty() { Value::Null } else { json!(last) }, "per_day": (n as f64 / 14.0 * 10.0).round() / 10.0 })
+            let (last, n) = stats.get(&id).map_or((None, 0), |(l, n)| (Some(*l), *n));
+            json!({ "id": id, "name": name, "private": private, "last": last, "per_day": (n as f64 / 14.0 * 10.0).round() / 10.0 })
         })
         .collect();
     Ok(json!(out))

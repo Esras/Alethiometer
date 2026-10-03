@@ -12,9 +12,8 @@
 use crate::error::{msg, Result};
 use crate::state::App;
 use crate::sync::http::{Http, UreqHttp};
-use crate::sync::{load_source, Ctx};
+use crate::sync::Ctx;
 use base64::Engine;
-use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -384,13 +383,14 @@ fn pick_source(app: &App, args: &Value) -> Result<crate::sync::Source> {
         Some(id) => id,
         None => {
             let kind = args.get("kind").and_then(Value::as_str).unwrap_or("gcal");
-            app.db()
-                .query_row("SELECT id FROM sources WHERE kind = ?1 ORDER BY id LIMIT 1", [kind], |r| r.get(0))
-                .optional()?
+            app.store()
+                .read(|r| r.sources().of_kind(kind))?
+                .first()
+                .map(|s| s.id)
                 .ok_or_else(|| msg(format!("no {kind} source in settings.json")))?
         }
     };
-    let src = load_source(&app.db(), id)?;
+    let src = app.store().read(|r| crate::sync::source(r, id))?;
     if src.kind != "gcal" && src.kind != "gmail" {
         return Err(msg(format!("source {id} isn't a Google source")));
     }

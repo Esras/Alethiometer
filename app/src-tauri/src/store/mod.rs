@@ -32,6 +32,7 @@ pub mod sources;
 pub mod splits;
 pub mod todos;
 pub mod topics;
+pub mod usage;
 pub mod utc_migration;
 
 use crate::domain::ports::{Reads, UnitOfWork};
@@ -208,6 +209,7 @@ ports!(Reads {
     sources: crate::domain::sources::SourceViews,
     todos: crate::domain::todos::TodoViews,
     topics: crate::domain::topics::TopicViews,
+    usage: crate::domain::usage::UsageViews,
 });
 
 ports!(UnitOfWork {
@@ -225,6 +227,7 @@ ports!(UnitOfWork {
     splits: crate::domain::splits::Splits,
     todos: crate::domain::todos::Todos,
     topics: crate::domain::topics::Topics,
+    usage: crate::domain::usage::Usage,
 });
 
 #[cfg(test)]
@@ -303,6 +306,28 @@ mod tests {
         go_tx.send(()).unwrap();
         assert_eq!(reader.join().unwrap(), (Some(10), Some(10)), "one snapshot for the whole read");
         assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(45));
+    }
+
+    /// The Glean quota is checked and counted in one unit of work: many
+    /// searches at once take exactly the calls left.
+    #[test]
+    fn concurrent_glean_calls_never_pass_the_daily_limit() {
+        let (db, _dir) = file_db();
+        let db = std::sync::Arc::new(db);
+        let day = crate::time::Date::constant(2026, 10, 3);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+        let threads: Vec<_> = (0..12)
+            .map(|_| {
+                let (db, barrier) = (db.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    db.write(|uow| uow.usage().take_glean_call(day, 5)).unwrap()
+                })
+            })
+            .collect();
+        let took = threads.into_iter().map(|t| t.join().unwrap()).filter(|t| *t).count();
+        assert_eq!(took, 5);
+        assert_eq!(db.read(|r| r.usage().glean_calls(day)).unwrap(), 5);
     }
 
     #[test]

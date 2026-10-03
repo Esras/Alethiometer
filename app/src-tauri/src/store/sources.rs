@@ -30,6 +30,23 @@ impl SourceViews for Sql<'_> {
         Ok(self.conn().prepare_cached(&format!("SELECT {COLS} FROM sources WHERE kind = ?1 ORDER BY id"))?.query_map([kind], row)?.collect::<rusqlite::Result<_>>()?)
     }
 
+    fn find(&self, kind: &str, name: &str) -> Result<Option<i64>> {
+        use rusqlite::OptionalExtension;
+        Ok(self.conn().query_row("SELECT id FROM sources WHERE kind = ?1 AND name = ?2", [kind, name], |r| r.get(0)).optional()?)
+    }
+
+    fn channel_activity(&self, source_id: i64, since: crate::time::Ts) -> Result<Vec<(String, crate::time::Ts, i64)>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT json_extract(i.raw_json, '$.channel'), max(m.at), count(m.id)
+                   FROM items i JOIN item_messages m ON m.item_id = i.id
+                  WHERE i.source_id = ?1 AND m.at >= ?2 AND m.context = 0 GROUP BY 1",
+            )?
+            .query_map(rusqlite::params![source_id, since], |r| Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn all(&self) -> Result<Vec<SourceRow>> {
         Ok(self.conn().prepare_cached(&format!("SELECT {COLS} FROM sources ORDER BY kind, name"))?.query_map([], row)?.collect::<rusqlite::Result<_>>()?)
     }
@@ -47,6 +64,15 @@ impl crate::domain::sources::Sources for Sql<'_> {
                 params![kind, tag, name, config_json, enabled],
             )?,
         };
+        Ok(())
+    }
+
+    fn rename(&self, kind: &str, from: &str, to: &str) -> Result<bool> {
+        Ok(self.conn().execute("UPDATE sources SET name = ?3 WHERE kind = ?1 AND name = ?2", rusqlite::params![kind, from, to])? == 1)
+    }
+
+    fn disable(&self, kind: &str, name: &str) -> Result<()> {
+        self.conn().execute("UPDATE sources SET enabled = 0 WHERE kind = ?1 AND name = ?2", rusqlite::params![kind, name])?;
         Ok(())
     }
 

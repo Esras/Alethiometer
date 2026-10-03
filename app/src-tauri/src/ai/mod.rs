@@ -105,10 +105,7 @@ pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, ma
             let creds = (deps.creds)().map_err(|e| msg(e.to_string()))?;
             let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens, effort: tier_effort(t) };
             let reply = bedrock::converse(deps.http, &creds, &req, deps.time).map_err(|e| msg(e.to_string()))?;
-            app.db().execute(
-                "INSERT INTO ai_usage (tier, model, input_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![tier_name(tier), t.model, reply.input_tokens, reply.output_tokens],
-            )?;
+            app.store().write(|uow| uow.usage().record_ai(tier_name(tier), &t.model, reply.input_tokens as i64, reply.output_tokens as i64))?;
             reply.answer().map_err(|e| msg(e.to_string()))
         }
         other => Err(msg(format!("No client for provider '{other}'"))),
@@ -205,18 +202,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "label": label(ai), "region": ai.region, "small": tier(Tier::Small), "large": tier(Tier::Large) }))
         }
         "usage" => {
-            let conn = app.db();
-            let mut stmt = conn.prepare(
-                "SELECT tier, model, at >= ?1, count(*), sum(input_tokens), sum(output_tokens)
-                   FROM ai_usage WHERE at >= ?2 GROUP BY 1, 2, 3 ORDER BY tier DESC",
-            )?;
             let today_start = app.clock.day_range(app.clock.today()).0;
             let week_ago = app.clock.now() - jiff::SignedDuration::from_hours(24 * 7);
-            let rows = stmt
-                .query_map(rusqlite::params![today_start, week_ago], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let rows = app.store().read(|r| r.usage().ai_since(today_start, week_ago))?;
             let mut out: Vec<Value> = vec![];
-            for (tier, model, today, calls, input, output) in rows {
+            for crate::domain::usage::AiUsage { tier, model, today, calls, input, output } in rows {
                 if !out.iter().any(|u| u["tier"] == tier.as_str()) {
                     let zero = json!({ "calls": 0, "input": 0, "output": 0, "cost": 0.0 });
                     out.push(json!({ "tier": tier, "today": zero, "week": zero }));

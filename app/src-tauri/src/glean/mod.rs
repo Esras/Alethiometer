@@ -18,7 +18,7 @@ use crate::error::{msg, Result};
 use crate::settings::sources::GleanConfig;
 use crate::state::App;
 use crate::sync::http::Http;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -93,8 +93,8 @@ pub fn config(app: &App) -> Option<GleanConfig> {
 static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<Hit>)>>> = Mutex::new(None);
 
 /// The real date: the daily limit is Glean's quota, not the dev clock's.
-pub fn used_today(conn: &Connection, clock: &crate::clock::Clock) -> Result<i64> {
-    Ok(conn.query_row("SELECT n FROM glean_calls WHERE day = ?1", [clock.real_today()], |r| r.get(0)).optional()?.unwrap_or(0))
+pub fn used_today(app: &App) -> Result<i64> {
+    app.store().read(|r| r.usage().glean_calls(app.clock.real_today()))
 }
 
 /// Search Glean for `query`. Cached per query for `cache_minutes`; counts
@@ -114,16 +114,12 @@ pub fn search(app: &App, http: &dyn Http, query: &str) -> std::result::Result<Ve
             }
         }
     }
-    {
-        let conn = app.db();
-        let used = used_today(&conn, &app.clock).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
-        if used >= cfg.calls_per_day {
-            return Err(Unavailable::Limit { per_day: cfg.calls_per_day });
-        }
-        let _ = conn.execute(
-            "INSERT INTO glean_calls (day, n) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET n = n + 1",
-            [app.clock.real_today()],
-        );
+    // Checked and counted in one unit of work (BEGIN IMMEDIATE), so two searches can't both pass the
+    // limit, even from two processes on one data dir (the app and the devserver).
+    let day = app.clock.real_today();
+    let took = app.store().write(|uow| uow.usage().take_glean_call(day, cfg.calls_per_day)).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
+    if !took {
+        return Err(Unavailable::Limit { per_day: cfg.calls_per_day });
     }
     let body = request_body(&cfg, query);
     let url = format!("{}/rest/api/v1/search", cfg.server_url.trim_end_matches('/'));
@@ -323,7 +319,7 @@ pub mod tests {
         let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(body["query"], "datadog renewal");
         assert_eq!(body["pageSize"], 30);
-        assert_eq!(used_today(&app.db(), &app.clock).unwrap(), 1);
+        assert_eq!(used_today(&app).unwrap(), 1);
         search(&app, &http, "q2").unwrap();
         search(&app, &http, "q3").unwrap();
         assert_eq!(search(&app, &http, "q4").unwrap_err(), Unavailable::Limit { per_day: 3 });
