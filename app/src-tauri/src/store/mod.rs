@@ -211,6 +211,7 @@ ports!(UnitOfWork {
     links: crate::domain::links::Links,
     note_lines: crate::domain::notes::NoteLines,
     outbox: crate::domain::outbox::Outbox,
+    people: crate::domain::people::People,
     sources: crate::domain::sources::Sources,
     splits: crate::domain::splits::Splits,
     todos: crate::domain::todos::Todos,

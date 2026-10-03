@@ -100,7 +100,7 @@ impl App {
         }
         crate::settings::live::startup(&app, problem);
         // People notes may have changed while the app was closed.
-        crate::queries::people::scan(&app.db(), &app.vault)?;
+        crate::queries::people::rescan(&app)?;
         Ok(app)
     }
 

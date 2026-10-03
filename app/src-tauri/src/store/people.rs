@@ -1,7 +1,9 @@
 //! People notes, accounts and source profiles.
 
 use super::Sql;
-use crate::domain::people::{AccountRow, Directory, LinkedPerson, PeopleViews, PersonRow, Profile, SeenAuthor, TopicAuthor};
+use crate::domain::people::{AccountRow, Directory, LinkedPerson, People, PeopleViews, PersonNote, PersonRow, Profile, SeenAuthor, TopicAuthor};
+use rusqlite::{params, OptionalExtension};
+use std::collections::HashSet;
 use crate::error::Result;
 use crate::time::Ts;
 
@@ -91,5 +93,104 @@ impl PeopleViews for Sql<'_> {
             .prepare_cached("SELECT p.id, p.display_name, p.role FROM topic_people tp JOIN people p ON p.id = tp.person_id WHERE tp.topic_id = ?1")?
             .query_map([topic_id], |r| Ok(LinkedPerson { id: r.get(0)?, name: r.get(1)?, role: r.get(2)? }))?
             .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn notes_linking(&self, note_path: &str, name: &str, limit: usize) -> Result<Vec<String>> {
+        let stem = note_path.trim_end_matches(".md");
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT DISTINCT json_extract(i.raw_json, '$.path') FROM items i JOIN sources s ON s.id = i.source_id
+                  WHERE s.kind = 'obsidian' AND s.tag = 'work' AND i.kind = 'note' AND i.status = 'open'
+                    AND json_extract(i.raw_json, '$.path') != ?3
+                    AND (instr(i.body, '[[' || ?1 || ']]') OR instr(i.body, '[[' || ?1 || '|') OR instr(i.body, '[[' || ?2 || ']]') OR instr(i.body, '[[' || ?2 || '|'))
+                  LIMIT ?4",
+            )?
+            .query_map(params![stem, name, note_path, limit as i64], |x| x.get::<_, Option<String>>(0))?
+            .filter_map(|x| x.transpose())
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn filed_by(&self, person_id: i64, limit: usize) -> Result<Vec<(String, i64, Ts)>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT t.name, count(DISTINCT i.id), max(m.at) FROM topic_links tl
+                   JOIN topics t ON t.id = tl.topic_id JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                   JOIN item_messages m ON m.item_id = i.id
+                  WHERE tl.state = 'confirmed' AND s.tag = 'work' AND m.context = 0 AND m.author_id IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM person_accounts pa WHERE pa.person_id = ?1 AND pa.account = CASE pa.kind
+                          WHEN 'email' THEN lower(m.author_id) WHEN 'github' THEN lower(replace(m.author_id, 'github:', '')) ELSE m.author_id END)
+                  GROUP BY t.id ORDER BY max(m.at) DESC LIMIT ?2",
+            )?
+            .query_map(params![person_id, limit as i64], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn note_of(&self, person_id: i64) -> Result<Option<(String, String)>> {
+        Ok(self
+            .conn()
+            .query_row("SELECT note_path, display_name FROM people WHERE id = ?1 AND note_path IS NOT NULL", [person_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?)
+    }
+}
+
+impl People for Sql<'_> {
+    fn mirror(&self, notes: &[PersonNote]) -> Result<()> {
+        let c = self.conn();
+        c.execute("DELETE FROM person_accounts", [])?;
+        let mut keep: HashSet<i64> = HashSet::new();
+        for n in notes {
+            let aliases = serde_json::to_string(&n.aliases)?;
+            let existing: Option<i64> = c.query_row("SELECT id FROM people WHERE note_path = ?1", [&n.path], |r| r.get(0)).optional()?;
+            let id = match existing {
+                Some(id) => {
+                    c.execute(
+                        "UPDATE people SET display_name = ?2, role = coalesce(?3, role), color = ?4, aliases_json = ?5 WHERE id = ?1",
+                        params![id, n.name, n.role, n.color, aliases],
+                    )?;
+                    id
+                }
+                None => {
+                    c.execute(
+                        "INSERT INTO people (display_name, role, note_path, color, aliases_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![n.name, n.role, n.path, n.color, aliases],
+                    )?;
+                    c.last_insert_rowid()
+                }
+            };
+            for (kind, account) in &n.accounts {
+                c.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, account, id])?;
+            }
+            keep.insert(id);
+        }
+        let noted: Vec<i64> = c.prepare("SELECT id FROM people WHERE note_path IS NOT NULL")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        for id in noted.into_iter().filter(|id| !keep.contains(id)) {
+            c.execute("UPDATE people SET note_path = NULL, color = NULL WHERE id = ?1", [id])?;
+        }
+        Ok(())
+    }
+
+    fn note_queued(&self, path: &str, name: &str, account: Option<(&str, &str)>) -> Result<()> {
+        let c = self.conn();
+        let id: i64 = match c.query_row("SELECT id FROM people WHERE note_path = ?1", [path], |r| r.get(0)).optional()? {
+            Some(id) => id,
+            None => {
+                c.execute("INSERT INTO people (display_name, note_path) VALUES (?1, ?2)", params![name, path])?;
+                c.last_insert_rowid()
+            }
+        };
+        if let Some((kind, acct)) = account {
+            c.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, acct, id])?;
+        }
+        Ok(())
+    }
+
+    fn snooze(&self, kind: &str, account: &str, until: Ts) -> Result<()> {
+        self.conn().execute(
+            "INSERT INTO person_snoozes (kind, account, until) VALUES (?1, ?2, ?3) ON CONFLICT (kind, account) DO UPDATE SET until = ?3",
+            params![kind, account, until],
+        )?;
+        Ok(())
     }
 }

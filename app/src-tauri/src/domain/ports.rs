@@ -12,7 +12,7 @@ use super::items::Items;
 use super::links::Links;
 use super::notes::{NoteLines, NotesViews};
 use super::outbox::Outbox;
-use super::people::PeopleViews;
+use super::people::{People, PeopleViews};
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
@@ -41,6 +41,7 @@ pub trait UnitOfWork {
     fn links(&self) -> &dyn Links;
     fn note_lines(&self) -> &dyn NoteLines;
     fn outbox(&self) -> &dyn Outbox;
+    fn people(&self) -> &dyn People;
     fn sources(&self) -> &dyn Sources;
     fn splits(&self) -> &dyn Splits;
     fn todos(&self) -> &dyn Todos;

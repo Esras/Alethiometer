@@ -30,12 +30,14 @@ use super::arg_str;
 use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::settings::PeopleSettings;
-use crate::domain::ports::Reads;
+use crate::api::Route;
+use crate::domain::people::PersonNote;
+use crate::domain::ports::{Reads, UnitOfWork};
 use crate::state::App;
 use crate::sync::connectors::obsidian::save::{disk_text, save_note, Saved};
 use crate::clock::Clock;
 use crate::time::Ts;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -285,65 +287,49 @@ pub fn note_name(display: &str) -> String {
 /// notes were read. A person whose note is gone keeps its row (topics may
 /// point at it) but loses its note path and accounts.
 pub fn scan(conn: &Connection, vault: &Path) -> Result<usize> {
-    let mut notes: Vec<(String, String, String)> = vec![];
-    if let Ok(rd) = std::fs::read_dir(vault.join(PEOPLE_DIR)) {
-        for e in rd.flatten() {
-            let p = e.path();
-            let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
-            let Some(stem) = p.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".md")) else { continue };
-            if !is_file || stem.starts_with('.') {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&p) else { continue };
-            notes.push((format!("{PEOPLE_DIR}/{stem}.md"), stem.to_string(), text));
-        }
-    }
-    notes.sort();
+    let notes = read_notes(vault);
     let tx = conn.unchecked_transaction()?;
-    tx.execute("DELETE FROM person_accounts", [])?;
-    let mut keep: HashSet<i64> = HashSet::new();
-    for (rel, stem, text) in &notes {
-        let f = parse_frontmatter(text);
-        let role = field(&f, "role").first().cloned();
-        let color = field(&f, "color").first().and_then(|c| c.parse::<u8>().ok());
-        let aliases = json!(field(&f, "aliases")).to_string();
-        let existing: Option<i64> = tx.query_row("SELECT id FROM people WHERE note_path = ?1", [rel], |r| r.get(0)).optional()?;
-        let id = match existing {
-            Some(id) => {
-                tx.execute(
-                    "UPDATE people SET display_name = ?2, role = coalesce(?3, role), color = ?4, aliases_json = ?5 WHERE id = ?1",
-                    params![id, stem, role, color, aliases],
-                )?;
-                id
-            }
-            None => {
-                tx.execute(
-                    "INSERT INTO people (display_name, role, note_path, color, aliases_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![stem, role, rel, color, aliases],
-                )?;
-                tx.last_insert_rowid()
-            }
-        };
-        for kind in KINDS {
-            for v in field(&f, kind) {
-                let acct = norm(kind, v);
-                if !acct.is_empty() {
-                    // Two notes claiming one account: the first (by path) keeps it.
-                    tx.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, acct, id])?;
-                }
-            }
-        }
-        keep.insert(id);
-    }
-    let noted: Vec<i64> = tx
-        .prepare("SELECT id FROM people WHERE note_path IS NOT NULL")?
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    for id in noted.into_iter().filter(|id| !keep.contains(id)) {
-        tx.execute("UPDATE people SET note_path = NULL, color = NULL WHERE id = ?1", [id])?;
-    }
+    UnitOfWork::people(&crate::store::over(&tx)).mirror(&notes)?;
     tx.commit()?;
     Ok(notes.len())
+}
+
+/// `scan`, with the vault read before the database is touched.
+pub fn rescan(app: &App) -> Result<usize> {
+    let notes = read_notes(&app.vault);
+    app.store().write(|uow| uow.people().mirror(&notes))?;
+    Ok(notes.len())
+}
+
+/// Every note in `People/`, by path.
+fn read_notes(vault: &Path) -> Vec<PersonNote> {
+    let mut notes: Vec<PersonNote> = vec![];
+    let Ok(rd) = std::fs::read_dir(vault.join(PEOPLE_DIR)) else { return notes };
+    for e in rd.flatten() {
+        let p = e.path();
+        let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
+        let Some(stem) = p.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".md")) else { continue };
+        if !is_file || stem.starts_with('.') {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let f = parse_frontmatter(&text);
+        let accounts = KINDS
+            .iter()
+            .flat_map(|kind| field(&f, kind).iter().map(|v| (kind.to_string(), norm(kind, v))))
+            .filter(|(_, a)| !a.is_empty())
+            .collect();
+        notes.push(PersonNote {
+            path: format!("{PEOPLE_DIR}/{stem}.md"),
+            name: stem.to_string(),
+            role: field(&f, "role").first().cloned(),
+            color: field(&f, "color").first().and_then(|c| c.parse::<u8>().ok()),
+            aliases: field(&f, "aliases").to_vec(),
+            accounts,
+        });
+    }
+    notes.sort();
+    notes
 }
 
 /// Scan after a sync batch that touched `People/` (or on its first run).
@@ -728,10 +714,10 @@ pub fn for_topic(reads: &dyn Reads, r: &Resolver, topic_id: i64, clock: &Clock, 
 /// What the assistant may know about a topic's people, one link away only:
 /// each known person's note (gist), the notes that link to it, and which
 /// topics their signals were filed under, how often and how recently.
-pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
-    let r = Resolver::load(&crate::store::over(conn), &PeopleSettings::default())?;
+pub fn agent_context(reads: &dyn Reads, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
+    let r = Resolver::load(reads, &PeopleSettings::default())?;
     let mut out = String::new();
-    for p in for_topic(&crate::store::over(conn), &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
+    for p in for_topic(reads, &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
         let Some(person) = p.id.and_then(|id| r.person(id)) else { continue };
         out.push_str(&format!("- {}", person.name));
         if let Some(role) = &person.role {
@@ -743,43 +729,19 @@ pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, clock: &Clo
         if !gist.is_empty() {
             out.push_str(&format!("  Note: {gist}\n"));
         }
-        let stem = person.note_path.trim_end_matches(".md");
-        let links: Vec<String> = conn
-            .prepare(
-                "SELECT DISTINCT json_extract(i.raw_json, '$.path') FROM items i JOIN sources s ON s.id = i.source_id
-                  WHERE s.kind = 'obsidian' AND s.tag = 'work' AND i.kind = 'note' AND i.status = 'open'
-                    AND json_extract(i.raw_json, '$.path') != ?3
-                    AND (instr(i.body, '[[' || ?1 || ']]') OR instr(i.body, '[[' || ?1 || '|') OR instr(i.body, '[[' || ?2 || ']]') OR instr(i.body, '[[' || ?2 || '|'))
-                  LIMIT 6",
-            )?
-            .query_map(params![stem, person.name, person.note_path], |x| x.get::<_, Option<String>>(0))?
-            .filter_map(|x| x.ok().flatten())
-            .collect();
+        let links = reads.people().notes_linking(&person.note_path, &person.name, 6)?;
         if !links.is_empty() {
             out.push_str(&format!("  Linked from: {}\n", links.join(", ")));
         }
-        let mut filed: Vec<(String, i64, String)> = conn
-            .prepare(
-                "SELECT t.name, count(DISTINCT i.id), max(m.at) FROM topic_links tl
-                   JOIN topics t ON t.id = tl.topic_id JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-                   JOIN item_messages m ON m.item_id = i.id
-                  WHERE tl.state = 'confirmed' AND s.tag = 'work' AND m.context = 0 AND m.author_id IS NOT NULL
-                    AND EXISTS (SELECT 1 FROM person_accounts pa WHERE pa.person_id = ?1 AND pa.account = CASE pa.kind
-                          WHEN 'email' THEN lower(m.author_id) WHEN 'github' THEN lower(replace(m.author_id, 'github:', '')) ELSE m.author_id END)
-                  GROUP BY t.id ORDER BY max(m.at) DESC LIMIT 5",
-            )?
-            .query_map([person.id], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        filed.retain(|f| f.1 > 0);
+        let filed: Vec<String> = reads
+            .people()
+            .filed_by(person.id, 5)?
+            .into_iter()
+            .filter(|f| f.1 > 0)
+            .map(|(t, n, at)| format!("{t} ({n}, last {})", crate::queries::ts_label(at, clock, false)))
+            .collect();
         if !filed.is_empty() {
-            let parts: Vec<String> = filed
-                .iter()
-                .map(|(t, n, at)| {
-                    let when = crate::queries::parse_ts(at).map(|x| crate::queries::ts_label(x, clock, false)).unwrap_or_default();
-                    format!("{t} ({n}, last {when})")
-                })
-                .collect();
-            out.push_str(&format!("  Their signals filed under: {}\n", parts.join("; ")));
+            out.push_str(&format!("  Their signals filed under: {}\n", filed.join("; ")));
         }
     }
     Ok(out)
@@ -798,14 +760,9 @@ pub struct Hit {
 }
 
 /// People notes matching `q` by name or alias (all of them when empty), best first.
-pub fn search(conn: &Connection, r: &Resolver, q: &str) -> Result<Vec<Hit>> {
+pub fn search(reads: &dyn Reads, r: &Resolver, q: &str) -> Result<Vec<Hit>> {
     let needle = q.trim().to_lowercase();
-    let aliases: HashMap<i64, Vec<String>> = conn
-        .prepare("SELECT id, aliases_json FROM people WHERE note_path IS NOT NULL")?
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
-        .filter_map(|x| x.ok())
-        .map(|(id, a)| (id, serde_json::from_str(&a).unwrap_or_default()))
-        .collect();
+    let aliases: HashMap<i64, Vec<String>> = reads.people().directory()?.people.into_iter().map(|p| (p.id, p.aliases)).collect();
     let mut hits: Vec<(u8, &Person)> = r
         .people()
         .filter_map(|p| {
@@ -843,24 +800,14 @@ fn account_args(args: &Value) -> Result<(String, String)> {
 /// After a write: the file is there (scan it) or the write is queued (record
 /// what it will say, so colours follow now; the next scan has the final word).
 fn after_write(app: &App, saved: Saved, rel: &str, name: &str, account: Option<&(String, String)>) -> Result<Value> {
-    let conn = app.db();
     match saved {
         Saved::Conflict(_) => Err(msg(format!("{rel} changed on disk while it was being edited; nothing was written. Try again."))),
         Saved::Written => {
-            scan(&conn, &app.vault)?;
+            rescan(app)?;
             Ok(json!({ "ok": true, "path": rel, "state": "written" }))
         }
         Saved::Queued(outbox_id) => {
-            let id: i64 = match conn.query_row("SELECT id FROM people WHERE note_path = ?1", [rel], |r| r.get(0)).optional()? {
-                Some(id) => id,
-                None => {
-                    conn.execute("INSERT INTO people (display_name, note_path) VALUES (?1, ?2)", params![name, rel])?;
-                    conn.last_insert_rowid()
-                }
-            };
-            if let Some((kind, acct)) = account {
-                conn.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, acct, id])?;
-            }
+            app.store().write(|uow| uow.people().note_queued(rel, name, account.map(|(k, a)| (k.as_str(), a.as_str()))))?;
             Ok(json!({ "ok": true, "path": rel, "state": "queued", "outbox_id": outbox_id }))
         }
     }
@@ -868,16 +815,12 @@ fn after_write(app: &App, saved: Saved, rel: &str, name: &str, account: Option<&
 
 /// 17b: add an account to an existing person's note.
 pub fn link(app: &App, person_id: i64, kind: &str, account: &str) -> Result<Value> {
-    let (rel, name): (String, String) = app
-        .db()
-        .query_row("SELECT note_path, display_name FROM people WHERE id = ?1 AND note_path IS NOT NULL", [person_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .optional()?
-        .ok_or_else(|| msg("that person has no note"))?;
+    let (rel, name) = app.store().read(|r| r.people().note_of(person_id))?.ok_or_else(|| msg("that person has no note"))?;
     let before = disk_text(app, &rel).ok_or_else(|| msg(format!("{rel} isn't in the vault any more")))?;
     let pair = (kind.to_string(), account.to_string());
     match add_to_frontmatter(&before, kind, account) {
         None => {
-            scan(&app.db(), &app.vault)?;
+            rescan(app)?;
             Ok(json!({ "ok": true, "path": rel, "state": "unchanged" }))
         }
         Some(after) => {
@@ -906,22 +849,29 @@ pub fn create(app: &App, name: &str, alias: Option<&str>, account: Option<(Strin
     after_write(app, saved, &rel, &name, account.as_ref())
 }
 
-pub fn snooze(conn: &Connection, kind: &str, account: &str, now: Ts) -> Result<()> {
-    let until = now + jiff::SignedDuration::from_hours(24 * 7);
-    conn.execute(
-        "INSERT INTO person_snoozes (kind, account, until) VALUES (?1, ?2, ?3) ON CONFLICT (kind, account) DO UPDATE SET until = ?3",
-        params![kind, account, until],
-    )?;
-    Ok(())
+/// Not now (17a): no suggestion for the account for a week.
+pub fn snooze(uow: &dyn UnitOfWork, kind: &str, account: &str, now: Ts) -> Result<()> {
+    uow.people().snooze(kind, account, now + jiff::SignedDuration::from_hours(24 * 7))
+}
+
+pub fn route(name: &str) -> Option<Route> {
+    Some(match name {
+        "search" => Route::Read(|r, ctx, args| {
+            let people = Resolver::load(r, &ctx.settings.people)?;
+            let q = args.get("q").and_then(Value::as_str).unwrap_or("");
+            Ok(json!(search(r, &people, q)?))
+        }),
+        "snooze" => Route::Write(|uow, ctx, args| {
+            let (kind, account) = account_args(args)?;
+            snooze(uow, &kind, &account, ctx.clock.now())?;
+            Ok(json!({ "ok": true }))
+        }),
+        _ => return None,
+    })
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "search" => {
-            let r = resolver(app)?;
-            let q = args.get("q").and_then(Value::as_str).unwrap_or("");
-            Ok(json!(search(&app.db(), &r, q)?))
-        }
         "link" => {
             let (kind, account) = account_args(args)?;
             link(app, super::arg_i64(args, "person_id")?, &kind, &account)
@@ -931,12 +881,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let alias = args.get("alias").and_then(Value::as_str);
             create(app, &arg_str(args, "name")?, alias, account)
         }
-        "snooze" => {
-            let (kind, account) = account_args(args)?;
-            snooze(&app.db(), &kind, &account, app.clock.now())?;
-            Ok(json!({ "ok": true }))
-        }
-        "rescan" => Ok(json!({ "notes": scan(&app.db(), &app.vault)? })),
+        "rescan" => Ok(json!({ "notes": rescan(app)? })),
         _ => Err(unknown(name)),
     }
 }
@@ -1141,7 +1086,7 @@ mod tests {
         s.suggest_after = 3;
         assert!(suggestions(&crate::store::over(&conn), &r, &s, now).unwrap().is_empty());
         s.suggest_after = 2;
-        snooze(&conn, "slack", "U0MARCO", now).unwrap();
+        snooze(&crate::store::over(&conn), "slack", "U0MARCO", now).unwrap();
         assert!(suggestions(&crate::store::over(&conn), &r, &s, now).unwrap().is_empty(), "Not now hides it for 7 days");
         assert_eq!(suggestions(&crate::store::over(&conn), &r, &s, now + jiff::SignedDuration::from_hours(24 * 8)).unwrap().len(), 0, "and the old signals age out meanwhile");
     }
@@ -1156,11 +1101,11 @@ mod tests {
         write(dir.path(), "Priya", "---\n---\n");
         scan(&conn, dir.path()).unwrap();
         let r = Resolver::load(&crate::store::over(&conn), &PeopleSettings::default()).unwrap();
-        let names: Vec<String> = search(&conn, &r, "sam").unwrap().into_iter().map(|h| h.name).collect();
+        let names: Vec<String> = search(&crate::store::over(&conn), &r, "sam").unwrap().into_iter().map(|h| h.name).collect();
         assert_eq!(names, ["Dana Ruiz", "Sam Kowalski", "Samir Patel"]);
-        let hit = search(&conn, &r, "kowal").unwrap().remove(0);
+        let hit = search(&crate::store::over(&conn), &r, "kowal").unwrap().remove(0);
         assert_eq!((hit.note_path.as_str(), hit.kinds.clone()), ("People/Sam Kowalski.md", vec!["slack".to_string(), "jira".to_string()]));
-        assert_eq!(search(&conn, &r, "").unwrap().len(), 4);
+        assert_eq!(search(&crate::store::over(&conn), &r, "").unwrap().len(), 4);
     }
 
     #[test]

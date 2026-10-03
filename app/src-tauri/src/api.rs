@@ -38,6 +38,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "topics" => queries::topics::route(name),
         "search" => queries::search::route(name),
         "categories" => queries::categories::route(name),
+        "people" => queries::people::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
     };

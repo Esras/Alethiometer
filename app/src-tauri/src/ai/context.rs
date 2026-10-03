@@ -156,7 +156,7 @@ pub fn for_topic(conn: &Connection, clock: &Clock, vault: &Path, topic_id: i64) 
     if !note.trim().is_empty() {
         ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(&note, NOTE_CAP)), None);
     }
-    let people = crate::queries::people::agent_context(conn, vault, topic_id, clock)?;
+    let people = crate::queries::people::agent_context(&crate::store::over(conn), vault, topic_id, clock)?;
     if !people.is_empty() {
         ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
     }

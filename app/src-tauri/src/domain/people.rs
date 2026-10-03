@@ -83,4 +83,36 @@ pub trait PeopleViews {
     fn authors_since(&self, since: Ts) -> Result<Vec<SeenAuthor>>;
     fn topic_authors(&self, topic_id: i64) -> Result<Vec<TopicAuthor>>;
     fn linked_to_topic(&self, topic_id: i64) -> Result<Vec<LinkedPerson>>;
+    /// Open work notes (vault paths) that link to a person's note, other than the note itself.
+    fn notes_linking(&self, note_path: &str, name: &str, limit: usize) -> Result<Vec<String>>;
+    /// Topics a person's messages were filed under: name, signals, latest message; most recent first.
+    fn filed_by(&self, person_id: i64, limit: usize) -> Result<Vec<(String, i64, Ts)>>;
+    /// A person's note path and name, when they have a note.
+    fn note_of(&self, person_id: i64) -> Result<Option<(String, String)>>;
+}
+
+/// A People note as read from the vault.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PersonNote {
+    /// Vault-relative ("People/Kim Lee.md").
+    pub path: String,
+    pub name: String,
+    pub role: Option<String>,
+    pub color: Option<u8>,
+    pub aliases: Vec<String>,
+    /// (kind, account), normalized.
+    pub accounts: Vec<(String, String)>,
+}
+
+pub trait People {
+    /// Make the people rows match these notes (every note in `People/`, by
+    /// path). A person whose note is gone keeps its row (topics may point at
+    /// it) but loses its note path and accounts. Two notes claiming one
+    /// account: the first keeps it.
+    fn mirror(&self, notes: &[PersonNote]) -> Result<()>;
+    /// A note write is queued: record the person and account now, so colours
+    /// follow; the next scan has the final word.
+    fn note_queued(&self, path: &str, name: &str, account: Option<(&str, &str)>) -> Result<()>;
+    /// Hide the new-person suggestion for an account until `until`.
+    fn snooze(&self, kind: &str, account: &str, until: Ts) -> Result<()>;
 }

@@ -12,7 +12,6 @@
 30 outbox.rs
 2 queries/incoming.rs
 1 queries/notes.rs
-15 queries/people.rs
 5 queries/priorities.rs
 25 queries/reflect.rs
 5 queries/topics.rs
