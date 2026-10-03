@@ -56,7 +56,7 @@ All `config` fields are optional:
 
 Restart Alethiometer after editing `settings.json`. The first sync fails with "isn't connected to Google yet", and the sync status in the tab bar shows **Connect** next to the Gmail source. Press it: your browser opens Google's consent screen for `gmail.modify`. Approve with your work account and Alethiometer saves `gmail.refresh_token`, then syncs. It's the same flow as the calendar (PKCE, loopback redirect on `127.0.0.1`; see [gcal.md](gcal.md) §4).
 
-From the dev server: `curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_start -d '{"kind": "gmail"}'`, then `gcal.auth_status` with the same body. `{"source_id": N}` works too.
+From the dev server: `curl -s -H 'X-Alethiometer: 1' -X POST http://127.0.0.1:1421/call/gcal.auth_start -d '{"kind": "gmail"}'`, then `gcal.auth_status` with the same body. `{"source_id": N}` works too.
 
 ## What is read
 

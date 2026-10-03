@@ -5,6 +5,12 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] } },
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: { ignored: ['**/src-tauri/**'] },
+    // Browser mode: the dev server, from the UI's own origin (it sends no CORS headers).
+    proxy: { '/call': { target: process.env.ALETHIOMETER_DEVSERVER ?? 'http://127.0.0.1:1421', changeOrigin: true } },
+  },
   build: { target: 'safari16', outDir: 'dist', emptyOutDir: true },
 });

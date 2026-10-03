@@ -37,6 +37,8 @@ ALETHIOMETER_FAKE_NOW=10:52 npm run devserver   # builds the agent host (agentd)
 npm run dev                              # UI on http://localhost:1420
 ```
 
+The UI reaches the dev server through Vite's `/call` proxy. The dev server answers only loopback hosts and pages, sends no CORS headers, and needs `X-Alethiometer: 1` on every call (`curl -H 'X-Alethiometer: 1' -X POST 127.0.0.1:1421/call/app.info -d '{}'`), so other sites open in the browser can't read or change your data.
+
 `ALETHIOMETER_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.alethiometer-dev/` to re-seed.
 
 Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses).

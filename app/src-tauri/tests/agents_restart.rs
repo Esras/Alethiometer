@@ -221,7 +221,7 @@ impl Server {
     }
 
     fn call(&self, cmd: &str, args: Value) -> Result<Value, String> {
-        let mut r = ureq::post(&format!("{}{cmd}", self.url)).send_json(&args).map_err(|e| e.to_string())?;
+        let mut r = ureq::post(&format!("{}{cmd}", self.url)).header("X-Alethiometer", "1").send_json(&args).map_err(|e| e.to_string())?;
         r.body_mut().read_json::<Value>().map_err(|e| e.to_string())
     }
 

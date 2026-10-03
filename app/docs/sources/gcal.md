@@ -85,14 +85,14 @@ All `config` fields are optional:
 Restart Alethiometer after editing `settings.json`, then call the API. With the browser dev server:
 
 ```sh
-curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_start -d '{}'
+curl -s -H 'X-Alethiometer: 1' -X POST http://127.0.0.1:1421/call/gcal.auth_start -d '{}'
 # → {"url": "https://accounts.google.com/o/oauth2/v2/auth?…", "redirect_uri": "http://127.0.0.1:53817", …}
 ```
 
 Open `url` in your browser, pick your work account and approve. The tab should say "Alethiometer is connected". Then:
 
 ```sh
-curl -s -X POST http://127.0.0.1:1421/call/gcal.auth_status -d '{}'
+curl -s -H 'X-Alethiometer: 1' -X POST http://127.0.0.1:1421/call/gcal.auth_status -d '{}'
 # → {"state": "connected", "has_refresh_token": true, …}
 ```
 
