@@ -89,6 +89,19 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
+/// Fill the index cache in the background at startup, so the first Notes
+/// page doesn't read every topic's text itself (about 2 s at 200k items). A
+/// page load that comes first just does the same work; the cache stays
+/// right either way, since every entry is checked against its revision.
+pub fn warm(app: std::sync::Arc<App>) -> Option<std::thread::JoinHandle<()>> {
+    let spawned = std::thread::Builder::new().name("notes-warm".into()).spawn(move || {
+        if let Err(e) = index(&app) {
+            eprintln!("notes: warming the suggestion index failed: {e}");
+        }
+    });
+    spawned.map_err(|e| eprintln!("notes: couldn't start warming the suggestion index: {e}")).ok()
+}
+
 /// The suggestion index: the database's part on a snapshot, then the topics' notes from the vault.
 fn index(app: &App) -> Result<Index> {
     let snap = app.store().read(|r| snapshot(&app.notes_index, r))?;
@@ -840,6 +853,17 @@ mod tests {
 
     fn by_text<'a>(page: &'a Value, starts: &str) -> &'a Value {
         page["lines"].as_array().unwrap().iter().find(|l| l["text"].as_str().unwrap().starts_with(starts)).unwrap()
+    }
+
+    #[test]
+    fn after_warming_the_first_page_reads_no_topic_text() {
+        let (app, _d) = app();
+        let unread = |app: &App| app.store().read(|r| snapshot(&app.notes_index, r)).unwrap().texts.len();
+        assert!(unread(&app) > 0, "a cold cache reads every topic");
+        let app = std::sync::Arc::new(app);
+        warm(app.clone()).unwrap().join().unwrap();
+        assert_eq!(unread(&app), 0);
+        assert_eq!(by_text(&today_page(&app), "Priya")["target"]["label"], "People/Priya");
     }
 
     #[test]

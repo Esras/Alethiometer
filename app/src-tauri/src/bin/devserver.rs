@@ -23,6 +23,7 @@ fn main() -> anyhow::Result<()> {
     alethiometer_lib::sync::start(app.clone());
     alethiometer_lib::settings::live::watch(app.clone());
     alethiometer_lib::embed::start(app.clone());
+    alethiometer_lib::queries::notes::warm(app.clone());
     alethiometer_lib::outbox::start(app.clone());
     alethiometer_lib::agents::start(app.clone());
     let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());

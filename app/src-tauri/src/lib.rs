@@ -40,6 +40,7 @@ mod desktop {
         crate::outbox::start(app.clone());
         crate::settings::live::watch(app.clone());
         crate::embed::start(app.clone());
+        crate::queries::notes::warm(app.clone());
         crate::agents::start(app.clone());
         let scale = app.settings().ui_scale.clamp(0.5, 3.0);
         let core = app.clone();
