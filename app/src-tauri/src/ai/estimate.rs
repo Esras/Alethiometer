@@ -83,7 +83,7 @@ pub fn estimate_todos(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
         let conn = app.db();
         let mut out = vec![];
         let unestimated = |t: &&todos::Todo| t.estimate.is_none() && !matches!(&t.ext, TodoExt::Jira(j) if j.is_epic());
-        for t in todos::list(&conn, app.clock.now())?.iter().filter(unestimated).take(limit) {
+        for t in todos::list(&conn, &app.clock)?.iter().filter(unestimated).take(limit) {
             out.push((t.item_id, prompt(&conn, t)?));
         }
         out
@@ -139,7 +139,7 @@ mod tests {
         let out = estimate_todos(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 10).unwrap();
         assert_eq!((out.status, out.estimated), ("ok", 1));
         assert_eq!(http.requests().len(), 1, "only the todo without an estimate is asked about");
-        let list = todos::list(&app.db(), app.clock.now()).unwrap();
+        let list = todos::list(&app.db(), &app.clock).unwrap();
         let est = |t: &str| list.iter().find(|x| x.title == t).and_then(|x| x.estimate.clone()).map(|e| (e.minutes, e.by));
         assert_eq!(est("Reply to Kim"), Some((20, "you".into())));
         assert_eq!(est("Review the retry PR"), Some((90, "ai".into())));

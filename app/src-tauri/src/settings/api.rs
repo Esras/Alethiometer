@@ -95,12 +95,13 @@ fn get(app: &App) -> Result<Value> {
             "used_today": if s.kind == "glean" { json!(glean_used) } else { Value::Null },
         }));
     }
+    let (day_start, day_end) = app.clock.day_range(app.clock.today());
     let usage: Vec<Value> = conn
         .prepare(
             "SELECT model, count(*), sum(input_tokens) + sum(output_tokens) FROM ai_usage
-              WHERE date(at) = date('now', 'localtime') GROUP BY model",
+              WHERE at >= ?1 AND at < ?2 GROUP BY model",
         )?
-        .query_map([], |r| Ok(json!({ "model": r.get::<_, String>(0)?, "calls": r.get::<_, i64>(1)?, "tokens": r.get::<_, i64>(2)? })))?
+        .query_map(rusqlite::params![day_start, day_end], |r| Ok(json!({ "model": r.get::<_, String>(0)?, "calls": r.get::<_, i64>(1)?, "tokens": r.get::<_, i64>(2)? })))?
         .collect::<rusqlite::Result<_>>()?;
     let kinds: Vec<Value> = sources::KINDS
         .iter()
@@ -148,7 +149,7 @@ fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
     let token = app.platform.secret_get(&cfg.user_token_secret).ok_or_else(|| msg(format!("set {} first", cfg.user_token_secret)))?;
     let http = crate::sync::http::UreqHttp::default();
     let chans = crate::sync::connectors::slack::member_channels(&http, token).map_err(|e| msg(e.to_string()))?;
-    let since = crate::seed::fmt(app.clock.now() - chrono::Duration::days(14));
+    let since = app.clock.now() - jiff::SignedDuration::from_hours(24 * 14);
     let conn = app.db();
     let mut stmt = conn.prepare(
         "SELECT json_extract(i.raw_json, '$.channel'), max(m.at), count(m.id)

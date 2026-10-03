@@ -21,8 +21,8 @@ pub mod rest;
 pub mod save;
 
 use crate::error::Result;
-use crate::seed::fmt;
 use crate::sync::{Batch, Connector, Ctx, ItemUpsert, Source};
+use crate::time::{Date, Due, Ts};
 use regex::Regex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
@@ -56,8 +56,8 @@ impl Connector for Obsidian {
             let abs = vault.join(rel);
             let Ok(bytes) = std::fs::read(&abs) else { continue }; // vanished mid-scan: next poll
             let text = String::from_utf8_lossy(&bytes);
-            let at = local_from_ms(*mtime);
-            items.extend(note_items(&vault, rel, &at, &text));
+            let at = Ts::from_unix_ms(*mtime).unwrap_or_default();
+            items.extend(note_items(&vault, rel, at, &text));
         }
         let cursor = serde_json::to_string(&Cursor { files })?;
         Ok(Batch { items, cursor: Some(cursor), ..Default::default() })
@@ -132,7 +132,7 @@ impl Store<'_> {
         match self {
             Store::File => {
                 if let Ok(m) = std::fs::metadata(abs).and_then(|m| m.modified()) {
-                    r["mtime"] = json!(fmt(local_naive(m)));
+                    r["mtime"] = json!(Ts::from_unix_ms(ms(m)));
                     r["mtime_ms"] = json!(ms(m));
                 }
                 r["via"] = json!("file");
@@ -336,16 +336,6 @@ fn ms(t: SystemTime) -> i64 {
     }
 }
 
-fn local_naive(t: SystemTime) -> chrono::NaiveDateTime {
-    chrono::DateTime::<chrono::Local>::from(t).naive_local()
-}
-
-fn local_from_ms(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|t| fmt(t.with_timezone(&chrono::Local).naive_local()))
-        .unwrap_or_default()
-}
-
 // ---------------------------------------------------------------- parsing
 
 /// `obsidian://open?path=<absolute path>`; every reserved character encoded,
@@ -391,12 +381,10 @@ fn clean_task(text: &str) -> String {
     t.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn due_of(text: &str) -> Option<String> {
+/// `📅 2026-10-01`: a calendar day.
+fn due_of(text: &str) -> Option<Due> {
     let c = due_re().captures(text)?;
-    let d = c.get(1).or_else(|| c.get(2))?.as_str();
-    chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()?;
-    // Date-only due; end of the working day, like the rest of the app.
-    Some(format!("{d}T{}", crate::queries::DAY_ONLY_DUE))
+    c.get(1).or_else(|| c.get(2))?.as_str().parse::<Date>().ok().map(Due::Day)
 }
 
 /// `x`, `X` and `-` (cancelled) close a task; other markers (` `, `/`, `>`…) leave it open.
@@ -449,7 +437,7 @@ fn cap(s: &str, n: usize) -> &str {
     &s[..i]
 }
 
-fn note_items(vault: &Path, rel: &str, at: &str, text: &str) -> Vec<ItemUpsert> {
+fn note_items(vault: &Path, rel: &str, at: Ts, text: &str) -> Vec<ItemUpsert> {
     let stem = rel.rsplit('/').next().unwrap_or(rel).trim_end_matches(".md").to_string();
     let url = obsidian_url(&vault.join(rel));
     let mut out = vec![ItemUpsert {
@@ -459,7 +447,7 @@ fn note_items(vault: &Path, rel: &str, at: &str, text: &str) -> Vec<ItemUpsert> 
         body: cap(text, BODY_CAP).to_string(),
         summary: summary_of(text),
         url: Some(url.clone()),
-        occurred_at: at.to_string(),
+        occurred_at: at,
         status: "open".into(),
         raw_json: json!({ "path": rel }),
         ..Default::default()
@@ -484,8 +472,8 @@ fn note_items(vault: &Path, rel: &str, at: &str, text: &str) -> Vec<ItemUpsert> 
             body: line.trim().to_string(),
             summary: Some(stem.clone()),
             url: Some(url.clone()),
-            occurred_at: at.to_string(),
-            due_at: due_of(&raw),
+            occurred_at: at,
+            due: due_of(&raw),
             status: if is_done(&c[2]) { "done" } else { "open" }.into(),
             owner: Some("you".into()),
             raw_json: json!({ "path": rel, "text": raw, "line": i + 1 }),
@@ -880,7 +868,7 @@ mod tests {
     fn poll(s: &Source) -> Batch {
         let http = FakeHttp::default();
         let secret = |_: &str| None;
-        let ctx = Ctx { source: s, http: &http, secret: &secret, now: chrono::Local::now().naive_local() };
+        let ctx = Ctx { source: s, http: &http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
         Obsidian.poll(&ctx).unwrap()
     }
 
@@ -888,7 +876,7 @@ mod tests {
         let s = src(v, None);
         let http = FakeHttp::default();
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &s, http: &http, secret: &secret, now: chrono::Local::now().naive_local() };
+        let ctx = Ctx { source: &s, http: &http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
         Obsidian.send(&ctx, op, &payload)
     }
 
@@ -897,7 +885,7 @@ mod tests {
         let mut s = src(v, None);
         s.config["write_mode"] = json!("obsidian");
         let secret = |k: &str| (k == rest::API_KEY).then(|| "k3y".to_string());
-        let ctx = Ctx { source: &s, http, secret: &secret, now: chrono::Local::now().naive_local() };
+        let ctx = Ctx { source: &s, http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
         Obsidian.send(&ctx, op, &payload)
     }
 
@@ -995,7 +983,7 @@ mod tests {
         let mut s = src(&v, None);
         s.config["write_mode"] = json!("obsidian");
         let none = |_: &str| None;
-        let ctx = Ctx { source: &s, http: &http, secret: &none, now: chrono::Local::now().naive_local() };
+        let ctx = Ctx { source: &s, http: &http, secret: &none, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
         let e = Obsidian.send(&ctx, "obsidian.replace", &json!({ "path": "T.md", "base": "a\n", "text": "b" })).unwrap_err().to_string();
         assert!(e.contains("obsidian.api_key"), "{e}");
         assert!(write_mode(&json!({ "write_mode": "disk" })).is_err());
@@ -1054,11 +1042,11 @@ mod tests {
             b.items.iter().filter(|i| i.kind == "task" && i.raw_json["path"] == "Topics/Datadog renewal.md").collect();
         assert_eq!(tasks.len(), 3);
         assert_eq!(tasks[0].title, "True-down at 12 months");
-        assert_eq!(tasks[0].due_at.as_deref(), Some("2026-10-01T23:59:59"));
+        assert_eq!(tasks[0].due, Some(Due::Day(jiff::civil::date(2026, 10, 1))));
         assert_eq!(tasks[0].owner.as_deref(), Some("you"));
         assert_eq!(tasks[0].summary.as_deref(), Some("Datadog renewal"));
-        assert_eq!((tasks[1].status.as_str(), tasks[1].due_at.as_deref()), ("done", None));
-        assert_eq!((tasks[2].title.as_str(), tasks[2].due_at.as_deref()), ("Cap on overage rate", Some("2026-10-03T23:59:59")));
+        assert_eq!((tasks[1].status.as_str(), tasks[1].due), ("done", None));
+        assert_eq!((tasks[2].title.as_str(), tasks[2].due), ("Cap on overage rate", Some(Due::Day(jiff::civil::date(2026, 10, 3)))));
         let numbered = b.items.iter().find(|i| i.kind == "task" && i.title == "numbered task").unwrap();
         assert_eq!(numbered.status, "open");
         let idea = b.items.iter().find(|i| i.title == "Idea #1").unwrap();
@@ -1087,11 +1075,11 @@ mod tests {
 
     #[test]
     fn task_ids_are_stable_and_ignore_due_edits() {
-        let a = note_items(Path::new("/v"), "n.md", "2026-09-28T10:00:00", "- [ ] Ship it\n- [ ] Ship it\n");
-        let b = note_items(Path::new("/v"), "n.md", "2026-09-28T10:00:00", "- [ ] Ship it 📅 2026-10-09\n- [ ] Ship it\n");
+        let a = note_items(Path::new("/v"), "n.md", Ts::parse("2026-09-28T10:00:00Z").unwrap(), "- [ ] Ship it\n- [ ] Ship it\n");
+        let b = note_items(Path::new("/v"), "n.md", Ts::parse("2026-09-28T10:00:00Z").unwrap(), "- [ ] Ship it 📅 2026-10-09\n- [ ] Ship it\n");
         assert_eq!(a[1].external_id, b[1].external_id);
         assert_eq!(a[2].external_id, format!("{}-2", a[1].external_id));
-        assert_eq!(b[1].due_at.as_deref(), Some("2026-10-09T23:59:59"));
+        assert_eq!(b[1].due, Some(Due::Day(jiff::civil::date(2026, 10, 9))));
     }
 
     fn db_with_topic(v: &Vault) -> (Connection, Source) {
@@ -1118,7 +1106,7 @@ mod tests {
     fn sync(conn: &Connection, id: i64) {
         let s = crate::sync::load_source(conn, id).unwrap();
         let b = poll(&s);
-        crate::sync::apply(conn, &s, &b).unwrap();
+        crate::sync::apply_now(conn, &s, &b).unwrap();
         after_apply(conn, &s, &b).unwrap();
     }
 
@@ -1199,7 +1187,7 @@ mod tests {
         assert_eq!(v.read("Topics/T.md"), "# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n");
         assert_eq!(r["line"], 5);
         assert_eq!(r["changed"], true);
-        assert_eq!(r["mtime"].as_str().unwrap().len(), 19);
+        assert!(crate::time::Ts::parse(r["mtime"].as_str().unwrap()).is_some());
         // A missing heading is created at the end.
         send(&v, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- note", "under_heading": "### Log" })).unwrap();
         assert!(v.read("Topics/T.md").ends_with("- x\n\n### Log\n- note\n"));
@@ -1224,7 +1212,7 @@ mod tests {
         let after = v.read("T.md");
         let r = append(under.clone());
         assert_eq!((r["changed"].as_bool(), r["line"].as_i64()), (Some(false), Some(5)));
-        assert_eq!(r["mtime"].as_str().unwrap().len(), 19);
+        assert!(crate::time::Ts::parse(r["mtime"].as_str().unwrap()).is_some());
         assert_eq!(v.read("T.md"), after);
 
         // Only the section's last line counts: the same words elsewhere are appended.

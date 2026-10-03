@@ -32,7 +32,8 @@ use crate::error::{msg, Result};
 use crate::settings::PeopleSettings;
 use crate::state::App;
 use crate::sync::connectors::obsidian::save::{disk_text, save_note, Saved};
-use chrono::NaiveDateTime;
+use crate::clock::Clock;
+use crate::time::Ts;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -580,12 +581,11 @@ fn bulk((kind, account): &(String, String)) -> bool {
 
 /// Unknown senders seen in at least `suggest_after` signals within `suggest_days`,
 /// not you and not snoozed, keyed by account.
-pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, now: NaiveDateTime) -> Result<HashMap<(String, String), Suggestion>> {
-    let since = crate::seed::fmt(now - chrono::Duration::days(settings.suggest_days));
-    let now_s = crate::seed::fmt(now);
+pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, now: Ts) -> Result<HashMap<(String, String), Suggestion>> {
+    let since = now - jiff::SignedDuration::from_hours(24 * settings.suggest_days);
     let snoozed: HashSet<(String, String)> = conn
         .prepare("SELECT kind, account FROM person_snoozes WHERE until > ?1")?
-        .query_map([&now_s], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map([now], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let bots: HashSet<(String, String)> = conn
         .prepare("SELECT kind, account FROM account_profiles WHERE is_bot = 1")?
@@ -605,7 +605,7 @@ pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, n
     /// Per account: signal roots, latest name, its time, its source.
     type Seen = (HashSet<i64>, String, String, String);
     let mut seen: HashMap<(String, String), Seen> = HashMap::new();
-    for row in stmt.query_map([&since], |r| {
+    for row in stmt.query_map([since], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
     })? {
         let (source, handle, name, root, at) = row?;
@@ -671,7 +671,7 @@ pub fn initials(name: &str) -> String {
 /// The topic's People panel: whoever wrote in its confirmed signals (by how
 /// many, then how recently) and anyone linked to the topic by hand. You're
 /// left out. Unknown senders show in their hash colour.
-pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, now: NaiveDateTime, max: usize) -> Result<Vec<TopicPerson>> {
+pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, max: usize) -> Result<Vec<TopicPerson>> {
     let mut stmt = conn.prepare(
         "SELECT s.kind, m.author_id, m.author, i.id, m.at
            FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
@@ -766,7 +766,7 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, now: NaiveDateT
         .take(max)
         .map(|(mut p, items, last)| {
             p.signals = items.len() as i64;
-            p.last = crate::queries::parse_ts(&last).map(|t| crate::queries::when_label(t, now, false));
+            p.last = crate::queries::parse_ts(&last).map(|t| crate::queries::ts_label(t, clock, false));
             p
         })
         .collect())
@@ -777,10 +777,10 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, now: NaiveDateT
 /// What the assistant may know about a topic's people, one link away only:
 /// each known person's note (gist), the notes that link to it, and which
 /// topics their signals were filed under, how often and how recently.
-pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, now: NaiveDateTime) -> Result<String> {
+pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
     let r = Resolver::load(conn, &PeopleSettings::default())?;
     let mut out = String::new();
-    for p in for_topic(conn, &r, topic_id, now, 9)?.into_iter().filter(|p| p.known) {
+    for p in for_topic(conn, &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
         let Some(person) = p.id.and_then(|id| r.person(id)) else { continue };
         out.push_str(&format!("- {}", person.name));
         if let Some(role) = &person.role {
@@ -824,7 +824,7 @@ pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, now: NaiveD
             let parts: Vec<String> = filed
                 .iter()
                 .map(|(t, n, at)| {
-                    let when = crate::queries::parse_ts(at).map(|x| crate::queries::when_label(x, now, false)).unwrap_or_default();
+                    let when = crate::queries::parse_ts(at).map(|x| crate::queries::ts_label(x, clock, false)).unwrap_or_default();
                     format!("{t} ({n}, last {when})")
                 })
                 .collect();
@@ -955,8 +955,8 @@ pub fn create(app: &App, name: &str, alias: Option<&str>, account: Option<(Strin
     after_write(app, saved, &rel, &name, account.as_ref())
 }
 
-pub fn snooze(conn: &Connection, kind: &str, account: &str, now: NaiveDateTime) -> Result<()> {
-    let until = crate::seed::fmt(now + chrono::Duration::days(7));
+pub fn snooze(conn: &Connection, kind: &str, account: &str, now: Ts) -> Result<()> {
+    let until = now + jiff::SignedDuration::from_hours(24 * 7);
     conn.execute(
         "INSERT INTO person_snoozes (kind, account, until) VALUES (?1, ?2, ?3) ON CONFLICT (kind, account) DO UPDATE SET until = ?3",
         params![kind, account, until],
@@ -1154,7 +1154,7 @@ mod tests {
         let conn = db();
         write(dir.path(), "Jordan", "---\nslack: U0JORDAN\n---\n");
         scan(&conn, dir.path()).unwrap();
-        let now = crate::queries::parse_ts("2026-09-30T12:00:00").unwrap();
+        let now = crate::time::t("2026-09-30T12:00:00");
         for (n, (who, id, day)) in
             [("Marco R.", "U0MARCO", 29), ("Marco R.", "U0MARCO", 28), ("Marco R.", "U0MARCO", 20), ("Jordan", "U0JORDAN", 29), ("Zach", "U0ME", 29)]
                 .iter()
@@ -1192,7 +1192,7 @@ mod tests {
         s.suggest_after = 2;
         snooze(&conn, "slack", "U0MARCO", now).unwrap();
         assert!(suggestions(&conn, &r, &s, now).unwrap().is_empty(), "Not now hides it for 7 days");
-        assert_eq!(suggestions(&conn, &r, &s, now + chrono::Duration::days(8)).unwrap().len(), 0, "and the old signals age out meanwhile");
+        assert_eq!(suggestions(&conn, &r, &s, now + jiff::SignedDuration::from_hours(24 * 8)).unwrap().len(), 0, "and the old signals age out meanwhile");
     }
 
     #[test]

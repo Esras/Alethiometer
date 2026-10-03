@@ -61,7 +61,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "clock_offset_ms": app.clock.offset_ms(),
                 "ai_label": crate::ai::label(&app.settings().ai),
                 "incoming_count": incoming,
-                "todo_count": queries::todos::list(&app.db(), app.clock.now())?.len(),
+                "todo_count": queries::todos::list(&app.db(), &app.clock)?.len(),
                 "platform": std::env::consts::OS,
                 "ui_scale": settings.ui_scale,
                 "ui_font": settings.ui_font,

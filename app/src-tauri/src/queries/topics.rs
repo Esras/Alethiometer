@@ -1,7 +1,10 @@
 //! Topics (7a): the root object. Upcoming, Open, Chronology, People, and the
 //! topic's Obsidian note.
 
-use super::{arg_i64, arg_str, due_is_day_only, due_label, dur_label, parse_ts, when_label, Pill};
+use super::{arg_i64, arg_str, due_label, dur_label, ts_label, Pill};
+use crate::clock::Clock;
+use crate::time::{Date, Due, Ts};
+use jiff::{SignedDuration, ToSpan};
 use crate::api::unknown;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
@@ -19,7 +22,7 @@ struct TopicRow {
     obsidian_path: Option<String>,
     new_count: i64,
     open_count: i64,
-    last_signal_at: Option<String>,
+    last_signal_at: Option<Ts>,
     last_signal: Option<String>,
     quiet: bool,
     next_meeting: Option<Meeting>,
@@ -27,7 +30,7 @@ struct TopicRow {
 
 #[derive(Serialize)]
 struct Meeting {
-    start: String,
+    start: Ts,
     title: String,
 }
 
@@ -290,8 +293,8 @@ fn default_note_path(name: &str) -> String {
 }
 
 fn list(app: &App, archived: bool) -> Result<Value> {
-    let now = app.clock.now();
-    let now_s = crate::seed::fmt(now);
+    let clock = &app.clock;
+    let now = clock.now();
     let conn = app.db();
     let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
     let mine = "tl.topic_id = t.id AND tl.state = 'confirmed'";
@@ -307,11 +310,11 @@ fn list(app: &App, archived: bool) -> Result<Value> {
                   WHERE {mine} AND e.start > ?1 AND e.start <= ?2 ORDER BY e.start LIMIT 1)
            FROM topics t WHERE (t.archived_at IS NOT NULL) = ?3"
     ))?;
-    let week = crate::seed::fmt(now + chrono::Duration::days(7));
-    let quiet_before = crate::seed::fmt(now - chrono::Duration::days(app.settings().quiet_days));
+    let week = now + SignedDuration::from_hours(24 * 7);
+    let quiet_before = now - SignedDuration::from_hours(24 * app.settings().quiet_days);
     let mut rows = stmt
-        .query_map(params![now_s, week, archived], |r| {
-            let last: Option<String> = r.get(6)?;
+        .query_map(params![now, week, archived], |r| {
+            let last: Option<Ts> = r.get(6)?;
             let source: Option<String> = r.get(7)?;
             let meeting: Option<String> = r.get(8)?;
             Ok(TopicRow {
@@ -321,19 +324,19 @@ fn list(app: &App, archived: bool) -> Result<Value> {
                 obsidian_path: r.get(3)?,
                 new_count: r.get(4)?,
                 open_count: r.get(5)?,
-                last_signal: last.as_deref().and_then(parse_ts).map(|t| last_label(t, now, source.as_deref())),
-                quiet: last.as_ref().is_none_or(|l| *l < quiet_before),
+                last_signal: last.map(|t| last_label(t, clock, source.as_deref())),
+                quiet: last.is_none_or(|l| l < quiet_before),
                 last_signal_at: last,
                 next_meeting: meeting.and_then(|m| {
                     let (start, title) = m.split_once('\t')?;
-                    Some(Meeting { start: start.into(), title: title.into() })
+                    Some(Meeting { start: Ts::parse(start)?, title: title.into() })
                 }),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     // Active first (next meeting soonest, then most recent signal), then quiet.
     rows.sort_by(|a, b| {
-        let meet = |t: &TopicRow| t.next_meeting.as_ref().map(|m| m.start.clone());
+        let meet = |t: &TopicRow| t.next_meeting.as_ref().map(|m| m.start);
         (a.quiet, meet(a).is_none(), meet(a))
             .cmp(&(b.quiet, meet(b).is_none(), meet(b)))
             .then_with(|| b.last_signal_at.cmp(&a.last_signal_at))
@@ -343,21 +346,22 @@ fn list(app: &App, archived: bool) -> Result<Value> {
 }
 
 /// "10:41 · Slack" today, then "Yesterday", a weekday within the week, else "Sep 25".
-fn last_label(t: chrono::NaiveDateTime, now: chrono::NaiveDateTime, source: Option<&str>) -> String {
-    match (now.date() - t.date()).num_days() {
+fn last_label(t: Ts, clock: &Clock, source: Option<&str>) -> String {
+    let t = clock.local(t);
+    match (clock.today() - t.date()).get_days() {
         0 => match source {
-            Some(s) => format!("{} · {}", t.format("%H:%M"), source_label(s)),
-            None => t.format("%H:%M").to_string(),
+            Some(s) => format!("{} · {}", t.strftime("%H:%M"), source_label(s)),
+            None => t.strftime("%H:%M").to_string(),
         },
         1 => "Yesterday".into(),
-        2..=6 => t.format("%a").to_string(),
-        _ => t.format("%b %-d").to_string(),
+        2..=6 => t.strftime("%a").to_string(),
+        _ => t.strftime("%b %-d").to_string(),
     }
 }
 
 fn set_archived(app: &App, id: i64, on: bool) -> Result<Value> {
     let n = app.db().execute(
-        "UPDATE topics SET archived_at = CASE WHEN ?2 THEN datetime('now') END WHERE id = ?1",
+        "UPDATE topics SET archived_at = CASE WHEN ?2 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END WHERE id = ?1",
         params![id, on],
     )?;
     if n == 0 {
@@ -384,8 +388,9 @@ fn source_label(kind: &str) -> &'static str {
 }
 
 fn get(app: &App, id: i64) -> Result<Value> {
-    let now = app.clock.now();
-    let now_s = crate::seed::fmt(now);
+    let clock = &app.clock;
+    let now = clock.now();
+    let today = clock.today();
     let conn = app.db();
 
     let (name, category, path, score, pills): (String, String, Option<String>, Option<f64>, String) = conn.query_row(
@@ -398,7 +403,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
     // All non-wrong links; suggestions still waiting in Incoming are left out.
     let mut stmt = conn.prepare(
         "SELECT i.id, s.kind, i.kind, i.title, i.summary, i.occurred_at, i.ended_at, i.due_at, i.status,
-                i.msg_count, i.owner, json_extract(i.raw_json, '$.recurringEventId')
+                i.msg_count, i.owner, json_extract(i.raw_json, '$.recurringEventId'), i.due_day
            FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
           WHERE tl.topic_id = ?1 AND tl.state = 'confirmed'",
     )?;
@@ -408,9 +413,9 @@ fn get(app: &App, id: i64) -> Result<Value> {
         kind: String,
         title: String,
         summary: Option<String>,
-        at: String,
-        ended: Option<String>,
-        due: Option<String>,
+        at: Ts,
+        ended: Option<Ts>,
+        due: Option<Due>,
         status: String,
         msgs: Option<i64>,
         owner: Option<String>,
@@ -426,7 +431,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 summary: r.get(4)?,
                 at: r.get(5)?,
                 ended: r.get(6)?,
-                due: r.get(7)?,
+                due: Due::from_columns(r.get(7)?, r.get::<_, Option<Date>>(12)?),
                 status: r.get(8)?,
                 msgs: r.get(9)?,
                 owner: r.get(10)?,
@@ -434,28 +439,28 @@ fn get(app: &App, id: i64) -> Result<Value> {
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut next_of_series: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    for r in rows.iter().filter(|r| r.at > now_s) {
+    let mut next_of_series: std::collections::HashMap<&str, Ts> = std::collections::HashMap::new();
+    for r in rows.iter().filter(|r| r.at > now) {
         if let Some(s) = &r.series {
-            let e = next_of_series.entry(s).or_insert(&r.at);
-            if r.at.as_str() < *e {
-                *e = &r.at;
+            let e = next_of_series.entry(s).or_insert(r.at);
+            if r.at < *e {
+                *e = r.at;
             }
         }
     }
 
     let mut upcoming = vec![];
     let mut open = vec![];
-    let mut chron: Vec<(String, Entry)> = vec![];
+    let mut chron: Vec<(Ts, Entry)> = vec![];
     for r in &rows {
-        let at = parse_ts(&r.at).unwrap_or(now);
+        let at = r.at;
         let is_event = r.kind == "event";
-        let mins = r.ended.as_deref().and_then(parse_ts).map(|e| (e - at).num_minutes());
-        if is_event && r.at > now_s && (at.date() - now.date()).num_days() <= 7 {
-            upcoming.push((r.at.clone(), Upcoming {
+        let mins = r.ended.map(|e| (e - at).as_mins());
+        if is_event && at > now && (clock.day_of(at) - today).get_days() <= 7 {
+            upcoming.push((at, Upcoming {
                 item_id: r.id,
-                when: when_label(at, now, true),
-                today: at.date() == now.date(),
+                when: ts_label(at, clock, true),
+                today: clock.day_of(at) == today,
                 source: r.source.clone(),
                 title: r.title.clone(),
                 sub: match (mins, &r.summary) {
@@ -471,8 +476,8 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 item_id: r.id,
                 source: r.source.clone(),
                 title: r.title.clone(),
-                due: r.due.as_deref().and_then(parse_ts).map(|d| Pill {
-                    label: format!("due {}", due_label(d, now)),
+                due: r.due.map(|d| Pill {
+                    label: format!("due {}", due_label(d, clock)),
                     weight: "yellow".into(),
                 }),
                 owner: r.owner.clone(),
@@ -480,9 +485,9 @@ fn get(app: &App, id: i64) -> Result<Value> {
         }
 
         // Timeline: open tasks sit at their due date; everything else at when it happened.
-        let (t_str, title, sub, right) = if is_task && r.status == "open" {
-            match &r.due {
-                Some(d) => (d.clone(), r.title.clone(), Some("due".to_string()), source_label(&r.source).to_string()),
+        let (t, title, sub, right) = if is_task && r.status == "open" {
+            match r.due {
+                Some(d) => (d.deadline(clock), r.title.clone(), Some("due".to_string()), source_label(&r.source).to_string()),
                 None => continue,
             }
         } else {
@@ -496,31 +501,30 @@ fn get(app: &App, id: i64) -> Result<Value> {
                 Some(s) if names => (format!("{} · {s}", r.title), None),
                 s => (r.title.clone(), s.clone()),
             };
-            (r.at.clone(), title, sub, right)
+            (r.at, title, sub, right)
         };
-        let t = parse_ts(&t_str).unwrap_or(now);
         let is_due = is_task && r.status == "open";
         // Events show their time; due dates show one only when they have it.
-        let has_time = is_event || (is_due && !due_is_day_only(t));
+        let has_time = is_event || (is_due && matches!(r.due, Some(Due::At(_))));
         let range = if r.kind == "thread" {
-            r.ended.as_deref().and_then(parse_ts).map(|e| format!("{}–{}", at.format("%H:%M"), e.format("%H:%M")))
+            r.ended.map(|e| format!("{}–{}", clock.local(at).strftime("%H:%M"), clock.local(e).strftime("%H:%M")))
         } else {
             None
         };
-        if r.series.as_deref().is_some_and(|s| r.at > now_s && next_of_series.get(s) != Some(&r.at.as_str())) {
+        if r.series.as_deref().is_some_and(|s| r.at > now && next_of_series.get(s) != Some(&r.at)) {
             continue;
         }
-        chron.push((t_str.clone(), Entry {
+        chron.push((t, Entry {
             item_id: r.id,
-            when: when_label(t, now, has_time),
+            when: ts_label(t, clock, has_time),
             // Only today's meetings are lit; due dates stay grey like everything else.
-            today: !is_due && t.date() == now.date(),
+            today: !is_due && clock.day_of(t) == today,
             source: r.source.clone(),
             title,
             range,
             sub,
             right,
-            open: t_str > now_s || (is_task && r.status == "open"),
+            open: t > now || (is_task && r.status == "open"),
         }));
     }
     upcoming.sort_by(|a, b| a.0.cmp(&b.0));
@@ -536,7 +540,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
 
     let people = {
         let r = super::people::Resolver::load(&conn, &app.settings().people)?;
-        super::people::for_topic(&conn, &r, id, now, 9)?
+        super::people::for_topic(&conn, &r, id, clock, 9)?
     };
 
     let repos = conn
@@ -573,10 +577,10 @@ fn is_names(s: &str) -> bool {
 pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
     let c = ctx.conn;
     let dd = "Datadog renewal";
-    let counter_due = ctx.today + chrono::Duration::days(2);
+    let counter_due = ctx.today + 2.days();
     let pills = serde_json::json!([
         { "label": "$ at stake", "weight": "red" },
-        { "label": format!("counter due {}", counter_due.format("%a")), "weight": "yellow" },
+        { "label": format!("counter due {}", counter_due.strftime("%a")), "weight": "yellow" },
         { "label": "prep today", "weight": "green" },
     ]);
     c.execute("UPDATE topics SET score = 5.8, pills_json = ?1 WHERE id = ?2", params![pills.to_string(), ctx.topic(dd)])?;
@@ -608,7 +612,7 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
         kind: "task",
         title: "Send counter-offer to Ravi".into(),
         occurred_at: ctx.at(-3, "09:00"),
-        due_at: Some(ctx.at(2, "17:00")),
+        due: Some(Due::At(ctx.at(2, "17:00"))),
         owner: Some("you".into()),
         ..Default::default()
     });
@@ -964,7 +968,7 @@ mod tests {
         let id = topic_id(&app, "Datadog renewal");
         let conn = app.db();
         let src: i64 = conn.query_row("SELECT id FROM sources LIMIT 1", [], |r| r.get(0)).unwrap();
-        for (ext, at) in [("s0", "2000-01-01T09:00:00"), ("s1", "2099-01-01T09:00:00"), ("s2", "2099-01-08T09:00:00")] {
+        for (ext, at) in [("s0", "2000-01-01T09:00:00.000Z"), ("s1", "2099-01-01T09:00:00.000Z"), ("s2", "2099-01-08T09:00:00.000Z")] {
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at, seen, raw_json)
                  VALUES (?1, ?2, 'event', 'Weekly sync', ?3, 1, '{\"recurringEventId\":\"S\"}')",
@@ -1015,20 +1019,22 @@ mod tests {
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": id })).unwrap();
         assert!(v["note"].as_str().unwrap().starts_with("No linked meetings today · next"));
         let dd = topic_id(&app, "Datadog renewal");
-        let today = app.clock.now().date().format("%Y-%m-%d").to_string();
+        let today = app.clock.today();
+        let (day_start, day_end) = app.clock.day_range(today);
+        let at = |hm: &str| app.clock.from_local(today.to_datetime(jiff::civil::Time::strptime("%H:%M:%S", hm).unwrap()));
         let set = |start: &str, end: &str| {
             app.db()
                 .execute(
-                    "UPDATE events SET start = ?2 || ?3, end = ?2 || ?4
-                      WHERE substr(start, 1, 10) = ?2 AND item_id IN (SELECT item_id FROM topic_links WHERE topic_id = ?1)",
-                    rusqlite::params![dd, today, start, end],
+                    "UPDATE events SET start = ?2, end = ?3
+                      WHERE start >= ?4 AND start < ?5 AND item_id IN (SELECT item_id FROM topic_links WHERE topic_id = ?1)",
+                    rusqlite::params![dd, at(start), at(end), day_start, day_end],
                 )
                 .unwrap()
         };
-        assert!(set("T00:01:00", "T23:59:59") > 0);
+        assert!(set("00:01:00", "23:59:59") > 0);
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": dd })).unwrap();
         assert!(v["note"].is_null(), "a linked meeting still to come today");
-        set("T00:01:00", "T00:02:00");
+        set("00:01:00", "00:02:00");
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": dd })).unwrap();
         assert!(v["note"].as_str().unwrap().starts_with("No more linked meetings today"), "{}", v["note"]);
     }

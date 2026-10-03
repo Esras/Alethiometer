@@ -9,7 +9,9 @@
 //!
 //! The connector can't read the database, so "did this event's time or guests
 //! change?" is answered from a small fingerprint map kept in the cursor next to
-//! the sync token (`{sync_token, full_on, seen: {id: "end|hash|n"}}`).
+//! the sync token (`{sync_token, full_on, seen: {id: "end|hash|n|start|guests|change"}}`;
+//! `end` and `start` are UTC instants, the hash is over the API's own start, end,
+//! status and guests, so it doesn't depend on how times are stored here).
 //!
 //! Writes (`send`): `gcal.rsvp` and `gcal.hold`, see `writeback`.
 
@@ -19,8 +21,10 @@ mod writeback;
 pub use oauth::call as auth_call;
 
 use crate::sync::http::Response;
-use crate::sync::{local_ts, Batch, Connector, Ctx, EventFields, Handle, ItemUpsert};
-use chrono::{Duration, NaiveDate, NaiveDateTime, TimeZone};
+use crate::clock::Clock;
+use crate::sync::{Batch, Connector, Ctx, EventFields, Handle, ItemUpsert};
+use crate::time::{Date, Ts};
+use jiff::SignedDuration;
 use oauth::TokenCache;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -148,10 +152,10 @@ struct Cursor {
 /// What the last poll saw of an event, to decide whether an update is new signal.
 #[derive(Clone, PartialEq, Debug)]
 struct Seen {
-    end: String,
+    end: Ts,
     hash: String,
     needs_action: bool,
-    start: String,
+    start: Option<Ts>,
     guests: String,
     change: String,
 }
@@ -166,10 +170,10 @@ impl Cursor {
                 m.iter()
                     .filter_map(|(id, e)| {
                         let mut p = e.as_str()?.split('|');
-                        let (end, hash, flag) = (p.next()?, p.next()?, p.next()?);
+                        let (end, hash, flag) = (Ts::parse(p.next()?)?, p.next()?, p.next()?);
                         let mut rest = || p.next().unwrap_or("").to_string();
-                        let (start, guests, change) = (rest(), rest(), rest());
-                        Some((id.clone(), Seen { end: end.into(), hash: hash.into(), needs_action: flag == "n", start, guests, change }))
+                        let (start, guests, change) = (Ts::parse(&rest()), rest(), rest());
+                        Some((id.clone(), Seen { end, hash: hash.into(), needs_action: flag == "n", start, guests, change }))
                     })
                     .collect()
             })
@@ -185,7 +189,10 @@ impl Cursor {
         let seen: Map<String, Value> = self
             .seen
             .iter()
-            .map(|(id, s)| (id.clone(), json!(format!("{}|{}|{}|{}|{}|{}", s.end, s.hash, if s.needs_action { "n" } else { "a" }, s.start, s.guests, s.change))))
+            .map(|(id, s)| {
+                let start = s.start.map(Ts::to_db).unwrap_or_default();
+                (id.clone(), json!(format!("{}|{}|{}|{}|{}|{}", s.end, s.hash, if s.needs_action { "n" } else { "a" }, start, s.guests, s.change)))
+            })
             .collect();
         json!({ "sync_token": self.sync_token, "full_on": self.full_on, "seen": seen }).to_string()
     }
@@ -197,8 +204,9 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     let cfg = Config::from(&ctx.source.config);
     let api = Api { ctx, cache };
     let mut cur = Cursor::parse(ctx.source.cursor.as_deref());
-    let today = ctx.now.date().format("%Y-%m-%d").to_string();
-    let window_start = ctx.now - Duration::days(cfg.days_back);
+    let today = ctx.clock.today().to_string();
+    let floor = ctx.now - SignedDuration::from_hours(24 * cfg.days_back);
+    let ceiling = ctx.now + SignedDuration::from_hours(24 * cfg.days_ahead);
 
     let incremental = cur.sync_token.clone().filter(|_| cur.full_on == today);
     let listed = match incremental {
@@ -214,9 +222,7 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
         }
     };
 
-    let floor = crate::seed::fmt(window_start);
-    let ceiling = crate::seed::fmt(ctx.now + Duration::days(cfg.days_ahead));
-    let now = crate::seed::fmt(ctx.now);
+    let now = ctx.now;
     let first = ctx.source.cursor.is_none();
     let mut batch = Batch::default();
     for ev in &events {
@@ -228,7 +234,7 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             }
             continue;
         }
-        let Some((item, seen)) = map_event(ev, &cfg, cur.seen.get(id)) else { continue };
+        let Some((item, seen)) = map_event(ev, &cfg, cur.seen.get(id), &ctx.clock) else { continue };
         if seen.end < floor || item.occurred_at > ceiling {
             continue;
         }
@@ -247,14 +253,14 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
 }
 
 /// All pages of one `events.list`. `Ok(None)` means 410 Gone (sync token expired).
-fn list(api: &Api, cfg: &Config, sync_token: Option<&str>, now: NaiveDateTime) -> anyhow::Result<Option<(Vec<Value>, String)>> {
+fn list(api: &Api, cfg: &Config, sync_token: Option<&str>, now: Ts) -> anyhow::Result<Option<(Vec<Value>, String)>> {
     // The same query both times: a sync token only works with the parameters it came from.
     let mut base = format!("{}?singleEvents=true&showDeleted=true&maxResults=250", cfg.events_url());
     match sync_token {
         Some(t) => base.push_str(&format!("&syncToken={}", enc(t))),
         None => {
-            let from = rfc3339_local(now - Duration::days(cfg.days_back));
-            let to = rfc3339_local(now + Duration::days(cfg.days_ahead));
+            let from = rfc3339(now - SignedDuration::from_hours(24 * cfg.days_back));
+            let to = rfc3339(now + SignedDuration::from_hours(24 * cfg.days_ahead));
             base.push_str(&format!("&timeMin={}&timeMax={}", enc(&from), enc(&to)));
         }
     }
@@ -289,14 +295,14 @@ fn list(api: &Api, cfg: &Config, sync_token: Option<&str>, now: NaiveDateTime) -
 // ---------------------------------------------------------------- mapping
 
 /// One Google event -> an item (plus a strip block when it's timed and not declined).
-fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpsert, Seen)> {
+fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Option<(ItemUpsert, Seen)> {
     let id = ev.get("id")?.as_str()?;
     // Working-location entries ("Home", "Office") aren't meetings.
     if ev.get("eventType").and_then(Value::as_str) == Some("workingLocation") {
         return None;
     }
-    let (start, start_all_day) = when(ev.get("start")?)?;
-    let (end, _) = when(ev.get("end")?)?;
+    let (start, start_all_day) = when(ev.get("start")?, clock)?;
+    let (end, _) = when(ev.get("end")?, clock)?;
     let attendees: Vec<&Value> = ev.get("attendees").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
     let me = attendees.iter().find(|a| a.get("self").and_then(Value::as_bool) == Some(true));
     // No own attendee entry: your own event without guests, so it's accepted.
@@ -311,11 +317,7 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
         .collect();
     let who = attendee_summary(&others);
 
-    let mut emails: Vec<&str> = others.iter().filter_map(|a| a.get("email").and_then(Value::as_str)).collect();
-    emails.sort_unstable();
-    let status = ev.get("status").and_then(Value::as_str).unwrap_or("confirmed");
-    let hash = format!("{:08x}", fnv(format!("{start}|{end}|{status}|{}", emails.join(",")).as_bytes()) as u32);
-    let guests = format!("{:08x}", fnv(emails.join(",").as_bytes()) as u32);
+    let (hash, guests) = fingerprint(ev);
     let bump = match prev {
         None => true,
         Some(p) => !declined && (p.hash != hash || (needs_action && !p.needs_action)),
@@ -324,11 +326,11 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
         None if needs_action => "invite".to_string(),
         None => "new".to_string(),
         Some(p) if !bump => p.change.clone(),
-        Some(p) if !p.start.is_empty() && (p.start != start || p.end != end) => format!("moved@{}", p.start),
+        Some(Seen { start: Some(was), .. }) if *was != start || p_end(prev) != Some(end) => format!("moved@{was}"),
         Some(p) if !p.guests.is_empty() && p.guests != guests => "guests".to_string(),
         Some(_) => "updated".to_string(),
     };
-    let seen = Seen { end: end.clone(), hash, needs_action, start: start.clone(), guests, change: change.clone() };
+    let seen = Seen { end, hash, needs_action, start: Some(start), guests, change: change.clone() };
 
     let category = ev
         .get("colorId")
@@ -372,9 +374,9 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
         summary: if notes.is_empty() { None } else { Some(notes.join(" · ")) },
         url: ev.get("htmlLink").and_then(Value::as_str).map(str::to_owned),
         author,
-        occurred_at: start.clone(),
-        ended_at: Some(end.clone()),
-        due_at: None,
+        occurred_at: start,
+        ended_at: Some(end),
+        due: None,
         status: if declined { "done".into() } else { "open".into() },
         raw_json: {
             let mut raw = ev.clone();
@@ -393,14 +395,45 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>) -> Option<(ItemUpser
     Some((item, seen))
 }
 
-/// Local naive timestamp and whether it's an all-day date.
-fn when(t: &Value) -> Option<(String, bool)> {
+/// The instant and whether it's an all-day date. An all-day date starts at
+/// midnight here (the zone at sync time; all-day events stay off the strip).
+fn when(t: &Value, clock: &Clock) -> Option<(Ts, bool)> {
     if let Some(dt) = t.get("dateTime").and_then(Value::as_str) {
-        // Offsets are always present in API responses; tolerate a bare local time anyway.
-        return local_ts(dt).or_else(|| NaiveDateTime::parse_from_str(dt, "%Y-%m-%dT%H:%M:%S").ok().map(crate::seed::fmt)).map(|s| (s, false));
+        // Offsets are always present in API responses; read a bare time in the event's own zone anyway.
+        return Ts::parse(dt)
+            .or_else(|| {
+                let tz = t.get("timeZone").and_then(Value::as_str).and_then(|z| jiff::tz::TimeZone::get(z).ok())?;
+                let wall: jiff::civil::DateTime = dt.parse().ok()?;
+                Some(Ts::new(tz.to_ambiguous_zoned(wall).compatible().ok()?.timestamp()))
+            })
+            .map(|s| (s, false));
     }
-    let d = NaiveDate::parse_from_str(t.get("date")?.as_str()?, "%Y-%m-%d").ok()?;
-    Some((format!("{d}T00:00:00"), true))
+    let d: Date = t.get("date")?.as_str()?.parse().ok()?;
+    Some((clock.day_range(d).0, true))
+}
+
+/// What says an event changed for us: its start and end as the API sent them
+/// (so the fingerprint doesn't depend on how times are stored here), its status
+/// and its guests. Returns (fingerprint, guests).
+pub(crate) fn fingerprint(ev: &Value) -> (String, String) {
+    let mut emails: Vec<&str> = ev
+        .get("attendees")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|a| a.get("self").and_then(Value::as_bool) != Some(true) && a.get("resource").and_then(Value::as_bool) != Some(true))
+        .filter_map(|a| a.get("email").and_then(Value::as_str))
+        .collect();
+    emails.sort_unstable();
+    let status = ev.get("status").and_then(Value::as_str).unwrap_or("confirmed");
+    let (start, end) = (ev.get("start").map(Value::to_string).unwrap_or_default(), ev.get("end").map(Value::to_string).unwrap_or_default());
+    let hash = format!("{:08x}", fnv(format!("{start}|{end}|{status}|{}", emails.join(",")).as_bytes()) as u32);
+    let guests = format!("{:08x}", fnv(emails.join(",").as_bytes()) as u32);
+    (hash, guests)
+}
+
+fn p_end(prev: Option<&Seen>) -> Option<Ts> {
+    prev.map(|p| p.end)
 }
 
 /// "Priya, Jordan, Lee +2" (first names, self and rooms excluded).
@@ -450,12 +483,9 @@ pub(crate) fn strip_html(s: &str) -> String {
 
 // ---------------------------------------------------------------- helpers
 
-/// RFC 3339 with the local offset, for timeMin/timeMax and new events.
-pub fn rfc3339_local(t: NaiveDateTime) -> String {
-    match chrono::Local.from_local_datetime(&t).earliest() {
-        Some(l) => l.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
-        None => format!("{}Z", t.format("%Y-%m-%dT%H:%M:%S")),
-    }
+/// RFC 3339 in UTC to the second, for timeMin/timeMax and new events.
+pub fn rfc3339(t: Ts) -> String {
+    t.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Percent-encode everything but RFC 3986 unreserved characters.
@@ -502,8 +532,13 @@ pub(crate) mod tests {
         }
     }
 
-    pub fn now() -> NaiveDateTime {
-        NaiveDateTime::parse_from_str("2026-09-28T10:52:00", "%Y-%m-%dT%H:%M:%S").unwrap()
+    /// 10:52 on Sep 28 2026, in UTC (the connector tests' zone).
+    pub fn clock() -> crate::clock::Clock {
+        crate::sync::test_clock("2026-09-28T10:52:00Z")
+    }
+
+    pub fn now() -> Ts {
+        clock().now()
     }
 
     pub fn http() -> FakeHttp {
@@ -515,7 +550,7 @@ pub(crate) mod tests {
     fn poll(http: &FakeHttp, config: Value, cursor: Option<String>) -> Batch {
         let src = source(config, cursor);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: now() };
+        let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: clock() };
         poll_with(&ctx, &TokenCache::new()).unwrap()
     }
 
@@ -556,8 +591,8 @@ pub(crate) mod tests {
         let standup = item(&b, "7kq3c1standup_20260928T150000Z");
         let ev = standup.event.as_ref().unwrap();
         assert_eq!(standup.title, "Platform standup");
-        assert_eq!(ev.start, local_ts("2026-09-28T15:00:00Z").unwrap());
-        assert_eq!(ev.end, local_ts("2026-09-28T15:15:00Z").unwrap());
+        assert_eq!(ev.start, Ts::parse("2026-09-28T15:00:00Z").unwrap());
+        assert_eq!(ev.end, Ts::parse("2026-09-28T15:15:00Z").unwrap());
         assert_eq!(ev.attendees.as_deref(), Some("Priya, Jordan, Lee +2"));
         assert_eq!(ev.category, "work");
         assert!(!ev.tentative);
@@ -596,8 +631,8 @@ pub(crate) mod tests {
         // All-day: kept, off the strip.
         let offsite = item(&b, "9zz1offsite");
         assert!(offsite.event.is_none() && offsite.drop_event);
-        assert_eq!(offsite.occurred_at, "2026-10-01T00:00:00");
-        assert_eq!(offsite.ended_at.as_deref(), Some("2026-10-03T00:00:00"));
+        assert_eq!(offsite.occurred_at, crate::time::t("2026-10-01T00:00:00"), "an all-day date starts at midnight here (UTC in tests)");
+        assert_eq!(offsite.ended_at, Some(crate::time::t("2026-10-03T00:00:00")));
     }
 
     #[test]
@@ -633,7 +668,8 @@ pub(crate) mod tests {
         assert!(item(&b, "8nw1newinvite").bump);
         assert_eq!(b.cancelled, ["2b9vlunch0928"]);
         let moved = &item(&b, "5fh2acmeqbr").raw_json;
-        assert_eq!((moved["change"].as_str(), moved["moved_from"].as_str()), (Some("moved"), Some(item(&first, "5fh2acmeqbr").occurred_at.as_str())));
+        let was = item(&first, "5fh2acmeqbr").occurred_at.to_db();
+        assert_eq!((moved["change"].as_str(), moved["moved_from"].as_str()), (Some("moved"), Some(was.as_str())));
         assert_eq!(item(&b, "8nw1newinvite").raw_json["change"], "invite");
         assert_eq!(item(&b, "7kq3c1standup_20260928T150000Z").raw_json["change"], "new", "no real change keeps the last one");
         let c = cursor_json(&b);
@@ -693,7 +729,7 @@ pub(crate) mod tests {
         http.on("GET", "/calendars/primary/events?", 200, fixture!("full_page2.json"));
         let src = source(json!({ "secret_prefix": "t" }), None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now() };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
         let cache = TokenCache::new();
         poll_with(&ctx, &cache).unwrap();
         poll_with(&ctx, &cache).unwrap();
@@ -714,7 +750,7 @@ pub(crate) mod tests {
         http.on("POST", "oauth2.googleapis.com/token", 400, r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#);
         let src = source(json!({}), None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now() };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
         let e = poll_with(&ctx, &TokenCache::new()).unwrap_err().to_string();
         assert!(e.contains("gcal.auth_start"), "{e}");
         assert!(!e.contains("GOCSPX") && !e.contains("1//0g"), "no secrets in errors");
@@ -725,7 +761,7 @@ pub(crate) mod tests {
         let http = FakeHttp::default();
         let src = source(json!({}), None);
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now() };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
         let e = poll_with(&ctx, &TokenCache::new()).unwrap_err().to_string();
         assert!(e.contains("gcal.refresh_token") && e.contains("gcal.auth_start"), "{e}");
     }
@@ -744,7 +780,7 @@ pub(crate) mod tests {
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
-        assert_eq!(crate::sync::apply(&conn, &src, &first).unwrap(), 6);
+        assert_eq!(crate::sync::apply(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 6);
         let blocks: i64 = conn.query_row("SELECT count(*) FROM events", [], |r| r.get(0)).unwrap();
         assert_eq!(blocks, 4, "all-day and declined stay off the strip");
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
@@ -754,7 +790,7 @@ pub(crate) mod tests {
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let next = poll(&http, src.config.clone(), src.cursor.clone());
         // moved invite + new invite + cancelled lunch
-        assert_eq!(crate::sync::apply(&conn, &src, &next).unwrap(), 3);
+        assert_eq!(crate::sync::apply(&conn, &src, &next, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
         let (status, summary, blocks): (String, String, i64) = conn
             .query_row(
                 "SELECT status, summary, (SELECT count(*) FROM events e WHERE e.item_id = i.id) FROM items i WHERE external_id = '2b9vlunch0928'",

@@ -5,66 +5,61 @@
 //!   around and compared in UTC; turned into wall-clock time only to be shown,
 //!   through the app's [`Clock`](crate::clock::Clock), the one place that knows
 //!   the time zone.
-//! - **A calendar day** (`chrono::NaiveDate`): a Reflect day, a Notes page, a
-//!   day-only due date. Local by meaning: "Thursday" stays Thursday wherever
-//!   you are. Stored as `YYYY-MM-DD`. A query for "today's" instants asks the
-//!   clock for the day's UTC range.
+//! - **A calendar day** ([`Date`]): a Reflect day, a Notes page, a day-only due
+//!   date. Local by meaning: "Thursday" stays Thursday wherever you are.
+//!   Stored as `YYYY-MM-DD`. A query for "today's" instants asks the clock for
+//!   the day's UTC range.
 //!
-//! Instants are stored as `YYYY-MM-DDTHH:MM:SS.sssZ`: fixed width, so text
-//! order is time order in SQL, and the same shape as SQLite's
+//! The library is `jiff` (time zones, DST, parsing). `Ts` only pins how an
+//! instant is stored: `YYYY-MM-DDTHH:MM:SS.sssZ`, fixed width, so text order
+//! is time order in SQL, and the same shape as SQLite's
 //! `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
 
-use chrono::{DateTime, Duration, NaiveDate, SecondsFormat, TimeZone, Utc};
+pub use jiff::civil::Date;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use std::fmt;
 
-/// An instant, in UTC.
+/// An instant, in UTC, to the millisecond.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ts(DateTime<Utc>);
+pub struct Ts(Timestamp);
 
 /// SQL for "now" in the stored form, for column defaults and SQL-side stamps.
 pub const SQL_NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 impl Ts {
-    pub fn from_utc(t: DateTime<Utc>) -> Ts {
-        // Stored to the millisecond; keep the value equal to what reads back.
-        Ts(t - Duration::nanoseconds((t.timestamp_subsec_nanos() % 1_000_000) as i64))
+    pub fn new(t: Timestamp) -> Ts {
+        // Stored to the millisecond: keep the value equal to what reads back.
+        Ts(Timestamp::from_millisecond(t.as_millisecond()).expect("in range"))
+    }
+
+    pub fn timestamp(self) -> Timestamp {
+        self.0
     }
 
     pub fn from_unix_ms(ms: i64) -> Option<Ts> {
-        DateTime::from_timestamp_millis(ms).map(Ts::from_utc)
+        Timestamp::from_millisecond(ms).ok().map(Ts)
     }
 
-    /// Unix seconds, fractions kept to the millisecond (Slack's `ts` is "1789995600.000500").
+    /// Unix seconds, fractions kept to the millisecond (Slack's `ts`, "1789995600.000500").
     pub fn from_unix_secs(secs: f64) -> Option<Ts> {
         Ts::from_unix_ms((secs * 1000.0).floor() as i64)
     }
 
-    /// Any RFC 3339 time with an offset or `Z` ("2026-10-03T10:52:00+02:00"),
-    /// and the forms some APIs send instead (Jira's "+0000" without a colon).
+    /// An RFC 3339 instant with an offset or `Z` ("2026-10-03T10:52:00+02:00"),
+    /// including forms APIs send ("+0000"). A time without an offset isn't an
+    /// instant and doesn't parse.
     pub fn parse(s: &str) -> Option<Ts> {
-        let s = s.trim();
-        DateTime::parse_from_rfc3339(s)
-            .or_else(|_| DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%z"))
-            .ok()
-            .map(|t| Ts::from_utc(t.with_timezone(&Utc)))
-    }
-
-    pub fn utc(self) -> DateTime<Utc> {
-        self.0
+        s.trim().parse::<Timestamp>().ok().map(Ts::new)
     }
 
     pub fn unix_ms(self) -> i64 {
-        self.0.timestamp_millis()
+        self.0.as_millisecond()
     }
 
     /// The stored form, `YYYY-MM-DDTHH:MM:SS.sssZ`.
     pub fn to_db(self) -> String {
-        self.0.to_rfc3339_opts(SecondsFormat::Millis, true)
-    }
-
-    pub fn in_tz<Tz: TimeZone>(self, tz: &Tz) -> DateTime<Tz> {
-        self.0.with_timezone(tz)
+        format!("{:.3}", self.0)
     }
 }
 
@@ -72,28 +67,28 @@ impl Ts {
 /// (`sync::apply` refuses an item still carrying it).
 impl Default for Ts {
     fn default() -> Ts {
-        Ts(DateTime::UNIX_EPOCH)
+        Ts(Timestamp::UNIX_EPOCH)
     }
 }
 
-impl std::ops::Add<Duration> for Ts {
+impl std::ops::Add<SignedDuration> for Ts {
     type Output = Ts;
-    fn add(self, d: Duration) -> Ts {
-        Ts(self.0 + d)
+    fn add(self, d: SignedDuration) -> Ts {
+        Ts::new(self.0 + d)
     }
 }
 
-impl std::ops::Sub<Duration> for Ts {
+impl std::ops::Sub<SignedDuration> for Ts {
     type Output = Ts;
-    fn sub(self, d: Duration) -> Ts {
-        Ts(self.0 - d)
+    fn sub(self, d: SignedDuration) -> Ts {
+        Ts::new(self.0 - d)
     }
 }
 
 impl std::ops::Sub<Ts> for Ts {
-    type Output = Duration;
-    fn sub(self, o: Ts) -> Duration {
-        self.0 - o.0
+    type Output = SignedDuration;
+    fn sub(self, o: Ts) -> SignedDuration {
+        self.0.duration_since(o.0)
     }
 }
 
@@ -140,20 +135,20 @@ impl<'de> serde::Deserialize<'de> for Ts {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Due {
     At(Ts),
-    Day(NaiveDate),
+    Day(Date),
 }
 
 impl Due {
-    /// For ordering and "overdue": the instant itself, or the end of the day in `clock`'s zone.
+    /// For ordering and "overdue": the instant itself, or the end of the day here.
     pub fn deadline(self, clock: &crate::clock::Clock) -> Ts {
         match self {
             Due::At(t) => t,
-            Due::Day(d) => clock.day_start(d + Duration::days(1)) - Duration::milliseconds(1),
+            Due::Day(d) => clock.day_range(d).1 - SignedDuration::from_millis(1),
         }
     }
 
     /// The two stored columns, `(due_at, due_day)`.
-    pub fn columns(due: Option<Due>) -> (Option<Ts>, Option<NaiveDate>) {
+    pub fn columns(due: Option<Due>) -> (Option<Ts>, Option<Date>) {
         match due {
             Some(Due::At(t)) => (Some(t), None),
             Some(Due::Day(d)) => (None, Some(d)),
@@ -161,8 +156,29 @@ impl Due {
         }
     }
 
-    pub fn from_columns(at: Option<Ts>, day: Option<NaiveDate>) -> Option<Due> {
+    pub fn from_columns(at: Option<Ts>, day: Option<Date>) -> Option<Due> {
         at.map(Due::At).or(day.map(Due::Day))
+    }
+}
+
+/// A fixture instant: "2026-09-28T09:00:00" (read as UTC) or any RFC 3339 time.
+#[cfg(test)]
+pub fn t(s: &str) -> Ts {
+    Ts::parse(s).or_else(|| Ts::parse(&format!("{s}Z"))).unwrap_or_else(|| panic!("not a fixture time: '{s}'"))
+}
+
+/// Fixtures can write instants as strings (`"2026-09-28T09:00:00".into()`, read as UTC).
+#[cfg(test)]
+impl From<&str> for Ts {
+    fn from(s: &str) -> Ts {
+        t(s)
+    }
+}
+
+#[cfg(test)]
+impl From<String> for Ts {
+    fn from(s: String) -> Ts {
+        t(&s)
     }
 }
 
@@ -178,7 +194,7 @@ mod tests {
         assert!(a.to_db() < b.to_db() && a < b);
         assert_eq!(Ts::parse(&b.to_db()), Some(b), "round trip");
         assert_eq!(Ts::parse("2026-09-27T10:15:30.123+0000").unwrap().to_db(), "2026-09-27T10:15:30.123Z", "Jira's offset form");
-        assert_eq!(Ts::from_unix_secs(1789995600.0005).unwrap().to_db(), "2026-09-21T11:00:00.000Z");
+        assert_eq!(Ts::from_unix_secs(1789995600.0005).unwrap().to_db(), "2026-09-21T13:00:00.000Z");
         assert!(Ts::parse("2026-10-03T10:52:00").is_none(), "a time without an offset isn't an instant");
     }
 

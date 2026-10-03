@@ -49,8 +49,9 @@
 use super::api::{ts_after, ts_secs, Client};
 use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
-use crate::sync::{local_from_unix, Batch, Ctx, Handle, ItemUpsert, Message, Profile};
-use chrono::TimeZone;
+use crate::clock::Clock;
+use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile};
+use crate::time::Ts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -349,6 +350,8 @@ pub struct Poller<'a> {
     cfg: &'a Config,
     state: State,
     now: f64,
+    /// For `search.messages`' `after:`, which is by calendar day.
+    clock: Clock,
     plan: Plan,
     users: HashMap<String, String>,
     channel_names: HashMap<String, String>,
@@ -364,17 +367,14 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
     let token = ctx.require_secret(&cfg.user_token_secret)?;
     let mut client = Client::new(ctx.http, token);
     client.sleep = cfg.sleep;
-    let now = chrono::Local
-        .from_local_datetime(&ctx.now)
-        .earliest()
-        .map(|t| t.timestamp() as f64)
-        .unwrap_or_else(|| ctx.now.and_utc().timestamp() as f64);
+    let now = ctx.now.unix_ms() as f64 / 1000.0;
     let plan = socket::plan(ctx.source.id);
     let mut p = Poller {
         client,
         cfg,
         state: State::parse(ctx.source.cursor.as_deref()),
         now,
+        clock: ctx.clock.clone(),
         plan: plan.clone(),
         users: HashMap::new(),
         channel_names: HashMap::new(),
@@ -775,7 +775,7 @@ impl Poller<'_> {
         let mut messages = vec![];
         for (m, is_context) in context.iter().map(|m| (m, true)).chain(kept.iter().map(|m| (m, false))) {
             messages.push(Message {
-                at: local_from_unix(ts_secs(&m.ts)).unwrap_or_default(),
+                at: Ts::from_unix_secs(ts_secs(&m.ts)).unwrap_or_default(),
                 author: self.author_name(m)?,
                 text: self.clean(&m.text)?,
                 author_id: m.user.clone(),
@@ -812,8 +812,8 @@ impl Poller<'_> {
             summary,
             url: self.permalink(&conv.id, &last.ts, thread.map(|t| t.0)),
             author,
-            occurred_at: local_from_unix(ts_secs(&first.ts)).unwrap_or_default(),
-            ended_at: local_from_unix(ts_secs(&last.ts)),
+            occurred_at: Ts::from_unix_secs(ts_secs(&first.ts)).unwrap_or_default(),
+            ended_at: Ts::from_unix_secs(ts_secs(&last.ts)),
             status: "open".into(),
             msg_count: Some(unread.len() as i64),
             raw_json: raw,
@@ -857,9 +857,7 @@ impl Poller<'_> {
     /// `search.messages`, newest first. `after:` is by day and exclusive, so
     /// ask from the day before `since`.
     fn search(&mut self, query: &str, since: f64) -> anyhow::Result<Vec<Value>> {
-        let day = chrono::DateTime::from_timestamp(since as i64 - 86_400, 0)
-            .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
-            .unwrap_or_default();
+        let day = Ts::from_unix_secs(since - 86_400.0).map(|t| self.clock.day_of(t).to_string()).unwrap_or_default();
         let q = format!("{query} after:{day}");
         let v = self.client.get("search.messages", &[("query", &q), ("sort", "timestamp"), ("sort_dir", "desc"), ("count", "100")])?;
         Ok(v.pointer("/messages/matches").and_then(Value::as_array).cloned().unwrap_or_default())
@@ -950,7 +948,7 @@ impl Poller<'_> {
         let member = self.info(channel).ok().flatten().is_some_and(|c| c.member);
         let name = self.author_name(m)?;
         let clean = self.clean(&m.text)?;
-        let at = local_from_unix(ts_secs(&m.ts)).unwrap_or_default();
+        let at = Ts::from_unix_secs(ts_secs(&m.ts)).unwrap_or_default();
         let id = format!("{channel}/mention/{}", m.ts);
         self.items.push(ItemUpsert {
             external_id: id.clone(),

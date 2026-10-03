@@ -17,8 +17,9 @@
 //! exactly one topic as a *suggested* link to that topic.
 
 use crate::sync::http::Response;
-use crate::sync::{local_ts, Batch, Connector, Ctx, Handle, ItemUpsert, Message};
-use chrono::{DateTime, Utc};
+use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use crate::time::Ts;
+use jiff::SignedDuration;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -253,10 +254,10 @@ impl GitHub {
     pub fn poll_with(&self, ctx: &Ctx, gh: &GhRunner<'_>) -> anyhow::Result<Batch> {
         let api = Api::new(ctx, gh)?;
         let me = api.get("/user")?.get("login").and_then(Value::as_str).unwrap_or_default().to_string();
-        let cursor = ctx.source.cursor.as_deref().and_then(parse_time);
+        let cursor = ctx.source.cursor.as_deref().and_then(Ts::parse);
         let since = cursor.unwrap_or_else(|| {
             let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
-            now_utc(ctx) - chrono::Duration::days(days)
+            ctx.now - SignedDuration::from_hours(24 * days)
         });
         let scope = scope(ctx);
 
@@ -265,7 +266,7 @@ impl GitHub {
         for (role, is, review) in
             [("involves:@me", "is:issue", false), ("involves:@me", "is:pr", false), ("review-requested:@me", "is:pr", true)]
         {
-            let q = format!("updated:>={} {scope}{role} {is}", since.format("%Y-%m-%dT%H:%M:%SZ"));
+            let q = format!("updated:>={} {scope}{role} {is}", since.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ"));
             for it in search(&api, &q)? {
                 let url = it.get("html_url").cloned();
                 match found.iter_mut().find(|(f, _, _)| f.get("html_url") == url.as_ref()) {
@@ -283,14 +284,14 @@ impl GitHub {
         let mut newest = cursor;
         for (it, review, involved) in &found {
             let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, cursor)? else { continue };
-            if let Some(u) = it.get("updated_at").and_then(Value::as_str).and_then(parse_time) {
+            if let Some(u) = it.get("updated_at").and_then(Value::as_str).and_then(Ts::parse) {
                 if newest.is_none_or(|n| u > n) {
                     newest = Some(u);
                 }
             }
             batch.items.push(item);
         }
-        batch.cursor = newest.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
     }
 
@@ -370,7 +371,7 @@ fn search(api: &Api, q: &str) -> anyhow::Result<Vec<Value>> {
     Ok(out)
 }
 
-fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, cursor: Option<DateTime<Utc>>) -> anyhow::Result<Option<ItemUpsert>> {
+fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, cursor: Option<Ts>) -> anyhow::Result<Option<ItemUpsert>> {
     let s = |p: &str| it.pointer(p).and_then(Value::as_str);
     let (Some(repo), Some(number)) = (
         s("/repository_url").and_then(|u| u.split("/repos/").nth(1)).map(str::to_owned),
@@ -379,8 +380,8 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         return Ok(None);
     };
     let is_pr = it.get("pull_request").is_some_and(|p| !p.is_null());
-    let updated = s("/updated_at").and_then(parse_time);
-    let changed_since = |t: Option<DateTime<Utc>>| matches!((t, cursor), (Some(t), Some(c)) if t > c);
+    let updated = s("/updated_at").and_then(Ts::parse);
+    let changed_since = |t: Option<Ts>| matches!((t, cursor), (Some(t), Some(c)) if t > c);
     let closed = s("/state") == Some("closed");
     let author = s("/user/login").unwrap_or("");
     let assignees: Vec<&str> = it.get("assignees").and_then(Value::as_array).into_iter().flatten().filter_map(|a| a.get("login")?.as_str()).collect();
@@ -420,15 +421,15 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     let mut messages = vec![];
     let mut others_commented = false;
     if let (Some(c), true) = (cursor, comment_count > 0 && changed_since(updated)) {
-        let since = urlencode(&c.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        let since = urlencode(&c.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ").to_string());
         let comments = api.get(&format!("/repos/{repo}/issues/{number}/comments?since={since}&per_page={PER_PAGE}"))?;
         for cm in comments.as_array().into_iter().flatten() {
             let login = cm.pointer("/user/login").and_then(Value::as_str).unwrap_or("?");
-            let created = cm.get("created_at").and_then(Value::as_str).and_then(parse_time);
+            let created = cm.get("created_at").and_then(Value::as_str).and_then(Ts::parse);
             if changed_since(created) && login != me {
                 others_commented = true;
             }
-            if let Some(at) = cm.get("created_at").and_then(Value::as_str).and_then(local_ts) {
+            if let Some(at) = created {
                 messages.push(Message {
                     at,
                     author: login.to_string(),
@@ -441,7 +442,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     }
     // New signal: closed/merged since the cursor, someone else commented, or a
     // PR awaiting your review moved (new request, new commits, re-request).
-    let closed_since = changed_since(s("/closed_at").and_then(parse_time));
+    let closed_since = changed_since(s("/closed_at").and_then(Ts::parse));
     let bump = cursor.is_some() && (closed_since || others_commented || (review && changed_since(updated)));
 
     let owner = if assigned_to_me || review || (is_pr && author == me) {
@@ -449,7 +450,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     } else {
         assignees.first().map(|a| a.to_string())
     };
-    let Some(occurred_at) = s("/updated_at").and_then(local_ts) else { return Ok(None) };
+    let Some(occurred_at) = updated else { return Ok(None) };
     Ok(Some(ItemUpsert {
         external_id: format!("{repo}#{number}"),
         kind: if is_pr { "pr" } else { "issue" }.into(),
@@ -460,7 +461,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         author: (!author.is_empty()).then(|| Handle { handle: author.to_string(), display_name: author.to_string() }),
         occurred_at,
         ended_at: None,
-        due_at: None,
+        due: None,
         status: if closed { "done" } else { "open" }.into(),
         msg_count: Some(comment_count),
         owner,
@@ -516,14 +517,6 @@ fn text(payload: &Value, field: &str) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("payload needs a non-empty '{field}'"))
 }
 
-fn parse_time(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s).ok().map(|t| t.with_timezone(&Utc))
-}
-
-fn now_utc(ctx: &Ctx) -> DateTime<Utc> {
-    ctx.now.and_local_timezone(chrono::Local).earliest().map(|t| t.with_timezone(&Utc)).unwrap_or_else(Utc::now)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,8 +541,8 @@ mod tests {
 
     fn with_ctx<T>(src: &Source, http: &FakeHttp, f: impl FnOnce(&Ctx) -> T) -> T {
         let secret = |k: &str| (k == DEFAULT_SECRET).then(|| "github_pat_secret".to_string());
-        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 27).unwrap().and_hms_opt(10, 0, 0).unwrap();
-        f(&Ctx { source: src, http, secret: &secret, now })
+        let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
+        f(&Ctx { source: src, http, secret: &secret, now: clock.now(), clock })
     }
 
     /// With the secret stored, `gh` must never run.
@@ -638,7 +631,7 @@ mod tests {
         assert_eq!(pr.owner.as_deref(), Some("you"));
         assert_eq!(pr.status, "open");
         assert_eq!(pr.msg_count, Some(4));
-        assert_eq!(pr.occurred_at, local_ts("2026-09-27T07:40:00Z").unwrap());
+        assert_eq!(pr.occurred_at, Ts::parse("2026-09-27T07:40:00Z").unwrap());
 
         let issue = &b.items[0];
         assert_eq!(issue.kind, "issue");
@@ -654,7 +647,7 @@ mod tests {
         assert_eq!(merged.status, "done");
         assert_eq!(merged.owner, None);
 
-        assert_eq!(b.cursor.as_deref(), Some("2026-09-27T07:40:00Z"));
+        assert_eq!(b.cursor.as_deref(), Some("2026-09-27T07:40:00.000Z"));
     }
 
     #[test]
@@ -681,10 +674,10 @@ mod tests {
         // #41: my PR, updated since but no comments and still open.
         assert!(!get("platform/rfcs#41").bump);
         // Cursor never goes backwards; newest updated_at wins.
-        assert_eq!(b.cursor.as_deref(), Some("2026-09-27T07:40:00Z"));
+        assert_eq!(b.cursor.as_deref(), Some("2026-09-27T07:40:00.000Z"));
         let (b, _) = poll(Some("2026-09-28T00:00:00Z"), json!({}));
         assert!(b.items.iter().all(|i| !i.bump));
-        assert_eq!(b.cursor.as_deref(), Some("2026-09-28T00:00:00Z"));
+        assert_eq!(b.cursor.as_deref(), Some("2026-09-28T00:00:00.000Z"));
     }
 
     #[test]
@@ -732,8 +725,8 @@ mod tests {
         let http = fake();
         let src = source(None, config);
         let secret = |_: &str| None;
-        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 27).unwrap().and_hms_opt(10, 0, 0).unwrap();
-        let r = GitHub.poll_with(&Ctx { source: &src, http: &http, secret: &secret, now }, gh);
+        let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
+        let r = GitHub.poll_with(&Ctx { source: &src, http: &http, secret: &secret, now: clock.now(), clock }, gh);
         (r, http.requests().into_iter().map(|r| r.1).collect())
     }
 
@@ -868,7 +861,7 @@ mod tests {
         let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'github'", [], |r| r.get(0)).unwrap();
         let src = crate::sync::load_source(&conn, sid).unwrap();
         let (b, _) = poll(None, json!({}));
-        crate::sync::apply(&conn, &src, &b).unwrap();
+        crate::sync::apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
 
         let topic = |name: &str| {
             conn.execute("INSERT INTO topics (name, category) VALUES (?1, 'work')", [name]).unwrap();

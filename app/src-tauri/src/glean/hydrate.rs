@@ -17,7 +17,7 @@ use super::{Hit, Unavailable};
 use crate::error::Result;
 use crate::state::App;
 use crate::sync::http::Http;
-use chrono::NaiveDateTime;
+use crate::time::Ts;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -96,7 +96,7 @@ fn norm_url(u: &str) -> String {
 pub fn entities(app: &App, conn: &Connection, topic_id: i64) -> Result<Entities> {
     let mut e = Entities::default();
     let r = crate::queries::people::Resolver::load(conn, &app.settings().people)?;
-    for p in crate::queries::people::for_topic(conn, &r, topic_id, app.clock.now(), 30)? {
+    for p in crate::queries::people::for_topic(conn, &r, topic_id, &app.clock, 30)? {
         let name = p.name.trim().to_lowercase();
         let email = p
             .id
@@ -165,17 +165,17 @@ pub fn shared_entity(e: &Entities, hit: &Hit) -> Option<String> {
     None
 }
 
-fn recency(at: Option<&str>, now: NaiveDateTime) -> f32 {
+fn recency(at: Option<&str>, now: Ts) -> f32 {
     let Some(t) = at.and_then(crate::queries::parse_ts) else { return 0.0 };
-    let days = (now - t).num_hours().max(0) as f32 / 24.0;
+    let days = (now - t).as_hours().max(0) as f32 / 24.0;
     (-days / 30.0).exp()
 }
 
-fn when(at: Option<&str>, now: NaiveDateTime) -> String {
+fn when(at: Option<&str>, now: Ts) -> String {
     let Some(t) = at.and_then(crate::queries::parse_ts) else { return String::new() };
-    let days = (now - t).num_days();
+    let days = (now - t).as_hours() / 24;
     match days {
-        d if d < 1 => format!("{}h", (now - t).num_hours().max(1)),
+        d if d < 1 => format!("{}h", (now - t).as_hours().max(1)),
         d if d < 7 => format!("{d}d"),
         d if d < 30 => format!("{}w", d / 7),
         d if d < 365 => format!("{}mo", d / 30),
@@ -348,7 +348,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
             let sim_label = sim.map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)).unwrap_or_default();
             let (kept, reason) = if let Some((v, at)) = fb.filter(|(v, _)| v == "reject") {
                 let _ = v;
-                (false, format!("rejected {}", short_date(at)))
+                (false, format!("rejected {}", short_date(at, &app.clock)))
             } else if fb.is_some() {
                 row.pinned = true;
                 (true, "pinned".into())
@@ -362,7 +362,7 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
                 }
             } else {
                 let h = hits_by_url.get(&norm_url(row.url.as_deref().unwrap_or("")));
-                let old = row.at.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).num_days() > window);
+                let old = row.at.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).as_hours() / 24 > window);
                 let shared = h.and_then(|h| shared_entity(&ents, h));
                 match (old, shared, sim) {
                     (true, _, _) => (false, format!("outside {window}d")),
@@ -414,8 +414,8 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
     }))
 }
 
-fn short_date(at: &str) -> String {
-    crate::queries::parse_ts(at).map(|t| t.format("%b %-d").to_string()).unwrap_or_default()
+fn short_date(at: &str, clock: &crate::clock::Clock) -> String {
+    crate::queries::parse_ts(at).map(|t| clock.local(t).strftime("%b %-d").to_string()).unwrap_or_default()
 }
 
 pub fn state_name(u: &Unavailable) -> &'static str {

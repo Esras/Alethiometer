@@ -16,6 +16,7 @@ use super::model::{Kind, Row, Session, Status};
 use super::store::Inner;
 use crate::error::Result;
 use crate::state::App;
+use crate::time::Ts;
 use crate::sync::{self, Batch, ItemUpsert, Message};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
@@ -241,9 +242,8 @@ fn clip(s: &str, n: usize) -> String {
 }
 
 fn ran(from: &str, to: &str) -> String {
-    let p = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok();
-    let (Some(a), Some(b)) = (p(from), p(to)) else { return String::new() };
-    let m = (b - a).num_minutes().max(0);
+    let (Some(a), Some(b)) = (Ts::parse(from), Ts::parse(to)) else { return String::new() };
+    let m = (b - a).as_mins().max(0);
     if m >= 60 {
         format!("{}h {}m", m / 60, m % 60)
     } else {
@@ -300,17 +300,17 @@ pub fn sync(app: &App) -> Result<bool> {
             kind: s.kind.clone(),
             title: format!("{} {}", s.name, s.reason),
             body: s.context.clone(),
-            occurred_at: s.at.clone(),
-            ended_at: s.ended.clone(),
+            occurred_at: Ts::parse(&s.at).unwrap_or_default(),
+            ended_at: s.ended.as_deref().and_then(Ts::parse),
             status: "open".into(),
             msg_count: Some(s.messages.iter().filter(|m| !m.3).count() as i64),
             raw_json: json!({ "agent": info }),
-            messages: s.messages.iter().map(|(at, who, text, faded)| Message { at: at.clone(), author: who.clone(), text: text.clone(), author_id: None, context: *faded }).collect(),
+            messages: s.messages.iter().map(|(at, who, text, faded)| Message { at: Ts::parse(at).unwrap_or_default(), author: who.clone(), text: text.clone(), author_id: None, context: *faded }).collect(),
             bump,
             ..Default::default()
         });
     }
-    sync::apply(&conn, &source, &batch)?;
+    sync::apply(&conn, &source, &batch, app.clock.now())?;
     // No longer true (answered, replied to, delivered, restarted): out of Incoming, marked as ours.
     for (ext, (seen, _, session)) in &have {
         if !*seen && !wanted.contains(ext.as_str()) && !unknown.contains(session) {
@@ -431,11 +431,11 @@ mod tests {
     }
 
     fn you(app: &App, id: &str, text: &str) {
-        app.agents.store.lock().push_row(&format!("s:{id}"), Row { at: "2026-10-03T10:00:00".into(), kind: Kind::You, who: Some(Who::you()), text: text.into(), ..Default::default() });
+        app.agents.store.lock().push_row(&format!("s:{id}"), Row { at: crate::time::t("2026-10-03T10:00:00").to_db(), kind: Kind::You, who: Some(Who::you()), text: text.into(), ..Default::default() });
     }
 
     fn approval(app: &App, id: &str) {
-        let r = Request { id: format!("{id}:7"), session_id: id.into(), thread: format!("s:{id}"), kind: "approval".into(), at: "2026-10-03T10:01:00".into(), command: "rm -rf build".into(), ..Default::default() };
+        let r = Request { id: format!("{id}:7"), session_id: id.into(), thread: format!("s:{id}"), kind: "approval".into(), at: crate::time::t("2026-10-03T10:01:00").to_db(), command: "rm -rf build".into(), ..Default::default() };
         app.agents.store.lock().put_request(r);
     }
 
@@ -483,7 +483,7 @@ mod tests {
         let (app, _d) = app();
         session(&app, "acp-1", "acp");
         you(&app, "acp-1", "Fix resume");
-        app.agents.store.lock().push_row("s:acp-1", Row { at: "2026-10-03T10:05:00".into(), kind: Kind::Output, text: "Resume works now.".into(), ..Default::default() });
+        app.agents.store.lock().push_row("s:acp-1", Row { at: crate::time::t("2026-10-03T10:05:00").to_db(), kind: Kind::Output, text: "Resume works now.".into(), ..Default::default() });
         app.agents.store.lock().update_session("acp-1", |s| {
             s.status = Status::Idle;
             s.stats.turns = 1;
@@ -501,7 +501,7 @@ mod tests {
         let (app, _d) = app();
         session(&app, "acp-1", "acp");
         you(&app, "acp-1", "Fix resume");
-        app.agents.store.lock().push_row("s:acp-1", Row { at: "2026-10-03T10:05:00".into(), kind: Kind::Output, text: "Done.".into(), ..Default::default() });
+        app.agents.store.lock().push_row("s:acp-1", Row { at: crate::time::t("2026-10-03T10:05:00").to_db(), kind: Kind::Output, text: "Done.".into(), ..Default::default() });
         app.agents.store.lock().update_session("acp-1", |s| {
             s.status = Status::Idle;
             s.stats.turns = 1;
@@ -535,7 +535,7 @@ mod tests {
             .query_row("SELECT tl.topic_id, tl.state FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE i.external_id = 'req:scion:h:a:7'", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
         assert_eq!(linked, (topic, "suggested".into()));
-        let q = crate::queries::incoming::queue(&app.db(), app.clock.now()).unwrap();
+        let q = crate::queries::incoming::queue(&app.db(), &app.clock).unwrap();
         let t = q.topics.iter().find(|t| t.id == topic).unwrap();
         assert!(t.signals.iter().any(|s| s.source == "agents" && s.agent.as_ref().is_some_and(|a| a["reason"] == "needs approval")));
         assert_eq!(q.agents.len(), 1, "and under Agents waiting");

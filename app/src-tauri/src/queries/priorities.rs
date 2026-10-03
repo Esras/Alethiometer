@@ -8,12 +8,13 @@
 //!
 //! Work only: items from personal sources never appear here (boundary rule 3).
 
-use super::{dur_label, parse_ts, when_label, Pill, TopicRef};
+use super::{dur_label, ts_label, Pill, TopicRef};
+use crate::clock::Clock;
+use crate::time::{Date, Due, Ts};
 use crate::api::unknown;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
-use chrono::NaiveDateTime;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -57,16 +58,17 @@ pub struct Quadrant {
 
 pub fn call(app: &App, name: &str, _args: &Value) -> Result<Value> {
     match name {
-        "list" => Ok(json!({ "quadrants": list(&app.db(), app.clock.now())? })),
+        "list" => Ok(json!({ "quadrants": list(&app.db(), &app.clock)? })),
         _ => Err(unknown(name)),
     }
 }
 
 /// All four quadrants, always in the same order, rows by score descending.
-pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
+pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
     let mut stmt = conn.prepare(
         "SELECT p.item_id, p.quadrant, p.score, p.reasons_json,
                 i.title, i.summary, i.body, i.url, i.occurred_at, i.due_at, i.kind, s.kind,
+                i.due_day,
                 per.display_name, e.start, e.end, e.attendees,
                 (SELECT tl.topic_id FROM topic_links tl
                   WHERE tl.item_id = i.id AND tl.state != 'wrong'
@@ -88,13 +90,13 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
         summary: Option<String>,
         body: String,
         url: Option<String>,
-        at: String,
-        due: Option<String>,
+        at: Ts,
+        due: Option<Due>,
         kind: String,
         source: String,
         author: Option<String>,
-        ev_start: Option<String>,
-        ev_end: Option<String>,
+        ev_start: Option<Ts>,
+        ev_end: Option<Ts>,
         attendees: Option<String>,
         topic_id: Option<i64>,
     }
@@ -110,14 +112,14 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
                 body: r.get(6)?,
                 url: r.get(7)?,
                 at: r.get(8)?,
-                due: r.get(9)?,
+                due: Due::from_columns(r.get(9)?, r.get::<_, Option<Date>>(12)?),
                 kind: r.get(10)?,
                 source: r.get(11)?,
-                author: r.get(12)?,
-                ev_start: r.get(13)?,
-                ev_end: r.get(14)?,
-                attendees: r.get(15)?,
-                topic_id: r.get(16)?,
+                author: r.get(13)?,
+                ev_start: r.get(14)?,
+                ev_end: r.get(15)?,
+                attendees: r.get(16)?,
+                topic_id: r.get(17)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -131,7 +133,7 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
         for reason in stored {
             match reason.live.as_deref() {
                 Some("meeting") => {
-                    if let Some(p) = meeting_pill(conn, r.id, r.topic_id, now)? {
+                    if let Some(p) = meeting_pill(conn, r.id, r.topic_id, clock)? {
                         reasons.push(p);
                     }
                 }
@@ -139,14 +141,15 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
             }
         }
 
-        let start = r.ev_start.as_deref().and_then(parse_ts);
-        let end = r.ev_end.as_deref().and_then(parse_ts);
-        let when = match (start, end) {
-            (Some(s), Some(e)) if s.date() == now.date() => Some(format!("{}–{}", s.format("%H:%M"), e.format("%H:%M"))),
-            (Some(s), Some(e)) => Some(format!("{}–{}", when_label(s, now, true), e.format("%H:%M"))),
-            _ => match r.due.as_deref().and_then(parse_ts) {
-                Some(d) => Some(format!("due {}", when_label(d, now, false))),
-                None => parse_ts(&r.at).map(|t| when_label(t, now, matches!(r.kind.as_str(), "email" | "message" | "thread"))),
+        let when = match (r.ev_start, r.ev_end) {
+            (Some(s), Some(e)) if clock.day_of(s) == clock.today() => {
+                Some(format!("{}–{}", clock.local(s).strftime("%H:%M"), clock.local(e).strftime("%H:%M")))
+            }
+            (Some(s), Some(e)) => Some(format!("{}–{}", ts_label(s, clock, true), clock.local(e).strftime("%H:%M"))),
+            _ => match r.due {
+                // "due Wed": the day only.
+                Some(d) => Some(format!("due {}", ts_label(d.deadline(clock), clock, false))),
+                None => Some(ts_label(r.at, clock, matches!(r.kind.as_str(), "email" | "message" | "thread"))),
             },
         };
         let people = r.attendees.filter(|a| !a.is_empty()).or(r.author);
@@ -172,23 +175,22 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Quadrant>> {
 /// "meeting in 8m" for the item's own meeting, or else the next meeting linked
 /// to its topic. Red within 15 minutes, yellow within the hour, green later.
 /// None once the meeting is over (or there isn't one today).
-fn meeting_pill(conn: &Connection, item_id: i64, topic_id: Option<i64>, now: NaiveDateTime) -> Result<Option<Pill>> {
-    let now_s = crate::seed::fmt(now);
-    let today = now.date().format("%Y-%m-%d").to_string();
-    let next: Option<(String, String)> = conn
+fn meeting_pill(conn: &Connection, item_id: i64, topic_id: Option<i64>, clock: &Clock) -> Result<Option<Pill>> {
+    let now = clock.now();
+    let (day_start, day_end) = clock.day_range(clock.today());
+    let next: Option<(Ts, Ts)> = conn
         .query_row(
             "SELECT e.start, e.end FROM events e
-              WHERE e.is_life_busy = 0 AND e.end > ?1 AND e.start >= ?2 AND e.start < date(?2, '+1 day')
+              WHERE e.is_life_busy = 0 AND e.end > ?1 AND e.start >= ?2 AND e.start < ?5
                 AND (e.item_id = ?3 OR e.item_id IN
                      (SELECT tl.item_id FROM topic_links tl WHERE tl.topic_id = ?4 AND tl.state != 'wrong'))
               ORDER BY e.item_id = ?3 DESC, e.start LIMIT 1",
-            params![now_s, today, item_id, topic_id],
+            params![now, day_start, item_id, topic_id, day_end],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
     let Some((start, _)) = next else { return Ok(None) };
-    let Some(start) = parse_ts(&start) else { return Ok(None) };
-    let secs = (start - now).num_seconds();
+    let secs = (start - now).as_secs();
     if secs <= 0 {
         return Ok(Some(Pill { label: "meeting now".into(), weight: "red".into() }));
     }
@@ -245,8 +247,8 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     // decision it exists for is the item's title; the strip keeps the event title.
     let q4: Option<i64> = c
         .query_row(
-            "SELECT item_id FROM events WHERE title = 'Q4 headcount' AND substr(start, 1, 10) = ?1",
-            [ctx.today.format("%Y-%m-%d").to_string()],
+            "SELECT item_id FROM events WHERE title = 'Q4 headcount' AND start >= ?1 AND start < ?2",
+            params![ctx.clock.day_range(ctx.today).0, ctx.clock.day_range(ctx.today).1],
             |r| r.get(0),
         )
         .ok();
@@ -434,7 +436,7 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
             url: Some(p.url.into()),
             author: p.author,
             occurred_at: ctx.at(p.days, p.hm),
-            due_at: p.due.map(|(d, hm)| ctx.at(d, hm)),
+            due: p.due.map(|(d, hm)| crate::time::Due::At(ctx.at(d, hm))),
             owner: Some("you".into()),
             ..Default::default()
         });
@@ -447,18 +449,17 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDate, NaiveTime};
 
-    fn setup() -> (Connection, NaiveDate, tempfile::TempDir) {
+    fn setup() -> (Connection, Date, tempfile::TempDir) {
         let conn = crate::db::open_in_memory().unwrap();
-        let day = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
         let dir = tempfile::tempdir().unwrap();
-        crate::seed::seed(&conn, day, dir.path()).unwrap();
-        (conn, day, dir)
+        crate::seed::seed(&conn, &at(jiff::civil::date(2026, 9, 24), "10:52"), dir.path()).unwrap();
+        (conn, jiff::civil::date(2026, 9, 24), dir)
     }
 
-    fn at(day: NaiveDate, hm: &str) -> NaiveDateTime {
-        day.and_time(NaiveTime::parse_from_str(hm, "%H:%M").unwrap())
+    /// A clock at "HH:MM" on `day`, in UTC.
+    fn at(day: Date, hm: &str) -> Clock {
+        crate::sync::test_clock(&format!("{day}T{hm}:00Z"))
     }
 
     fn find<'a>(qs: &'a [Quadrant], title: &str) -> &'a Row {
@@ -468,7 +469,7 @@ mod tests {
     #[test]
     fn four_quadrants_in_order_sorted_by_score() {
         let (conn, day, _d) = setup();
-        let qs = list(&conn, at(day, "10:52")).unwrap();
+        let qs = list(&conn, &at(day, "10:52")).unwrap();
         assert_eq!(qs.iter().map(|q| q.key).collect::<Vec<_>>(), QUADRANTS);
         let now: Vec<_> = qs[0].items.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(now, ["Reply to Dana", "Platform vs Data reqs", "Approve Sr. EM offer"]);
@@ -485,7 +486,7 @@ mod tests {
     fn meeting_pill_is_live() {
         let (conn, day, _d) = setup();
         let row = |hm: &str| {
-            let qs = list(&conn, at(day, hm)).unwrap();
+            let qs = list(&conn, &at(day, hm)).unwrap();
             let r = find(&qs, "Platform vs Data reqs");
             (r.reasons.iter().map(|p| (p.label.clone(), p.weight.clone())).collect::<Vec<_>>(), r.when.clone())
         };
@@ -504,14 +505,14 @@ mod tests {
         let (conn, day, _d) = setup();
         conn.execute(
             "INSERT INTO items (source_id, external_id, kind, title, occurred_at)
-             VALUES ((SELECT id FROM sources WHERE kind = 'marvin'), 'x1', 'task', 'Personal thing', '2026-09-24T09:00:00')",
+             VALUES ((SELECT id FROM sources WHERE kind = 'marvin'), 'x1', 'task', 'Personal thing', '2026-09-24T09:00:00.000Z')",
             [],
         )
         .unwrap();
         let personal = conn.last_insert_rowid();
         conn.execute("INSERT INTO priorities (item_id, quadrant, score) VALUES (?1, 'now', 10.0)", [personal]).unwrap();
         conn.execute("UPDATE items SET status = 'done' WHERE title = 'Approve Sr. EM offer'", []).unwrap();
-        let qs = list(&conn, at(day, "10:52")).unwrap();
+        let qs = list(&conn, &at(day, "10:52")).unwrap();
         let titles: Vec<_> = qs.iter().flat_map(|q| &q.items).map(|r| r.title.as_str()).collect();
         assert!(!titles.contains(&"Personal thing"));
         assert!(!titles.contains(&"Approve Sr. EM offer"));

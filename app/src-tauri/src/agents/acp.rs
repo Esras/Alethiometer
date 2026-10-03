@@ -605,10 +605,7 @@ fn save_turn(app: &App, conn: &Conn, seq: Option<u64>) {
 
 /// An event's time on the app's clock (which `fake_now` may shift).
 fn ts_of(app: &App, at_ms: u64) -> String {
-    let ms = at_ms as i64 + app.clock.offset_ms();
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|t| t.with_timezone(&chrono::Local).naive_local().format("%Y-%m-%dT%H:%M:%S").to_string())
-        .unwrap_or_else(|| now(app))
+    crate::time::Ts::from_unix_ms(at_ms as i64 + app.clock.offset_ms()).map(crate::time::Ts::to_db).unwrap_or_else(|| now(app))
 }
 
 /// The Conn for a session's agent, made from its stored turn when this run hasn't seen it yet.
@@ -1671,8 +1668,8 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
         }
         t.waiting.remove(req_id).ok_or_else(|| msg("already answered"))?.rpc
     };
-    let ts = now(app);
-    let hm = ts.get(11..16).unwrap_or("").to_owned();
+    // The note reads in wall-clock time here.
+    let hm = app.clock.local_now().strftime("%H:%M").to_string();
     let verdict = match opt.kind.as_str() {
         "allow_once" => format!("allowed once at {hm}"),
         "allow_always" => format!("{} at {hm}", opt.name.to_lowercase()),

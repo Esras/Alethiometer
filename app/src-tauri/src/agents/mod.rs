@@ -68,8 +68,9 @@ pub fn shutdown(app: &App) {
     let _ = app.agents.store.flush(|| app.db());
 }
 
+/// Now, as the store's rows hold times: a UTC instant (`crate::time::Ts`).
 pub fn now(app: &App) -> String {
-    app.clock.now().format("%Y-%m-%dT%H:%M:%S").to_string()
+    app.clock.now().to_db()
 }
 
 /// The thread key a session's transcript lives under.

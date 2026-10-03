@@ -20,8 +20,9 @@
 
 use super::github::urlencode;
 use crate::sync::http::Response;
-use crate::sync::{local_ts, Batch, Connector, Ctx, Handle, ItemUpsert, Message, Profile};
-use chrono::{DateTime, FixedOffset, Utc};
+use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message, Profile};
+use crate::time::{Date, Due, Ts};
+use jiff::SignedDuration;
 use serde_json::{json, Value};
 
 pub struct Jira;
@@ -113,12 +114,12 @@ impl Connector for Jira {
         let myself = api.get("/rest/api/3/myself")?;
         let me = myself.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
 
-        let cursor = ctx.source.cursor.as_deref().and_then(parse_time).map(|t| t.with_timezone(&Utc));
+        let cursor = ctx.source.cursor.as_deref().and_then(Ts::parse);
         let since = cursor.unwrap_or_else(|| {
             let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
-            now_utc(ctx) - chrono::Duration::days(days)
+            ctx.now - SignedDuration::from_hours(24 * days)
         });
-        let bound = (since - chrono::Duration::days(1)).format("%Y-%m-%d %H:%M");
+        let bound = (since - SignedDuration::from_hours(24)).timestamp().strftime("%Y-%m-%d %H:%M");
         let base_jql = ctx.source.config.get("jql").and_then(Value::as_str).unwrap_or(DEFAULT_JQL);
         let jql = format!("({base_jql}) AND updated >= \"{bound}\" ORDER BY updated ASC");
 
@@ -152,8 +153,7 @@ impl Connector for Jira {
             let page = api.get(&path)?;
             for issue in page.get("issues").and_then(Value::as_array).into_iter().flatten() {
                 let Some(item) = map_issue(&api, issue, &me, cursor, due_field) else { continue };
-                if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(parse_time) {
-                    let u = u.with_timezone(&Utc);
+                if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(Ts::parse) {
                     if newest.is_none_or(|n| u > n) {
                         newest = Some(u);
                     }
@@ -166,7 +166,7 @@ impl Connector for Jira {
                 break;
             }
         }
-        batch.cursor = newest.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+        batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
     }
 
@@ -205,22 +205,18 @@ fn due_field<'c>(ctx: &'c Ctx) -> anyhow::Result<Option<&'c str>> {
     Ok(Some(f))
 }
 
-/// Local `due_at`. A date-time custom field (`2026-10-02T17:00:00.000+0200`)
-/// keeps its time, converted to local. A date alone (the built-in `duedate`, or
-/// a custom *date* field) is pinned to 23:59:59 that day (`DAY_ONLY_DUE`): sorts after that day's
-/// timed work, and views only ever show the day for a due date.
-fn due_at(f: &Value, due_field: Option<&str>) -> Option<String> {
+/// When it's due. A date-time custom field (`2026-10-02T17:00:00.000+0200`)
+/// is an instant; a date alone (the built-in `duedate`, or a custom *date*
+/// field) is a calendar day.
+fn due(f: &Value, due_field: Option<&str>) -> Option<Due> {
     let as_due = |v: &Value| {
         let s = v.as_str()?;
-        if let Some(t) = to_local(s) {
-            return Some(t);
-        }
-        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| format!("{d}T{}", crate::queries::DAY_ONLY_DUE))
+        Ts::parse(s).map(Due::At).or_else(|| s.parse::<Date>().ok().map(Due::Day))
     };
     due_field.and_then(|k| f.get(k)).and_then(as_due).or_else(|| f.get("duedate").and_then(as_due))
 }
 
-fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, due_field: Option<&str>) -> Option<ItemUpsert> {
+fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<Ts>, due_field: Option<&str>) -> Option<ItemUpsert> {
     let key = issue.get("key")?.as_str()?.to_string();
     let f = issue.get("fields")?;
     let s = |p: &str| f.pointer(p).and_then(Value::as_str);
@@ -237,7 +233,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, 
         .rev()
         .filter_map(|c| {
             Some(Message {
-                at: to_local(c.get("created")?.as_str()?)?,
+                at: Ts::parse(c.get("created")?.as_str()?)?,
                 author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
                 text: adf_text(c.get("body")?),
                 author_id: c.pointer("/author/accountId").and_then(Value::as_str).map(str::to_owned),
@@ -260,8 +256,8 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, 
                 display_name: r.get("displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
             })
         }),
-        occurred_at: s("/updated").and_then(to_local).or_else(|| s("/created").and_then(to_local))?,
-        due_at: due_at(f, due_field),
+        occurred_at: s("/updated").and_then(Ts::parse).or_else(|| s("/created").and_then(Ts::parse))?,
+        due: due(f, due_field),
         status: if done { "done" } else { "open" }.into(),
         msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
         owner: if mine { Some("you".into()) } else { s("/assignee/displayName").map(str::to_owned) },
@@ -280,8 +276,8 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<DateTime<Utc>>, 
 /// New signal on an issue we already had: someone else changed its status or
 /// assignee, or @mentioned you in a new comment, after the cursor. Our own
 /// changes (e.g. a transition sent from the outbox) never resurface an item.
-fn bump(issue: &Value, me: &str, cursor: DateTime<Utc>) -> bool {
-    let after = |v: &Value| v.get("created").and_then(Value::as_str).and_then(parse_time).is_some_and(|t| t > cursor);
+fn bump(issue: &Value, me: &str, cursor: Ts) -> bool {
+    let after = |v: &Value| v.get("created").and_then(Value::as_str).and_then(Ts::parse).is_some_and(|t| t > cursor);
     let by_other = |v: &Value| v.pointer("/author/accountId").and_then(Value::as_str) != Some(me);
     let changed = issue.pointer("/changelog/histories").and_then(Value::as_array).into_iter().flatten().any(|h| {
         after(h)
@@ -498,20 +494,6 @@ fn text(payload: &Value, field: &str) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("payload needs a non-empty '{field}'"))
 }
 
-/// Jira returns `2026-09-27T10:15:30.123+0000` (no colon in the offset), which
-/// isn't RFC 3339. Accept both.
-fn parse_time(s: &str) -> Option<DateTime<FixedOffset>> {
-    DateTime::parse_from_rfc3339(s).ok().or_else(|| DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%z").ok())
-}
-
-fn to_local(s: &str) -> Option<String> {
-    parse_time(s).and_then(|t| local_ts(&t.to_rfc3339()))
-}
-
-fn now_utc(ctx: &Ctx) -> DateTime<Utc> {
-    ctx.now.and_local_timezone(chrono::Local).earliest().map(|t| t.with_timezone(&Utc)).unwrap_or_else(Utc::now)
-}
-
 /// Plain text → Atlassian Document Format: blank lines split paragraphs,
 /// single newlines become hard breaks. Text is passed through unchanged.
 pub fn to_adf(text: &str) -> Value {
@@ -609,8 +591,8 @@ mod tests {
 
     fn with_ctx<T>(src: &Source, http: &FakeHttp, f: impl FnOnce(&Ctx) -> T) -> T {
         let secret = |k: &str| (k == DEFAULT_SECRET).then(|| "tok-123".to_string());
-        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 27).unwrap().and_hms_opt(10, 0, 0).unwrap();
-        let ctx = Ctx { source: src, http, secret: &secret, now };
+        let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
+        let ctx = Ctx { source: src, http, secret: &secret, now: clock.now(), clock };
         f(&ctx)
     }
 
@@ -631,7 +613,7 @@ mod tests {
     fn due_is_the_day_unless_a_custom_datetime_field_is_set() {
         // Built-in duedate: date only, pinned to the end of that day.
         let (b, reqs) = polled(None);
-        assert_eq!(b.items[0].due_at.as_deref(), Some("2026-10-02T23:59:59"));
+        assert_eq!(b.items[0].due, Some(Due::Day(jiff::civil::date(2026, 10, 2))));
         assert!(!reqs[1].1.contains("customfield"));
 
         let mut src = source(None);
@@ -639,17 +621,16 @@ mod tests {
         let (b, reqs) = polled_with(src);
         assert!(reqs[1].1.contains("&fields=summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,customfield_10050&"));
         // The custom field's real time, converted to local; it wins over duedate.
-        assert_eq!(b.items[0].due_at, to_local("2026-10-01T17:00:00.000+0200"));
-        assert_eq!(b.items[0].due_at, local_ts("2026-10-01T15:00:00Z"));
+        assert_eq!(b.items[0].due, Some(Due::At(Ts::parse("2026-10-01T15:00:00Z").unwrap())));
         // Field null and no duedate: no due.
-        assert_eq!(b.items[1].due_at, None);
+        assert_eq!(b.items[1].due, None);
 
         // A custom field holding a plain date is still just a day.
         let f = json!({ "customfield_1": "2026-10-05", "duedate": "2026-10-09" });
-        assert_eq!(due_at(&f, Some("customfield_1")).as_deref(), Some("2026-10-05T23:59:59"));
+        assert_eq!(due(&f, Some("customfield_1")), Some(Due::Day(jiff::civil::date(2026, 10, 5))));
         // Missing or unparseable custom value falls back to duedate.
-        assert_eq!(due_at(&f, Some("customfield_2")).as_deref(), Some("2026-10-09T23:59:59"));
-        assert_eq!(due_at(&json!({ "customfield_1": "soon", "duedate": null }), Some("customfield_1")), None);
+        assert_eq!(due(&f, Some("customfield_2")), Some(Due::Day(jiff::civil::date(2026, 10, 9))));
+        assert_eq!(due(&json!({ "customfield_1": "soon", "duedate": null }), Some("customfield_1")), None);
 
         let mut src = source(None);
         src.config["due_field"] = json!("customfield_1&jql=x");
@@ -680,10 +661,10 @@ mod tests {
         assert_eq!(it.owner.as_deref(), Some("you"));
         assert_eq!(it.url.as_deref(), Some("https://acme.atlassian.net/browse/PLAT-1170"));
         assert_eq!(it.author.as_ref().unwrap().handle, "acc-jordan");
-        assert_eq!(it.due_at.as_deref(), Some("2026-10-02T23:59:59"));
+        assert_eq!(it.due, Some(Due::Day(jiff::civil::date(2026, 10, 2))));
         assert_eq!(it.status, "open");
         assert_eq!(it.msg_count, Some(2));
-        assert_eq!(it.occurred_at, to_local("2026-09-26T14:05:00.000+0000").unwrap());
+        assert_eq!(it.occurred_at, Ts::parse("2026-09-26T14:05:00.000+0000").unwrap());
         assert_eq!(it.body, "Workers retry forever on 5xx.\nCap it.");
         assert_eq!(it.messages.len(), 2);
         assert_eq!(it.messages[1].text, "@Sam can you look?");

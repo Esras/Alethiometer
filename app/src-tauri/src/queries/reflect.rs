@@ -26,7 +26,10 @@ use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
 use crate::sync::connectors::obsidian::save;
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use crate::clock::Clock;
+use crate::time::{Date, Ts};
+use jiff::civil::DateTime;
+use jiff::ToSpan;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -106,49 +109,49 @@ fn lens_label(lens: &str) -> &'static str {
     }
 }
 
-fn add_months(d: NaiveDate, n: i32) -> NaiveDate {
-    let m0 = d.year() * 12 + d.month0() as i32 + n;
-    NaiveDate::from_ymd_opt(m0.div_euclid(12), m0.rem_euclid(12) as u32 + 1, 1).expect("valid month")
+/// The first of the month `n` months after `d`'s.
+fn add_months(d: Date, n: i32) -> Date {
+    d.first_of_month() + n.months()
 }
 
 /// First day of the period containing `d`.
-fn period_start(scope: Scope, d: NaiveDate) -> NaiveDate {
+fn period_start(scope: Scope, d: Date) -> Date {
     match scope {
         Scope::Day => d,
-        Scope::Week => d - Duration::days(d.weekday().num_days_from_monday() as i64),
-        Scope::Month => d.with_day(1).expect("day 1"),
-        Scope::Quarter => NaiveDate::from_ymd_opt(d.year(), d.month0() / 3 * 3 + 1, 1).expect("quarter"),
+        Scope::Week => d - (d.weekday().to_monday_zero_offset() as i64).days(),
+        Scope::Month => d.first_of_month(),
+        Scope::Quarter => jiff::civil::date(d.year(), (d.month() - 1) / 3 * 3 + 1, 1),
     }
 }
 
 /// First day after the period starting at `s`.
-fn period_end(scope: Scope, s: NaiveDate) -> NaiveDate {
+fn period_end(scope: Scope, s: Date) -> Date {
     match scope {
-        Scope::Day => s + Duration::days(1),
-        Scope::Week => s + Duration::days(7),
+        Scope::Day => s + (1).days(),
+        Scope::Week => s + (7).days(),
         Scope::Month => add_months(s, 1),
         Scope::Quarter => add_months(s, 3),
     }
 }
 
-fn period_prev(scope: Scope, s: NaiveDate) -> NaiveDate {
+fn period_prev(scope: Scope, s: Date) -> Date {
     match scope {
-        Scope::Day => s - Duration::days(1),
-        Scope::Week => s - Duration::days(7),
+        Scope::Day => s - (1).days(),
+        Scope::Week => s - (7).days(),
         Scope::Month => add_months(s, -1),
         Scope::Quarter => add_months(s, -3),
     }
 }
 
-fn quarter(d: NaiveDate) -> u32 {
-    d.month0() / 3 + 1
+fn quarter(d: Date) -> i8 {
+    (d.month() - 1) / 3 + 1
 }
 
-fn note_path(scope: Scope, s: NaiveDate, lens: &str) -> String {
+fn note_path(scope: Scope, s: Date, lens: &str) -> String {
     let file = match scope {
-        Scope::Day => s.format("%Y-%m-%d").to_string(),
-        Scope::Week => format!("{}-W{:02}", s.iso_week().year(), s.iso_week().week()),
-        Scope::Month => s.format("%Y-%m").to_string(),
+        Scope::Day => s.strftime("%Y-%m-%d").to_string(),
+        Scope::Week => format!("{}-W{:02}", s.iso_week_date().year(), s.iso_week_date().week()),
+        Scope::Month => s.strftime("%Y-%m").to_string(),
         Scope::Quarter => format!("{}-Q{}", s.year(), quarter(s)),
     };
     // Reflect is work-only for now: work notes sit directly under
@@ -160,24 +163,24 @@ fn note_path(scope: Scope, s: NaiveDate, lens: &str) -> String {
     }
 }
 
-fn titles(scope: Scope, s: NaiveDate) -> (String, String) {
+fn titles(scope: Scope, s: Date) -> (String, String) {
     let q = quarter(s);
     match scope {
         Scope::Day => (
-            s.format("%A %-d %B").to_string(),
-            format!("in Week {} · {} · Q{q}", s.iso_week().week(), s.format("%B")),
+            s.strftime("%A %-d %B").to_string(),
+            format!("in Week {} · {} · Q{q}", s.iso_week_date().week(), s.strftime("%B")),
         ),
         Scope::Week => {
-            let fri = s + Duration::days(4);
+            let fri = s + (4).days();
             (
-                format!("Week {} · {} – {}", s.iso_week().week(), s.format("%-d %b"), fri.format("%-d %b")),
-                format!("in {} · Q{q}", s.format("%B")),
+                format!("Week {} · {} – {}", s.iso_week_date().week(), s.strftime("%-d %b"), fri.strftime("%-d %b")),
+                format!("in {} · Q{q}", s.strftime("%B")),
             )
         }
-        Scope::Month => (s.format("%B %Y").to_string(), format!("in Q{q} · {}", s.year())),
+        Scope::Month => (s.strftime("%B %Y").to_string(), format!("in Q{q} · {}", s.year())),
         Scope::Quarter => {
             let last = add_months(s, 2);
-            (format!("Q{q} {} · {} – {}", s.year(), s.format("%b"), last.format("%b")), format!("in {}", s.year()))
+            (format!("Q{q} {} · {} – {}", s.year(), s.strftime("%b"), last.strftime("%b")), format!("in {}", s.year()))
         }
     }
 }
@@ -217,18 +220,18 @@ fn is_blank_list(l: &str) -> bool {
 // ---------------------------------------------------------------- events
 
 struct Ev {
-    start: NaiveDateTime,
-    end: NaiveDateTime,
+    start: DateTime,
+    end: DateTime,
     title: Option<String>,
     category: String,
     life: bool,
     topic: Option<String>,
-    actual: Option<(NaiveDateTime, NaiveDateTime)>,
+    actual: Option<(DateTime, DateTime)>,
 }
 
 impl Ev {
     fn minutes(&self) -> i64 {
-        (self.end - self.start).num_minutes().max(0)
+        self.end.duration_since(self.start).as_mins().max(0)
     }
     fn is_meeting(&self) -> bool {
         !self.life && self.category != "self"
@@ -243,7 +246,9 @@ fn keep(ev: &Ev, lens: &str) -> bool {
     }
 }
 
-fn events(conn: &Connection, from: NaiveDate, to: NaiveDate) -> Result<Vec<Ev>> {
+/// Events starting on the calendar days `[from, to)` here, with their times
+/// as wall-clock times here (Reflect thinks in days and minutes of the day).
+fn events(conn: &Connection, clock: &Clock, from: Date, to: Date) -> Result<Vec<Ev>> {
     let mut stmt = conn.prepare(
         "SELECT e.start, e.end, e.title, e.category, e.is_life_busy, i.raw_json,
                 (SELECT t.name FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
@@ -253,10 +258,10 @@ fn events(conn: &Connection, from: NaiveDate, to: NaiveDate) -> Result<Vec<Ev>> 
           ORDER BY e.start",
     )?;
     let rows = stmt
-        .query_map(params![from.format("%Y-%m-%d").to_string(), to.format("%Y-%m-%d").to_string()], |r| {
+        .query_map(params![clock.day_range(from).0, clock.day_range(to).0], |r| {
             Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
+                r.get::<_, Ts>(0)?,
+                r.get::<_, Ts>(1)?,
                 r.get::<_, Option<String>>(2)?,
                 r.get::<_, String>(3)?,
                 r.get::<_, i64>(4)? == 1,
@@ -267,21 +272,21 @@ fn events(conn: &Connection, from: NaiveDate, to: NaiveDate) -> Result<Vec<Ev>> 
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows
         .into_iter()
-        .filter_map(|(s, e, title, category, life, raw, topic)| {
+        .map(|(s, e, title, category, life, raw, topic)| {
             let actual = raw.as_deref().and_then(|raw| {
                 let v: Value = serde_json::from_str(raw).ok()?;
-                Some((parse_ts(v.get("actual_start")?.as_str()?)?, parse_ts(v.get("actual_end")?.as_str()?)?))
+                Some((clock.local(parse_ts(v.get("actual_start")?.as_str()?)?), clock.local(parse_ts(v.get("actual_end")?.as_str()?)?)))
             });
-            Some(Ev {
-                start: parse_ts(&s)?,
-                end: parse_ts(&e)?,
+            Ev {
+                start: clock.local(s),
+                end: clock.local(e),
                 // Rule 3: Life blocks never carry a title or topic.
                 title: if life { None } else { title },
                 topic: if life { None } else { topic },
                 category,
                 life,
                 actual: if life { None } else { actual },
-            })
+            }
         })
         .collect())
 }
@@ -402,7 +407,7 @@ struct Child {
 }
 
 fn get(app: &App, args: &Value) -> Result<Value> {
-    let today = app.clock.now().date();
+    let today = app.clock.today();
     let scope = Scope::parse(args.get("scope").and_then(Value::as_str).unwrap_or("day"))?;
     let lens = check_lens(args.get("lens").and_then(Value::as_str).unwrap_or("work"))?.to_string();
     let d = match args.get("period").and_then(Value::as_str) {
@@ -434,11 +439,11 @@ fn get(app: &App, args: &Value) -> Result<Value> {
     Ok(json!({
         "scope": scope.key(),
         "lens": lens,
-        "period": s.format("%Y-%m-%d").to_string(),
-        "today": today.format("%Y-%m-%d").to_string(),
+        "period": s.strftime("%Y-%m-%d").to_string(),
+        "today": today.strftime("%Y-%m-%d").to_string(),
         "is_current": today >= s && today < e,
-        "prev": period_prev(scope, s).format("%Y-%m-%d").to_string(),
-        "next": e.format("%Y-%m-%d").to_string(),
+        "prev": period_prev(scope, s).strftime("%Y-%m-%d").to_string(),
+        "next": e.strftime("%Y-%m-%d").to_string(),
         "title": title,
         "context": context,
         "note": note,
@@ -448,16 +453,17 @@ fn get(app: &App, args: &Value) -> Result<Value> {
     }))
 }
 
-fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result<Value> {
-    let now = app.clock.now();
-    let all = events(conn, day, day + Duration::days(1))?;
+fn day_brief(app: &App, conn: &Connection, day: Date, lens: &str) -> Result<Value> {
+    let now = app.clock.local_now();
+    let (day_from, day_to) = app.clock.day_range(day);
+    let all = events(conn, &app.clock, day, day + (1).days())?;
     let evs: Vec<&Ev> = all.iter().filter(|e| keep(e, lens)).collect();
     let (h0, h1) = (app.settings().day_start_hour as i64 * 60, app.settings().day_end_hour as i64 * 60);
     // Free time counts every block as busy (time math on Life is allowed).
     let free = gaps(&busy(&all), h0, h1);
     let free_total: i64 = free.iter().map(|g| g.1 - g.0).sum();
     let longest = free.iter().map(|g| g.1 - g.0).max().unwrap_or(0);
-    let ds = day.format("%Y-%m-%d").to_string();
+    let ds = day.strftime("%Y-%m-%d").to_string();
 
     let tiles = if lens == "life" {
         let life: Vec<&&Ev> = evs.iter().filter(|e| e.life).collect();
@@ -470,8 +476,8 @@ fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result
     } else {
         let meetings: Vec<&&Ev> = evs.iter().filter(|e| e.is_meeting()).collect();
         let decisions: i64 = conn.query_row(
-            "SELECT count(*) FROM items WHERE kind = 'decision' AND substr(occurred_at, 1, 10) = ?1",
-            [&ds],
+            "SELECT count(*) FROM items WHERE kind = 'decision' AND occurred_at >= ?1 AND occurred_at < ?2",
+            params![day_from, day_to],
             |r| r.get(0),
         )?;
         let (jotted, held): (i64, i64) = conn.query_row(
@@ -541,10 +547,10 @@ fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result
             "SELECT i.title, (SELECT t.name FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
                                 WHERE tl.item_id = i.id AND tl.state = 'confirmed' LIMIT 1)
                FROM items i JOIN sources s ON s.id = i.source_id
-              WHERE i.kind = 'decision' AND s.tag = 'work' AND substr(i.occurred_at, 1, 10) = ?1
+              WHERE i.kind = 'decision' AND s.tag = 'work' AND i.occurred_at >= ?1 AND i.occurred_at < ?2
               ORDER BY i.occurred_at",
         )?
-        .query_map([&ds], |r| Ok(Decision { title: r.get(0)?, topic: r.get(1)? }))?
+        .query_map(params![day_from, day_to], |r| Ok(Decision { title: r.get(0)?, topic: r.get(1)? }))?
         .collect::<rusqlite::Result<Vec<_>>>()?
     };
 
@@ -559,7 +565,7 @@ fn day_brief(app: &App, conn: &Connection, day: NaiveDate, lens: &str) -> Result
     }))
 }
 
-fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: NaiveDate, lens: &str) -> Result<(Option<String>, bool)> {
+fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: Date, lens: &str) -> Result<(Option<String>, bool)> {
     // The note is the truth (edited in Obsidian, or saved through it); the
     // stored summary is for when the file isn't there.
     if let Ok(text) = std::fs::read_to_string(app.vault.join(note_path(scope, s, lens))) {
@@ -568,7 +574,7 @@ fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: NaiveDate, 
     let row: Option<Option<String>> = conn
         .query_row(
             "SELECT summary FROM reflections WHERE scope = ?1 AND period_start = ?2 AND lens = ?3",
-            params![scope.key(), s.format("%Y-%m-%d").to_string(), lens],
+            params![scope.key(), s.strftime("%Y-%m-%d").to_string(), lens],
             |r| r.get(0),
         )
         .optional()?;
@@ -578,8 +584,8 @@ fn reflection_summary(app: &App, conn: &Connection, scope: Scope, s: NaiveDate, 
     })
 }
 
-fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: NaiveDate, e: NaiveDate, lens: &str) -> Result<Vec<Child>> {
-    let all = events(conn, period_start(child, s), period_end(child, period_start(child, e - Duration::days(1))))?;
+fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: Date, e: Date, lens: &str) -> Result<Vec<Child>> {
+    let all = events(conn, &app.clock, period_start(child, s), period_end(child, period_start(child, e - (1).days())))?;
     let mut out = vec![];
     let mut c = period_start(child, s);
     while c < e {
@@ -587,14 +593,14 @@ fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: NaiveDat
         let evs: Vec<&Ev> = all.iter().filter(|x| keep(x, lens) && x.start.date() >= c && x.start.date() < ce).collect();
         let (summary, has_entry) = reflection_summary(app, conn, child, c, lens)?;
         let label = match child {
-            Scope::Day => c.format("%a").to_string(),
-            Scope::Week => format!("W{:02}", c.iso_week().week()),
-            _ => c.format("%b").to_string(),
+            Scope::Day => c.strftime("%a").to_string(),
+            Scope::Week => format!("W{:02}", c.iso_week_date().week()),
+            _ => c.strftime("%b").to_string(),
         };
-        let weekend = child == Scope::Day && c.weekday().num_days_from_monday() >= 5;
+        let weekend = child == Scope::Day && c.weekday().to_monday_zero_offset() >= 5;
         // Weekends only show up when something happened.
         if !weekend || has_entry || !evs.is_empty() {
-            out.push(Child { label, period: c.format("%Y-%m-%d").to_string(), summary, has_entry, cats: cat_totals(&evs) });
+            out.push(Child { label, period: c.strftime("%Y-%m-%d").to_string(), summary, has_entry, cats: cat_totals(&evs) });
         }
         c = ce;
     }
@@ -603,8 +609,8 @@ fn rollup(app: &App, conn: &Connection, _scope: Scope, child: Scope, s: NaiveDat
 
 /// Day: that day's carry list (acted rows included, faded in the UI).
 /// Week and up: items still open at the end of their latest carry in range.
-fn carry_rows(conn: &Connection, scope: Scope, s: NaiveDate, e: NaiveDate) -> Result<Vec<CarryRow>> {
-    let (from, to) = (s.format("%Y-%m-%d").to_string(), e.format("%Y-%m-%d").to_string());
+fn carry_rows(conn: &Connection, scope: Scope, s: Date, e: Date) -> Result<Vec<CarryRow>> {
+    let (from, to) = (s.strftime("%Y-%m-%d").to_string(), e.strftime("%Y-%m-%d").to_string());
     let sql = if scope == Scope::Day {
         "SELECT c.item_id, c.period, i.title, i.owner, i.raw_json, c.action
            FROM carry c JOIN items i ON i.id = c.item_id
@@ -679,7 +685,7 @@ fn save(app: &App, args: &Value) -> Result<Value> {
     app.db().execute(
         "INSERT INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (scope, period_start, lens) DO UPDATE SET obsidian_path = excluded.obsidian_path, summary = excluded.summary",
-        params![scope.key(), s.format("%Y-%m-%d").to_string(), lens, path, summary],
+        params![scope.key(), s.strftime("%Y-%m-%d").to_string(), lens, path, summary],
     )?;
     Ok(json!({ "ok": true, "base": text, "summary": summary }))
 }
@@ -688,7 +694,7 @@ fn save(app: &App, args: &Value) -> Result<Value> {
 
 fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
     let p = parse_date(period)?;
-    let today = app.clock.now().date();
+    let today = app.clock.today();
     let conn = app.db();
     let current: Option<Option<String>> = conn
         .query_row("SELECT action FROM carry WHERE item_id = ?1 AND period = ?2", params![item_id, period], |r| r.get(0))
@@ -697,8 +703,8 @@ fn carry(app: &App, item_id: i64, period: &str, action: &str) -> Result<Value> {
         return Err(msg("not on the carry list"));
     };
     // Tomorrow is relative to the later of the carry day and today.
-    let target = p.max(today) + Duration::days(1);
-    let target_s = target.format("%Y-%m-%d").to_string();
+    let target = p.max(today) + (1).days();
+    let target_s = target.strftime("%Y-%m-%d").to_string();
     match action {
         "tomorrow" | "schedule" | "let_go" => {
             if current.is_some() {
@@ -796,28 +802,29 @@ fn nudge_gap(busy: &[(i64, i64)], now_min: i64) -> Option<(i64, Option<i64>)> {
 }
 
 fn nudge(app: &App) -> Result<Value> {
-    let now = app.clock.now();
+    let now = app.clock.local_now();
     let today = now.date();
-    let ds = today.format("%Y-%m-%d").to_string();
+    let ds = today.strftime("%Y-%m-%d").to_string();
     let now_min = minute_of_day(now);
     let mut st = load_nudge(app, &ds);
     let conn = app.db();
-    let evs = events(&conn, today, today + Duration::days(1))?;
+    let evs = events(&conn, &app.clock, today, today + (1).days())?;
     let open: i64 = conn.query_row("SELECT count(*) FROM carry WHERE period = ?1 AND action IS NULL", [&ds], |r| r.get(0))?;
     drop(conn);
 
     let gap = nudge_gap(&busy(&evs), now_min);
-    let snoozed_until = st.snooze_until.as_deref().and_then(|t| NaiveTime::parse_from_str(t, "%H:%M").ok());
+    // A snooze is an instant (it can run past midnight).
+    let snoozed_until = st.snooze_until.as_deref().and_then(Ts::parse);
     let show = st.answer.is_none()
         && match snoozed_until {
-            Some(t) => now.time() >= t,
+            Some(t) => app.clock.now() >= t,
             None => gap.map_or(false, |(s, e)| now_min >= s && e.map_or(true, |e| now_min < e)),
         };
 
     let until = gap.and_then(|(_, e)| e).and_then(|e| {
         let ev = evs.iter().find(|x| minute_of_day(x.start) == e)?;
         let what = if ev.life { "Life".to_string() } else { ev.title.clone().unwrap_or_else(|| "a meeting".into()) };
-        Some(format!("No meetings until {what} at {}", ev.start.format("%H:%M")))
+        Some(format!("No meetings until {what} at {}", ev.start.strftime("%H:%M")))
     });
     let things = match open {
         0 => None,
@@ -840,7 +847,7 @@ fn nudge(app: &App) -> Result<Value> {
 
     Ok(json!({
         "show": show,
-        "at": now.format("%H:%M").to_string(),
+        "at": now.strftime("%H:%M").to_string(),
         "title": "Wrap up the day?",
         "line": line,
         "carry_count": open,
@@ -850,12 +857,11 @@ fn nudge(app: &App) -> Result<Value> {
 }
 
 fn nudge_answer(app: &App, answer: &str) -> Result<Value> {
-    let now = app.clock.now();
-    let ds = now.date().format("%Y-%m-%d").to_string();
+    let ds = app.clock.today().to_string();
     let mut st = load_nudge(app, &ds);
     match answer {
         "snooze" => {
-            st.snooze_until = Some((now + Duration::minutes(SNOOZE_MIN)).format("%H:%M").to_string());
+            st.snooze_until = Some((app.clock.now() + jiff::SignedDuration::from_mins(SNOOZE_MIN)).to_db());
             st.notified = false;
         }
         "now" | "not_today" | "dismissed" => {
@@ -874,7 +880,7 @@ fn nudge_answer(app: &App, answer: &str) -> Result<Value> {
 pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     let c = ctx.conn;
     let today = ctx.today;
-    let ds = |d: NaiveDate| d.format("%Y-%m-%d").to_string();
+    let ds = |d: Date| d.strftime("%Y-%m-%d").to_string();
     let monday = period_start(Scope::Week, today);
 
     // "did" sample: actual join/leave times on two of today's meetings.
@@ -918,12 +924,12 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     ];
     let mut earlier = vec![];
     for i in 0..5 {
-        let d = monday + Duration::days(i as i64);
+        let d = monday + (i as i64).days();
         if d >= today {
             break;
         }
         earlier.push(d);
-        let off = (d - today).num_days();
+        let off = (d - today).get_days() as i64;
         for (a, b, title, cat) in week[i] {
             ctx.meeting(off, a, b, title, cat, "", false);
         }
@@ -975,8 +981,8 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     let items = [
         (task("Send Marco feedback on the backoff PR", None, 0), "do"),
         (task("attrition numbers", Some("Lee"), 0), "delegated"),
-        (task("Platform on-call models", None, (first - today).num_days()), "research"),
-        (task("Q4 strategy doc, first draft", None, (first - today).num_days()), "do"),
+        (task("Platform on-call models", None, (first - today).get_days() as i64), "research"),
+        (task("Q4 strategy doc, first draft", None, (first - today).get_days() as i64), "do"),
     ];
     for (id, glyph) in items {
         set_glyph(id, glyph)?;
@@ -988,7 +994,7 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
         }
     }
     if let Some(last) = earlier.last() {
-        let jordan = task("node-7 owner", Some("Jordan"), (*last - today).num_days());
+        let jordan = task("node-7 owner", Some("Jordan"), (*last - today).get_days() as i64);
         set_glyph(jordan, "delegated")?;
         c.execute("INSERT INTO carry (item_id, period) VALUES (?1, ?2)", params![jordan, ds(*last)])?;
     }
@@ -998,7 +1004,7 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: NaiveDate, text: &str) -> anyhow::Result<()> {
+fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: Date, text: &str) -> anyhow::Result<()> {
     let path = note_path(scope, s, "work");
     let abs = vault.join(&path);
     if !abs.exists() {
@@ -1009,7 +1015,7 @@ fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: NaiveDate, tex
     }
     c.execute(
         "INSERT OR REPLACE INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, 'work', ?3, ?4)",
-        params![scope.key(), s.format("%Y-%m-%d").to_string(), path, summarize(text)],
+        params![scope.key(), s.strftime("%Y-%m-%d").to_string(), path, summarize(text)],
     )?;
     Ok(())
 }
@@ -1029,7 +1035,7 @@ mod tests {
     }
 
     fn today(app: &App) -> String {
-        app.clock.now().date().format("%Y-%m-%d").to_string()
+        app.clock.today().to_string()
     }
 
     #[test]
@@ -1042,14 +1048,14 @@ mod tests {
 
     #[test]
     fn periods_and_paths() {
-        let d = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        let d = jiff::civil::date(2026, 9, 30);
         let w = period_start(Scope::Week, d);
-        assert_eq!(w, NaiveDate::from_ymd_opt(2026, 9, 28).unwrap());
+        assert_eq!(w, jiff::civil::date(2026, 9, 28));
         assert_eq!(note_path(Scope::Week, w, "work"), "Reflections/Weekly/2026-W40.md");
         assert_eq!(note_path(Scope::Day, w, "life"), "Reflections/Life/Daily/2026-09-28.md");
         let q = period_start(Scope::Quarter, d);
         assert_eq!(note_path(Scope::Quarter, q, "work"), "Reflections/Quarterly/2026-Q3.md");
-        assert_eq!(period_end(Scope::Quarter, q), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
+        assert_eq!(period_end(Scope::Quarter, q), jiff::civil::date(2026, 10, 1));
         assert_eq!(titles(Scope::Day, w).0, "Monday 28 September");
         assert_eq!(titles(Scope::Week, w).0, "Week 40 · 28 Sep – 2 Oct");
     }
@@ -1114,7 +1120,7 @@ mod tests {
         let id = |i: usize| rows[i]["item_id"].as_i64().unwrap();
 
         carry(&app, id(0), &t, "tomorrow").unwrap();
-        let tomorrow = (app.clock.now().date() + Duration::days(1)).format("%Y-%m-%d").to_string();
+        let tomorrow = (app.clock.today() + (1).days()).to_string();
         let n: i64 = app.db().query_row("SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2", params![id(0), tomorrow], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
         assert!(carry(&app, id(0), &t, "let_go").is_err(), "must undo first");

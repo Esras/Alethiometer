@@ -201,7 +201,7 @@ pub fn parse(v: &Value) -> Vec<Hit> {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|x| x.get("snippet").or_else(|| x.get("text")).and_then(Value::as_str)).collect::<Vec<_>>().join(" … "))
                 .unwrap_or_default();
-            let updated = meta.get("updateTime").or_else(|| meta.get("createTime")).and_then(Value::as_str).and_then(crate::sync::local_ts);
+            let updated = meta.get("updateTime").or_else(|| meta.get("createTime")).and_then(Value::as_str).and_then(crate::time::Ts::parse).map(crate::time::Ts::to_db);
             Some(Hit {
                 title: if title.is_empty() { url.clone() } else { title },
                 url,
@@ -257,7 +257,7 @@ pub fn feedback(conn: &Connection, topic_id: i64, key: &str, verdict: &str, titl
         "pin" | "reject" => {
             conn.execute(
                 "INSERT INTO search_feedback (topic_id, key, verdict, title, url, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (topic_id, key) DO UPDATE SET verdict = excluded.verdict, at = datetime('now', 'localtime')",
+                 ON CONFLICT (topic_id, key) DO UPDATE SET verdict = excluded.verdict, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![topic_id, key, verdict, title, url, source],
             )?;
         }

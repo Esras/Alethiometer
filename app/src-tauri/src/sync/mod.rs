@@ -378,7 +378,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Resu
         let mut buffers = std::collections::HashMap::new();
         {
             let mut stmt = tx.prepare("SELECT start, buffer_min FROM events WHERE source_id = ?1 AND buffer_min IS NOT NULL")?;
-            for row in stmt.query_map([source.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            for row in stmt.query_map([source.id], |r| Ok((r.get::<_, Ts>(0)?, r.get::<_, i64>(1)?)))? {
                 let (s, b) = row?;
                 buffers.insert(s, b);
             }
@@ -433,13 +433,12 @@ fn inherit_series(tx: &Connection, source_id: i64, item_id: i64, key: &str) -> R
 
 /// One unseen instance per series: the next upcoming, else the latest past.
 fn collapse_series(tx: &Connection, source_id: i64, key: &str, now: Ts) -> Result<()> {
-    let now = "?3";
     tx.execute(
         &format!(
             "UPDATE items SET seen = 1 WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2 AND id != (
                SELECT id FROM items WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2
-                ORDER BY coalesce(ended_at, occurred_at) < {now},
-                         CASE WHEN coalesce(ended_at, occurred_at) >= {now} THEN occurred_at END,
+                ORDER BY coalesce(ended_at, occurred_at) < ?3,
+                         CASE WHEN coalesce(ended_at, occurred_at) >= ?3 THEN occurred_at END,
                          occurred_at DESC
                 LIMIT 1)"
         ),
@@ -507,7 +506,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let connector = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
-    let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock };
+    let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
     // Poll without holding the DB lock; network calls can be slow.
     let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| {
         let conn = app.db();
@@ -686,6 +685,18 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
+/// `apply` at the fixtures' "now" (Sep 28 2026, 10:52 UTC).
+#[cfg(test)]
+pub fn apply_now(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
+    apply(conn, source, batch, crate::time::t("2026-09-28T10:52:00"))
+}
+
+/// A clock at `now` (an RFC 3339 instant) in UTC, for connector tests.
+#[cfg(test)]
+pub fn test_clock(now: &str) -> Clock {
+    Clock::fixed(Ts::parse(now).expect("an RFC 3339 instant"), jiff::tz::TimeZone::UTC)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,7 +722,7 @@ mod tests {
             external_id: "PLAT-1".into(),
             kind: "issue".into(),
             title: "Fix retries".into(),
-            occurred_at: "2026-09-28T09:00:00".into(),
+            occurred_at: crate::time::t("2026-09-28T09:00:00"),
             status: "open".into(),
             author: Some(Handle { handle: "acc-1".into(), display_name: "Jordan".into() }),
             bump,
@@ -723,13 +734,13 @@ mod tests {
     fn upsert_marks_new_then_only_bumps_resurface() {
         let (conn, src) = setup("work");
         let b = Batch { items: vec![issue(false)], cursor: Some("c1".into()), ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b).unwrap(), 1);
+        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
-        assert_eq!(apply(&conn, &src, &b).unwrap(), 0);
+        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
         let seen: i64 = conn.query_row("SELECT seen FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(seen, 1);
         let b2 = Batch { items: vec![issue(true)], ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b2).unwrap(), 1);
+        assert_eq!(apply(&conn, &src, &b2, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
         let (seen, n, cursor): (i64, i64, String) = conn
             .query_row("SELECT seen, (SELECT count(*) FROM items), (SELECT cursor FROM sources) FROM items", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -747,8 +758,8 @@ mod tests {
         conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();
         let src = load_source(&conn, 1).unwrap();
         let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned), is_bot: false };
-        apply(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
-        apply(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
+        apply_now(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
+        apply_now(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
         let got: (String, String) = conn.query_row("SELECT real_name, email FROM account_profiles", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(got, ("Ann Lee".into(), "ann.lee@x.com".into()));
     }
@@ -757,7 +768,7 @@ mod tests {
     fn personal_source_cannot_store_items() {
         let (conn, src) = setup("personal");
         let b = Batch { items: vec![issue(false)], ..Default::default() };
-        assert!(apply(&conn, &src, &b).is_err());
+        assert!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).is_err());
         let n: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }
@@ -767,13 +778,13 @@ mod tests {
         let (conn, src) = setup("personal");
         let busy = |s: &str, e: &str| Busy { start: s.into(), end: e.into() };
         let b = Batch { busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00")]), ..Default::default() };
-        apply(&conn, &src, &b).unwrap();
+        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         conn.execute("UPDATE events SET buffer_min = 25", []).unwrap();
         let b = Batch {
             busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00"), busy("2026-09-28T17:30:00", "2026-09-28T18:00:00")]),
             ..Default::default()
         };
-        apply(&conn, &src, &b).unwrap();
+        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let rows: Vec<(String, Option<i64>, Option<String>)> = conn
             .prepare("SELECT start, buffer_min, title FROM events ORDER BY start")
             .unwrap()
@@ -803,7 +814,7 @@ mod tests {
             items: vec![inst("past", "2000-01-01T09:00:00"), inst("feb", "2099-02-01T09:00:00"), inst("jan", "2099-01-01T09:00:00")],
             ..Default::default()
         };
-        apply(&conn, &src, &b).unwrap();
+        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let unseen = |c: &Connection| -> Vec<String> {
             c.prepare("SELECT external_id FROM items WHERE seen = 0").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
         };
@@ -818,7 +829,7 @@ mod tests {
         assert_eq!(linked(&conn), 3);
 
         let b = Batch { items: vec![inst("mar", "2099-03-01T09:00:00")], ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b).unwrap(), 0);
+        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
         assert!(unseen(&conn).is_empty());
         assert_eq!(linked(&conn), 4);
     }

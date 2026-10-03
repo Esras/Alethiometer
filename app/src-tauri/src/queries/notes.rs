@@ -19,7 +19,8 @@ use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
-use chrono::{Duration, NaiveDate};
+use crate::time::Date;
+use jiff::ToSpan;
 use regex::Regex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -148,7 +149,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             app.db().execute(
                 "UPDATE outbox SET state = 'pending' WHERE state = 'failed' AND op = 'jira.create_issue'
                    AND json_extract(payload_json, '$.notes_line_id') IN (SELECT id FROM notes_lines WHERE page_date = ?1)",
-                [date.format("%Y-%m-%d").to_string()],
+                [date.to_string()],
             )?;
             page(app, &app.db(), date, &HashMap::new())
         }
@@ -156,14 +157,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
-fn page_date(app: &App, args: &Value) -> Result<NaiveDate> {
+fn page_date(app: &App, args: &Value) -> Result<Date> {
     match args.get("date").and_then(Value::as_str) {
         Some(d) if !d.is_empty() => parse_date(d),
-        _ => Ok(app.clock.now().date()),
+        _ => Ok(app.clock.today()),
     }
 }
 
-fn load_rows(conn: &Connection, date: NaiveDate) -> Result<Vec<Row>> {
+fn load_rows(conn: &Connection, date: Date) -> Result<Vec<Row>> {
     let mut stmt = conn.prepare(
         "SELECT id, kind, text, state, target_json FROM notes_lines WHERE page_date = ?1 ORDER BY position, id",
     )?;
@@ -228,8 +229,8 @@ fn jira_create(conn: &Connection, line_id: i64) -> Option<Value> {
     .ok()
 }
 
-fn page(app: &App, conn: &Connection, date: NaiveDate, keys: &HashMap<i64, String>) -> Result<Value> {
-    let today = app.clock.now().date();
+fn page(app: &App, conn: &Connection, date: Date, keys: &HashMap<i64, String>) -> Result<Value> {
+    let today = app.clock.today();
     let idx = Index::load(conn, &app.vault)?;
     let rows = load_rows(conn, date)?;
     let lines: Vec<Line> = rows
@@ -248,17 +249,17 @@ fn page(app: &App, conn: &Connection, date: NaiveDate, keys: &HashMap<i64, Strin
             jira: jira_create(conn, r.id),
         })
         .collect();
-    let label = match (date - today).num_days() {
+    let label = match (date - today).get_days() {
         0 => "Today's page".to_string(),
         -1 => "Yesterday".to_string(),
-        _ => date.format("%a, %b %-d").to_string(),
+        _ => date.strftime("%a, %b %-d").to_string(),
     };
     Ok(json!({
         "date": date.to_string(),
         "label": label,
         "today": date == today,
-        "prev": (date - Duration::days(1)).to_string(),
-        "next": if date < today { Some((date + Duration::days(1)).to_string()) } else { None },
+        "prev": (date - 1.day()).to_string(),
+        "next": if date < today { Some((date + 1.day()).to_string()) } else { None },
         "lines": lines,
     }))
 }
@@ -357,8 +358,8 @@ pub(crate) fn alethiometer_source(conn: &Connection) -> Result<i64> {
 /// Each editable work line with a destination becomes a new Incoming signal
 /// (an unseen item). Lines with no destination are held. Life lines and
 /// "keep as a note" lines stay where they are.
-fn send(app: &App, date: NaiveDate) -> Result<()> {
-    let now = crate::seed::fmt(app.clock.now());
+fn send(app: &App, date: Date) -> Result<()> {
+    let now = app.clock.now();
     let mut conn = app.db();
     let tx = conn.transaction()?;
     let idx = Index::load(&tx, &app.vault)?;
@@ -444,7 +445,7 @@ fn send(app: &App, date: NaiveDate) -> Result<()> {
 }
 
 /// ⌘R: failed life lines go back to pending. They were never removed.
-fn retry(conn: &Connection, date: NaiveDate, id: Option<i64>) -> Result<()> {
+fn retry(conn: &Connection, date: Date, id: Option<i64>) -> Result<()> {
     let rows = load_rows(conn, date)?;
     for r in rows.into_iter().filter(|r| r.kind == "life" && r.state == "failed" && id.map_or(true, |i| i == r.id)) {
         let mut meta = r.meta;
@@ -872,7 +873,7 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     });
     ctx.link(plat, "Webhook reliability", "confirmed");
 
-    let line = |date: NaiveDate, pos: i64, kind: &str, text: &str, state: &str, meta: Value| -> anyhow::Result<()> {
+    let line = |date: Date, pos: i64, kind: &str, text: &str, state: &str, meta: Value| -> anyhow::Result<()> {
         c.execute(
             "INSERT INTO notes_lines (page_date, position, kind, text, target_json, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![date.to_string(), pos, kind, text, meta.to_string(), state],
@@ -901,7 +902,7 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
 
     // Yesterday's page, already sent: shows the 11a states (went to Incoming,
     // held, and the life-line receipt states the Phase 2 Marvin client will drive).
-    let y = today - Duration::days(1);
+    let y = today - 1.day();
     let topic = |name: &str| {
         json!({ "type": "topic", "id": ctx.topic(name), "label": name, "category": "work", "auto": true })
     };
@@ -963,8 +964,8 @@ mod tests {
     #[test]
     fn save_round_trips_and_removes_only_editable_lines() {
         let (app, _d) = app();
-        let date = app.clock.now().date().to_string();
-        let y = (app.clock.now().date() - Duration::days(1)).to_string();
+        let date = app.clock.today().to_string();
+        let y = (app.clock.today() - 1.day()).to_string();
         let r = call(
             &app,
             "save",
@@ -1080,7 +1081,7 @@ mod tests {
     #[test]
     fn retry_moves_failed_life_lines_back_to_pending() {
         let (app, _d) = app();
-        let y = (app.clock.now().date() - Duration::days(1)).to_string();
+        let y = (app.clock.today() - 1.day()).to_string();
         let p = call(&app, "retry", &json!({ "date": y })).unwrap();
         let sam = by_text(&p, "ask Sam");
         assert_eq!(sam["state"], "pending");

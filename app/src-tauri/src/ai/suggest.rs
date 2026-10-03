@@ -209,7 +209,9 @@ fn context_messages(conn: &Connection, item_id: i64) -> Result<Vec<(String, Stri
 }
 
 /// Build one prompt per item. Held under the DB lock; no network here.
-fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<Vec<Pending>> {
+fn prepare(conn: &Connection, clock: &crate::clock::Clock, vault: &std::path::Path, limit: usize) -> Result<Vec<Pending>> {
+    // Message times as the user reads them: wall-clock "HH:MM" here.
+    let hm = |at: &str| crate::time::Ts::parse(at).map(|t| clock.local(t).strftime("%H:%M").to_string()).unwrap_or_else(|| at.to_owned());
     let all = topics(conn, vault)?;
     let cats = crate::queries::categories::list(conn)?;
     let mut out = vec![];
@@ -221,7 +223,7 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
         let thread_of = |p: &mut String, id: i64| {
             let rs = threads.get(&id).map(Vec::as_slice).unwrap_or_default();
             for (at, author, text) in &rs[rs.len().saturating_sub(REPLIES_SHOWN)..] {
-                let _ = writeln!(p, "    reply {} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                let _ = writeln!(p, "    reply {} {}: {}", hm(at), clip(author, 40), clip(text, 240));
             }
         };
         let earlier = context_messages(conn, item_id)?;
@@ -234,19 +236,19 @@ fn prepare(conn: &Connection, vault: &std::path::Path, limit: usize) -> Result<V
             p.push_str("\nEarlier in the conversation (context only, not part of this item; [topic] where the user filed it):\n");
             for (at, author, text, topic) in &earlier {
                 let filed = topic.as_ref().map(|t| format!(" [{}]", clip(t, 60))).unwrap_or_default();
-                let _ = writeln!(p, "{} {}: {}{filed}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                let _ = writeln!(p, "{} {}: {}{filed}", hm(at), clip(author, 40), clip(text, 240));
             }
         }
         if splittable {
             p.push_str("\nMessages (numbered, oldest first; a message's thread replies are indented under it and go with it):\n");
             for (i, (id, at, author, text)) in msgs.iter().enumerate() {
-                let _ = writeln!(p, "{}. {} {}: {}", i + 1, at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                let _ = writeln!(p, "{}. {} {}: {}", i + 1, hm(at), clip(author, 40), clip(text, 240));
                 thread_of(&mut p, *id);
             }
         } else if !msgs.is_empty() {
             p.push_str("\nRecent messages:\n");
             for (id, at, author, text) in &msgs[msgs.len().saturating_sub(CONTEXT_MSGS)..] {
-                let _ = writeln!(p, "{} {}: {}", at.get(11..16).unwrap_or(at), clip(author, 40), clip(text, 240));
+                let _ = writeln!(p, "{} {}: {}", hm(at), clip(author, 40), clip(text, 240));
                 thread_of(&mut p, *id);
             }
         }
@@ -480,7 +482,7 @@ fn apply_split(conn: &Connection, p: &Pending, groups: &[Group]) -> Result<Optio
 pub fn record(conn: &Connection, status: &str, message: Option<&str>, suggested: usize) -> Result<()> {
     conn.execute(
         "INSERT INTO ai_suggest_run (id, status, message, suggested, at, last_ok_at)
-         VALUES (1, ?1, ?2, ?3, datetime('now', 'localtime'), CASE ?1 WHEN 'ok' THEN datetime('now', 'localtime') END)
+         VALUES (1, ?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), CASE ?1 WHEN 'ok' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, message = excluded.message, suggested = excluded.suggested,
            at = excluded.at, last_ok_at = coalesce(excluded.last_ok_at, ai_suggest_run.last_ok_at)",
         params![status, message, suggested as i64],
@@ -520,7 +522,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
         return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), considered: 0, suggested: vec![], split: vec![] });
     }
-    let pending = prepare(&app.db(), &app.vault, limit.clamp(1, 50))?;
+    let pending = prepare(&app.db(), &app.clock, &app.vault, limit.clamp(1, 50))?;
     let mut out = Outcome { status: "ok", message: None, considered: 0, suggested: vec![], split: vec![] };
     for p in pending {
         let system = if p.split_ids.is_empty() { SYSTEM } else { SYSTEM_SPLIT };
@@ -825,15 +827,15 @@ mod tests {
         let raw = serde_json::json!({ "channel": "D9", "mark_ts": keys.last(), "msgs": keys });
         conn.execute(
             "INSERT INTO items (source_id, external_id, kind, title, summary, occurred_at, ended_at, status, msg_count, seen, raw_json)
-             VALUES (?1, 'D9/100.1', 'thread', 'DM · Priya', ?2, '2999-01-01T09:01:00', ?3, 'open', ?4, 0, ?5)",
-            params![src, texts[texts.len() - 1], format!("2999-01-01T09:0{}:00", texts.len()), texts.len() as i64, raw.to_string()],
+             VALUES (?1, 'D9/100.1', 'thread', 'DM · Priya', ?2, '2999-01-01T09:01:00.000Z', ?3, 'open', ?4, 0, ?5)",
+            params![src, texts[texts.len() - 1], format!("2999-01-01T09:0{}:00.000Z", texts.len()), texts.len() as i64, raw.to_string()],
         )
         .unwrap();
         let id = conn.last_insert_rowid();
         for (i, t) in texts.iter().enumerate() {
             conn.execute(
                 "INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, ?2, 'Priya', ?3, ?4)",
-                params![id, format!("2999-01-01T09:0{}:00", i + 1), t, keys[i]],
+                params![id, format!("2999-01-01T09:0{}:00.000Z", i + 1), t, keys[i]],
             )
             .unwrap();
         }
@@ -864,14 +866,14 @@ mod tests {
             let conn = app.db();
             let src: i64 = conn.query_row("SELECT source_id FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
             conn.execute(
-                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen, raw_json) VALUES (?1, 'D9/90.1', 'message', 'DM · Priya', '2999-01-01T08:00:00', 'open', 1, '{}')",
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen, raw_json) VALUES (?1, 'D9/90.1', 'message', 'DM · Priya', '2999-01-01T08:00:00.000Z', 'open', 1, '{}')",
                 [src],
             )
             .unwrap();
             let earlier = conn.last_insert_rowid();
-            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, '2999-01-01T08:00:00', 'Priya', 'Lee wants hiring numbers', '90.1')", [earlier]).unwrap();
+            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, '2999-01-01T08:00:00.000Z', 'Priya', 'Lee wants hiring numbers', '90.1')", [earlier]).unwrap();
             conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![earlier, q4]).unwrap();
-            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key, context) VALUES (?1, '2999-01-01T08:00:00', 'Priya', 'Lee wants hiring numbers', '90.1', 1)", [item]).unwrap();
+            conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key, context) VALUES (?1, '2999-01-01T08:00:00.000Z', 'Priya', 'Lee wants hiring numbers', '90.1', 1)", [item]).unwrap();
         }
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(r#"{"topic_id": null}"#));

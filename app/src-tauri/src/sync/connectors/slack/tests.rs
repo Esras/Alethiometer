@@ -4,7 +4,8 @@ use super::socket::{self, Flag, Mode};
 use super::*;
 use crate::settings::SourceConfig;
 use crate::sync::http::{FakeHttp, Http, Response};
-use crate::sync::{apply, local_from_unix, register_sources, Source};
+use crate::sync::{apply_now, register_sources, Source};
+use crate::time::Ts;
 use std::cell::Cell;
 use std::sync::Mutex;
 
@@ -32,8 +33,8 @@ fn fake_sleep(d: std::time::Duration) {
     SLEPT.with(|s| s.set(s.get() + d.as_secs()));
 }
 
-fn now() -> chrono::NaiveDateTime {
-    chrono::NaiveDateTime::parse_from_str(&local_from_unix(NOW).unwrap(), "%Y-%m-%dT%H:%M:%S").unwrap()
+fn now() -> Ts {
+    Ts::from_unix_secs(NOW).unwrap()
 }
 
 /// Source id 1 is never connected to a socket, so its polls are `Mode::Poll`.
@@ -117,7 +118,7 @@ fn with_ops_thread(http: &FakeHttp) {
 
 fn run_poll(http: &dyn Http, src: &Source) -> anyhow::Result<Batch> {
     let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
-    let ctx = Ctx { source: src, http, secret: &secret, now: now() };
+    let ctx = Ctx { source: src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
     let mut cfg = Config::from_json(&src.config);
     cfg.sleep = fake_sleep;
     poll::poll(&ctx, &cfg)
@@ -173,8 +174,8 @@ fn first_catch_up_turns_unread_runs_into_items() {
     // and Marco's messages were), your own included.
     let inc = find(&b, "C0INC/1789960000.000100");
     assert_eq!((inc.kind.as_str(), inc.title.as_str(), inc.msg_count), ("thread", "#inc-2291", Some(5)));
-    assert_eq!(inc.occurred_at, local_from_unix(1789960000.0).unwrap());
-    assert_eq!(inc.ended_at, local_from_unix(1789995600.0));
+    assert_eq!(inc.occurred_at, Ts::from_unix_secs(1789960000.0).unwrap());
+    assert_eq!(inc.ended_at, Ts::from_unix_secs(1789995600.0));
     let authors: Vec<&str> = inc.messages.iter().filter(|m| !m.context).map(|m| m.author.as_str()).collect();
     assert_eq!(authors, vec!["Sam", "Marco Rossi", "PagerDuty", "me", "Jordan"]);
     assert_eq!(texts(inc)[2], "Incident acknowledged by @Jordan");
@@ -271,7 +272,7 @@ fn reading_in_slack_never_clears_incoming() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     let b1 = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
-    assert_eq!(apply(&conn, &src, &b1).unwrap(), 5);
+    assert_eq!(apply_now(&conn, &src, &b1).unwrap(), 5);
     let src = crate::sync::load_source(&conn, 1).unwrap();
 
     let http = workspace(HISTORY_INC_1);
@@ -279,7 +280,7 @@ fn reading_in_slack_never_clears_incoming() {
     let b2 = run_poll(&http, &src).unwrap();
     assert!(b2.items.is_empty() && b2.seen.is_empty(), "{:?}", ids(&b2));
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
-    apply(&conn, &src, &b2).unwrap();
+    apply_now(&conn, &src, &b2).unwrap();
     // The #inc-2291 thread is stored under its parent, in the channel's run.
     assert_eq!(unseen(&conn).len(), 4);
     assert_eq!(State::parse(b2.cursor.as_deref()).open.len(), 5);
@@ -289,7 +290,7 @@ fn reading_in_slack_never_clears_incoming() {
 fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
-    apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
     conn.execute("UPDATE items SET seen = 1 WHERE external_id = 'C0INC/1789960000.000100'", []).unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
     src.cursor = close_triaged(&conn, &src).unwrap();
@@ -314,7 +315,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     assert_eq!(context(thread).len(), 3);
 
     // The new reply lands under its parent and brings the triaged run back.
-    apply(&conn, &src, &b).unwrap();
+    apply_now(&conn, &src, &b).unwrap();
     assert_eq!(unseen(&conn), ["C0INC/1789960000.000100", "C0INC/1789999000.001000", "C0RANDOM/mention/1789998000.000900", "C0RANDOM/thread/1789000000.000100", "D0PRIYA/1789997000.000800"]);
     let replies: Vec<(String, String)> = conn
         .prepare("SELECT m.text, m.reply_to FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.reply_to IS NOT NULL ORDER BY m.at")
@@ -483,7 +484,7 @@ fn muted_channels_are_stored_but_never_new() {
     src.config = json!({ "channels": ["#inc-2291"], "muted": ["#inc-2291"] });
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     assert!(b.items.iter().any(|i| i.external_id.starts_with("C0INC/")));
-    apply(&conn, &src, &b).unwrap();
+    apply_now(&conn, &src, &b).unwrap();
     assert!(unseen(&conn).iter().all(|id| !id.starts_with("C0INC/")), "{:?}", unseen(&conn));
     assert!(!unseen(&conn).is_empty());
 }
@@ -495,7 +496,7 @@ fn a_muted_dm_by_the_other_users_id_is_stored_but_never_new() {
     src.config = json!({ "channels": ["#inc-2291"], "muted": ["U0PRIYA"] });
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     assert!(b.items.iter().any(|i| i.external_id.starts_with("D0PRIYA/")));
-    apply(&conn, &src, &b).unwrap();
+    apply_now(&conn, &src, &b).unwrap();
     assert!(unseen(&conn).iter().all(|id| !id.starts_with("D0PRIYA/")), "{:?}", unseen(&conn));
     assert!(!unseen(&conn).is_empty());
 }
@@ -514,7 +515,7 @@ fn missing_token_is_reported_by_name() {
     let http = FakeHttp::default();
     let secret = |_: &str| None;
     let src = source(None);
-    let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now() };
+    let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
     let err = Slack.poll(&ctx).unwrap_err().to_string();
     assert!(err.contains("slack.user_token"), "{err}");
 }
@@ -562,7 +563,7 @@ fn rate_limits_wait_for_retry_after_then_retry() {
 fn send_op(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
     let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
     let src = source(None);
-    let ctx = Ctx { source: &src, http, secret: &secret, now: now() };
+    let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
     Slack.send(&ctx, op, &payload)
 }
 
@@ -613,7 +614,7 @@ fn confirming_a_mention_queues_mark_read_up_to_it() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
-    apply(&conn, &src, &b).unwrap();
+    apply_now(&conn, &src, &b).unwrap();
     let item: i64 = conn
         .query_row("SELECT id FROM items WHERE external_id = 'C0RANDOM/mention/1789998000.000900'", [], |r| r.get(0))
         .unwrap();
@@ -718,7 +719,7 @@ fn web_permalinks_open_in_the_desktop_app() {
     let src = crate::sync::load_source(&conn, 1).unwrap();
     let link = |u: &str| crate::sync::connectors::slack::deep_link(&conn, u);
     assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100"), None, "no team id before the first sync");
-    apply(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
     assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100").as_deref(), Some("slack://channel?team=T0ACME&id=C0INC&message=1789960000.000100"));
     assert_eq!(
         link("https://acme.slack.com/archives/C0INC/p1789990000000300?thread_ts=1789990000.000200&cid=C0INC").as_deref(),

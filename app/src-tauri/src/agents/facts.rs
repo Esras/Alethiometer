@@ -50,7 +50,7 @@ pub fn branch_fact(cwd: &str, branch: Option<&str>) -> Option<Fact> {
 }
 
 /// Ticket, PR and todo from the local database.
-pub fn from_db(conn: &Connection, key: Option<&str>, branch: Option<&str>) -> rusqlite::Result<(Option<Fact>, Option<Fact>, Option<Fact>)> {
+pub fn from_db(conn: &Connection, clock: &crate::clock::Clock, key: Option<&str>, branch: Option<&str>) -> rusqlite::Result<(Option<Fact>, Option<Fact>, Option<Fact>)> {
     let ticket = match key {
         Some(k) => conn
             .query_row(
@@ -83,29 +83,30 @@ pub fn from_db(conn: &Connection, key: Option<&str>, branch: Option<&str>) -> ru
             let detail = if draft == Some(1) { "draft".to_owned() } else if status == "done" { "merged".to_owned() } else { String::new() };
             Fact { label: format!("#{n}"), detail, url }
         });
+    // The open task for this ticket due soonest (by its real deadline here; undated last).
     let todo = match key {
-        Some(k) => conn
-            .query_row(
-                "SELECT i.title, s.kind, i.due_at, i.url FROM items i JOIN sources s ON s.id = i.source_id
-                 WHERE i.kind = 'task' AND i.status != 'done' AND (i.external_id = ?1 OR instr(upper(i.title), ?1) > 0)
-                 ORDER BY i.due_at IS NULL, i.due_at LIMIT 1",
-                [k],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, Option<String>>(3)?)),
-            )
-            .optional()?
-            .map(|(title, kind, due, url)| {
+        Some(k) => {
+            let mut stmt = conn.prepare(
+                "SELECT i.title, s.kind, i.due_at, i.due_day, i.url FROM items i JOIN sources s ON s.id = i.source_id
+                 WHERE i.kind = 'task' AND i.status != 'done' AND (i.external_id = ?1 OR instr(upper(i.title), ?1) > 0)",
+            )?;
+            let rows = stmt
+                .query_map([k], |r| {
+                    let due = crate::time::Due::from_columns(r.get(2)?, r.get(3)?);
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, due, r.get::<_, Option<String>>(4)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows.into_iter().min_by_key(|(_, _, due, _)| (due.is_none(), due.map(|d| d.deadline(clock)))).map(|(title, kind, due, url)| {
                 let from = match kind.as_str() {
                     "notes" => "Local",
                     "jira" => "Jira",
                     "obsidian" => "Obsidian",
                     other => other,
                 };
-                let due = due
-                    .and_then(|d| crate::queries::parse_ts(&d))
-                    .map(|d| d.format("%a").to_string())
-                    .unwrap_or_default();
+                let due = due.map(|d| clock.zoned(d.deadline(clock)).strftime("%a").to_string()).unwrap_or_default();
                 Fact { label: format!("{from} · {title}"), detail: due, url: url.unwrap_or_default() }
-            }),
+            })
+        }
         None => None,
     };
     Ok((ticket, pr, todo))
@@ -127,7 +128,7 @@ pub fn refresh(app: &App, id: &str) {
         let scion_branch = s.facts.branch.as_ref().filter(|_| s.source == "scion").map(|b| b.label.clone());
         let branch = branch_fact(&s.cwd, scion_branch.as_deref()).or(s.facts.branch.clone());
         let key = ticket_key(branch.as_ref().map_or("", |b| b.label.as_str()), &[&s.title, &first_prompt]);
-        let Ok((ticket, pr, todo)) = from_db(&app.db(), key.as_deref(), branch.as_ref().map(|b| b.label.as_str())) else { return };
+        let Ok((ticket, pr, todo)) = from_db(&app.db(), &app.clock, key.as_deref(), branch.as_ref().map(|b| b.label.as_str())) else { return };
         let facts = Facts { ticket, pr, branch, todo };
         app.agents.store.lock().update_session(&id, |s| s.facts = facts);
     });
@@ -150,14 +151,14 @@ mod tests {
         c.execute_batch(
             "INSERT INTO sources (id, kind, tag, name) VALUES (1, 'jira', 'work', 'jira'), (2, 'github', 'work', 'gh'), (3, 'notes', 'work', 'notes');
              INSERT INTO items (source_id, external_id, kind, title, summary, url, occurred_at) VALUES
-               (1, 'ING-31', 'issue', 'Webhooks', 'In progress · you', 'https://j/ING-31', '2026-10-01T10:00:00');
+               (1, 'ING-31', 'issue', 'Webhooks', 'In progress · you', 'https://j/ING-31', '2026-10-01T10:00:00.000Z');
              INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, raw_json) VALUES
-               (2, 'pr-212', 'pr', 'Jira webhooks', 'https://github.com/o/r/pull/212', '2026-10-02T10:00:00', '{\"draft\":true,\"head\":{\"ref\":\"feat/jira-webhooks\"}}');
+               (2, 'pr-212', 'pr', 'Jira webhooks', 'https://github.com/o/r/pull/212', '2026-10-02T10:00:00.000Z', '{\"draft\":true,\"head\":{\"ref\":\"feat/jira-webhooks\"}}');
              INSERT INTO items (source_id, external_id, kind, title, occurred_at, due_at) VALUES
-               (3, 'l1', 'task', 'ING-31 webhooks cutover', '2026-10-01T10:00:00', '2026-10-08T00:00:00');",
+               (3, 'l1', 'task', 'ING-31 webhooks cutover', '2026-10-01T10:00:00.000Z', '2026-10-08T00:00:00.000Z');",
         )
         .unwrap();
-        let (t, p, d) = from_db(&c, Some("ING-31"), Some("feat/jira-webhooks")).unwrap();
+        let (t, p, d) = from_db(&c, &crate::sync::test_clock("2026-09-28T10:52:00Z"), Some("ING-31"), Some("feat/jira-webhooks")).unwrap();
         let t = t.unwrap();
         assert_eq!((t.label.as_str(), t.detail.as_str()), ("ING-31", "In progress"));
         let p = p.unwrap();

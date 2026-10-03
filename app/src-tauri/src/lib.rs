@@ -15,6 +15,7 @@ pub mod settings;
 pub mod state;
 pub mod sync;
 pub mod time;
+pub mod utc_migration;
 
 #[cfg(feature = "desktop")]
 mod desktop {

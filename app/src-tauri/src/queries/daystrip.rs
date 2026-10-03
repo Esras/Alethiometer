@@ -1,6 +1,7 @@
 //! Day strip: today's blocks, to scale. Life blocks carry no title (rule 3).
 
-use super::{arg_i64, minute_of_day, opt_i64, parse_ts, when_label};
+use super::{arg_i64, minute_of_day, opt_i64, ts_label};
+use crate::time::Ts;
 use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::state::App;
@@ -41,28 +42,31 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 }
 
 fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
-    let now = app.clock.now();
-    let today = now.date().format("%Y-%m-%d").to_string();
+    let clock = &app.clock;
+    let now = clock.now();
+    let (day_start, day_end) = clock.day_range(clock.today());
+    // Minutes since midnight here; a block running past midnight ends at the day's end.
+    let minute = |t: Ts| if t >= day_end { 24 * 60 } else { minute_of_day(clock.local(t)) };
     let conn = app.db();
     let mut stmt = conn.prepare(
         "SELECT e.id, e.start, e.end, e.title, e.category, e.tentative, e.is_life_busy, e.buffer_min, e.item_id, e.attendees,
                 (SELECT group_concat(tl.topic_id) FROM topic_links tl
                   WHERE tl.item_id = e.item_id AND tl.state != 'wrong')
            FROM events e
-          WHERE e.start >= ?1 AND e.start < date(?1, '+1 day')
+          WHERE e.start >= ?1 AND e.start < ?2
           ORDER BY e.start",
     )?;
     let default_buffer = app.settings().life_buffer_min;
     let blocks = stmt
-        .query_map([&today], |r| {
-            let start: String = r.get(1)?;
-            let end: String = r.get(2)?;
+        .query_map(params![day_start, day_end], |r| {
+            let start: Ts = r.get(1)?;
+            let end: Ts = r.get(2)?;
             let life: bool = r.get::<_, i64>(6)? == 1;
             let topics: Option<String> = r.get(10)?;
             Ok(Block {
                 id: r.get(0)?,
-                start_min: parse_ts(&start).map(minute_of_day).unwrap_or(0),
-                end_min: parse_ts(&end).map(minute_of_day).unwrap_or(0),
+                start_min: minute(start),
+                end_min: minute(end),
                 title: if life { None } else { r.get(3)? },
                 category: r.get(4)?,
                 tentative: r.get::<_, i64>(5)? == 1,
@@ -82,18 +86,18 @@ fn get(app: &App, topic_id: Option<i64>) -> Result<Value> {
     if let Some(tid) = topic_id {
         let linked = |b: &&Block| b.topic_ids.contains(&tid);
         let earlier = blocks.iter().any(|b| linked(&b));
-        if !blocks.iter().filter(linked).any(|b| b.end_min > minute_of_day(now)) {
-            let next: Option<String> = conn
+        if !blocks.iter().filter(linked).any(|b| b.end_min > minute(now)) {
+            let next: Option<Ts> = conn
                 .query_row(
                     "SELECT e.start FROM events e JOIN topic_links tl ON tl.item_id = e.item_id
                       WHERE tl.topic_id = ?1 AND tl.state != 'wrong' AND e.start > ?2
                       ORDER BY e.start LIMIT 1",
-                    params![tid, crate::seed::fmt(now)],
+                    params![tid, now],
                     |r| r.get(0),
                 )
                 .ok();
-            note = Some(match next.as_deref().and_then(parse_ts) {
-                Some(t) => format!("No {}linked meetings today · next {}", if earlier { "more " } else { "" }, when_label(t, now, true)),
+            note = Some(match next {
+                Some(t) => format!("No {}linked meetings today · next {}", if earlier { "more " } else { "" }, ts_label(t, clock, true)),
                 None => format!("No {}linked meetings today", if earlier { "more " } else { "" }),
             });
         }

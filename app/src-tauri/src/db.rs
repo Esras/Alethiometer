@@ -3,26 +3,36 @@
 use rusqlite::Connection;
 use std::path::Path;
 
-const MIGRATIONS: &[&str] = &[
-    include_str!("../migrations/0001_init.sql"),
-    include_str!("../migrations/0002_sync.sql"),
-    include_str!("../migrations/0003_splits.sql"),
-    include_str!("../migrations/0004_categories.sql"),
-    include_str!("../migrations/0005_message_context.sql"),
-    include_str!("../migrations/0006_ai_usage.sql"),
-    include_str!("../migrations/0007_ai_suggest_run.sql"),
-    include_str!("../migrations/0008_replies.sql"),
-    include_str!("../migrations/0009_held_todos.sql"),
-    include_str!("../migrations/0010_todo_estimates.sql"),
-    include_str!("../migrations/0011_people.sql"),
-    include_str!("../migrations/0012_account_profiles.sql"),
-    include_str!("../migrations/0013_bot_accounts.sql"),
-    include_str!("../migrations/0014_message_read.sql"),
-    include_str!("../migrations/0015_embeddings.sql"),
-    include_str!("../migrations/0016_glean.sql"),
-    include_str!("../migrations/0017_agents.sql"),
-    include_str!("../migrations/0018_agent_hosts.sql"),
-    include_str!("../migrations/0019_indexes.sql"),
+/// One schema step: SQL, or Rust for what SQL can't do (time zones, JSON).
+enum Step {
+    Sql(&'static str),
+    Rust(fn(&Connection) -> anyhow::Result<()>),
+}
+use Step::{Rust, Sql};
+
+const MIGRATIONS: &[Step] = &[
+    Sql(include_str!("../migrations/0001_init.sql")),
+    Sql(include_str!("../migrations/0002_sync.sql")),
+    Sql(include_str!("../migrations/0003_splits.sql")),
+    Sql(include_str!("../migrations/0004_categories.sql")),
+    Sql(include_str!("../migrations/0005_message_context.sql")),
+    Sql(include_str!("../migrations/0006_ai_usage.sql")),
+    Sql(include_str!("../migrations/0007_ai_suggest_run.sql")),
+    Sql(include_str!("../migrations/0008_replies.sql")),
+    Sql(include_str!("../migrations/0009_held_todos.sql")),
+    Sql(include_str!("../migrations/0010_todo_estimates.sql")),
+    Sql(include_str!("../migrations/0011_people.sql")),
+    Sql(include_str!("../migrations/0012_account_profiles.sql")),
+    Sql(include_str!("../migrations/0013_bot_accounts.sql")),
+    Sql(include_str!("../migrations/0014_message_read.sql")),
+    Sql(include_str!("../migrations/0015_embeddings.sql")),
+    Sql(include_str!("../migrations/0016_glean.sql")),
+    Sql(include_str!("../migrations/0017_agents.sql")),
+    Sql(include_str!("../migrations/0018_agent_hosts.sql")),
+    Sql(include_str!("../migrations/0019_indexes.sql")),
+    Sql(include_str!("../migrations/0020_due_day.sql")),
+    Rust(crate::utc_migration::run),
+    Sql(include_str!("../migrations/0022_utc_defaults.sql")),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.
@@ -48,26 +58,51 @@ pub fn open_in_memory() -> anyhow::Result<Connection> {
 
 fn init(mut conn: Connection) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "foreign_keys", "ON")?;
     // Another process (the devserver and the app on one data dir) waits
     // instead of failing with "database is locked".
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    migrate(&mut conn)?;
+    migrate(&mut conn, MIGRATIONS.len())?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
     // Planner statistics for the tables that changed a lot since last time.
     conn.execute_batch("PRAGMA optimize = 0x10002;")?;
     Ok(conn)
 }
 
-fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
+/// Foreign keys are off while migrating (a table rebuild drops and renames a
+/// table others point at) and checked once at the end.
+fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if current as usize > MIGRATIONS.len() {
         anyhow::bail!("the database is from a newer Alethiometer (schema {current}, this build knows {}): use that version", MIGRATIONS.len());
     }
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
+    if current as usize >= to {
+        return Ok(());
+    }
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    for (i, step) in MIGRATIONS.iter().enumerate().take(to).skip(current as usize) {
         let tx = conn.transaction()?;
-        tx.execute_batch(sql)?;
+        match step {
+            Sql(sql) => tx.execute_batch(sql)?,
+            Rust(f) => f(&tx)?,
+        }
         tx.pragma_update(None, "user_version", (i + 1) as i64)?;
         tx.commit()?;
     }
+    let broken: Vec<String> = conn
+        .prepare("PRAGMA foreign_key_check")?
+        .query_map([], |r| Ok(format!("{} row {:?} -> {}", r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    if !broken.is_empty() {
+        anyhow::bail!("migration left broken references: {}", broken.join(", "));
+    }
     Ok(())
+}
+
+/// An in-memory database migrated only up to schema `version`, for testing a later step.
+#[cfg(test)]
+pub fn open_in_memory_at(version: usize) -> Connection {
+    register_vec();
+    let mut conn = Connection::open_in_memory().unwrap();
+    migrate(&mut conn, version).unwrap();
+    conn
 }
