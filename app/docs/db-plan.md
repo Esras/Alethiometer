@@ -1,6 +1,6 @@
 # Database and sync architecture: plan
 
-Status: **Phases 0 and 1 built (2026-10-03); 2 to 4 agreed, not built.** Follows `REVIEW-2026-10-03.md`. The contained fixes from that review are in (commits `b2191b2`…`c3f2424`); this covers what needs a structural change.
+Status: **Phases 0 to 4 built (2026-10-03); the follow-ups are under "Finished after". None of it has run on the user's real data yet.** Follows `REVIEW-2026-10-03.md`. The contained fixes from that review are in (commits `b2191b2`…`c3f2424`); this covers what needs a structural change.
 
 Priorities: accuracy > performance, maintainability > speed of development.
 
@@ -199,7 +199,7 @@ rusqlite 0.40 exposes the authorizer and the update, commit and rollback hooks (
   - A thread re-runs the subscriptions whose tables intersect, and once a minute all of them. Settings changes re-run all of them.
   - A changed result goes to the client's `live.wait` long poll. That is used on the desktop too (a Tauri command runs on the blocking pool), so the desktop and the browser share one path. The devserver now answers each call on its own thread.
   - The writer's authorizer answers `IGNORE` to deletes. SQLite documents that this turns off the truncate optimization, whose whole-table `DELETE` the update hook would not see.
-  - Converted: Incoming, the Topics index (and its categories), Todos, the day strip and the countdown pill. Incoming's 2 s `agents.incoming_rev` poll is gone.
+  - Converted: Incoming, the Topics index (and its categories), Todos, the day strip and the countdown pill. Incoming's 2 s `agents.incoming_rev` poll is gone. The rest followed (see "Finished after").
 
 **Measured** on the 200k-item scratch database (release devserver; output identical to the previous build):
 
@@ -221,13 +221,25 @@ rusqlite 0.40 exposes the authorizer and the update, commit and rollback hooks (
 - **No `idem_key`.** The ops safe to resend already find what an earlier send made (a hold by its event id, a Jira issue by its summary). The rest (replies, comments, appends) have no API hook for one without changing what you wrote.
 - **No gcal etag revision.** Skipping unchanged events would also skip re-applying category colours.
 - **The last signal is kept on `topic_links.item_at`, not `topics.last_signal_at`.** One edge differs from before: an item still under way counts as a topic's latest signal once it ends, not before.
-- **`notes.page` misses the < 50 ms target on its first load after start** (1.9 s). That load reads every topic's text once; later loads are warm.
+- **`notes.page` missed the < 50 ms target on its first load after start** (1.9 s): that load read every topic's text once. A startup warm-up does that now (below).
 - **Not built:**
-  - `incoming.list` paging and lazy messages.
-  - Row-level live-query filters.
-  - Converting the other views (Priorities, Topics detail, Reflect, Search, Nudge, Category manager) off `ui.rev`.
+  - `incoming.list` paging. Lazy messages made the list small (below); page it only if the re-run shows up on real data.
+  - Row-level live-query filters. Same: only if a profile on real data calls for it.
   - The settings and sync-status polls stay; they read in-memory state, not the database.
-- **The FTS triggers rewrite an item's index entry on updates that don't change its text.** Not fixed.
+
+### Finished after (2026-10-03, second session)
+
+- **Every view is off `ui.rev`** but the sync-status chip, which reads in-memory state.
+  - Priorities and the Category manager are live queries.
+  - **Topics detail and Reflect** read vault notes as well as the database. They're routed as `Route::ReadFiles`: `Db::traced` runs the command and notes the tables of every snapshot it takes, with the file reads between them done with nothing open, and a write inside it is refused. The vault counts as one more table. The Obsidian watcher, a direct note save and a confirmed Obsidian write announce it (`Live::vault_changed`). Without a watcher (the sample data), the once-a-minute re-run catches a note edited elsewhere.
+  - **Search isn't live.** Its results are for the query as asked, and asking again can call Glean, so it reloads after its own moves, undos and split reviews. Before, every write anywhere re-ran it and re-asked Glean.
+  - **The Nudge** follows the 15 s clock tick. Asking for it can raise the notification and records that it did, so it can't be a re-run read.
+  - `refresh()` stays: it updates the tab counts (`app.info`) and the sync chip.
+- **Lazy messages in Incoming.** `incoming.list` sends each signal's message keys and count (`n_messages`), not the messages; agent signals keep theirs. An expanded row subscribes to `incoming.messages {item_id}`. Triage sends back the rev and keys of what the row showed: the expanded row's own, else the list's.
+  - On a scratch database (the sample data, 200k seen items, 800 unseen Gmail threads of four ~2 KB messages, 200 Slack threads of 12): the list went from 10 MB to 0.39 MB, and 0.39–0.48 s to 0.13–0.15 s (debug build). Expanding a row: 3 ms.
+- **The FTS update trigger** fires only when the title or body really changed (migration 32). An upsert writing the same text was nine writes, now one.
+- **The Notes index is warmed** by a thread at startup (`queries::notes::warm`). Not re-measured at scale: the scratch database's items aren't linked to topics.
+- **Proofs:** `live::tests::a_query_that_reads_notes_reruns_when_the_vault_or_its_tables_change`, `reflect_is_live_too`, `a_traced_read_notes_every_snapshot_and_refuses_writes`, `queries::incoming::tests::the_list_leaves_messages_to_the_row_you_expand`, `store::schema::tests::rewriting_an_items_text_unchanged_leaves_the_search_index_alone`, `queries::notes::tests::after_warming_the_first_page_reads_no_topic_text`.
 
 ## Order and checks
 

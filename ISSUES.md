@@ -62,12 +62,10 @@ With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. S
 
 ### Database Phases 2–4: unverified on real data
 
-Migrations 23–31 (message keys, `sync_streams`, `remote_rev`, `items.rev`, outbox lease, derived topic values, corpus revisions, the embedding queue, Incoming indexes) were tested on fixtures and a 200k-item scratch database built from sample data, not on the user's database. Check the first start's time and that Incoming, Topics and Notes look the same afterwards. Message keys were checked on the sample data only: real rows without an id get a hashed key, and a GitHub or Jira comment re-read later moves to its id key, keeping its read state.
+Migrations 23–32 (message keys, `sync_streams`, `remote_rev`, `items.rev`, outbox lease, derived topic values, corpus revisions, the embedding queue, Incoming indexes, the FTS update trigger) were tested on fixtures and scratch databases built from sample data, not on the user's database. Check the first start's time and that Incoming, Topics and Notes look the same afterwards. Message keys were checked on the sample data only: real rows without an id get a hashed key, and a GitHub or Jira comment re-read later moves to its id key, keeping its read state.
 
 ### Live queries re-run per table, not per row
 
-Any write to `items` re-runs every subscription that read `items`, Incoming's included (0.12–0.16 s on 200k items). That's fine at today's write rate. If a busy sync makes it show, filter by row (the plan's next step) or page `incoming.list`. Also, the FTS triggers rewrite an item's index entry on updates that don't change its text; that wastes writes but doesn't affect results.
+Any write to `items` re-runs every subscription that read `items`, Incoming's included (0.13–0.15 s with 1,000 unseen signals, debug build; the list no longer carries message text). That's fine at today's write rate. If a busy sync makes it show, filter by row (the plan's next step) or page `incoming.list`.
 
-### `notes.page`: first load after start is slow
-
-1.9 s on the 200k-item scratch database, then 4 ms: the cache of each topic's words starts empty. Fix direction if it matters: warm it in the background at startup, or persist it.
+A topic or Reflect page open on screen shows a note edited in Obsidian when the Obsidian source's watcher sees the file change. Paths that source ignores, and the sample data's stand-in vault (no watcher), show within a minute, at the periodic re-run.
