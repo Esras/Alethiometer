@@ -20,7 +20,7 @@
 
 use super::github::urlencode;
 use crate::sync::http::Response;
-use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message, Profile};
+use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message, Polling, Profile, StreamOutcome};
 use crate::time::{Date, Due, Ts};
 use jiff::SignedDuration;
 use serde_json::{json, Value};
@@ -108,8 +108,9 @@ fn error(resp: &Response) -> anyhow::Error {
     anyhow::anyhow!("Jira {}: {detail}", resp.status)
 }
 
-impl Connector for Jira {
-    fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
+impl Jira {
+    /// A poll with the stored revisions and the stale open issues to read again.
+    fn poll_from(&self, ctx: &Ctx, revs: &std::collections::HashMap<String, String>, stale: &[String]) -> anyhow::Result<Batch> {
         let api = Api::new(ctx)?;
         let myself = api.get("/rest/api/3/myself")?;
         let me = myself.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -140,6 +141,9 @@ impl Connector for Jira {
                 is_bot: false,
             });
         }
+        // What changed after an issue's stored revision is new, whatever the
+        // cursor says; the same revision again is skipped when applied.
+        let since_for = |key: &str| revs.get(key).and_then(|r| Ts::parse(r)).or(cursor);
         let mut newest = cursor;
         let mut token: Option<String> = None;
         for _ in 0..MAX_PAGES {
@@ -152,7 +156,8 @@ impl Connector for Jira {
             }
             let page = api.get(&path)?;
             for issue in page.get("issues").and_then(Value::as_array).into_iter().flatten() {
-                let Some(item) = map_issue(&api, issue, &me, cursor, due_field) else { continue };
+                let key = issue.get("key").and_then(Value::as_str).unwrap_or_default();
+                let Some(item) = map_issue(&api, issue, &me, since_for(key), due_field) else { continue };
                 if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(Ts::parse) {
                     if newest.is_none_or(|n| u > n) {
                         newest = Some(u);
@@ -166,8 +171,44 @@ impl Connector for Jira {
                 break;
             }
         }
+        // Open issues that may have left the query (reassigned, closed by
+        // someone else), read again by key.
+        for key in stale {
+            if batch.items.iter().any(|i| &i.external_id == key) {
+                batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: None });
+                continue;
+            }
+            let path = format!("/rest/api/3/issue/{}?fields={fields}&expand=changelog", urlencode(key));
+            match api.get(&path) {
+                Ok(issue) => {
+                    if let Some(item) = map_issue(&api, &issue, &me, since_for(key), due_field) {
+                        batch.items.push(item);
+                    }
+                    batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: None });
+                }
+                // Gone, or no longer visible to you: about this issue only.
+                Err(e) if ["Jira 404", "Jira 403"].iter().any(|p| e.to_string().starts_with(p)) => {
+                    batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: Some(e.to_string()) })
+                }
+                Err(e) => return Err(e),
+            }
+        }
         batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
+    }
+}
+
+impl Connector for Jira {
+    fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
+        self.poll_from(ctx, &Default::default(), &[])
+    }
+
+    fn poll_known(&self, ctx: &Ctx, known: &mut Polling) -> anyhow::Result<Batch> {
+        self.poll_from(ctx, &known.revs, &known.stale_open)
+    }
+
+    fn wants_known(&self) -> bool {
+        true
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -216,7 +257,8 @@ fn due(f: &Value, due_field: Option<&str>) -> Option<Due> {
     due_field.and_then(|k| f.get(k)).and_then(as_due).or_else(|| f.get("duedate").and_then(as_due))
 }
 
-fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<Ts>, due_field: Option<&str>) -> Option<ItemUpsert> {
+/// `since`: changes after it are new signal (the issue's stored revision, else the cursor).
+fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: Option<&str>) -> Option<ItemUpsert> {
     let key = issue.get("key")?.as_str()?.to_string();
     let f = issue.get("fields")?;
     let s = |p: &str| f.pointer(p).and_then(Value::as_str);
@@ -267,7 +309,8 @@ fn map_issue(api: &Api, issue: &Value, me: &str, cursor: Option<Ts>, due_field: 
         status: if done { "done" } else { "open" }.into(),
         msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
         owner: if mine { Some("you".into()) } else { s("/assignee/displayName").map(str::to_owned) },
-        bump: cursor.is_some_and(|c| bump(issue, me, c)),
+        bump: since.is_some_and(|c| bump(issue, me, c)),
+        remote_rev: s("/updated").map(str::to_owned),
         external_id: key,
         kind: "issue".into(),
         raw_json: raw,
@@ -613,6 +656,30 @@ mod tests {
         http.on("GET", "nextPageToken=tok-page-2", 200, PAGE2);
         let b = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap();
         (b, http.requests())
+    }
+
+    #[test]
+    fn open_issues_that_left_the_query_are_read_by_key() {
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/myself", 200, MYSELF);
+        http.on("GET", "/rest/api/3/search/jql", 200, r#"{"issues": [], "isLast": true}"#);
+        http.on("GET", "/rest/api/3/issue/OPS-7", 200, r#"{"key": "OPS-7", "fields": {
+            "summary": "Reassigned away", "updated": "2026-09-27T09:00:00.000+0000", "created": "2026-09-01T09:00:00.000+0000",
+            "status": {"name": "Done", "statusCategory": {"key": "done"}}, "assignee": {"accountId": "acc-kim", "displayName": "Kim"}}}"#);
+        http.on("GET", "/rest/api/3/issue/OPS-8", 404, r#"{"errorMessages": ["Issue does not exist or you do not have permission to see it."]}"#);
+        let src = source(Some("2026-09-26T12:00:00.000Z"));
+        let revs = Default::default();
+        let stale = vec!["OPS-7".to_string(), "OPS-8".to_string()];
+        let b = with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale)).unwrap();
+        let ops7 = b.items.iter().find(|i| i.external_id == "OPS-7").unwrap();
+        assert_eq!((ops7.status.as_str(), ops7.owner.as_deref()), ("done", Some("Kim")));
+        assert_eq!(ops7.remote_rev.as_deref(), Some("2026-09-27T09:00:00.000+0000"));
+        let outcome = |k: &str| b.streams.iter().find(|o| o.key == k).map(|o| o.error.clone());
+        assert_eq!(outcome("item:OPS-7"), Some(None));
+        assert!(outcome("item:OPS-8").flatten().is_some_and(|e| e.starts_with("Jira 404")));
+        // A rejected token ends the poll.
+        http.on("GET", "/rest/api/3/issue/OPS-8", 401, "");
+        assert!(with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale)).is_err());
     }
 
     #[test]

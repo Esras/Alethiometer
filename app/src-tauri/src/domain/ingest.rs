@@ -80,6 +80,9 @@ pub struct ItemUpsert {
     /// Remove this item's calendar block if it has one (declined, or now all-day).
     /// The item itself stays. Ignored when `event` is set.
     pub drop_event: bool,
+    /// The source's revision of this item (an `updated` time, an etag). When
+    /// it equals the stored one the item hasn't changed and nothing is written.
+    pub remote_rev: Option<String>,
     /// A thread: the key of its parent message. Unless this item already exists,
     /// when another item holds the parent its messages are stored there as the
     /// parent's replies (that item bumps instead) and this item is never created.
@@ -128,6 +131,8 @@ pub trait Ingest {
     /// Store (or replace) a thread reply on the item holding its parent.
     fn put_reply(&self, holder: i64, m: &Message, key: &str, parent: &str, read: bool) -> Result<()>;
     fn insert_item(&self, source_id: i64, it: &ItemUpsert, author: Option<i64>) -> Result<i64>;
+    /// The revision stored with an item (`ItemUpsert::remote_rev`).
+    fn remote_rev(&self, item_id: i64) -> Result<Option<String>>;
     /// Update an item from the source; `bump` makes it new signal again.
     fn update_item(&self, id: i64, it: &ItemUpsert, author: Option<i64>, bump: bool) -> Result<()>;
     /// Add or update an item's top-level messages by key; ones the batch

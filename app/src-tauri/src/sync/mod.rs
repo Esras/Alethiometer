@@ -70,25 +70,43 @@ impl Ctx<'_> {
 
 pub use crate::domain::ingest::{Batch, Busy, EventFields, Handle, ItemUpsert, Message, Profile, StreamOutcome};
 
-/// What a connector with many streams (Slack's conversations and threads)
-/// gets for a poll beyond `Ctx`.
-pub struct Streams<'a> {
-    /// Failures in a row per stream, from earlier polls.
+/// What a poll knows from earlier polls beyond `Ctx`, and how it commits as
+/// it goes. Read before the poll; the database isn't open during it.
+pub struct Polling<'a> {
+    /// Failures in a row per stream (a Slack conversation, a refetched item).
     pub failures: std::collections::BTreeMap<String, i64>,
+    /// Stored revision per external id (`ItemUpsert::remote_rev`), for
+    /// connectors that `want_known` items: what changed since that revision is
+    /// what's new, whatever the cursor says.
+    pub revs: std::collections::HashMap<String, String>,
+    /// Open items to read again by id, least recently checked first: they may
+    /// have left the source's query (reassigned, closed by someone else).
+    /// Each is a stream `item:<external id>`.
+    pub stale_open: Vec<String>,
     /// Write what's been read so far (with the cursor as it stands) in its own
     /// unit of work, so a later failure or a quit doesn't lose it.
     pub commit: &'a mut dyn FnMut(Batch) -> anyhow::Result<()>,
 }
+
+/// How long a refetched open item is left before it's read again.
+pub const REFETCH_EVERY_HOURS: i64 = 6;
+/// Open items read again by id per poll, at most.
+pub const REFETCH_PER_POLL: usize = 10;
 
 /// A connector for one source kind.
 pub trait Connector: Send + Sync {
     /// Fetch changes since `ctx.source.cursor`.
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch>;
 
-    /// `poll`, committing stream by stream as it goes. The returned batch is
-    /// what's left to write.
-    fn poll_streams(&self, ctx: &Ctx, _streams: &mut Streams) -> anyhow::Result<Batch> {
+    /// `poll` with what earlier polls left (`Polling`), committing as it goes
+    /// if it has many streams. The returned batch is what's left to write.
+    fn poll_known(&self, ctx: &Ctx, _known: &mut Polling) -> anyhow::Result<Batch> {
         self.poll(ctx)
+    }
+
+    /// Whether `poll_known` uses `Polling::revs` and `stale_open`.
+    fn wants_known(&self) -> bool {
+        false
     }
 
     /// Perform one outbox write. Return a receipt only once the remote side has
@@ -150,6 +168,12 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
         let existing = uow.items().find(source.id, &it.external_id)?;
+        // The same revision again (an overlap window re-read it): nothing changed.
+        if let (Some(id), Some(rev)) = (existing, &it.remote_rev) {
+            if ingest.remote_rev(id)?.as_deref() == Some(rev.as_str()) {
+                continue;
+            }
+        }
         if let Some(parent) = &it.attach_to {
             let channel = it.raw_json.get("channel").and_then(Value::as_str);
             if let (None, Some(holder)) = (existing, uow.reads().items().holder(source.id, channel, parent)?) {
@@ -283,14 +307,21 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
+    // What earlier polls left, read before this one goes out.
+    let (revs, stale_open) = if connector.wants_known() {
+        let before = app.clock.now() - jiff::SignedDuration::from_hours(REFETCH_EVERY_HOURS);
+        app.store().read(|r| Ok((r.sources().item_revs(source_id)?, r.sources().stale_open(source_id, before, REFETCH_PER_POLL)?)))?
+    } else {
+        Default::default()
+    };
     // Streams read so far, written as the poll goes.
     let mut committed = 0;
     let mut commit = |b: Batch| -> anyhow::Result<()> {
         committed += app.store().write(|uow| apply(uow, &source, &b, ctx.now)).map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(())
     };
-    let mut streams = Streams { failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(), commit: &mut commit };
-    let polled = connector.poll_streams(&ctx, &mut streams);
+    let mut known = Polling { failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(), revs, stale_open, commit: &mut commit };
+    let polled = connector.poll_known(&ctx, &mut known);
     let result = polled.map_err(|e| msg(e.to_string())).and_then(|batch| {
         let n = app.store().write(|uow| {
             let n = apply(uow, &source, &batch, ctx.now)?;
@@ -432,7 +463,7 @@ pub struct SourceStatus {
     pub syncing: bool,
     /// Slack only: whether the live socket is connected (else it polls).
     pub live: Option<bool>,
-    /// Streams (Slack conversations, threads) whose last read failed.
+    /// Streams (Slack conversations, threads, refetched items) whose last read failed.
     pub failing: Vec<crate::domain::sources::FailingStream>,
 }
 
@@ -639,6 +670,42 @@ mod tests {
         assert!(failing().is_empty());
         let synced: Option<String> = conn.query_row("SELECT synced_at FROM sync_streams", [], |r| r.get(0)).unwrap();
         assert!(synced.is_some());
+    }
+
+    #[test]
+    fn the_same_revision_again_changes_nothing() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        let mut it = issue(true);
+        it.remote_rev = Some("r1".into());
+        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        conn.execute("UPDATE items SET seen = 1", []).unwrap();
+        // An overlap window reads it again, bump and all: it's the same revision.
+        it.title = "Fix retries (stale copy)".into();
+        assert_eq!(apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap(), 0);
+        let (seen, title): (bool, String) = conn.query_row("SELECT seen, title FROM items", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((seen, title.as_str()), (true, "Fix retries"));
+        // A new revision is applied.
+        it.remote_rev = Some("r2".into());
+        assert_eq!(apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap(), 1);
+        let (seen, rev): (bool, String) = conn.query_row("SELECT seen, remote_rev FROM items", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((seen, rev.as_str()), (false, "r2"));
+    }
+
+    #[test]
+    fn stale_open_items_come_least_recently_read_first() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        let item = |ext: &str, status: &str| ItemUpsert { external_id: ext.into(), status: status.into(), ..issue(false) };
+        let b = Batch { items: vec![item("A-1", "open"), item("A-2", "open"), item("A-3", "done"), item("A-4", "open")], ..Default::default() };
+        apply_in(&conn, &src, &b, now).unwrap();
+        let read = |ext: &str, error: Option<&str>| StreamOutcome { key: format!("item:{ext}"), error: error.map(str::to_owned) };
+        let gone = Some("Jira 404");
+        apply_in(&conn, &src, &Batch { streams: vec![read("A-1", None), read("A-4", gone), read("A-4", gone), read("A-4", gone)], ..Default::default() }, now).unwrap();
+        let stale = |before: &str| Reads::sources(&crate::store::over(&conn)).stale_open(src.id, Ts::parse(before).unwrap(), 10).unwrap();
+        // A-1 was just read; A-3 is done; A-4 failed three times.
+        assert_eq!(stale("2000-01-01T00:00:00Z"), vec!["A-2"]);
+        assert_eq!(stale("2100-01-01T00:00:00Z"), vec!["A-2", "A-1"], "never read first, then the oldest read");
     }
 
     #[test]

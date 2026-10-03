@@ -124,6 +124,12 @@ fn run_poll(http: &dyn Http, src: &Source) -> anyhow::Result<Batch> {
     poll::poll(&ctx, &cfg)
 }
 
+/// Items in a batch except what the search overlap read again: those carry
+/// the revision they were stored with, so applying them changes nothing.
+fn fresh(b: &Batch) -> Vec<&str> {
+    ids(b).into_iter().filter(|id| !id.contains("/mention/")).collect()
+}
+
 fn find<'a>(b: &'a Batch, id: &str) -> &'a crate::sync::ItemUpsert {
     b.items.iter().find(|i| i.external_id == id).unwrap_or_else(|| panic!("no item {id}: {:?}", ids(b)))
 }
@@ -290,9 +296,10 @@ fn reading_in_slack_never_clears_incoming() {
     let http = workspace(HISTORY_INC_1);
     read_all_in_slack(&http);
     let b2 = run_poll(&http, &src).unwrap();
-    assert!(b2.items.is_empty() && b2.seen.is_empty(), "{:?}", ids(&b2));
+    assert!(fresh(&b2).is_empty() && b2.seen.is_empty(), "{:?}", ids(&b2));
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
-    apply_now(&conn, &src, &b2).unwrap();
+    // The mention read again by the search overlap is the same revision: nothing new.
+    assert_eq!(apply_now(&conn, &src, &b2).unwrap(), 0);
     // The #inc-2291 thread is stored under its parent, in the channel's run.
     assert_eq!(unseen(&conn).len(), 4);
     assert_eq!(State::parse(b2.cursor.as_deref()).open.len(), 5);
@@ -363,8 +370,8 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
 
     let http = workspace(&with_new_message("U0JORDAN", "Rollback done, closing the incident."));
     let b2 = run_poll(&http, &src).unwrap();
-    assert_eq!(ids(&b2), vec!["C0INC/1789960000.000100"]);
-    let inc = &b2.items[0];
+    assert_eq!(fresh(&b2), vec!["C0INC/1789960000.000100"]);
+    let inc = find(&b2, "C0INC/1789960000.000100");
     assert_eq!((inc.msg_count, inc.bump), (Some(6), true));
     assert_eq!(inc.raw_json["mark_ts"], "1789999000.001000");
     // Nothing new in the DM per conversations.info: not re-read. Nothing new in threads.
@@ -372,8 +379,8 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
 
     // Your own message is new too: it's context to file like anyone else's.
     let b3 = run_poll(&workspace(&with_new_message("U0ME", "Confirmed, thanks all.")), &src).unwrap();
-    assert_eq!(ids(&b3), vec!["C0INC/1789960000.000100"]);
-    assert!(b3.items[0].bump);
+    assert_eq!(fresh(&b3), vec!["C0INC/1789960000.000100"]);
+    assert!(find(&b3, "C0INC/1789960000.000100").bump);
 }
 
 #[test]
@@ -673,8 +680,8 @@ fn live_mode_runs_a_full_catch_up_every_catchup_hours() {
     // Cheap where it can be: DMs with nothing new aren't re-read.
     assert_eq!(count(&http, "conversations.history?channel=D0PRIYA"), 0);
     assert_eq!(count(&http, "conversations.history?channel=G0MPIM"), 0);
-    // Nothing had changed, so nothing is written; the clock restarts.
-    assert!(b.items.is_empty(), "{:?}", ids(&b));
+    // Nothing had changed, so nothing new is written; the clock restarts.
+    assert!(fresh(&b).is_empty(), "{:?}", ids(&b));
     assert_eq!(State::parse(b.cursor.as_deref()).caught_up, NOW);
     assert_eq!(socket::plan(8).mode, Mode::Live);
 }
@@ -750,7 +757,12 @@ fn run_streams(http: &dyn Http, src: &Source, failures: &[(&str, i64)], committe
         committed.push(b);
         Ok(())
     };
-    let mut streams = crate::sync::Streams { failures: failures.iter().map(|(k, n)| (k.to_string(), *n)).collect(), commit: &mut commit };
+    let mut streams = crate::sync::Polling {
+        failures: failures.iter().map(|(k, n)| (k.to_string(), *n)).collect(),
+        revs: Default::default(),
+        stale_open: vec![],
+        commit: &mut commit,
+    };
     poll::poll_with(&ctx, &cfg, Some(&mut streams))
 }
 

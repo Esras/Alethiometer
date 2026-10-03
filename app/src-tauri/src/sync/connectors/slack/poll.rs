@@ -50,7 +50,7 @@ use super::api::{ts_after, ts_secs, ApiError, Client};
 use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
 use crate::clock::Clock;
-use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile, StreamOutcome, Streams};
+use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile, StreamOutcome, Polling};
 use crate::time::Ts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -63,6 +63,10 @@ const CONTEXT_MSGS: usize = 3;
 /// Pages of 200 read per conversation per poll.
 const HISTORY_PAGES: usize = 10;
 const REPLIES_PAGES: usize = 5;
+/// Search lags behind messages: each search reads back this far before the
+/// newest hit it handled. A mention read again carries the same revision
+/// (its ts), so applying it again changes nothing.
+const SEARCH_OVERLAP_SECS: f64 = 3600.0;
 /// A conversation or thread Slack says isn't there this many polls in a row
 /// is forgotten (its items stay as they are).
 const DROP_AFTER: i64 = 3;
@@ -370,8 +374,8 @@ pub struct Poller<'a, 'r, 's> {
     recorded: BTreeSet<String>,
     /// Failures in a row per stream before this poll.
     failures: BTreeMap<String, i64>,
-    /// Writes what's been read so far (`Streams::commit`).
-    streams: Option<&'r mut Streams<'s>>,
+    /// Writes what's been read so far (`Polling::commit`).
+    streams: Option<&'r mut Polling<'s>>,
 }
 
 pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
@@ -379,7 +383,7 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
 }
 
 /// A poll that commits stream by stream when given `streams`.
-pub fn poll_with<'r, 's>(ctx: &Ctx, cfg: &Config, streams: Option<&'r mut Streams<'s>>) -> anyhow::Result<Batch> {
+pub fn poll_with<'r, 's>(ctx: &Ctx, cfg: &Config, streams: Option<&'r mut Polling<'s>>) -> anyhow::Result<Batch> {
     let token = ctx.require_secret(&cfg.user_token_secret)?;
     let mut client = Client::new(ctx.http, token);
     client.sleep = cfg.sleep;
@@ -927,7 +931,7 @@ impl Poller<'_, '_, '_> {
     /// `max_dms`). Elsewhere: a mention item.
     fn search_mentions(&mut self) -> anyhow::Result<Vec<(String, String)>> {
         let me = self.state.me.clone();
-        let since = self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());
+        let since = (self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
         let tag = format!("<@{me}");
         let mut newest = self.state.mention_ts.clone();
         let mut threads = vec![];
@@ -958,7 +962,7 @@ impl Poller<'_, '_, '_> {
     /// Alethiometer may not know yet (you replied from your phone while it was off).
     fn search_my_replies(&mut self) -> anyhow::Result<Vec<(String, String)>> {
         let me = self.state.me.clone();
-        let since = self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0).max(self.floor());
+        let since = (self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
         let mut newest = self.state.reply_ts.clone();
         let mut threads = vec![];
         for m in self.search(&format!("from:<@{me}>"), since)? {
@@ -1029,6 +1033,7 @@ impl Poller<'_, '_, '_> {
             },
             messages: vec![Message { at, author: name, text: clean, author_id: m.user.clone(), context: false }],
             bump: true,
+            remote_rev: Some(m.ts.clone()),
             ..Default::default()
         });
         if self.cfg.is_muted(channel, &channel_name) {

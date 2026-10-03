@@ -47,6 +47,29 @@ impl SourceViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    fn item_revs(&self, source_id: i64) -> Result<std::collections::HashMap<String, String>> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT external_id, remote_rev FROM items WHERE source_id = ?1 AND remote_rev IS NOT NULL")?
+            .query_map([source_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn stale_open(&self, source_id: i64, before: crate::time::Ts, limit: usize) -> Result<Vec<String>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT i.external_id FROM items i
+                   LEFT JOIN sync_streams s ON s.source_id = i.source_id AND s.stream = 'item:' || i.external_id
+                  WHERE i.source_id = ?1 AND i.status != 'done' AND i.parent_id IS NULL
+                    AND (s.synced_at IS NULL OR s.synced_at < ?2) AND coalesce(s.failures, 0) < 3
+                  ORDER BY s.synced_at IS NOT NULL, s.synced_at, i.id
+                  LIMIT ?3",
+            )?
+            .query_map(rusqlite::params![source_id, before, limit as i64], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn failing_streams(&self, source_id: i64) -> Result<Vec<crate::domain::sources::FailingStream>> {
         Ok(self
             .conn()

@@ -17,7 +17,7 @@
 //! exactly one topic as a *suggested* link to that topic.
 
 use crate::sync::http::Response;
-use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message, Polling, StreamOutcome};
 use crate::time::Ts;
 use jiff::SignedDuration;
 use serde_json::{json, Value};
@@ -34,6 +34,9 @@ const PER_PAGE: usize = 100;
 /// Search returns at most 1000 results per query.
 const MAX_PAGES: usize = 10;
 const DEFAULT_LOOKBACK_DAYS: i64 = 14;
+/// Search lags behind writes: each poll reads back this far before the
+/// cursor, and an item's revision (`remote_rev`) keeps a re-read from counting twice.
+const OVERLAP_MINUTES: i64 = 60;
 
 /// What running `gh` returned. Only `stderr` may ever be shown: `stdout` is the token.
 pub struct GhOutput {
@@ -222,6 +225,13 @@ fn error(resp: &Response) -> anyhow::Error {
     anyhow::anyhow!("GitHub {}: {text}", resp.status)
 }
 
+/// An error about one issue (gone, moved, no access to its repo), not about
+/// the token, a rate limit or the network.
+fn about_one_item(e: &anyhow::Error) -> bool {
+    let m = e.to_string();
+    m.starts_with("GitHub 404") || m.starts_with("GitHub 410") || (m.starts_with("GitHub 403") && !m.contains("rate limit"))
+}
+
 /// Query-string encoding: everything but RFC 3986 unreserved characters.
 pub fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -239,6 +249,14 @@ impl Connector for GitHub {
         self.poll_with(ctx, &run_gh(gh_path(ctx)))
     }
 
+    fn poll_known(&self, ctx: &Ctx, known: &mut Polling) -> anyhow::Result<Batch> {
+        self.poll_known_with(ctx, &run_gh(gh_path(ctx)), &known.revs, &known.stale_open)
+    }
+
+    fn wants_known(&self) -> bool {
+        true
+    }
+
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         self.send_with(ctx, op, payload, &run_gh(gh_path(ctx)))
     }
@@ -251,13 +269,23 @@ fn gh_path<'c>(ctx: &'c Ctx) -> Option<&'c str> {
 impl GitHub {
     /// `poll` with the `gh` runner passed in (tests pass a fake).
     pub fn poll_with(&self, ctx: &Ctx, gh: &GhRunner<'_>) -> anyhow::Result<Batch> {
+        self.poll_known_with(ctx, gh, &Default::default(), &[])
+    }
+
+    /// A poll with the stored revisions and the stale open items to read again.
+    pub fn poll_known_with(&self, ctx: &Ctx, gh: &GhRunner<'_>, revs: &std::collections::HashMap<String, String>, stale: &[String]) -> anyhow::Result<Batch> {
         let api = Api::new(ctx, gh)?;
         let me = api.get("/user")?.get("login").and_then(Value::as_str).unwrap_or_default().to_string();
         let cursor = ctx.source.cursor.as_deref().and_then(Ts::parse);
-        let since = cursor.unwrap_or_else(|| {
-            let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
-            ctx.now - SignedDuration::from_hours(24 * days)
-        });
+        let since = match cursor {
+            Some(c) => c - SignedDuration::from_mins(OVERLAP_MINUTES),
+            None => {
+                let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
+                ctx.now - SignedDuration::from_hours(24 * days)
+            }
+        };
+        // What changed after an item's stored revision is new, whatever the cursor says.
+        let since_for = |ext: &str| revs.get(ext).and_then(|r| r.split('#').next()).and_then(Ts::parse).or(cursor);
         let scope = scope(ctx);
 
         // (search result, review requested from me, matched involves:@me for another reason)
@@ -282,13 +310,32 @@ impl GitHub {
         let mut batch = Batch::default();
         let mut newest = cursor;
         for (it, review, involved) in &found {
-            let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, cursor)? else { continue };
+            let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, &since_for)? else { continue };
             if let Some(u) = it.get("updated_at").and_then(Value::as_str).and_then(Ts::parse) {
                 if newest.is_none_or(|n| u > n) {
                     newest = Some(u);
                 }
             }
             batch.items.push(item);
+        }
+        // Open items that may have left the searches (closed by someone else,
+        // you unassigned), read again by number.
+        for ext in stale {
+            let key = format!("item:{ext}");
+            if batch.items.iter().any(|i| &i.external_id == ext) {
+                batch.streams.push(StreamOutcome { key, error: None });
+                continue;
+            }
+            let Some((repo, number)) = ext.rsplit_once('#') else { continue };
+            let read = api.get(&format!("/repos/{repo}/issues/{number}")).and_then(|it| map_item(&api, &it, false, true, team_reviews, &me, &since_for));
+            match read {
+                Ok(item) => {
+                    batch.items.extend(item);
+                    batch.streams.push(StreamOutcome { key, error: None });
+                }
+                Err(e) if about_one_item(&e) => batch.streams.push(StreamOutcome { key, error: Some(e.to_string()) }),
+                Err(e) => return Err(e),
+            }
         }
         batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
@@ -370,7 +417,9 @@ fn search(api: &Api, q: &str) -> anyhow::Result<Vec<Value>> {
     Ok(out)
 }
 
-fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, cursor: Option<Ts>) -> anyhow::Result<Option<ItemUpsert>> {
+/// `since_for(external id)`: changes after it are new signal (the item's
+/// stored revision, else the cursor).
+fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, since_for: &dyn Fn(&str) -> Option<Ts>) -> anyhow::Result<Option<ItemUpsert>> {
     let s = |p: &str| it.pointer(p).and_then(Value::as_str);
     let (Some(repo), Some(number)) = (
         s("/repository_url").and_then(|u| u.split("/repos/").nth(1)).map(str::to_owned),
@@ -379,6 +428,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         return Ok(None);
     };
     let is_pr = it.get("pull_request").is_some_and(|p| !p.is_null());
+    let cursor = since_for(&format!("{repo}#{number}"));
     let updated = s("/updated_at").and_then(Ts::parse);
     let changed_since = |t: Option<Ts>| matches!((t, cursor), (Some(t), Some(c)) if t > c);
     let closed = s("/state") == Some("closed");
@@ -476,6 +526,8 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         messages,
         event: None,
         bump,
+        // Comments edited or added move `updated_at`; the count tells a deletion apart too.
+        remote_rev: s("/updated_at").map(|u| format!("{u}#{comment_count}")),
         drop_event: false,
         attach_to: None,
     }))
@@ -569,6 +621,49 @@ mod tests {
         (b, http.requests().into_iter().map(|r| r.1).collect())
     }
 
+    fn poll_known(cursor: &str, revs: &[(&str, &str)], stale: &[&str], http: &FakeHttp) -> anyhow::Result<Batch> {
+        let src = source(Some(cursor), json!({}));
+        let revs = revs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let stale: Vec<String> = stale.iter().map(|s| s.to_string()).collect();
+        with_ctx(&src, http, |ctx| GitHub.poll_known_with(ctx, &no_gh, &revs, &stale))
+    }
+
+    #[test]
+    fn an_item_is_judged_against_its_own_revision_not_the_cursor() {
+        // The cursor is past #482's last update, but the stored revision is
+        // older (search returned it late): its changes since then still count.
+        let b = poll_known("2026-09-28T00:00:00Z", &[("platform/ingest#482", "2026-09-26T12:00:00Z#1")], &[], &fake()).unwrap();
+        let pr = b.items.iter().find(|i| i.external_id == "platform/ingest#482").unwrap();
+        assert!(pr.bump, "Kim's comment after the stored revision is new");
+        assert_eq!(pr.remote_rev.as_deref(), Some("2026-09-27T07:40:00Z#4"));
+        // Already applied at this revision: nothing after it is new.
+        let b = poll_known("2026-09-26T12:00:00Z", &[("platform/ingest#482", "2026-09-27T07:40:00Z#4")], &[], &fake()).unwrap();
+        assert!(!b.items.iter().find(|i| i.external_id == "platform/ingest#482").unwrap().bump);
+    }
+
+    #[test]
+    fn open_items_that_left_the_searches_are_read_by_number() {
+        let http = fake();
+        http.on("GET", "/repos/platform/ingest/issues/300", 200, r#"{
+            "url": "https://api.github.com/repos/platform/ingest/issues/300",
+            "repository_url": "https://api.github.com/repos/platform/ingest",
+            "html_url": "https://github.com/platform/ingest/issues/300",
+            "number": 300, "title": "Unassigned from you", "user": {"login": "kimlee"}, "assignees": [],
+            "state": "closed", "comments": 0, "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-27T09:00:00Z",
+            "closed_at": "2026-09-27T09:00:00Z"
+        }"#);
+        http.on("GET", "/repos/platform/ingest/issues/301", 404, r#"{"message": "Not Found"}"#);
+        let b = poll_known("2026-09-26T12:00:00Z", &[], &["platform/ingest#300", "platform/ingest#301"], &http).unwrap();
+        let gone = b.items.iter().find(|i| i.external_id == "platform/ingest#300").unwrap();
+        assert_eq!(gone.status, "done");
+        let outcome = |k: &str| b.streams.iter().find(|o| o.key == k).map(|o| o.error.clone());
+        assert_eq!(outcome("item:platform/ingest#300"), Some(None));
+        assert!(outcome("item:platform/ingest#301").flatten().is_some_and(|e| e.starts_with("GitHub 404")));
+        // A rejected token isn't one item's problem.
+        http.on("GET", "/repos/platform/ingest/issues/301", 401, r#"{"message": "Bad credentials"}"#);
+        assert!(poll_known("2026-09-26T12:00:00Z", &[], &["platform/ingest#301"], &http).is_err());
+    }
+
     #[test]
     fn team_only_review_requests_are_filtered_out_when_disabled() {
         let http = FakeHttp::default();
@@ -643,7 +738,8 @@ mod tests {
     #[test]
     fn scope_and_cursor_go_into_the_query() {
         let (_, urls) = poll(Some("2026-09-26T12:00:00Z"), json!({ "repos": ["platform/ingest", "platform/rfcs"], "orgs": ["ignored"] }));
-        let q = urlencode("updated:>=2026-09-26T12:00:00Z repo:platform/ingest repo:platform/rfcs involves:@me is:issue");
+        // An hour before the cursor: search lags behind writes.
+        let q = urlencode("updated:>=2026-09-26T11:00:00Z repo:platform/ingest repo:platform/rfcs involves:@me is:issue");
         assert!(urls.iter().any(|u| u.contains(&q)), "{urls:#?}");
         let (_, urls) = poll(None, json!({ "orgs": ["platform"] }));
         assert!(urls.iter().any(|u| u.contains(&urlencode(" org:platform review-requested:@me is:pr"))));

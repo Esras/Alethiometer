@@ -166,7 +166,7 @@ impl Connector for Slack {
         poll::poll(ctx, &Config::from_json(&ctx.source.config))
     }
 
-    fn poll_streams(&self, ctx: &Ctx, streams: &mut crate::sync::Streams) -> anyhow::Result<Batch> {
+    fn poll_known(&self, ctx: &Ctx, streams: &mut crate::sync::Polling) -> anyhow::Result<Batch> {
         poll::poll_with(ctx, &Config::from_json(&ctx.source.config), Some(streams))
     }
 
