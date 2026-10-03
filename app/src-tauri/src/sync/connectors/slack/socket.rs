@@ -24,7 +24,7 @@
 use super::api::Client;
 use super::{Config, State};
 use crate::state::App;
-use crate::sync::{http::UreqHttp, sync_source};
+use crate::sync::http::UreqHttp;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{mpsc, Arc, LazyLock, Mutex};
@@ -254,7 +254,8 @@ fn debounced_sync(app: &App, source_id: i64, rx: mpsc::Receiver<()>) {
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
-        if let Err(e) = sync_source(app, source_id) {
+        // Through the source's worker, so it never overlaps a timed poll.
+        if let Err(e) = crate::sync::poll_now(app, source_id) {
             eprintln!("slack live sync (source {source_id}): {e}");
         }
     }

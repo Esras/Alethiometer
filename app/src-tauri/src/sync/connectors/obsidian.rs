@@ -565,66 +565,44 @@ fn close_tasks(uow: &dyn UnitOfWork, source_id: i64, path: &str, keep: &HashSet<
 
 // ---------------------------------------------------------------- live
 
-/// The obsidian source's sync loop: poll on start, then again whenever a
-/// Markdown file changes (debounced) or at least every `poll` (capped at 60 s;
-/// the scan is only a local stat walk). Without a watcher it's a plain timer.
-/// One thread per source, so two scans never race over the cursor.
-pub fn run(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, name: String, poll: std::time::Duration) {
+/// Nudge the obsidian source's worker whenever a Markdown file changes
+/// (debounced: editors save in bursts). The worker also polls on its own
+/// timer (at most a minute apart; the scan is only a local stat walk), so
+/// without a watcher nothing is missed, only later.
+pub fn watch(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, name: String) {
     use notify::Watcher;
     use std::sync::mpsc::RecvTimeoutError;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    let poll = poll.min(Duration::from_secs(60));
+    // Watching before this returns, so the worker's first poll can't miss a save.
+    let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
+    let config = app.store().read(|r| crate::sync::source(r, source_id)).map(|s| s.config).unwrap_or(Value::Null);
+    let ignore = Ignore::from_config(&config);
+    let Ok(root) = vault_root(&config) else { return };
+    let mut w = match notify::recommended_watcher(move |ev| {
+        let _ = tx.send(ev);
+    }) {
+        Ok(w) => w,
+        Err(e) => return eprintln!("sync {name}: file watcher off ({e}); polling only"),
+    };
+    if let Err(e) = w.watch(&root, notify::RecursiveMode::Recursive) {
+        return eprintln!("sync {name}: file watcher off ({e}); polling only");
+    }
     std::thread::Builder::new()
-        .name(format!("sync-{name}"))
+        .name(format!("watch-{name}"))
         .spawn(move || {
-            let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
-            let config = app.store().read(|r| crate::sync::source(r, source_id)).map(|s| s.config).unwrap_or(Value::Null);
-            let ignore = Ignore::from_config(&config);
-            let root = vault_root(&config).ok();
-            let _watcher = root.as_ref().and_then(|root| {
-                let mut w = notify::recommended_watcher(move |ev| {
-                    let _ = tx.send(ev);
-                })
-                .ok()?;
-                match w.watch(root, notify::RecursiveMode::Recursive) {
-                    Ok(()) => Some(w),
-                    Err(e) => {
-                        eprintln!("sync {name}: file watcher off ({e}); polling every {}s", poll.as_secs());
-                        None
-                    }
-                }
-            });
+            let _watcher = w;
             let relevant = |ev: &notify::Event| {
-                !matches!(ev.kind, notify::EventKind::Access(_))
-                    && ev.paths.iter().any(|p| root.as_ref().and_then(|r| rel_str(r, p)).is_some_and(|rel| wanted(&ignore, &rel)))
+                !matches!(ev.kind, notify::EventKind::Access(_)) && ev.paths.iter().any(|p| rel_str(&root, p).is_some_and(|rel| wanted(&ignore, &rel)))
             };
             while crate::sync::alive(source_id, gen) {
-                if let Err(e) = crate::sync::sync_source(&app, source_id) {
-                    eprintln!("sync {name}: {e}");
-                }
-                let deadline = Instant::now() + poll;
-                loop {
-                    if !crate::sync::alive(source_id, gen) {
-                        return;
+                match rx.recv_timeout(Duration::from_secs(1)) {
+                    Ok(Ok(ev)) if relevant(&ev) => {
+                        while rx.recv_timeout(Duration::from_millis(1000)).is_ok() {}
+                        crate::sync::nudge(&app, source_id);
                     }
-                    let wait = deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(1));
-                    match rx.recv_timeout(wait) {
-                        Ok(Ok(ev)) if relevant(&ev) => {
-                            // Editors save in bursts; wait for a quiet second.
-                            while rx.recv_timeout(Duration::from_millis(1000)).is_ok() {}
-                            break;
-                        }
-                        Ok(_) => continue,
-                        Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => break,
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => {
-                            if !crate::sync::sleep_alive(source_id, gen, deadline.saturating_duration_since(Instant::now())) {
-                                return;
-                            }
-                            break;
-                        }
-                    }
+                    Ok(_) | Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
         })
@@ -1318,7 +1296,7 @@ mod tests {
         };
         let conn = crate::db::open_in_memory().unwrap();
         let app = std::sync::Arc::new(crate::state::App::from_parts(conn, settings, data.path()).unwrap());
-        run(app.clone(), 1, crate::sync::bump_generation(1), "Vault".into(), std::time::Duration::from_secs(60));
+        crate::sync::start_source(app.clone(), 1);
         let count = |t: &str| -> i64 {
             app.db().query_row("SELECT count(*) FROM items WHERE title = ?1", [t], |r| r.get(0)).unwrap()
         };

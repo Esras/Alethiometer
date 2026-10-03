@@ -8,6 +8,9 @@
 //!   which is replaced wholesale on each poll (it holds no user content).
 
 pub mod connectors;
+pub mod worker;
+
+pub use worker::{nudge, poll_now};
 
 /// What `personal` means today, in one line for the Settings page. Keep it in
 /// step with `apply` (busy blocks only), the AI context builders (work only),
@@ -243,12 +246,23 @@ fn is_running(id: i64) -> bool {
 /// batch and its follow-ups in one unit of work. Errors are stored on the
 /// source row and returned.
 pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
+    // One poll of a source at a time (`worker`).
+    let lock = worker::poll_lock(app, source_id);
+    let _polling = lock.lock().unwrap_or_else(|e| e.into_inner());
     let _running = Running::start(source_id);
     let mut source = app.store().read(|r| source(r, source_id))?;
     if source.kind == "slack" {
         source.cursor = app.store().read(|r| connectors::slack::close_triaged(r, &source))?;
     }
-    let connector = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
+    let test = worker::test_connector(&source.kind);
+    let boxed;
+    let connector: &dyn Connector = match &test {
+        Some(c) => c.as_ref(),
+        None => {
+            boxed = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
+            boxed.as_ref()
+        }
+    };
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
@@ -342,47 +356,43 @@ pub fn start(app: std::sync::Arc<App>) {
     }
 }
 
-/// Stop a source's loops (if any) and start them again from its current
-/// settings. A source that's disabled or no longer in settings stays stopped.
+/// Stop a source's worker and loops (if any) and start them again from its
+/// current settings. A source that's disabled or no longer in settings stays stopped.
 pub fn start_source(app: std::sync::Arc<App>, id: i64) {
     let gen = bump_generation(id);
-    let Ok(source) = app.store().read(|r| source(r, id)) else { return };
-    let settings = app.settings();
-    let Some(cfg) = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name) else { return };
-    // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
-    if !cfg.enabled || cfg.kind == "glean" || cfg.kind == "scion" {
+    let plan = (|| {
+        let source = app.store().read(|r| source(r, id)).ok()?;
+        let settings = app.settings();
+        let cfg = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name)?;
+        // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
+        if !cfg.enabled || cfg.kind == "glean" || cfg.kind == "scion" {
+            return None;
+        }
+        let every = std::time::Duration::from_secs(cfg.poll_secs.max(30));
+        Some((cfg.kind.clone(), cfg.name.clone(), every))
+    })();
+    let Some((kind, name, every)) = plan else {
+        worker::restart(app, id, gen, None);
         return;
-    }
-    let name = cfg.name.clone();
-    let poll = std::time::Duration::from_secs(cfg.poll_secs.max(30));
+    };
     // Slack: live Socket Mode nudges on top of polling (no-op without an app-level token).
-    if cfg.kind == "slack" {
+    if kind == "slack" {
         connectors::slack::socket::start(app.clone(), id, gen);
     }
-    // The vault runs its own loop: file watcher plus a short poll.
-    if cfg.kind == "obsidian" {
-        connectors::obsidian::run(app, id, gen, name, poll);
-        return;
-    }
-    std::thread::Builder::new()
-        .name(format!("sync-{name}"))
-        .spawn(move || {
-            while alive(id, gen) {
-                match sync_source(&app, id) {
-                    Ok(_) => suggest_after_sync(&app, id),
-                    Err(e) => eprintln!("sync {name}: {e}"),
-                }
-                if !sleep_alive(id, gen, poll) {
-                    break;
-                }
-            }
-        })
-        .ok();
+    // The vault: a file watcher nudges the worker, which polls at least every minute.
+    let (every, suggest) = if kind == "obsidian" {
+        connectors::obsidian::watch(app.clone(), id, gen, name.clone());
+        (every.min(std::time::Duration::from_secs(60)), false)
+    } else {
+        (every, true)
+    };
+    worker::restart(app, id, gen, Some(worker::Plan { name, every, suggest }));
 }
 
-/// Stop a source's loops (removed or disabled in settings).
-pub fn stop_source(id: i64) {
+/// Stop a source's worker and loops (removed or disabled in settings).
+pub fn stop_source(app: &App, id: i64) {
     bump_generation(id);
+    worker::stop(app, id);
 }
 
 #[derive(Serialize)]
@@ -428,7 +438,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
-            let n = sync_source(app, id)?;
+            let n = poll_now(app, id)?;
             Ok(serde_json::json!({ "new_signals": n }))
         }
         "suggest" => {

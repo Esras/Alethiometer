@@ -25,6 +25,8 @@ pub struct App {
     pub embed: crate::embed::Engine,
     /// Agents tab: sessions, transcripts, local agent processes, Scion Hubs.
     pub agents: crate::agents::Agents,
+    /// One sync worker per source (`sync::worker`).
+    pub workers: crate::sync::worker::Workers,
     settings_state: Mutex<crate::settings::live::State>,
     /// Set by `shared`, so code holding `&App` can start background work.
     this: OnceLock<std::sync::Weak<App>>,
@@ -79,6 +81,7 @@ impl App {
             hooks: OnceLock::new(),
             embed: Default::default(),
             agents: Default::default(),
+            workers: Default::default(),
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };
