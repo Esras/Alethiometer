@@ -18,6 +18,7 @@
 pub mod categories;
 pub mod daystrip;
 pub mod incoming;
+pub mod ingest;
 pub mod items;
 pub mod links;
 pub mod notes;
@@ -197,6 +198,7 @@ ports!(Reads {
     categories: crate::domain::categories::CategoryViews,
     day_strip: crate::domain::daystrip::DayStripViews,
     incoming: crate::domain::incoming::IncomingViews,
+    items: crate::domain::items::ItemViews,
     notes: crate::domain::notes::NotesViews,
     people: crate::domain::people::PeopleViews,
     priorities: crate::domain::priorities::PriorityViews,
@@ -211,6 +213,7 @@ ports!(UnitOfWork {
     reads: Reads,
     categories: crate::domain::categories::Categories,
     events: crate::domain::daystrip::Events,
+    ingest: crate::domain::ingest::Ingest,
     items: crate::domain::items::Items,
     links: crate::domain::links::Links,
     note_lines: crate::domain::notes::NoteLines,

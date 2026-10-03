@@ -15,13 +15,14 @@ pub mod connectors;
 pub const PERSONAL_RULES: &str = "Personal sources only store untitled busy blocks: never sent to the AI, never in Incoming or search, nothing written back.";
 pub mod http;
 
+use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::clock::Clock;
-use crate::time::{Due, Ts};
+use crate::time::Ts;
 use crate::settings::SourceConfig;
 use crate::state::App;
 use http::Http;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -63,107 +64,7 @@ impl Ctx<'_> {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct Batch {
-    pub items: Vec<ItemUpsert>,
-    /// For personal calendars: the full set of busy blocks in the synced window.
-    /// Replaces this source's previous busy blocks.
-    pub busy: Option<Vec<Busy>>,
-    /// New cursor to store (sync token, updated-since timestamp, etc.).
-    pub cursor: Option<String>,
-    /// External ids the remote side cancelled or deleted. The item is kept (no
-    /// deletions of user-visible records), marked done and resurfaced as new
-    /// signal; only its calendar block, a cache of remote times, is dropped.
-    /// Unknown ids are ignored.
-    pub cancelled: Vec<String>,
-    /// External ids the user has read in the remote app (e.g. Slack's read
-    /// marker moved past them): marked seen, nothing else changes. Never new
-    /// signal. Unknown ids are ignored.
-    pub seen: Vec<String>,
-    /// What the source said about the accounts it saw (Slack profiles):
-    /// stored in `account_profiles`, newest wins.
-    pub profiles: Vec<Profile>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Profile {
-    /// Account kind as `queries::people` names it (`slack`).
-    pub kind: String,
-    pub account: String,
-    pub real_name: Option<String>,
-    pub email: Option<String>,
-    pub is_bot: bool,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct ItemUpsert {
-    /// Stable id in the remote system. (source, external_id) is unique.
-    pub external_id: String,
-    /// message | thread | issue | pr | event | note | email | doc | task
-    pub kind: String,
-    pub title: String,
-    pub body: String,
-    pub summary: Option<String>,
-    pub url: Option<String>,
-    /// Author handle in the source (Slack user id, Jira accountId, GitHub login…).
-    pub author: Option<Handle>,
-    pub occurred_at: Ts,
-    pub ended_at: Option<Ts>,
-    pub due: Option<Due>,
-    /// open | done
-    pub status: String,
-    pub msg_count: Option<i64>,
-    pub owner: Option<String>,
-    /// Source fields. `msgs`, when it lists one id per message (in order), keys
-    /// the messages so a topic split can move some to a child item for good.
-    pub raw_json: Value,
-    /// Expanded context (e.g. Slack messages since last look). Replaces stored
-    /// ones, except messages a split child owns (see `queries::split`).
-    pub messages: Vec<Message>,
-    /// Set when this is a calendar event.
-    pub event: Option<EventFields>,
-    /// True when this update is new signal (new messages, reassigned, state change).
-    /// New items are always new signal.
-    pub bump: bool,
-    /// Remove this item's calendar block if it has one (declined, or now all-day).
-    /// The item itself stays. Ignored when `event` is set.
-    pub drop_event: bool,
-    /// A thread: the key of its parent message. Unless this item already exists,
-    /// when another item holds the parent its messages are stored there as the
-    /// parent's replies (that item bumps instead) and this item is never created.
-    pub attach_to: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Handle {
-    pub handle: String,
-    pub display_name: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Message {
-    pub at: Ts,
-    pub author: String,
-    pub text: String,
-    pub author_id: Option<String>,
-    pub context: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct EventFields {
-    pub start: Ts,
-    pub end: Ts,
-    /// Category key from settings (e.g. work, self).
-    pub category: String,
-    pub tentative: bool,
-    pub attendees: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Busy {
-    pub start: Ts,
-    pub end: Ts,
-}
+pub use crate::domain::ingest::{Batch, Busy, EventFields, Handle, ItemUpsert, Message, Profile};
 
 /// A connector for one source kind.
 pub trait Connector: Send + Sync {
@@ -178,140 +79,90 @@ pub trait Connector: Send + Sync {
 }
 
 /// Make sure every configured source has a row, and sync its tag/config.
-pub fn register_sources(conn: &Connection, configs: &[SourceConfig]) -> Result<()> {
+pub fn register(uow: &dyn UnitOfWork, configs: &[SourceConfig]) -> Result<()> {
     for c in configs {
         if c.tag != "work" && c.tag != "personal" {
             return Err(msg(format!("source '{}': tag must be work or personal", c.name)));
         }
-        let existing: Option<i64> = conn
-            .query_row("SELECT id FROM sources WHERE kind = ?1 AND name = ?2", params![c.kind, c.name], |r| r.get(0))
-            .optional()?;
-        match existing {
-            Some(id) => conn.execute(
-                "UPDATE sources SET tag = ?1, config_json = ?2, enabled = ?3 WHERE id = ?4",
-                params![c.tag, c.config.to_string(), c.enabled, id],
-            )?,
-            None => conn.execute(
-                "INSERT INTO sources (kind, tag, name, config_json, enabled) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![c.kind, c.tag, c.name, c.config.to_string(), c.enabled],
-            )?,
-        };
+        uow.sources().register(&c.kind, &c.name, &c.tag, &c.config.to_string(), c.enabled)?;
     }
     Ok(())
 }
 
-pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
-    Ok(conn.query_row("SELECT id, kind, tag, name, config_json, cursor FROM sources WHERE id = ?1", [id], |r| {
-        let config: String = r.get(4)?;
-        Ok(Source {
-            id: r.get(0)?,
-            kind: r.get(1)?,
-            tag: r.get(2)?,
-            name: r.get(3)?,
-            config: serde_json::from_str(&config).unwrap_or(Value::Null),
-            cursor: r.get(5)?,
-        })
-    })?)
+/// `register` over a connection (tests and code not moved yet).
+pub fn register_sources(conn: &Connection, configs: &[SourceConfig]) -> Result<()> {
+    register(&crate::store::over(conn), configs)
 }
 
-/// Write a batch. Returns the number of items that became new signal.
-pub fn apply(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
+/// A source as connectors see it.
+pub fn source(r: &dyn Reads, id: i64) -> Result<Source> {
+    let s = r.sources().get(id)?.ok_or_else(|| msg(format!("no source {id}")))?;
+    Ok(Source { id: s.id, kind: s.kind, tag: s.tag, name: s.name, config: serde_json::from_str(&s.config_json).unwrap_or(Value::Null), cursor: s.cursor })
+}
+
+/// `source` over a connection (tests and code not moved yet).
+pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
+    source(&crate::store::over(conn), id)
+}
+
+/// Write a batch, in the caller's unit of work. Returns the number of items
+/// that became new signal.
+pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
     if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty() || !batch.profiles.is_empty()) {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
             source.name
         )));
     }
-    let tx = conn.unchecked_transaction()?;
+    let ingest = uow.ingest();
     let mut new_signal = 0;
     let mut touched = std::collections::BTreeSet::new();
     for it in &batch.items {
-        let author = match &it.author {
-            Some(h) => Some(person_for(&tx, &source.kind, h)?),
-            None => None,
-        };
+        let author = it.author.as_ref().map(|h| ingest.handle_person(&source.kind, h)).transpose()?;
         // Split children own some messages of this item (queries::split): those
         // are never re-added here, and a run made only of them isn't new signal.
-        let owned = crate::queries::split::owned_keys(&tx, source.id, &it.external_id)?;
+        let owned = uow.splits().owned_keys(source.id, &it.external_id)?;
         let ats: Vec<String> = it.messages.iter().map(|m| m.at.to_db()).collect();
         let tuples: Vec<(&str, &str, &str)> = it.messages.iter().zip(&ats).map(|(m, at)| (at.as_str(), m.author.as_str(), m.text.as_str())).collect();
-        let keys = crate::queries::split::keys(&it.raw_json, &tuples);
+        let keys = crate::domain::splits::keys(&it.raw_json, &tuples);
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
+        let existing = uow.items().find(source.id, &it.external_id)?;
         if let Some(parent) = &it.attach_to {
-            let exists: bool = tx.query_row(
-                "SELECT EXISTS (SELECT 1 FROM items WHERE source_id = ?1 AND external_id = ?2)",
-                params![source.id, it.external_id],
-                |r| r.get(0),
-            )?;
             let channel = it.raw_json.get("channel").and_then(Value::as_str);
-            if let (false, Some(holder)) = (exists, crate::queries::split::holder(&tx, source.id, channel, parent)?) {
+            if let (None, Some(holder)) = (existing, uow.reads().items().holder(source.id, channel, parent)?) {
                 if bump {
-                    mark_read_if_triaged(&tx, holder)?;
+                    ingest.mark_read_if_triaged(holder)?;
                 }
                 for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| *k != parent) {
                     // Replies before the run (context) were read; so were ones stored when you triaged.
-                    let read = m.context
-                        || tx
-                            .query_row("SELECT read FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent], |r| r.get(0))
-                            .optional()?
-                            .unwrap_or(false);
-                    tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent])?;
-                    tx.execute(
-                        "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, reply_to, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
-                        params![holder, m.at, m.author, m.text, key, m.author_id, parent, read],
-                    )?;
+                    let read = m.context || ingest.reply_read(holder, key, parent)?;
+                    ingest.put_reply(holder, m, key, parent, read)?;
                 }
-                if bump {
-                    new_signal += tx.execute("UPDATE items SET seen = 0 WHERE id = ?1", [holder])?;
+                if bump && uow.items().set_seen(holder, false)? {
+                    new_signal += 1;
                 }
                 continue;
             }
         }
         debug_assert!(it.occurred_at != Ts::default(), "{}: occurred_at not set", it.external_id);
-        let (due_at, due_day) = Due::columns(it.due);
-        let existing: Option<i64> = tx
-            .query_row(
-                "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
-                params![source.id, it.external_id],
-                |r| r.get(0),
-            )
-            .optional()?;
         let item_id = match existing {
             None => {
-                tx.execute(
-                    "INSERT INTO items (source_id, external_id, kind, title, body, summary, url, author_person_id,
-                       occurred_at, ended_at, due_at, due_day, status, msg_count, owner, seen, raw_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?16, ?12, ?13, ?14, 0, ?15)",
-                    params![
-                        source.id, it.external_id, it.kind, it.title, it.body, it.summary, it.url, author,
-                        it.occurred_at, it.ended_at, due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), due_day
-                    ],
-                )?;
-                let id = tx.last_insert_rowid();
+                let id = ingest.insert_item(source.id, it, author)?;
                 let series = it.raw_json.get("recurringEventId").and_then(Value::as_str);
                 if let Some(k) = series {
                     touched.insert(k.to_string());
                 }
-                if !series.map_or(Ok(false), |k| inherit_series(&tx, source.id, id, k))? {
+                if !series.map_or(Ok(false), |k| ingest.inherit_series(source.id, id, k))? {
                     new_signal += 1;
                 }
                 id
             }
             Some(id) => {
                 if bump {
-                    mark_read_if_triaged(&tx, id)?;
+                    ingest.mark_read_if_triaged(id)?;
                 }
-                tx.execute(
-                    "UPDATE items SET kind = ?2, title = ?3, body = ?4, summary = ?5, url = ?6, author_person_id = ?7,
-                       occurred_at = ?8, ended_at = ?9, due_at = ?10, due_day = ?16, status = ?11, msg_count = ?12, owner = ?13,
-                       raw_json = ?14, seen = CASE WHEN ?15 THEN 0 ELSE seen END
-                     WHERE id = ?1",
-                    params![
-                        id, it.kind, it.title, it.body, it.summary, it.url, author, it.occurred_at, it.ended_at,
-                        due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump, due_day
-                    ],
-                )?;
+                ingest.update_item(id, it, author, bump)?;
                 if bump {
                     new_signal += 1;
                 }
@@ -319,157 +170,45 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Resu
             }
         };
         if !it.messages.is_empty() {
-            let read: std::collections::HashSet<String> = tx
-                .prepare("SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL AND read = 1 AND ext_key IS NOT NULL")?
-                .query_map([item_id], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            tx.execute("DELETE FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL", [item_id])?;
-            for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)) {
-                tx.execute(
-                    "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![item_id, m.at, m.author, m.text, key, m.author_id, m.context, read.contains(key)],
-                )?;
-            }
+            let read = ingest.read_keys(item_id)?;
+            let rows: Vec<(&Message, &str, bool)> =
+                it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)).map(|(m, k)| (m, k.as_str(), read.contains(k))).collect();
+            ingest.replace_messages(item_id, &rows)?;
             if skipped > 0 {
-                crate::queries::split::recount(&tx, item_id, skipped)?;
+                uow.splits().recount(item_id, skipped)?;
             }
         }
         if let Some(e) = &it.event {
-            let ev: Option<i64> = tx.query_row("SELECT id FROM events WHERE item_id = ?1", [item_id], |r| r.get(0)).optional()?;
-            match ev {
-                Some(ev) => tx.execute(
-                    "UPDATE events SET start = ?2, end = ?3, title = ?4, category = ?5, tentative = ?6, attendees = ?7 WHERE id = ?1",
-                    params![ev, e.start, e.end, it.title, e.category, e.tentative, e.attendees],
-                )?,
-                None => tx.execute(
-                    "INSERT INTO events (item_id, source_id, start, end, title, category, tentative, attendees)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![item_id, source.id, e.start, e.end, it.title, e.category, e.tentative, e.attendees],
-                )?,
-            };
+            ingest.put_event(item_id, source.id, &it.title, e)?;
         } else if it.drop_event {
-            tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [item_id])?;
+            ingest.drop_event(item_id)?;
         }
     }
     for ext in &batch.cancelled {
-        let id: Option<i64> = tx
-            .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext], |r| r.get(0))
-            .optional()?;
-        if let Some(id) = id {
-            new_signal += tx.execute("UPDATE items SET status = 'done', seen = 0, summary = 'cancelled', raw_json = json_set(raw_json, '$.change', 'cancelled') WHERE id = ?1 AND status != 'done'", [id])?;
-            tx.execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [id])?;
-        }
+        new_signal += ingest.cancel(source.id, ext)?;
     }
     for p in &batch.profiles {
-        tx.execute(
-            "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
-             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            params![p.kind, p.account, p.real_name, p.email, p.is_bot],
-        )?;
+        ingest.put_profile(p)?;
     }
     for ext in &batch.seen {
-        tx.execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext])?;
+        ingest.mark_seen(source.id, ext)?;
     }
     for k in &touched {
-        collapse_series(&tx, source.id, k, now)?;
+        ingest.collapse_series(source.id, k, now)?;
     }
     if let Some(busy) = &batch.busy {
-        // Keep per-block buffer overrides across refreshes, keyed by start time.
-        let mut buffers = std::collections::HashMap::new();
-        {
-            let mut stmt = tx.prepare("SELECT start, buffer_min FROM events WHERE source_id = ?1 AND buffer_min IS NOT NULL")?;
-            for row in stmt.query_map([source.id], |r| Ok((r.get::<_, Ts>(0)?, r.get::<_, i64>(1)?)))? {
-                let (s, b) = row?;
-                buffers.insert(s, b);
-            }
-        }
-        tx.execute("DELETE FROM events WHERE source_id = ?1 AND is_life_busy = 1", [source.id])?;
-        for b in busy {
-            tx.execute(
-                "INSERT INTO events (source_id, start, end, category, is_life_busy, buffer_min) VALUES (?1, ?2, ?3, 'life', 1, ?4)",
-                params![source.id, b.start, b.end, buffers.get(&b.start)],
-            )?;
-        }
+        ingest.replace_busy(source.id, busy)?;
     }
-    tx.execute(
-        "UPDATE sources SET cursor = COALESCE(?2, cursor), last_sync_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), last_error = NULL WHERE id = ?1",
-        params![source.id, batch.cursor],
-    )?;
-    tx.commit()?;
+    ingest.finish(source.id, batch.cursor.as_deref())?;
     Ok(new_signal)
 }
 
-const SERIES: &str = "json_extract(raw_json, '$.recurringEventId')";
-
-/// New instance of a known series: inherits its links; quiet unless the series is still in Incoming.
-fn inherit_series(tx: &Connection, source_id: i64, item_id: i64, key: &str) -> Result<bool> {
-    let sibs = format!("SELECT id FROM items WHERE source_id = ?1 AND id != ?2 AND {SERIES} = ?3");
-    let (n, unseen, confirmed): (i64, i64, i64) = tx.query_row(
-        &format!(
-            "SELECT count(*), coalesce(sum(seen = 0), 0),
-                    EXISTS (SELECT 1 FROM topic_links WHERE state = 'confirmed' AND item_id IN ({sibs}))
-               FROM items WHERE id IN ({sibs})"
-        ),
-        params![source_id, item_id, key],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
-    if n == 0 {
-        return Ok(false);
-    }
-    tx.execute(
-        &format!(
-            "INSERT OR IGNORE INTO topic_links (item_id, topic_id, state, confidence, reason)
-             SELECT ?2, topic_id, state, confidence, reason FROM topic_links WHERE item_id IN ({sibs})
-              ORDER BY state = 'confirmed' DESC"
-        ),
-        params![source_id, item_id, key],
-    )?;
-    let quiet = unseen == 0 || confirmed == 1;
-    if quiet {
-        tx.execute("UPDATE items SET seen = 1 WHERE id = ?1", [item_id])?;
-    }
-    Ok(quiet)
-}
-
-/// One unseen instance per series: the next upcoming, else the latest past.
-fn collapse_series(tx: &Connection, source_id: i64, key: &str, now: Ts) -> Result<()> {
-    tx.execute(
-        &format!(
-            "UPDATE items SET seen = 1 WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2 AND id != (
-               SELECT id FROM items WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2
-                ORDER BY coalesce(ended_at, occurred_at) < ?3,
-                         CASE WHEN coalesce(ended_at, occurred_at) >= ?3 THEN occurred_at END,
-                         occurred_at DESC
-                LIMIT 1)"
-        ),
-        params![source_id, key, now],
-    )?;
-    Ok(())
-}
-
-fn person_for(conn: &Connection, kind: &str, h: &Handle) -> Result<i64> {
-    if let Some(id) = conn
-        .query_row(
-            "SELECT person_id FROM person_handles WHERE source_kind = ?1 AND handle = ?2",
-            params![kind, h.handle],
-            |r| r.get(0),
-        )
-        .optional()?
-    {
-        return Ok(id);
-    }
-    conn.execute("INSERT INTO people (display_name) VALUES (?1)", [&h.display_name])?;
-    let id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO person_handles (person_id, source_kind, handle) VALUES (?1, ?2, ?3)",
-        params![id, kind, h.handle],
-    )?;
-    Ok(id)
-}
-
-/// A triaged item a sync brings back: what it held so far stays read (faded).
-fn mark_read_if_triaged(tx: &rusqlite::Connection, item_id: i64) -> rusqlite::Result<usize> {
-    tx.execute("UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND EXISTS (SELECT 1 FROM items WHERE id = ?1 AND seen = 1)", [item_id])
+/// `apply` over a connection, in its own transaction (tests and code not moved yet).
+pub fn apply_in(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let n = apply(&crate::store::over(&tx), source, batch, now)?;
+    tx.commit()?;
+    Ok(n)
 }
 
 static RUNNING: std::sync::Mutex<Vec<i64>> = std::sync::Mutex::new(Vec::new());
@@ -496,33 +235,43 @@ fn is_running(id: i64) -> bool {
     RUNNING.lock().unwrap_or_else(|e| e.into_inner()).contains(&id)
 }
 
-/// Poll one source now. Errors are stored on the source row and returned.
+/// Poll one source now: the poll outside any database access, then the
+/// batch and its follow-ups in one unit of work. Errors are stored on the
+/// source row and returned.
 pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let _running = Running::start(source_id);
-    let mut source = load_source(&app.db(), source_id)?;
+    let mut source = app.store().read(|r| source(r, source_id))?;
     if source.kind == "slack" {
-        source.cursor = connectors::slack::close_triaged(&app.db(), &source)?;
+        source.cursor = app.store().read(|r| connectors::slack::close_triaged(r, &source))?;
     }
     let connector = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
-    // Poll without holding the DB lock; network calls can be slow.
     let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| {
-        let conn = app.db();
-        let n = apply(&conn, &source, &batch, ctx.now)?;
-        // Follow-ups that need the database (topic links, closing vanished tasks).
+        let n = app.store().write(|uow| {
+            let n = apply(uow, &source, &batch, ctx.now)?;
+            // Follow-ups in the same unit of work (topic links, closing vanished tasks).
+            match source.kind.as_str() {
+                "obsidian" => Ok(n.saturating_sub(connectors::obsidian::after_apply(uow, &source, &batch)?)),
+                // GitHub: items from a repo linked to exactly one topic become suggested links.
+                "github" => {
+                    uow.links().suggest_from_repos(source.id)?;
+                    Ok(n)
+                }
+                _ => Ok(n),
+            }
+        })?;
+        // People notes changed: read them now the batch is in.
         if source.kind == "obsidian" {
-            return Ok(n.saturating_sub(connectors::obsidian::after_apply(&conn, &source, &batch)?));
-        }
-        // GitHub: items from a repo linked to exactly one topic become suggested links.
-        if source.kind == "github" {
-            connectors::github::link_repo_topics(&conn, source.id)?;
+            if let Some(vault) = connectors::obsidian::people_touched(&source, &batch) {
+                crate::queries::people::rescan_vault(app, &vault)?;
+            }
         }
         Ok(n)
     });
     if let Err(e) = &result {
-        app.db().execute("UPDATE sources SET last_error = ?2 WHERE id = ?1", params![source_id, e.to_string()])?;
+        app.store().write(|uow| uow.sources().set_error(source_id, &e.to_string()))?;
     }
     result
 }
@@ -538,7 +287,7 @@ pub fn suggest_after_sync(app: &App, source_id: i64) {
     if let Err(e) = crate::ai::call(app, "estimate_todos", &serde_json::json!({ "limit": 10 })) {
         eprintln!("estimate_todos: {e}");
     }
-    let _ = app.db().execute("UPDATE sources SET last_sync_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1", [source_id]);
+    let _ = app.store().write(|uow| uow.sources().touch_synced(source_id));
 }
 
 /// Each source's loops carry the generation they were started with and stop
@@ -583,12 +332,7 @@ pub fn running_threads() -> bool {
 /// Background polling for every enabled source. One thread per source.
 pub fn start(app: std::sync::Arc<App>) {
     THREADS.store(true, std::sync::atomic::Ordering::Relaxed);
-    let ids: Vec<i64> = {
-        let conn = app.db();
-        let Ok(mut stmt) = conn.prepare("SELECT id FROM sources") else { return };
-        let Ok(rows) = stmt.query_map([], |r| r.get(0)) else { return };
-        rows.filter_map(|r| r.ok()).collect()
-    };
+    let Ok(ids) = app.store().read(|r| Ok(r.sources().all()?.into_iter().map(|s| s.id).collect::<Vec<i64>>())) else { return };
     for id in ids {
         start_source(app.clone(), id);
     }
@@ -598,7 +342,7 @@ pub fn start(app: std::sync::Arc<App>) {
 /// settings. A source that's disabled or no longer in settings stays stopped.
 pub fn start_source(app: std::sync::Arc<App>, id: i64) {
     let gen = bump_generation(id);
-    let Ok(source) = load_source(&app.db(), id) else { return };
+    let Ok(source) = app.store().read(|r| source(r, id)) else { return };
     let settings = app.settings();
     let Some(cfg) = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name) else { return };
     // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
@@ -643,35 +387,41 @@ pub struct SourceStatus {
     pub kind: String,
     pub tag: String,
     pub name: String,
-    pub last_sync_at: Option<String>,
+    pub last_sync_at: Option<Ts>,
     pub last_error: Option<String>,
     pub syncing: bool,
     /// Slack only: whether the live socket is connected (else it polls).
     pub live: Option<bool>,
 }
 
+pub fn route(name: &str) -> Option<crate::api::Route> {
+    match name {
+        // Scion Hubs and agents show their state in the Agents tab, not here.
+        "status" => Some(crate::api::Route::Read(|r, _, _| {
+            let rows: Vec<SourceStatus> = r
+                .sources()
+                .all()?
+                .into_iter()
+                .filter(|s| s.kind != "scion" && s.kind != "agents")
+                .map(|s| SourceStatus {
+                    syncing: is_running(s.id),
+                    live: if s.kind == "slack" { connectors::slack::socket::connected(s.id) } else { None },
+                    id: s.id,
+                    kind: s.kind,
+                    tag: s.tag,
+                    name: s.name,
+                    last_sync_at: s.last_sync_at,
+                    last_error: s.last_error,
+                })
+                .collect();
+            Ok(serde_json::json!(rows))
+        })),
+        _ => None,
+    }
+}
+
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        // Scion Hubs show their state in the Agents tab, not here.
-        "status" => {
-            let conn = app.db();
-            let mut stmt = conn.prepare("SELECT id, kind, tag, name, last_sync_at, last_error FROM sources WHERE kind NOT IN ('scion', 'agents') ORDER BY kind, name")?;
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok(SourceStatus {
-                        id: r.get(0)?,
-                        kind: r.get(1)?,
-                        tag: r.get(2)?,
-                        name: r.get(3)?,
-                        last_sync_at: r.get(4)?,
-                        last_error: r.get(5)?,
-                        syncing: is_running(r.get(0)?),
-                        live: if r.get::<_, String>(1)? == "slack" { connectors::slack::socket::connected(r.get(0)?) } else { None },
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(serde_json::json!(rows))
-        }
         "now" => {
             let id = crate::queries::arg_i64(args, "source_id")?;
             let n = sync_source(app, id)?;
@@ -688,7 +438,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 /// `apply` at the fixtures' "now" (Sep 28 2026, 10:52 UTC).
 #[cfg(test)]
 pub fn apply_now(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
-    apply(conn, source, batch, crate::time::t("2026-09-28T10:52:00"))
+    apply_in(conn, source, batch, crate::time::t("2026-09-28T10:52:00"))
 }
 
 /// A clock at `now` (an RFC 3339 instant) in UTC, for connector tests.
@@ -734,13 +484,13 @@ mod tests {
     fn upsert_marks_new_then_only_bumps_resurface() {
         let (conn, src) = setup("work");
         let b = Batch { items: vec![issue(false)], cursor: Some("c1".into()), ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
+        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
-        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
+        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
         let seen: i64 = conn.query_row("SELECT seen FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(seen, 1);
         let b2 = Batch { items: vec![issue(true)], ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b2, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
+        assert_eq!(apply_in(&conn, &src, &b2, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
         let (seen, n, cursor): (i64, i64, String) = conn
             .query_row("SELECT seen, (SELECT count(*) FROM items), (SELECT cursor FROM sources) FROM items", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -768,7 +518,7 @@ mod tests {
     fn personal_source_cannot_store_items() {
         let (conn, src) = setup("personal");
         let b = Batch { items: vec![issue(false)], ..Default::default() };
-        assert!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).is_err());
+        assert!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).is_err());
         let n: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }
@@ -778,13 +528,13 @@ mod tests {
         let (conn, src) = setup("personal");
         let busy = |s: &str, e: &str| Busy { start: s.into(), end: e.into() };
         let b = Batch { busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00")]), ..Default::default() };
-        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         conn.execute("UPDATE events SET buffer_min = 25", []).unwrap();
         let b = Batch {
             busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00"), busy("2026-09-28T17:30:00", "2026-09-28T18:00:00")]),
             ..Default::default()
         };
-        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let rows: Vec<(String, Option<i64>, Option<String>)> = conn
             .prepare("SELECT start, buffer_min, title FROM events ORDER BY start")
             .unwrap()
@@ -814,7 +564,7 @@ mod tests {
             items: vec![inst("past", "2000-01-01T09:00:00"), inst("feb", "2099-02-01T09:00:00"), inst("jan", "2099-01-01T09:00:00")],
             ..Default::default()
         };
-        apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let unseen = |c: &Connection| -> Vec<String> {
             c.prepare("SELECT external_id FROM items WHERE seen = 0").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
         };
@@ -829,7 +579,7 @@ mod tests {
         assert_eq!(linked(&conn), 3);
 
         let b = Batch { items: vec![inst("mar", "2099-03-01T09:00:00")], ..Default::default() };
-        assert_eq!(apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
+        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
         assert!(unseen(&conn).is_empty());
         assert_eq!(linked(&conn), 4);
     }

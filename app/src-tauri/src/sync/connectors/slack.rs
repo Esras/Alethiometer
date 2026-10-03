@@ -14,24 +14,24 @@ pub mod socket;
 mod tests;
 
 use crate::sync::{Batch, Connector, Ctx};
-use rusqlite::OptionalExtension;
+use crate::domain::ports::Reads;
 use api::Client;
 use serde_json::{json, Value};
 
 pub use poll::State;
 
-pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
+/// Conversations whose open run you triaged in Alethiometer are closed in
+/// the cursor: the next message starts a new run.
+pub fn close_triaged(r: &dyn Reads, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
     let Some(cursor) = source.cursor.as_deref() else { return Ok(None) };
     let mut state = State::parse(Some(cursor));
-    let mut seen = conn.prepare("SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2")?;
-    let mut by_id = conn.prepare("SELECT seen FROM items WHERE id = ?1")?;
     let mut done = vec![];
     for (key, o) in &state.open {
-        let mut triaged: Option<bool> = seen.query_row(rusqlite::params![source.id, o.id], |r| r.get(0)).optional()?;
+        let mut triaged = r.items().seen_by_external(source.id, &o.id)?;
         // A thread attached to its parent closes with the item holding the parent.
         if let (None, Some((channel, parent))) = (triaged, key.split_once('/')) {
-            if let Some(h) = crate::queries::split::holder(conn, source.id, Some(channel), parent)? {
-                triaged = by_id.query_row([h], |r| r.get(0)).optional()?;
+            if let Some(h) = r.items().holder(source.id, Some(channel), parent)? {
+                triaged = r.items().seen(h)?;
             }
         }
         if triaged == Some(true) {
@@ -51,15 +51,16 @@ pub fn close_triaged(conn: &rusqlite::Connection, source: &crate::sync::Source) 
 /// A Slack web permalink as a slack:// link for the desktop app, when a Slack
 /// source knows that workspace's team id. `message` and `thread_ts` aren't in
 /// Slack's documented scheme; without them it still opens the channel.
-pub fn deep_link(conn: &rusqlite::Connection, url: &str) -> Option<String> {
+pub fn deep_link(r: &dyn Reads, url: &str) -> Option<String> {
     let re = regex::Regex::new(r"^(https://[^/]+)/archives/([A-Z0-9]+)/p(\d{7,})(?:\?(.*))?$").expect("static regex");
     let cap = re.captures(url)?;
     let (base, channel, p) = (&cap[1], &cap[2], &cap[3]);
-    let mut cursors = conn.prepare("SELECT cursor FROM sources WHERE kind = 'slack' AND cursor IS NOT NULL").ok()?;
-    let team = cursors
-        .query_map([], |r| r.get::<_, String>(0))
+    let team = r
+        .sources()
+        .of_kind("slack")
         .ok()?
-        .filter_map(Result::ok)
+        .into_iter()
+        .filter_map(|s| s.cursor)
         .map(|c| State::parse(Some(&c)))
         .find(|s| s.team_url.trim_end_matches('/') == base && !s.team_id.is_empty())?
         .team_id;

@@ -20,8 +20,5 @@
 5 settings/live.rs
 3 sync/connectors/gcal.rs
 1 sync/connectors/gcal/oauth.rs
-1 sync/connectors/github.rs
-7 sync/connectors/obsidian.rs
 8 sync/connectors/obsidian/save.rs
 8 sync/connectors/slack/tests.rs
-41 sync/mod.rs

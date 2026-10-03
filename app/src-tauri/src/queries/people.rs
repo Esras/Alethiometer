@@ -296,7 +296,12 @@ pub fn scan(conn: &Connection, vault: &Path) -> Result<usize> {
 
 /// `scan`, with the vault read before the database is touched.
 pub fn rescan(app: &App) -> Result<usize> {
-    let notes = read_notes(&app.vault);
+    rescan_vault(app, &app.vault)
+}
+
+/// `rescan` of a given vault (an Obsidian source's own root).
+pub fn rescan_vault(app: &App, vault: &Path) -> Result<usize> {
+    let notes = read_notes(vault);
     app.store().write(|uow| uow.people().mirror(&notes))?;
     Ok(notes.len())
 }

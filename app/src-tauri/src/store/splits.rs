@@ -20,21 +20,6 @@ fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Result<Ha
     Ok(keys)
 }
 
-/// The item holding message `key` of `channel` as its own (not context, not
-/// a reply): where that message's thread replies go.
-fn holder(conn: &Connection, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
-    Ok(conn
-        .query_row(
-            "SELECT m.item_id FROM item_messages m JOIN items i ON i.id = m.item_id
-              WHERE m.ext_key = ?2 AND m.context = 0 AND m.reply_to IS NULL AND i.source_id = ?1
-                AND json_extract(i.raw_json, '$.channel') IS ?3
-              ORDER BY m.id DESC LIMIT 1",
-            params![source_id, key, channel],
-            |r| r.get(0),
-        )
-        .optional()?)
-}
-
 /// (id, at, author, text, ext_key), oldest first: the order Incoming shows.
 /// Replies aren't listed: they belong to (and move with) their parent.
 type Row = (i64, String, String, String, Option<String>);
@@ -289,8 +274,5 @@ impl Splits for Sql<'_> {
     }
     fn owned_keys(&self, source_id: i64, external_id: &str) -> Result<HashSet<String>> {
         owned_keys(self.conn(), source_id, external_id)
-    }
-    fn holder(&self, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
-        holder(self.conn(), source_id, channel, key)
     }
 }

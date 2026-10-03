@@ -49,7 +49,4 @@ pub trait Splits {
     fn recount(&self, item_id: i64, removed: usize) -> Result<()>;
     /// Keys of messages that split children of this (source, external id) own.
     fn owned_keys(&self, source_id: i64, external_id: &str) -> Result<HashSet<String>>;
-    /// The item holding message `key` of `channel` as its own (not context,
-    /// not a reply): where that message's thread replies go.
-    fn holder(&self, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>>;
 }

@@ -8,7 +8,8 @@
 use super::categories::{Categories, CategoryViews};
 use super::daystrip::{DayStripViews, Events};
 use super::incoming::IncomingViews;
-use super::items::Items;
+use super::ingest::Ingest;
+use super::items::{ItemViews, Items};
 use super::links::Links;
 use super::notes::{NoteLines, NotesViews};
 use super::outbox::Outbox;
@@ -26,6 +27,7 @@ pub trait Reads {
     fn categories(&self) -> &dyn CategoryViews;
     fn day_strip(&self) -> &dyn DayStripViews;
     fn incoming(&self) -> &dyn IncomingViews;
+    fn items(&self) -> &dyn ItemViews;
     fn notes(&self) -> &dyn NotesViews;
     fn people(&self) -> &dyn PeopleViews;
     fn priorities(&self) -> &dyn PriorityViews;
@@ -41,6 +43,7 @@ pub trait UnitOfWork {
     fn reads(&self) -> &dyn Reads;
     fn categories(&self) -> &dyn Categories;
     fn events(&self) -> &dyn Events;
+    fn ingest(&self) -> &dyn Ingest;
     fn items(&self) -> &dyn Items;
     fn links(&self) -> &dyn Links;
     fn note_lines(&self) -> &dyn NoteLines;

@@ -293,7 +293,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
     conn.execute("UPDATE items SET seen = 1 WHERE external_id = 'C0INC/1789960000.000100'", []).unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
-    src.cursor = close_triaged(&conn, &src).unwrap();
+    src.cursor = close_triaged(&crate::store::over(&conn), &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
     assert!(!state.open.contains_key("C0INC") && !state.open.contains_key("C0INC/1789990000.000200"));
     assert_eq!(state.closed["C0INC"], "1789995600.000500");
@@ -717,7 +717,7 @@ fn send_failures_carry_slacks_error() {
 fn web_permalinks_open_in_the_desktop_app() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
-    let link = |u: &str| crate::sync::connectors::slack::deep_link(&conn, u);
+    let link = |u: &str| crate::sync::connectors::slack::deep_link(&crate::store::over(&conn), u);
     assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100"), None, "no team id before the first sync");
     apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
     assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100").as_deref(), Some("slack://channel?team=T0ACME&id=C0INC&message=1789960000.000100"));

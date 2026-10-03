@@ -24,7 +24,7 @@ use crate::error::Result;
 use crate::sync::{Batch, Connector, Ctx, ItemUpsert, Source};
 use crate::time::{Date, Due, Ts};
 use regex::Regex;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::domain::ports::UnitOfWork;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -497,13 +497,13 @@ fn note_items(vault: &Path, rel: &str, at: Ts, text: &str) -> Vec<ItemUpsert> {
 /// - Tasks that disappeared from a re-read note (checked off, edited, or
 ///   deleted) and everything from a deleted or renamed file are set `done`.
 ///   Rows are never deleted.
-pub fn after_apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
-    let tx = conn.unchecked_transaction()?;
+pub fn after_apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch) -> Result<usize> {
     let baseline = source.cursor.is_none();
-    let topics: HashMap<String, i64> = tx
-        .prepare("SELECT obsidian_path, id FROM topics WHERE archived_at IS NULL AND obsidian_path IS NOT NULL")?
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
-        .filter_map(|r| r.ok())
+    let topics: HashMap<String, i64> = uow
+        .reads()
+        .topics()
+        .note_paths()?
+        .into_iter()
         .map(|(p, id)| (p.trim_start_matches("./").trim_start_matches('/').to_string(), id))
         .collect();
 
@@ -511,24 +511,14 @@ pub fn after_apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<
     let mut present: HashMap<&str, HashSet<&str>> = HashMap::new();
     for it in &batch.items {
         let Some(path) = it.raw_json.get("path").and_then(Value::as_str) else { continue };
-        let row: Option<(i64, bool)> = tx
-            .query_row(
-                "SELECT id, seen FROM items WHERE source_id = ?1 AND external_id = ?2",
-                params![source.id, it.external_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let Some((id, seen)) = row else { continue };
+        let Some(id) = uow.items().find(source.id, &it.external_id)? else { continue };
+        let seen = uow.reads().items().seen(id)?.unwrap_or(true);
         let topic = topics.get(path);
         if let Some(t) = topic {
-            tx.execute(
-                "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
-                 VALUES (?1, ?2, 'confirmed', 1.0, 'in the topic''s note') ON CONFLICT DO NOTHING",
-                params![id, t],
-            )?;
+            uow.links().add_confirmed(id, *t, "in the topic's note")?;
         }
         if !seen && (baseline || it.kind == "note" || it.status == "done" || topic.is_some()) {
-            tx.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
+            uow.items().set_seen(id, true)?;
             quieted += 1;
         }
         let tasks = present.entry(path).or_default();
@@ -539,42 +529,35 @@ pub fn after_apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<
 
     // Tasks gone from notes we just re-read.
     for (path, ids) in &present {
-        close_tasks(&tx, source.id, path, ids)?;
+        close_tasks(uow, source.id, path, ids)?;
     }
     // Files gone since the last scan.
     if let Some(new) = &batch.cursor {
         let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(Some(new)));
         for path in old.files.keys().filter(|p| !new.files.contains_key(*p)) {
-            tx.execute(
-                "UPDATE items SET status = 'done' WHERE source_id = ?1 AND external_id = ?2",
-                params![source.id, format!("note:{path}")],
-            )?;
-            close_tasks(&tx, source.id, path, &HashSet::new())?;
+            uow.items().set_status_by_external(source.id, &format!("note:{path}"), "done")?;
+            close_tasks(uow, source.id, path, &HashSet::new())?;
         }
-    }
-    tx.commit()?;
-    // People notes (queries::people) changed, appeared or went away.
-    if let Ok(vault) = vault_root(&source.config) {
-        let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(batch.cursor.as_deref()));
-        let gone = old.files.keys().filter(|p| !new.files.contains_key(*p)).map(String::as_str);
-        let read = batch.items.iter().filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
-        crate::queries::people::scan_if_touched(conn, &vault, read.chain(gone), baseline)?;
     }
     Ok(quieted)
 }
 
-fn close_tasks(conn: &Connection, source_id: i64, path: &str, keep: &HashSet<&str>) -> Result<()> {
-    let prefix = format!("task:{path}#");
-    let open: Vec<(i64, String)> = conn
-        .prepare(
-            "SELECT id, external_id FROM items WHERE source_id = ?1 AND kind = 'task' AND status = 'open'
-               AND substr(external_id, 1, length(?2)) = ?2",
-        )?
-        .query_map(params![source_id, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    for (id, ext) in open {
+/// The vault to rescan People notes from, when the batch read, added or lost one
+/// (or it's the first sync).
+pub fn people_touched(source: &Source, batch: &Batch) -> Option<PathBuf> {
+    let vault = vault_root(&source.config).ok()?;
+    let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(batch.cursor.as_deref()));
+    let gone = old.files.keys().filter(|p| !new.files.contains_key(*p)).map(String::as_str);
+    let read = batch.items.iter().filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
+    let prefix = format!("{}/", crate::queries::people::PEOPLE_DIR);
+    let touched = source.cursor.is_none() || read.chain(gone).any(|p| p.starts_with(&prefix));
+    touched.then_some(vault)
+}
+
+fn close_tasks(uow: &dyn UnitOfWork, source_id: i64, path: &str, keep: &HashSet<&str>) -> Result<()> {
+    for (id, ext) in uow.items().open_tasks(source_id, &format!("task:{path}#"))? {
         if !keep.contains(ext.as_str()) {
-            conn.execute("UPDATE items SET status = 'done' WHERE id = ?1", [id])?;
+            uow.items().set_status(id, "done")?;
         }
     }
     Ok(())
@@ -596,7 +579,7 @@ pub fn run(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, nam
         .name(format!("sync-{name}"))
         .spawn(move || {
             let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
-            let config = crate::sync::load_source(&app.db(), source_id).map(|s| s.config).unwrap_or(Value::Null);
+            let config = app.store().read(|r| crate::sync::source(r, source_id)).map(|s| s.config).unwrap_or(Value::Null);
             let ignore = Ignore::from_config(&config);
             let root = vault_root(&config).ok();
             let _watcher = root.as_ref().and_then(|root| {
@@ -834,6 +817,7 @@ fn toggle_text(orig: &str, task_text: &str, done: bool) -> anyhow::Result<(Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
     use crate::settings::SourceConfig;
     use crate::sync::http::FakeHttp;
 
@@ -1107,7 +1091,10 @@ mod tests {
         let s = crate::sync::load_source(conn, id).unwrap();
         let b = poll(&s);
         crate::sync::apply_now(conn, &s, &b).unwrap();
-        after_apply(conn, &s, &b).unwrap();
+        after_apply(&crate::store::over(conn), &s, &b).unwrap();
+        if let Some(vault) = people_touched(&s, &b) {
+            crate::queries::people::scan(conn, &vault).unwrap();
+        }
     }
 
     type Row = (String, String, bool, Option<String>);

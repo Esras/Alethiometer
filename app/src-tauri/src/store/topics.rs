@@ -66,6 +66,14 @@ impl TopicViews for Sql<'_> {
             .optional()?)
     }
 
+    fn note_paths(&self) -> Result<Vec<(String, i64)>> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT obsidian_path, id FROM topics WHERE archived_at IS NULL AND obsidian_path IS NOT NULL")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn confirmed_items(&self, id: i64) -> Result<Vec<LinkedItem>> {
         Ok(self
             .conn()

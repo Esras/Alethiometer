@@ -10,6 +10,7 @@
 pub mod categories;
 pub mod daystrip;
 pub mod incoming;
+pub mod ingest;
 pub mod items;
 pub mod links;
 pub mod notes;

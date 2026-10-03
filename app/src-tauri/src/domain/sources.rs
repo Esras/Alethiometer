@@ -13,15 +13,25 @@ pub struct SourceRow {
     pub config_json: String,
     /// The connector's own sync state, as JSON.
     pub cursor: Option<String>,
+    pub last_sync_at: Option<crate::time::Ts>,
+    pub last_error: Option<String>,
 }
 
 pub trait SourceViews {
     /// Sources of a kind, in id order.
     fn of_kind(&self, kind: &str) -> Result<Vec<SourceRow>>;
     fn get(&self, id: i64) -> Result<Option<SourceRow>>;
+    /// Every source, by kind and name.
+    fn all(&self) -> Result<Vec<SourceRow>>;
 }
 
 pub trait Sources {
     /// The app's own work source of `kind` ("notes"), made if missing.
     fn ensure_local(&self, kind: &str, name: &str) -> Result<i64>;
+    /// A source from settings: its row (by kind and name) made or updated.
+    fn register(&self, kind: &str, name: &str, tag: &str, config_json: &str, enabled: bool) -> Result<()>;
+    /// The last sync failed.
+    fn set_error(&self, id: i64, error: &str) -> Result<()>;
+    /// Mark it synced now (the UI reloads on this).
+    fn touch_synced(&self, id: i64) -> Result<()>;
 }

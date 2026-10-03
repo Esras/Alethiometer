@@ -310,7 +310,7 @@ pub fn sync(app: &App) -> Result<bool> {
             ..Default::default()
         });
     }
-    sync::apply(&conn, &source, &batch, app.clock.now())?;
+    sync::apply_in(&conn, &source, &batch, app.clock.now())?;
     // No longer true (answered, replied to, delivered, restarted): out of Incoming, marked as ours.
     for (ext, (seen, _, session)) in &have {
         if !*seen && !wanted.contains(ext.as_str()) && !unknown.contains(session) {

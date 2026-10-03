@@ -1,7 +1,7 @@
 //! Items.
 
 use super::Sql;
-use crate::domain::items::{ItemRef, Items, NewItem};
+use crate::domain::items::{ItemRef, ItemViews, Items, NewItem};
 use crate::error::Result;
 use rusqlite::{params, OptionalExtension, Row};
 
@@ -75,6 +75,22 @@ impl Items for Sql<'_> {
         Ok(())
     }
 
+    fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()> {
+        self.conn().execute("UPDATE items SET status = ?3 WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id, status])?;
+        Ok(())
+    }
+
+    fn open_tasks(&self, source_id: i64, prefix: &str) -> Result<Vec<(i64, String)>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT id, external_id FROM items WHERE source_id = ?1 AND kind = 'task' AND status = 'open'
+                   AND substr(external_id, 1, length(?2)) = ?2",
+            )?
+            .query_map(params![source_id, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn set_dismissed(&self, id: i64, dismissed: bool) -> Result<()> {
         let sql = if dismissed {
             "UPDATE items SET raw_json = json_set(raw_json, '$.dismissed', json('true')) WHERE id = ?1"
@@ -113,5 +129,32 @@ impl Items for Sql<'_> {
             ))?
             .query_map([id], item_ref)?
             .collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+impl ItemViews for Sql<'_> {
+    fn seen_by_external(&self, source_id: i64, external_id: &str) -> Result<Option<bool>> {
+        Ok(self
+            .conn()
+            .query_row("SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id], |r| r.get(0))
+            .optional()?)
+    }
+
+    fn seen(&self, id: i64) -> Result<Option<bool>> {
+        Ok(self.conn().query_row("SELECT seen FROM items WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+    }
+
+    fn holder(&self, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT m.item_id FROM item_messages m JOIN items i ON i.id = m.item_id
+                  WHERE m.ext_key = ?2 AND m.context = 0 AND m.reply_to IS NULL AND i.source_id = ?1
+                    AND json_extract(i.raw_json, '$.channel') IS ?3
+                  ORDER BY m.id DESC LIMIT 1",
+                params![source_id, key, channel],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 }

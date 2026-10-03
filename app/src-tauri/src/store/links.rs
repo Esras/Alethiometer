@@ -72,6 +72,22 @@ impl Links for Sql<'_> {
         Ok(())
     }
 
+    fn suggest_from_repos(&self, source_id: i64) -> Result<usize> {
+        Ok(self.conn().execute(
+            "WITH repo_topic AS (
+               SELECT lower(tr.repo) AS repo, min(tr.topic_id) AS topic_id, min(tr.repo) AS name
+                 FROM topic_repos tr JOIN topics t ON t.id = tr.topic_id
+                WHERE t.archived_at IS NULL
+                GROUP BY lower(tr.repo) HAVING count(DISTINCT tr.topic_id) = 1)
+             INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
+             SELECT i.id, rt.topic_id, 'suggested', 0.9, 'linked repo ' || rt.name
+               FROM items i JOIN repo_topic rt ON rt.repo = lower(substr(i.external_id, 1, instr(i.external_id, '#') - 1))
+              WHERE i.source_id = ?1
+                AND NOT EXISTS (SELECT 1 FROM topic_links l WHERE l.item_id = i.id)",
+            [source_id],
+        )?)
+    }
+
     fn suggest(&self, item_id: i64, topic_id: i64, confidence: f64, reason: &str) -> Result<()> {
         self.conn().execute(
             "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'suggested', ?3, ?4)",

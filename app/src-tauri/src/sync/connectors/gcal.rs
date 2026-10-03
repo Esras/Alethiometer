@@ -780,7 +780,7 @@ pub(crate) mod tests {
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
-        assert_eq!(crate::sync::apply(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 6);
+        assert_eq!(crate::sync::apply_in(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 6);
         let blocks: i64 = conn.query_row("SELECT count(*) FROM events", [], |r| r.get(0)).unwrap();
         assert_eq!(blocks, 4, "all-day and declined stay off the strip");
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
@@ -790,7 +790,7 @@ pub(crate) mod tests {
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let next = poll(&http, src.config.clone(), src.cursor.clone());
         // moved invite + new invite + cancelled lunch
-        assert_eq!(crate::sync::apply(&conn, &src, &next, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
+        assert_eq!(crate::sync::apply_in(&conn, &src, &next, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
         let (status, summary, blocks): (String, String, i64) = conn
             .query_row(
                 "SELECT status, summary, (SELECT count(*) FROM events e WHERE e.item_id = i.id) FROM items i WHERE external_id = '2b9vlunch0928'",

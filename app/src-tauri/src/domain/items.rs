@@ -50,6 +50,9 @@ pub trait Items {
     fn set_seen(&self, id: i64, seen: bool) -> Result<bool>;
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()>;
     fn set_status(&self, id: i64, status: &str) -> Result<()>;
+    fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()>;
+    /// Open tasks of a source whose external id starts with `prefix`: (id, external id).
+    fn open_tasks(&self, source_id: i64, prefix: &str) -> Result<Vec<(i64, String)>>;
     /// Mark (or unmark) a split part as the family's dismissed messages.
     fn set_dismissed(&self, id: i64, dismissed: bool) -> Result<()>;
     /// A created Jira issue's link and label on the item that asked for it.
@@ -58,4 +61,14 @@ pub trait Items {
     fn series_siblings(&self, id: i64) -> Result<Vec<i64>>;
     /// The item's split family: root first, then the parts.
     fn family(&self, id: i64) -> Result<Vec<ItemRef>>;
+}
+
+/// Reads about single items, outside a unit of work.
+pub trait ItemViews {
+    /// Whether the source's item is seen, if there is one.
+    fn seen_by_external(&self, source_id: i64, external_id: &str) -> Result<Option<bool>>;
+    fn seen(&self, id: i64) -> Result<Option<bool>>;
+    /// The item holding message `key` of `channel` as its own (not context,
+    /// not a reply): where that message's thread replies go.
+    fn holder(&self, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>>;
 }

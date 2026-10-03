@@ -94,7 +94,8 @@ impl App {
             Ok(_) => {}
             Err(e) => problem = Some(problem.map_or(format!("categories: {e}"), |p| format!("{p} · categories: {e}"))),
         }
-        crate::sync::register_sources(&app.db(), &app.settings().sources)?;
+        let sources = app.settings().sources.clone();
+        app.store().write(|uow| crate::sync::register(uow, &sources))?;
         if app.settings().demo_data {
             crate::seed::seed_if_empty(&app)?;
         }

@@ -64,6 +64,8 @@ pub trait TopicViews {
     fn list(&self, archived: bool, now: Ts, meetings_until: Ts) -> Result<Vec<TopicSummary>>;
     fn head(&self, id: i64) -> Result<Option<TopicHead>>;
     fn get_ref(&self, id: i64) -> Result<Option<TopicRef>>;
+    /// Topics not archived with a note: (vault path as stored, id).
+    fn note_paths(&self) -> Result<Vec<(String, i64)>>;
     fn confirmed_items(&self, id: i64) -> Result<Vec<LinkedItem>>;
     /// GitHub repos linked to the topic, sorted.
     fn repos(&self, id: i64) -> Result<Vec<String>>;

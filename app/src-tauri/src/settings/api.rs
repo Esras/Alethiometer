@@ -65,7 +65,7 @@ fn get(app: &App) -> Result<Value> {
     if let Some(s) = file.get("sources") {
         values["sources"] = s.clone();
     }
-    let status = crate::sync::call(app, "status", &json!({}))?;
+    let status = crate::api::call(app, "sync.status", &json!({}))?;
     let glean_used = crate::glean::used_today(&app.db(), &app.clock).unwrap_or(0);
     let embed = crate::embed::call(app, "status", &json!({}))?;
     let settings = app.settings();

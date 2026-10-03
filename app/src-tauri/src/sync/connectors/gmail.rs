@@ -781,7 +781,7 @@ mod tests {
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
-        assert_eq!(crate::sync::apply(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
+        assert_eq!(crate::sync::apply_in(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
         conn.execute("INSERT INTO categories (key, label, color, position) VALUES ('customers', 'Customers', '#fff', 9)", []).unwrap();
         conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'customers'), (2, 'Hiring', 'work')", []).unwrap();
         let id = |ext: &str| -> i64 { conn.query_row("SELECT id FROM items WHERE external_id = ?1", [ext], |r| r.get(0)).unwrap() };

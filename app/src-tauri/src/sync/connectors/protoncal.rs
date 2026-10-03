@@ -637,7 +637,7 @@ mod tests {
         let secret = |_: &str| None;
         let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
         let batch = ProtonCalendar.poll(&ctx).unwrap();
-        crate::sync::apply(&conn, &src, &batch, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        crate::sync::apply_in(&conn, &src, &batch, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let (n, titled, items): (i64, i64, i64) = conn
             .query_row(
                 "SELECT count(*), count(title), (SELECT count(*) FROM items) FROM events WHERE is_life_busy = 1",

@@ -20,7 +20,6 @@ use crate::sync::http::Response;
 use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message};
 use crate::time::Ts;
 use jiff::SignedDuration;
-use rusqlite::Connection;
 use serde_json::{json, Value};
 
 pub struct GitHub;
@@ -479,23 +478,6 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
 /// so a confirmed, wrong or other suggested link is never overridden, and
 /// nothing is ever confirmed automatically. Runs after `apply` for every sync,
 /// so linking a repo later also files items already synced.
-pub fn link_repo_topics(conn: &Connection, source_id: i64) -> crate::error::Result<usize> {
-    let n = conn.execute(
-        "WITH repo_topic AS (
-           SELECT lower(tr.repo) AS repo, min(tr.topic_id) AS topic_id, min(tr.repo) AS name
-             FROM topic_repos tr JOIN topics t ON t.id = tr.topic_id
-            WHERE t.archived_at IS NULL
-            GROUP BY lower(tr.repo) HAVING count(DISTINCT tr.topic_id) = 1)
-         INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
-         SELECT i.id, rt.topic_id, 'suggested', 0.9, 'linked repo ' || rt.name
-           FROM items i JOIN repo_topic rt ON rt.repo = lower(substr(i.external_id, 1, instr(i.external_id, '#') - 1))
-          WHERE i.source_id = ?1
-            AND NOT EXISTS (SELECT 1 FROM topic_links l WHERE l.item_id = i.id)",
-        [source_id],
-    )?;
-    Ok(n)
-}
-
 fn repo_arg(payload: &Value) -> anyhow::Result<String> {
     let repo = text(payload, "repo")?;
     let ok = repo.split_once('/').is_some_and(|(o, r)| {
@@ -861,7 +843,7 @@ mod tests {
         let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'github'", [], |r| r.get(0)).unwrap();
         let src = crate::sync::load_source(&conn, sid).unwrap();
         let (b, _) = poll(None, json!({}));
-        crate::sync::apply(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        crate::sync::apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
 
         let topic = |name: &str| {
             conn.execute("INSERT INTO topics (name, category) VALUES (?1, 'work')", [name]).unwrap();
@@ -877,7 +859,7 @@ mod tests {
         let rfc: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'platform/rfcs#41'", [], |r| r.get(0)).unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", [rfc, dd]).unwrap();
 
-        assert_eq!(link_repo_topics(&conn, sid).unwrap(), 1);
+        assert_eq!(crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn)).suggest_from_repos(sid).unwrap(), 1);
         let links: Vec<(String, i64, String, Option<String>)> = conn
             .prepare("SELECT i.external_id, l.topic_id, l.state, l.reason FROM topic_links l JOIN items i ON i.id = l.item_id ORDER BY i.external_id")
             .unwrap()
@@ -889,7 +871,7 @@ mod tests {
         assert_eq!(links[0], ("platform/observability-config#9".into(), dd, "suggested".into(), Some("linked repo platform/observability-config".into())));
         assert_eq!(links[1].2, "wrong", "existing links are left alone");
         // Idempotent.
-        assert_eq!(link_repo_topics(&conn, sid).unwrap(), 0);
+        assert_eq!(crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn)).suggest_from_repos(sid).unwrap(), 0);
     }
 
     #[test]

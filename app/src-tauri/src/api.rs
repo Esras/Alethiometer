@@ -40,6 +40,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "categories" => queries::categories::route(name),
         "people" => queries::people::route(name),
         "priorities" => queries::priorities::route(name),
+        "sync" => crate::sync::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
     };
@@ -121,7 +122,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "open_url" => {
             let url = args.get("url").and_then(Value::as_str).ok_or_else(|| msg("open_url needs a 'url'"))?;
-            let url = &crate::sync::connectors::slack::deep_link(&app.db(), url).unwrap_or_else(|| url.to_owned());
+            let url = &app.store().read(|r| Ok(crate::sync::connectors::slack::deep_link(r, url)))?.unwrap_or_else(|| url.to_owned());
             app.platform.open_url(url).map_err(|e| msg(format!("couldn't open {url}: {e}")))?;
             Ok(json!({ "ok": true }))
         }

@@ -34,7 +34,7 @@ pub fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Resul
 }
 
 pub fn holder(conn: &Connection, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
-    crate::store::over(conn).splits().holder(source_id, channel, key)
+    crate::domain::ports::Reads::items(&crate::store::over(conn)).holder(source_id, channel, key)
 }
 
 /// Message ids of an item, oldest first.
