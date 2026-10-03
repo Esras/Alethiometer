@@ -482,6 +482,137 @@ Resolves the ISSUES.md item "`suggest_topics` failures are silently swallowed". 
 - No day strip, search or assistant pane; only a countdown pill when a meeting is near.
 - **Nudge (9d):** a macOS notification in the first real gap near the end of the day. It stays until answered (any button or × counts). Until then, a dot shows on the tray icon.
 
+### Agents (Agents Final 01–08)
+Reference: `design/Helm Agents Final.dc.html`, screens **01–08**. The exploration that led here isn't included. **High-fidelity** for layout, the row grammar and the keyboard model. **Colors are a first pass**: build them as settings (screen 07), not constants.
+
+The Agents tab shows coding-agent sessions from two kinds of source, in one tree:
+- **Local ACP sessions.** Helm is the ACP client and launches the agent itself: Pi through `pi-acp`, Claude Code through its ACP adapter. Helm can only see sessions it started. A session that Zed launched belongs to Zed and can't be watched; screen 02's "Zed → Pi" label is sample data. Local sessions can't take part in rooms, because there's no channel between them, and Helm must not build one.
+- **Scion agents** (Hub mode). Helm is a Hub client. Rooms, DMs, delivery status and agent-to-agent messages all come from Scion's conversation model. Helm has **no messaging layer of its own**.
+
+**Layout** (in the 1530×1022 layout space): the title bar, the tab bar (with an **Agents** tab and its count) and the day strip, then a body grid of `450px | 1fr` on `#282828`.
+- **Tree** (left, 1px `#3c3836` right border):
+  - **Filter row:** "Filter sessions" (`/`), then counts for running, waiting and failed, then a + button.
+  - **Needs you box:** orange fill `rgba(254,128,25,.08)` with a `.35` border. Each row is `12px 86px 1fr auto`: icon, agent name, the request in mono, and a tag (`low`, `outside repo`, `question`).
+  - **Hierarchy:** project label (10.5px uppercase `#928374`) › group row (caret, name 500 `#ebdbb2`, goal 12px `#928374`, host tag) › room row (`ph-hash`, "room · N", unread count) and session rows.
+  - **Session rows** are `30px 1fr 90px 52px 30px`: status, name in the agent color, harness, model, age. Subagents are indented to `44px` with an elbow.
+  - **Selected row:** `#3c3836` fill with a 2px aqua `#8ec07c` inset on the left.
+  - **Status marks:**
+    - running: a 7px dot `#8ec07c`
+    - waiting: an 8px ring, half-filled `#fe8019`
+    - idle: an 8px ring `#928374`
+    - done: `ph-check` `#b8bb26`
+    - failed: `ph-x` `#fb4934`
+- **Pane header** (padding `14px 20px 0`, grid `1fr 560px`, centered vertically):
+  - Left: a mono 12px line (status mark, name in the agent color, context in `#928374`), the title at 19px/500 `#fbf1c7`, and a subtitle at 13px `#a89984`.
+  - Right: a **2×2 facts box** with ticket, PR, branch and todo. Mono 11.5px, padding `6px 11px`, radius 7, `#1d2021` fill, `#3c3836` border.
+- **Thread panel:** margin `12px 16px 14px`, radius 8, `#1d2021` fill, `#3c3836` border.
+  - Legend: a row of chips that doubles as the filter. Each chip is filled like the box for its kind, or outlined in `#3c3836` if that kind is unboxed. "Following latest" sits at the right.
+  - Stream: newest at the bottom, padding `0 22px`, 10px between rows.
+  - Bottom: the pinned request card (if any), the composer row, then the status line.
+
+**Row grammar** (the same in rooms and transcripts):
+- **Icon column:** every row has a 20px column, then an 8px gap. The icon is 13px with a 20px line height, and its color says the row's **kind**.
+- **Header line:** mono 12px/20px. Subject (the name at 500 in the agent color, `→` in `#665c54`, then the target), then `· type` at 10.5px `#665c54`. Right-aligned: delivery state, then time (11px `#665c54`).
+- **Body:** 13.5px/1.55 body font. Your text is `#fbf1c7`, an agent's text `#ebdbb2`, and text inside a message box `#d5c4a1`.
+- **Boxes:** `margin: 0 -10px; padding: 6px 10px; radius 7px`. They grow into the margin, so text lines up whether or not a row is boxed.
+- **In a session's own transcript, its own rows drop the name.** The header line shows only the type ("output", "thinking · 640 tok"). Anyone else is named: "You · prompt", "to settings-scan · task", "from planner · instruction".
+
+| Kind | Icon (Phosphor) | Icon | Box (fill / border) |
+|---|---|---|---|
+| You | `ph-user` | `#ebdbb2` | `#32302f` / `#504945` |
+| Output (the session's own text) | `ph-text-align-left` | `#d5c4a1` | none |
+| Thinking | `ph-brain` | `#7c6f64` | none. Folds to one italic `#928374` line |
+| Tool call | `ph-wrench` | olive `#8a9a5b` | `rgba(138,154,91,.10)` / `.45`. The tool name is mono 12.5/600 olive. The result is a second row: `ph-arrow-elbow-down-right` `#928374`, mono 11.5px |
+| Message: agent ↔ agent, agent → room, agent → you, subagent task and result | `ph-arrows-left-right` | periwinkle `#9a9fd6` | `rgba(154,159,214,.10)` / `.45` |
+| State: started, running → completed, joined | `ph-swap` | `#928374` | none. One mono 11.5px line |
+| Hub notice (loop cap, rate limit) | `ph-info` | `#fabd2f` | `rgba(250,189,47,.09)` / `.45` |
+| Needs you: ask / approval | `ph-question` / `ph-shield-warning` | `#fe8019` | `rgba(254,128,25,.10)` / `.6` |
+| Failed delivery | `ph-x-circle` | `#fb4934` | `rgba(251,73,52,.09)` / `.5` |
+| Selected row | | | `#32302f`, a 1px `#8ec07c` border and a 2px `#8ec07c` left inset |
+
+**Folding:** a run of messages between the same two agents folds to its last message, with "N earlier · E" at the right. The latest run stays open. Thinking and long tool output also fold (`E`).
+
+**Agent colors** (by agent). Each agent keeps one color everywhere: the tree, the thread, Needs you and the pane header. Colors are unique within a group and reused across groups, assigned in order of creation:
+1. sky `#7fb3d5`
+2. green `#b8bb26`
+3. lavender `#b9a6e0`
+4. aqua `#8ec07c`
+5. rose `#e5a8a0`
+
+"You" is `#ebdbb2`, and rooms are neutral `#d5c4a1`. A setting switches names to by template or off.
+
+**Pinned request cards:**
+- **Approval** (02, 03): a header (icon, plain-language title, `tool · cwd`, Copy) and the command in a mono block. Below it, two panels side by side:
+  - **Parsed** is a deterministic shell parse: numbered steps with tags (`reads files`, `shell per file`, `local bin`), then checks such as "No writes" or "Paths inside repo".
+  - **Explained** comes from a small model, with the provider named: what the command does, plus a suggestion to trust only its read-only parts.
+
+  Buttons: **Allow once** (`O`, primary), **This session** (`S`), **Always: `pattern`** (`A`, editable), **Deny…** (`D`), and "Also in Incoming" at the right.
+- **Ask** (Scion `input-needed`): a header ("handler is waiting for you · input-needed · 4m", with a link to the session or room), then the question at 14px `#fbf1c7`. The choices read from the message become option cards, keyed `1` and `2`. Then **Write a reply…** (`R`) and **Later** (`Esc`).
+- **One-line form:** while the new-agent form is open, the card shrinks to a single line and comes back when the form closes.
+
+**Composer row:** "Message <agent or #room>" with a hint and `⌘⏎`. Then **Agent** (`N`, rooms only), **Open on Hub** or **Open in Zed**, and a terminal button that attaches to the session.
+
+**Status line:** mono 11px `#928374`.
+- **Sessions:** harness, model and host · cwd on the left. On the right: a context % bar, cache state, turns, elapsed time and cost.
+- **Rooms:** Hub, thread id and mode on the left. On the right: loop cap, message count, live, and `? keys`.
+
+**Screens:**
+- **01 Room.** The room is a group's Scion thread, and its members are the group's sessions. Agent posts to the room and messages between agents are both message boxes. A mention you send while the agent is mid-turn shows "deferred, delivered HH:MM". Selecting a row with `J`/`K` adds a detail grid ("delivery", "seen by").
+- **02 Local session.** A local session's transcript. The `settings-scan` subagent is one message box: task, its tool calls folded to one line, then result. There are no other agents.
+- **03 Scion session.** Messages from planner, reviewer and the room are part of the agent's input, so they appear in its transcript. Its outgoing replies are Scion message calls; show them as "to planner" message rows, not raw tool calls.
+- **04 Direct messages.** A tab on the agent, not a separate place in the tree: Transcript (`T`) or Messages (`M`). Messages filters to you ↔ the agent, your mentions of it in rooms, and its asks. The composer sends a Scion DM.
+- **05 New agent.** `N` (or the Agent button) replaces the composer with a form whose fields follow Scion:
+  - Name (unique in the grove)
+  - Template: chips with versions from the Hub catalog. A template is a role: harness-agnostic `agent_instructions` plus skills.
+  - Harness: the harness config, meaning harness, model and auth together.
+  - Broker
+  - Branch (its own clone)
+  - "Then: add to #room": a step Helm takes after start
+  - Instructions: read-only, edited on the Hub
+  - Skills
+  - Task: the first instruction
+
+  Buttons: **Start agent** (`⌘⏎`) and **Cancel** (`Esc`). The footer shows the matching `scion start <name> -t <template> -b <branch> "<task>"`.
+- **06 Keys.** An overlay on `?`; the full table is under Keyboard below.
+- **07 Settings › Agents.** A new section 6 in the Settings modal (Developer becomes 7). A live preview sits at the top. Each row is one `settings.json` key:
+  - `agents.colors.you`, `.tool`, `.message`, `.hub` and `.needs_you`: each a short list of preset swatches, picked with ←/→.
+  - `agents.names.color_by` (`agent` | `template` | `off`) and `agents.names.palette`
+  - `agents.names.self_in_transcript` (default `false`)
+  - `agents.boxes.strength`: subtle fill .07 / border .35, normal .10 / .45, strong .14 / .6
+  - `agents.boxes.fold_pairs` (default `true`)
+- **08 Delivery states**, quiet to loud:
+  - **delivered:** `✓` and a count, `#665c54`
+  - **deferred:** `ph-clock` `#fabd2f`
+  - **unreachable** (the agent isn't running): `ph-plugs` `#fe8019` in an orange box. Actions: `⏎` Start it again and send, `F` Send to another agent, `Esc` Discard.
+  - **failed:** `ph-x-circle` `#fb4934` in a red box, with the Hub's reason and a retry countdown. Actions: `⏎` Retry now, `E` Edit, `Esc` Cancel.
+
+  Unreachable and failed also appear in Incoming.
+
+**Keyboard:** `⏎` goes in, `Esc` comes out, and `Tab` cycles between the tree, the thread and the composer.
+- **Everywhere:** `⌘K` search, `/` filter sessions, `g i` Incoming, `g a` Agents, `⌘.` interrupt the selected agent, `?` keys.
+- **Tree:** `j`/`k`, `h`/`l` fold or open a group, `⏎` open, `n` new agent in the group.
+- **Thread:** `j`/`k` move between rows, `e` fold or open, `⏎` reply to a message or open a tool call, `c` copy, `g` jump to latest, `t`/`m` switch tabs.
+- **Needs you:** `o` `s` `a` `d`, `1`–`3`, `r` and `Esc`. These work whenever a request is pinned and focus isn't in the composer.
+- **Composer:** `⌘⏎` send, `@` address one member, `↑` edit your last message.
+- Single-letter keys are off while you're typing.
+
+**Mapping sources to rows:**
+- **ACP** (local): `session/update` notifications map to rows: agent message chunks become Output, thought chunks Thinking, and `tool_call` / `tool_call_update` Tool rows with results. `session/request_permission` becomes the approval card. The agent defines the permission options, so "Always: pattern" is **Helm's own allowlist**: Helm answers matching requests itself before they reach you, and one policy covers every agent.
+- **Scion** (Hub):
+  - Conversations (DMs and group threads) stream over SSE.
+  - Message types map to rows: `instruction` and `reply` become messages, `state-change` becomes State, `input-needed` becomes an ask, `mention` a message, and `system` a Hub notice.
+  - Each message's delivery status drives screen 08.
+  - The agent state (e.g. `RUNNING`, `WAITING_FOR_INPUT`, `COMPLETED`) drives the status mark.
+  - Templates and harness configs are listed from the Hub, and new agents are started through it.
+
+**State:** selected tree node; focus zone (tree, thread or composer); selected row; folded runs; per-session transcript/messages tab; the queue of pinned requests per session (which also feeds the global Needs you list); the new-agent form; agent color assignments per group (persisted); and the `agents.*` settings.
+
+**Open:**
+- How the Hub adds a newly started agent to an existing group thread.
+- Whether a harness's Scion message calls can be recognized reliably in its transcript.
+- Whether a Zed-launched session can be observed at all (assume not).
+- Final colors and box strength.
+
 ## Interaction model
 Keyboard-first throughout: `j`/`k` move, `↵` opens, `o` opens in the source app, `/` or `⌘K` search, `z` fold, `Tab` retarget, `⌘R` retry, `Esc` close. Every action needs a key. Use hover tints from the palette and an aqua focus ring. No animations beyond short (≤150ms) fades or collapses.
 
@@ -514,6 +645,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
+- `design/Helm Agents Final.dc.html`: the Agents tab, screens **01–08** (see the Agents section). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Explorations 21-24.dc.html`: rounds 21–24. Relevant IDs: **24a–24d, 22a, 22b, 22c, 21e** (round 23 and 21a–21d superseded).
 - `design/Helm Explorations 25-28.dc.html`: rounds 25 and later. Relevant IDs: **27a, 26a, 26c, 25d** (26b's source list, 27b, 27c and the rest of 25 superseded).
 - `design/Helm Explorations 17-20.dc.html`: rounds 17–20. Relevant IDs: **17a, 17b, 18c, 18d, 19a, 19b, 20a–20f** (18a/18b superseded). Round 20 re-renders the reference views at 1760×1175.
