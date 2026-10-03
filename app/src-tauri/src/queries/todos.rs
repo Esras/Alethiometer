@@ -1,12 +1,14 @@
 //! Todos (22a, 22c): items you own in a system that holds todos; see docs/todos.md.
 
 use super::{arg_i64, arg_str, due_label, opt_i64, parse_date, TopicRef};
+use crate::api::Route;
 use crate::clock::Clock;
-use crate::time::{Date, Due, Ts};
-use crate::api::unknown;
+use crate::domain::items::NewItem;
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::domain::sources::SourceRow;
 use crate::error::{msg, Result};
-use crate::state::App;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::outbox::request;
+use crate::time::{Date, Ts};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -100,150 +102,113 @@ pub struct Todo {
     pub ext: TodoExt,
 }
 
-const TODO_SQL: &str = "FROM items i JOIN sources s ON s.id = i.source_id LEFT JOIN todo_estimates e ON e.item_id = i.id
-     WHERE s.tag = 'work' AND i.owner = 'you' AND i.status = 'open'
-       AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))";
-
-pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
-    let conn = app.db();
-    match name {
-        "list" => Ok(json!({ "todos": list(&conn, &app.clock)?, "jira": jira_target(&conn)? })),
-        "complete" | "reopen" => {
-            complete(&conn, arg_i64(args, "item_id")?, name == "complete")?;
-            crate::outbox::wake();
+pub fn route(name: &str) -> Option<Route> {
+    Some(match name {
+        "list" => Route::Read(|r, ctx, _| Ok(json!({ "todos": list(r, ctx.clock)?, "jira": jira_target(r)? }))),
+        "complete" | "reopen" => Route::Write(|uow, _, args| {
+            complete(uow, arg_i64(args, "item_id")?, args.get("done").and_then(Value::as_bool).unwrap_or(true))?;
             Ok(json!({ "ok": true }))
-        }
-        "create" => {
+        }),
+        "create" => Route::Write(|uow, ctx, args| {
+            create(uow, ctx.clock.now(), &Draft::from_args(args)?, opt_i64(args, "topic_id"), None)?;
+            Ok(json!({ "ok": true }))
+        }),
+        "hold" => Route::Write(|uow, _, args| {
             let d = Draft::from_args(args)?;
-            create(&conn, &d, opt_i64(args, "topic_id"), None)?;
-            crate::outbox::wake();
+            uow.todos().hold(arg_i64(args, "item_id")?, &Held { target: d.target, text: d.text, due: d.due })?;
             Ok(json!({ "ok": true }))
-        }
-        "hold" => {
-            let d = Draft::from_args(args)?;
-            conn.execute(
-                "INSERT INTO held_todos (item_id, target, text, due) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT (item_id) DO UPDATE SET target = excluded.target, text = excluded.text, due = excluded.due, state = 'held'",
-                params![arg_i64(args, "item_id")?, d.target, d.text, d.due],
-            )?;
+        }),
+        "estimate" => Route::Write(|uow, _, args| {
+            set_estimate(uow, arg_i64(args, "item_id")?, opt_i64(args, "minutes"))?;
             Ok(json!({ "ok": true }))
-        }
-        "estimate" => {
-            set_estimate(&conn, arg_i64(args, "item_id")?, opt_i64(args, "minutes"))?;
+        }),
+        "unhold" => Route::Write(|uow, _, args| {
+            uow.todos().unhold(arg_i64(args, "item_id")?)?;
             Ok(json!({ "ok": true }))
-        }
-        "unhold" => {
-            conn.execute("DELETE FROM held_todos WHERE item_id = ?1", [arg_i64(args, "item_id")?])?;
-            Ok(json!({ "ok": true }))
-        }
-        _ => Err(unknown(name)),
-    }
+        }),
+        _ => return None,
+    })
 }
 
-type Row = (i64, String, String, Option<Due>, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<i64>, Option<String>);
-
 /// Open todos, soonest deadline first (undated last).
-pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Todo>> {
+pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
     let now = clock.now();
-    let mut stmt = conn.prepare(&format!(
-        "SELECT i.id, s.kind, i.title, i.due_at, i.url, i.raw_json, i.summary,
-                (SELECT tl.topic_id FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong'
-                  ORDER BY tl.state = 'confirmed' DESC LIMIT 1),
-                (SELECT quadrant FROM priorities p WHERE p.item_id = i.id),
-                e.minutes, e.by, i.due_day
-         {TODO_SQL}
-         ORDER BY i.id"
-    ))?;
-    let mut rows: Vec<Row> = stmt
-        .query_map([], |r| {
-            let due = Due::from_columns(r.get(3)?, r.get::<_, Option<Date>>(11)?);
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, due, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?))
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    rows.sort_by_key(|r| (r.3.is_none(), r.3.map(|d| d.deadline(clock)), r.0));
-    let skip = excluded_projects(conn)?;
+    let mut rows = r.todos().open()?;
+    rows.sort_by_key(|t| (t.due.is_none(), t.due.map(|d| d.deadline(clock)), t.item_id));
+    let skip = excluded_projects(r)?;
     let mut out = vec![];
-    for (item_id, source, title, due, url, raw, summary, topic, priority, minutes, by) in rows {
-        let Some(ext) = TodoExt::parse(&source, serde_json::from_str(&raw).unwrap_or_default()) else { continue };
+    for t in rows {
+        let Some(ext) = TodoExt::parse(&t.source_kind, serde_json::from_str(&t.raw_json).unwrap_or_default()) else { continue };
         if matches!(&ext, TodoExt::Jira(j) if j.key.split_once('-').is_some_and(|(p, _)| skip.iter().any(|s| s.eq_ignore_ascii_case(p)))) {
             continue;
         }
         let from = match &ext {
             TodoExt::Local(l) => l.from.clone().or_else(|| l.notes_line_id.map(|_| "Notes".into())),
             TodoExt::Jira(_) => None,
-            TodoExt::Obsidian(_) => summary,
+            TodoExt::Obsidian(_) => t.summary,
         };
-        let deadline = due.map(|d| d.deadline(clock));
+        let deadline = t.due.map(|d| d.deadline(clock));
         out.push(Todo {
-            item_id,
-            title,
+            item_id: t.item_id,
+            title: t.title,
             from,
-            due_label: due.map(|d| due_label(d, clock)),
-            overdue: deadline.is_some_and(|t| t < now),
+            due_label: t.due.map(|d| due_label(d, clock)),
+            overdue: deadline.is_some_and(|d| d < now),
             due: deadline,
-            topic: topic.map(|id| super::topic_ref(conn, id)).transpose()?,
-            priority,
-            url,
-            estimate: minutes.zip(by).map(|(minutes, by)| Estimate { minutes, by }),
+            topic: t.topic,
+            priority: t.priority,
+            url: t.url,
+            estimate: t.estimate.map(|(minutes, by)| Estimate { minutes, by }),
             ext,
         });
     }
     Ok(out)
 }
 
-fn excluded_projects(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT config_json FROM sources WHERE kind = 'jira'")?;
-    let cfgs = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(cfgs
+/// Jira projects whose issues aren't todos (`todo_exclude_projects`).
+fn excluded_projects(r: &dyn Reads) -> Result<Vec<String>> {
+    Ok(r.sources()
+        .of_kind("jira")?
         .iter()
-        .filter_map(|c| serde_json::from_str::<Value>(c).ok())
+        .filter_map(|s| serde_json::from_str::<Value>(&s.config_json).ok())
         .flat_map(|c| c.get("todo_exclude_projects").and_then(Value::as_array).cloned().unwrap_or_default())
         .filter_map(|p| p.as_str().map(str::to_owned))
         .collect())
 }
 
-fn jira_target(conn: &Connection) -> Result<Option<Value>> {
-    let cfg: Option<String> = conn.query_row("SELECT config_json FROM sources WHERE kind = 'jira' AND enabled = 1", [], |r| r.get(0)).optional()?;
-    let cfg: Value = cfg.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or(Value::Null);
+/// The enabled Jira source new Jira todos go to.
+fn jira_source(r: &dyn Reads) -> Result<Option<SourceRow>> {
+    Ok(r.sources().of_kind("jira")?.into_iter().find(|s| s.enabled))
+}
+
+fn jira_target(r: &dyn Reads) -> Result<Option<Value>> {
+    let cfg: Value = jira_source(r)?.and_then(|s| serde_json::from_str(&s.config_json).ok()).unwrap_or(Value::Null);
     Ok(cfg.get("create_project").and_then(Value::as_str).map(|p| {
         json!({ "project": p, "issue_type": cfg.get("create_issue_type").and_then(Value::as_str).unwrap_or("Task") })
     }))
 }
 
-pub fn complete(conn: &Connection, item_id: i64, done: bool) -> Result<()> {
-    let (source_id, source, raw): (i64, String, String) = conn
-        .query_row("SELECT s.id, s.kind, i.raw_json FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1", [item_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .optional()?
-        .ok_or_else(|| msg("no such item"))?;
+pub fn complete(uow: &dyn UnitOfWork, item_id: i64, done: bool) -> Result<()> {
+    let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
     let status = if done { "done" } else { "open" };
-    match TodoExt::parse(&source, serde_json::from_str(&raw).unwrap_or_default()).ok_or_else(|| msg("not a todo"))? {
-        TodoExt::Local(_) => {
-            conn.execute("UPDATE items SET status = ?2 WHERE id = ?1", params![item_id, status])?;
-        }
+    match TodoExt::parse(&item.source_kind, serde_json::from_str(&item.raw_json).unwrap_or_default()).ok_or_else(|| msg("not a todo"))? {
+        TodoExt::Local(_) => uow.items().set_status(item_id, status)?,
         TodoExt::Jira(j) => {
             let to = if done { "Done".to_string() } else if j.status.eq_ignore_ascii_case("done") { "To Do".into() } else { j.status };
-            crate::outbox::enqueue(conn, source_id, "jira.transition", &json!({ "key": j.key, "transition_name": to, "done": done }), Some(item_id))?;
+            request(uow, item.source_id, "jira.transition", &json!({ "key": j.key, "transition_name": to, "done": done }), Some(item_id))?;
         }
         TodoExt::Obsidian(o) => {
-            crate::outbox::enqueue(conn, source_id, "obsidian.toggle_task", &json!({ "path": o.path, "task_text": o.text, "done": done }), Some(item_id))?;
+            request(uow, item.source_id, "obsidian.toggle_task", &json!({ "path": o.path, "task_text": o.text, "done": done }), Some(item_id))?;
         }
     }
     Ok(())
 }
 
-pub fn set_estimate(conn: &Connection, item_id: i64, minutes: Option<i64>) -> Result<()> {
-    match minutes {
-        Some(m) if m > 0 => conn.execute(
-            "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'you')
-             ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            params![item_id, m],
-        )?,
-        Some(_) => return Err(msg("an estimate is a positive number of minutes")),
-        None => conn.execute("DELETE FROM todo_estimates WHERE item_id = ?1", [item_id])?,
-    };
-    Ok(())
+pub fn set_estimate(uow: &dyn UnitOfWork, item_id: i64, minutes: Option<i64>) -> Result<()> {
+    if minutes.is_some_and(|m| m <= 0) {
+        return Err(msg("an estimate is a positive number of minutes"));
+    }
+    uow.todos().set_estimate(item_id, minutes)
 }
 
 pub struct Draft {
@@ -270,87 +235,127 @@ impl Draft {
     }
 }
 
-pub fn create(conn: &Connection, d: &Draft, topic_id: Option<i64>, from_item: Option<i64>) -> Result<()> {
+pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, from_item: Option<i64>) -> Result<()> {
     if d.target == "jira" {
-        let jira: i64 = conn
-            .query_row("SELECT id FROM sources WHERE kind = 'jira' AND enabled = 1", [], |r| r.get(0))
-            .optional()?
-            .ok_or_else(|| msg("no Jira source to create the issue in"))?;
-        crate::outbox::enqueue(conn, jira, "jira.create_issue", &json!({ "summary": d.text, "assign_me": true, "due": d.due, "topic_id": topic_id }), None)?;
+        let jira = jira_source(uow.reads())?.ok_or_else(|| msg("no Jira source to create the issue in"))?;
+        request(uow, jira.id, "jira.create_issue", &json!({ "summary": d.text, "assign_me": true, "due": d.due, "topic_id": topic_id }), None)?;
         return Ok(());
     }
-    let (from, url): (Option<String>, Option<String>) = match from_item {
-        Some(id) => conn.query_row("SELECT title, url FROM items WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?.unwrap_or_default(),
+    let (from, url) = match from_item.map(|id| uow.items().get(id)).transpose()?.flatten() {
+        Some(i) => (Some(i.title), i.url),
         None => (None, None),
     };
-    let src = super::notes::alethiometer_source(conn)?;
+    let src = uow.sources().ensure_local("notes", super::notes::NOTES_SOURCE)?;
     let ext = LocalExt { from, from_item, notes_line_id: None };
-    conn.execute(
-        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_day, status, owner, seen, raw_json)
-         VALUES (?1, 'todo-new', 'task', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?4, 'open', 'you', 1, ?5)",
-        params![src, d.text, url, d.due, serde_json::to_string(&ext)?],
-    )?;
-    let id = conn.last_insert_rowid();
-    conn.execute("UPDATE items SET external_id = 'todo-' || id WHERE id = ?1", [id])?;
+    let id = uow.items().insert(&NewItem {
+        source_id: src,
+        external_id: "todo-new".into(),
+        kind: "task".into(),
+        title: d.text.clone(),
+        url,
+        occurred_at: now,
+        due_day: d.due.as_deref().map(parse_date).transpose()?,
+        status: "open".into(),
+        owner: Some("you".into()),
+        seen: true,
+        raw_json: serde_json::to_string(&ext)?,
+        ..Default::default()
+    })?;
+    uow.items().set_external_id(id, &format!("todo-{id}"))?;
     if let Some(t) = topic_id {
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, 'confirmed', 1.0, 'made as a todo')", params![id, t])?;
+        uow.links().add_confirmed(id, t, "made as a todo")?;
     }
     Ok(())
 }
 
-pub fn settle(conn: &Connection, item_id: i64, topic_id: i64) -> Result<bool> {
-    let held: Option<(String, String, Option<String>)> = conn
-        .query_row("SELECT target, text, due FROM held_todos WHERE item_id = ?1 AND state = 'held'", [item_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .optional()?;
-    let Some((target, text, due)) = held else { return Ok(false) };
-    create(conn, &Draft { target, text, due }, Some(topic_id), Some(item_id))?;
-    conn.execute("DELETE FROM held_todos WHERE item_id = ?1", [item_id])?;
+/// A todo held on a signal is made when the signal is filed under `topic_id`.
+pub fn settle(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64) -> Result<bool> {
+    let Some(h) = uow.todos().held(item_id)? else { return Ok(false) };
+    create(uow, now, &Draft { target: h.target, text: h.text, due: h.due }, Some(topic_id), Some(item_id))?;
+    uow.todos().unhold(item_id)?;
     Ok(true)
-}
-
-pub fn discard(conn: &Connection, item_id: i64, on: bool) -> Result<()> {
-    conn.execute("UPDATE held_todos SET state = ?2 WHERE item_id = ?1", params![item_id, if on { "discarded" } else { "held" }])?;
-    Ok(())
 }
 
 pub use crate::domain::todos::Held;
 
-pub fn issue_created(conn: &Connection, payload: &Value, receipt: &Value) -> Result<()> {
+/// Jira confirmed an issue made as your todo: it's a todo now, before the next poll.
+pub fn issue_created(uow: &dyn UnitOfWork, now: Ts, payload: &Value, receipt: &Value) -> Result<()> {
     let (Some(key), Some(url)) = (receipt.get("key").and_then(Value::as_str), receipt.get("url").and_then(Value::as_str)) else {
         return Ok(());
     };
+    let Some(jira) = jira_source(uow.reads())? else { return Ok(()) };
     let summary = payload.get("summary").and_then(Value::as_str).unwrap_or_default();
     let due = payload.get("due").and_then(Value::as_str).and_then(|d| d.parse::<Date>().ok());
     let raw = json!({ "key": key, "fields": { "summary": summary, "status": { "name": "To Do" } } });
-    conn.execute(
-        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_day, status, owner, seen, raw_json)
-         SELECT id, ?1, 'issue', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?4, 'open', 'you', 1, ?5
-           FROM sources WHERE kind = 'jira' AND enabled = 1
-         ON CONFLICT (source_id, external_id) DO NOTHING",
-        params![key, format!("{key} · {summary}"), url, due, raw.to_string()],
-    )?;
-    let Some(topic) = payload.get("topic_id").and_then(Value::as_i64) else { return Ok(()) };
-    conn.execute(
-        "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
-         SELECT i.id, ?2, 'confirmed', 1.0, 'made as a todo' FROM items i JOIN sources s ON s.id = i.source_id
-          WHERE s.kind = 'jira' AND i.external_id = ?1
-         ON CONFLICT (item_id, topic_id) DO NOTHING",
-        params![key, topic],
-    )?;
+    let id = uow.items().insert_or_get(&NewItem {
+        source_id: jira.id,
+        external_id: key.into(),
+        kind: "issue".into(),
+        title: format!("{key} · {summary}"),
+        url: Some(url.into()),
+        occurred_at: now,
+        due_day: due,
+        status: "open".into(),
+        owner: Some("you".into()),
+        seen: true,
+        raw_json: raw.to_string(),
+        ..Default::default()
+    })?;
+    if let Some(topic) = payload.get("topic_id").and_then(Value::as_i64) {
+        uow.links().add_confirmed(id, topic, "made as a todo")?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::App;
+    use crate::time::Due;
+    use rusqlite::{params, Connection};
 
     fn held(conn: &Connection, item: i64) -> Vec<(i64, Held)> {
-        use crate::domain::ports::Reads;
-        crate::store::over(conn).todos().held(&[item]).unwrap()
+        Reads::todos(&crate::store::over(conn)).held(&[item]).unwrap()
+    }
+
+    fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
+        crate::api::call(app, &format!("todos.{name}"), args)
     }
     use crate::settings::Settings;
+
+    /// Confirm files the signal and makes its held todo in one unit of work:
+    /// a todo that can't be made leaves the signal exactly as it was.
+    #[test]
+    fn a_confirm_that_fails_partway_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
+        let (item, topic): (i64, i64) = app
+            .db()
+            .query_row(
+                "SELECT tl.item_id, tl.topic_id FROM topic_links tl JOIN items i ON i.id = tl.item_id
+                  WHERE tl.state = 'suggested' AND i.seen = 0 LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        call(&app, "hold", &json!({ "item_id": item, "target": "jira", "text": "File the ticket" })).unwrap();
+        app.db().execute("UPDATE sources SET enabled = 0 WHERE kind = 'jira'", []).unwrap();
+        let state = || -> (String, bool, i64) {
+            app.db()
+                .query_row(
+                    "SELECT tl.state, i.seen, (SELECT count(*) FROM held_todos WHERE item_id = i.id)
+                       FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE tl.item_id = ?1 AND tl.topic_id = ?2",
+                    [item, topic],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap()
+        };
+        let before = state();
+        let err = crate::api::call(&app, "incoming.confirm", &json!({ "item_id": item, "topic_id": topic })).unwrap_err();
+        assert!(err.to_string().contains("no Jira source"), "{err}");
+        assert_eq!(state(), before, "link, seen and the held todo all as they were");
+        assert_eq!(before, ("suggested".to_string(), false, 1));
+    }
 
     #[test]
     fn held_todos_are_made_on_confirm_and_complete_where_they_live() {
@@ -369,25 +374,25 @@ mod tests {
             .unwrap();
         let other: i64 = conn.query_row("SELECT id FROM topics WHERE id != ?1 LIMIT 1", [topic], |r| r.get(0)).unwrap();
         let now = app.clock.clone();
-        let before = list(&conn, &now).unwrap().len();
+        let before = list(&crate::store::over(&conn), &now).unwrap().len();
         let hold = |target: &str, text: &str| call(&app, "hold", &json!({ "item_id": item, "target": target, "text": text, "due": "2026-10-02" })).unwrap();
         drop(conn);
         assert!(call(&app, "hold", &json!({ "item_id": item, "target": "marvin", "text": "x" })).is_err());
         hold("local", "Reply to Kim");
-        crate::queries::incoming::dismiss(&app.db(), item, true).unwrap();
+        crate::queries::incoming::dismiss(&crate::store::over(&app.db()), item, true).unwrap();
         assert!(held(&app.db(), item).is_empty());
-        crate::queries::incoming::dismiss(&app.db(), item, false).unwrap();
-        crate::queries::incoming::move_to(&app.db(), item, other, Some(topic)).unwrap();
+        crate::queries::incoming::dismiss(&crate::store::over(&app.db()), item, false).unwrap();
+        crate::queries::incoming::move_to(&crate::store::over(&app.db()), crate::time::Ts::new(jiff::Timestamp::now()), item, other, Some(topic)).unwrap();
         let conn = app.db();
         assert!(held(&conn, item).is_empty());
-        let todos = list(&conn, &now).unwrap();
+        let todos = list(&crate::store::over(&conn), &now).unwrap();
         assert_eq!(todos.len(), before + 1);
         let t = todos.iter().find(|t| t.title == "Reply to Kim").unwrap();
         // Due on that day: its deadline is the end of Oct 2 here.
         assert_eq!((t.topic.as_ref().map(|t| t.id), t.due), (Some(other), Some(Due::Day(jiff::civil::date(2026, 10, 2)).deadline(&app.clock))));
         assert!(matches!(&t.ext, TodoExt::Local(l) if l.from_item == Some(item) && l.from.is_some()));
-        complete(&conn, t.item_id, true).unwrap();
-        assert_eq!(list(&conn, &now).unwrap().len(), before);
+        complete(&crate::store::over(&conn), t.item_id, true).unwrap();
+        assert_eq!(list(&crate::store::over(&conn), &now).unwrap().len(), before);
 
         drop(conn);
         hold("jira", "Retry budget for ingest");
@@ -399,25 +404,25 @@ mod tests {
             .unwrap();
         assert_eq!(payload, json!({ "summary": "Retry budget for ingest", "assign_me": true, "due": "2026-10-02", "topic_id": topic }));
         crate::outbox::tests_on_confirmed(&conn, "jira.create_issue", &payload, &json!({ "key": "PLAT-77", "url": "https://j/browse/PLAT-77" }));
-        let t = list(&conn, &now).unwrap().into_iter().find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77")).unwrap();
+        let t = list(&crate::store::over(&conn), &now).unwrap().into_iter().find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77")).unwrap();
         assert_eq!(t.topic.map(|t| t.id), Some(topic));
         let appended: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op LIKE 'obsidian.%'", [], |r| r.get(0)).unwrap();
         assert_eq!(appended, 0, "making a todo never writes to the topic's note");
 
-        complete(&conn, t.item_id, true).unwrap();
+        complete(&crate::store::over(&conn), t.item_id, true).unwrap();
         let tr: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'jira.transition'", [], |r| r.get(0)).unwrap();
         let tr: Value = serde_json::from_str(&tr).unwrap();
         assert_eq!(tr, json!({ "key": "PLAT-77", "transition_name": "Done", "done": true }));
-        assert!(list(&conn, &now).unwrap().iter().any(|x| x.item_id == t.item_id), "open until Jira confirms");
+        assert!(list(&crate::store::over(&conn), &now).unwrap().iter().any(|x| x.item_id == t.item_id), "open until Jira confirms");
         crate::outbox::tests_on_confirmed_item(&conn, "jira.transition", t.item_id, &tr);
-        assert!(!list(&conn, &now).unwrap().iter().any(|x| x.item_id == t.item_id));
+        assert!(!list(&crate::store::over(&conn), &now).unwrap().iter().any(|x| x.item_id == t.item_id));
     }
 
     fn conn_confirm(app: &App, item: i64, topic: i64) {
         let conn = app.db();
         conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
         conn.execute("UPDATE topic_links SET state = 'suggested' WHERE item_id = ?1 AND topic_id = ?2", [item, topic]).unwrap();
-        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
     }
 
     #[test]
@@ -436,7 +441,7 @@ mod tests {
         }
         conn.execute("UPDATE sources SET config_json = '{\"todo_exclude_projects\": [\"dpr\"]}' WHERE kind = 'jira'", []).unwrap();
         let keys: Vec<String> =
-            list(&conn, &app.clock).unwrap().into_iter().filter_map(|t| if let TodoExt::Jira(j) = t.ext { Some(j.key) } else { None }).collect();
+            list(&crate::store::over(&conn), &app.clock).unwrap().into_iter().filter_map(|t| if let TodoExt::Jira(j) = t.ext { Some(j.key) } else { None }).collect();
         assert!(keys.contains(&"DEVOPS-9".to_string()) && !keys.contains(&"DPR-7".to_string()), "{keys:?}");
     }
 

@@ -220,7 +220,7 @@ fn message_keys(conn: &Connection) -> anyhow::Result<()> {
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
     for (id, at, author, text) in rows {
-        conn.execute("UPDATE item_messages SET ext_key = ?1 WHERE id = ?2", params![crate::queries::split::content_key(&at, &author, &text), id])?;
+        conn.execute("UPDATE item_messages SET ext_key = ?1 WHERE id = ?2", params![crate::domain::splits::content_key(&at, &author, &text), id])?;
     }
     Ok(())
 }
@@ -272,7 +272,7 @@ mod tests {
         let row: Value = serde_json::from_str(&one("SELECT data FROM agent_rows")).unwrap();
         assert_eq!(row["at"], "2026-09-28T17:52:00.000Z");
         // The hashed message key follows the converted time.
-        assert_eq!(one("SELECT ext_key FROM item_messages"), crate::queries::split::content_key("2026-09-28T17:52:00.000Z", "Kim", "hi"));
+        assert_eq!(one("SELECT ext_key FROM item_messages"), crate::domain::splits::content_key("2026-09-28T17:52:00.000Z", "Kim", "hi"));
     }
 
     #[test]

@@ -822,7 +822,7 @@ mod tests {
 
         conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Standups', 'work')", []).unwrap();
         let jan: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'jan'", [], |r| r.get(0)).unwrap();
-        crate::queries::incoming::move_to(&conn, jan, 1, None).unwrap();
+        crate::queries::incoming::move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), jan, 1, None).unwrap();
         let linked = |c: &Connection| -> i64 {
             c.query_row("SELECT count(*) FROM topic_links WHERE topic_id = 1 AND state = 'confirmed'", [], |r| r.get(0)).unwrap()
         };

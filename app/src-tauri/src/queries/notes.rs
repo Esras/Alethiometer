@@ -25,7 +25,7 @@ use crate::state::App;
 use crate::time::{Date, Ts};
 use jiff::ToSpan;
 use regex::Regex;
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -229,12 +229,8 @@ fn save(uow: &dyn UnitOfWork, date: Date, lines: &[SaveLine]) -> Result<HashMap<
     Ok(keys)
 }
 
-/// Local work source that Notes signals come from.
-pub(crate) fn alethiometer_source(conn: &Connection) -> Result<i64> {
-    UnitOfWork::sources(&crate::store::over(conn)).ensure_local("notes", NOTES_SOURCE)
-}
-
-const NOTES_SOURCE: &str = "Alethiometer Notes";
+/// The local work source Notes signals and local todos come from.
+pub(crate) const NOTES_SOURCE: &str = "Alethiometer Notes";
 
 /// Each editable work line with a destination becomes a new Incoming signal
 /// (an unseen item). Lines with no destination are held. Life lines and
@@ -283,6 +279,7 @@ fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
             owner,
             seen: false,
             raw_json: json!({ "notes_line_id": r.id, "page_date": date.to_string(), "kind": r.kind, "target": t }).to_string(),
+            ..Default::default()
         })?;
         // Filed under its topic as a suggestion, so it lands in that topic's Incoming
         // list for confirm / wrong-topic. Person targets without a single home topic

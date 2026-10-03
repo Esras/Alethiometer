@@ -621,7 +621,7 @@ fn confirming_a_mention_queues_mark_read_up_to_it() {
     conn.execute("INSERT INTO topics (name, category) VALUES ('Headcount', 'work')", []).unwrap();
     let topic = conn.last_insert_rowid();
     conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
-    crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+    crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
     let payload: String =
         conn.query_row("SELECT payload_json FROM outbox WHERE op = 'slack.mark_read' AND item_id = ?1", [item], |r| r.get(0)).unwrap();
     assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }));

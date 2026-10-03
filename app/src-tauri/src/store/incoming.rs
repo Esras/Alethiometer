@@ -45,6 +45,10 @@ fn id_list(ids: &[i64]) -> String {
 }
 
 impl IncomingViews for Sql<'_> {
+    fn unseen_count(&self) -> Result<i64> {
+        Ok(self.conn().query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))?)
+    }
+
     fn filed_signals(&self) -> Result<Vec<FiledSignal>> {
         let n = SIGNAL_COLS;
         Ok(self
@@ -184,7 +188,8 @@ impl IncomingViews for Sql<'_> {
                 "SELECT i.id, i.seen,
                         EXISTS (SELECT 1 FROM item_messages m WHERE m.item_id = i.id AND m.context = 0),
                         coalesce(json_extract(i.raw_json, '$.dismissed'), 0),
-                        t.id, t.name, t.category
+                        t.id, t.name, t.category,
+                        EXISTS (SELECT 1 FROM topic_links f WHERE f.item_id = i.id AND f.state = 'confirmed')
                    FROM json_each(?1) j JOIN items i ON i.id = j.value
                    LEFT JOIN topics t ON t.id = (
                         SELECT tl.topic_id FROM topic_links tl JOIN topics t2 ON t2.id = tl.topic_id
@@ -197,7 +202,7 @@ impl IncomingViews for Sql<'_> {
                     Some(id) => Some(TopicRef { id, name: r.get(5)?, category: r.get(6)? }),
                     None => None,
                 };
-                Ok(PartRow { item_id: r.get(0)?, seen: r.get(1)?, has_messages: r.get(2)?, dismissed: r.get(3)?, topic })
+                Ok(PartRow { item_id: r.get(0)?, seen: r.get(1)?, has_messages: r.get(2)?, dismissed: r.get(3)?, filed: r.get(7)?, topic })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }

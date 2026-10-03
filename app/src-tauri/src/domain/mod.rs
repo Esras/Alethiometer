@@ -17,5 +17,6 @@ pub mod people;
 pub mod ports;
 pub mod search;
 pub mod sources;
+pub mod splits;
 pub mod todos;
 pub mod topics;

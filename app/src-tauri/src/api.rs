@@ -37,6 +37,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "incoming" => queries::incoming::route(name),
         "topics" => queries::topics::route(name),
         "search" => queries::search::route(name),
+        "todos" => queries::todos::route(name),
         _ => None,
     };
     if let Some(route) = route {
@@ -44,7 +45,12 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         let ctx = Ctx { clock: &app.clock, settings: &settings };
         return match route {
             Route::Read(f) => app.store().read(|r| f(r, &ctx, args)),
-            Route::Write(f) => app.store().write(|uow| f(uow, &ctx, args)),
+            Route::Write(f) => {
+                let out = app.store().write(|uow| f(uow, &ctx, args))?;
+                // Anything it queued goes out now rather than at the next tick.
+                crate::outbox::wake();
+                Ok(out)
+            }
         };
     }
     // Commands not moved to services yet, and ones that call out (network,
@@ -54,9 +60,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "agents" => crate::agents::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "categories" => queries::categories::call(app, name, args),
-        "incoming" => queries::incoming::call(app, name, args),
         "priorities" => queries::priorities::call(app, name, args),
-        "todos" => queries::todos::call(app, name, args),
         "notes" => queries::notes::call(app, name, args),
         "people" => queries::people::call(app, name, args),
         "reflect" => queries::reflect::call(app, name, args),
@@ -85,13 +89,10 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
             let settings = app.settings();
-            let incoming: i64 = app.db().query_row(
-                "SELECT count(*) FROM items i WHERE i.seen = 0",
-                [],
-                |r| r.get(0),
-            )?;
+            let categories = queries::categories::map(&app.db())?;
+            let (incoming, todos) = app.store().read(|r| Ok((r.incoming().unseen_count()?, queries::todos::list(r, &app.clock)?.len())))?;
             Ok(json!({
-                "categories": queries::categories::map(&app.db())?,
+                "categories": categories,
                 "day_start_hour": app.settings().day_start_hour,
                 "day_end_hour": app.settings().day_end_hour,
                 "life_buffer_min": app.settings().life_buffer_min,
@@ -100,7 +101,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "tz": app.clock.tz().iana_name(),
                 "ai_label": crate::ai::label(&app.settings().ai),
                 "incoming_count": incoming,
-                "todo_count": queries::todos::list(&app.db(), &app.clock)?.len(),
+                "todo_count": todos,
                 "platform": std::env::consts::OS,
                 "ui_scale": settings.ui_scale,
                 "ui_font": settings.ui_font,

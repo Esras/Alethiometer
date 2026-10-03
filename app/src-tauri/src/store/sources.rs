@@ -4,7 +4,18 @@ use super::Sql;
 use crate::domain::sources::{SourceRow, SourceViews};
 use crate::error::Result;
 
+const COLS: &str = "id, kind, tag, name, enabled, config_json, cursor";
+
+fn row(r: &rusqlite::Row) -> rusqlite::Result<SourceRow> {
+    Ok(SourceRow { id: r.get(0)?, kind: r.get(1)?, tag: r.get(2)?, name: r.get(3)?, enabled: r.get(4)?, config_json: r.get(5)?, cursor: r.get(6)? })
+}
+
 impl SourceViews for Sql<'_> {
+    fn get(&self, id: i64) -> Result<Option<SourceRow>> {
+        use rusqlite::OptionalExtension;
+        Ok(self.conn().query_row(&format!("SELECT {COLS} FROM sources WHERE id = ?1"), [id], row).optional()?)
+    }
+
     fn of_kind(&self, kind: &str) -> Result<Vec<SourceRow>> {
         Ok(self
             .conn()

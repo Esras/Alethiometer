@@ -18,6 +18,7 @@ pub struct SourceRow {
 pub trait SourceViews {
     /// Sources of a kind, in id order.
     fn of_kind(&self, kind: &str) -> Result<Vec<SourceRow>>;
+    fn get(&self, id: i64) -> Result<Option<SourceRow>>;
 }
 
 pub trait Sources {

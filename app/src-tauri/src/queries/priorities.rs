@@ -127,7 +127,7 @@ pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
     let mut out: Vec<Quadrant> = QUADRANTS.iter().map(|&key| Quadrant { key, items: vec![] }).collect();
     for r in raws {
         let Some(q) = out.iter_mut().find(|q| q.key == r.quadrant) else { continue };
-        let topic = r.topic_id.map(|id| super::topic_ref(conn, id)).transpose()?;
+        let topic = r.topic_id.map(|id| super::topic_ref(&crate::store::over(conn), id)).transpose()?;
         let stored: Vec<Reason> = serde_json::from_str(&r.reasons).unwrap_or_default();
         let mut reasons = vec![];
         for reason in stored {

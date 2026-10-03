@@ -14,7 +14,8 @@ use super::outbox::Outbox;
 use super::people::PeopleViews;
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
-use super::todos::TodoViews;
+use super::splits::Splits;
+use super::todos::{TodoViews, Todos};
 use super::topics::TopicViews;
 
 /// Read models, one port per screen or area.
@@ -38,4 +39,6 @@ pub trait UnitOfWork {
     fn note_lines(&self) -> &dyn NoteLines;
     fn outbox(&self) -> &dyn Outbox;
     fn sources(&self) -> &dyn Sources;
+    fn splits(&self) -> &dyn Splits;
+    fn todos(&self) -> &dyn Todos;
 }

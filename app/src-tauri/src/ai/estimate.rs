@@ -83,7 +83,7 @@ pub fn estimate_todos(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
         let conn = app.db();
         let mut out = vec![];
         let unestimated = |t: &&todos::Todo| t.estimate.is_none() && !matches!(&t.ext, TodoExt::Jira(j) if j.is_epic());
-        for t in todos::list(&conn, &app.clock)?.iter().filter(unestimated).take(limit) {
+        for t in todos::list(&crate::store::over(&conn), &app.clock)?.iter().filter(unestimated).take(limit) {
             out.push((t.item_id, prompt(&conn, t)?));
         }
         out
@@ -128,10 +128,10 @@ mod tests {
         app.update_settings(|s| s.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into());
         let conn = app.db();
         for title in ["Reply to Kim", "Review the retry PR"] {
-            todos::create(&conn, &todos::Draft { target: "local".into(), text: title.into(), due: None }, None, None).unwrap();
+            todos::create(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), &todos::Draft { target: "local".into(), text: title.into(), due: None }, None, None).unwrap();
         }
         let kim: i64 = conn.query_row("SELECT id FROM items WHERE title = 'Reply to Kim'", [], |r| r.get(0)).unwrap();
-        todos::set_estimate(&conn, kim, Some(20)).unwrap();
+        todos::set_estimate(&crate::store::over(&conn), kim, Some(20)).unwrap();
         drop(conn);
 
         let http = FakeHttp::default();
@@ -139,7 +139,7 @@ mod tests {
         let out = estimate_todos(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 10).unwrap();
         assert_eq!((out.status, out.estimated), ("ok", 1));
         assert_eq!(http.requests().len(), 1, "only the todo without an estimate is asked about");
-        let list = todos::list(&app.db(), &app.clock).unwrap();
+        let list = todos::list(&crate::store::over(&app.db()), &app.clock).unwrap();
         let est = |t: &str| list.iter().find(|x| x.title == t).and_then(|x| x.estimate.clone()).map(|e| (e.minutes, e.by));
         assert_eq!(est("Reply to Kim"), Some((20, "you".into())));
         assert_eq!(est("Review the retry PR"), Some((90, "ai".into())));

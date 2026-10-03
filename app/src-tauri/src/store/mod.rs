@@ -25,6 +25,7 @@ pub mod people;
 pub mod schema;
 pub mod search;
 pub mod sources;
+pub mod splits;
 pub mod todos;
 pub mod topics;
 pub mod utc_migration;
@@ -208,6 +209,8 @@ ports!(UnitOfWork {
     note_lines: crate::domain::notes::NoteLines,
     outbox: crate::domain::outbox::Outbox,
     sources: crate::domain::sources::Sources,
+    splits: crate::domain::splits::Splits,
+    todos: crate::domain::todos::Todos,
 });
 
 #[cfg(test)]

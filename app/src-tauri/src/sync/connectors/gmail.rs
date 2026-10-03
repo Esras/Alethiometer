@@ -797,12 +797,12 @@ mod tests {
                 .collect()
         };
         let incoming = crate::queries::incoming::dismiss;
-        incoming(&conn, id(C), true).unwrap();
-        incoming(&conn, id(C), false).unwrap();
-        crate::queries::incoming::trash(&conn, id(C)).unwrap();
+        incoming(&crate::store::over(&conn), id(C), true).unwrap();
+        incoming(&crate::store::over(&conn), id(C), false).unwrap();
+        crate::queries::incoming::trash(&crate::store::over(&conn), id(C)).unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, 1, 'suggested')", [id(A)]).unwrap();
-        crate::queries::incoming::confirm(&conn, id(A), 1).unwrap();
-        crate::queries::incoming::move_to(&conn, id(B), 2, None).unwrap();
+        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), id(A), 1).unwrap();
+        crate::queries::incoming::move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), id(B), 2, None).unwrap();
         let t = |op: &str, p: Value| (op.to_string(), p);
         assert_eq!(
             ops(),

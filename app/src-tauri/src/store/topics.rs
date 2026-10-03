@@ -56,6 +56,15 @@ impl TopicViews for Sql<'_> {
             .optional()?)
     }
 
+    fn get_ref(&self, id: i64) -> Result<Option<crate::domain::topics::TopicRef>> {
+        Ok(self
+            .conn()
+            .query_row("SELECT id, name, category FROM topics WHERE id = ?1", [id], |r| {
+                Ok(crate::domain::topics::TopicRef { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? })
+            })
+            .optional()?)
+    }
+
     fn confirmed_items(&self, id: i64) -> Result<Vec<LinkedItem>> {
         Ok(self
             .conn()

@@ -79,12 +79,7 @@ pub struct ItemHeader {
     pub raw_json: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TopicRef {
-    pub id: i64,
-    pub name: String,
-    pub category: String,
-}
+pub use super::topics::TopicRef;
 
 /// One item of a split family, as the review needs it.
 #[derive(Debug, Clone)]
@@ -95,11 +90,15 @@ pub struct PartRow {
     pub has_messages: bool,
     /// The family's dismissed messages.
     pub dismissed: bool,
+    /// Confirmed under a topic.
+    pub filed: bool,
     /// The most recent live (suggested or confirmed) link to a topic not archived.
     pub topic: Option<TopicRef>,
 }
 
 pub trait IncomingViews {
+    /// Every unseen item, any source.
+    fn unseen_count(&self) -> Result<i64>;
     /// Unseen work signals linked (suggested or confirmed) to a topic not
     /// archived, newest activity first.
     fn filed_signals(&self) -> Result<Vec<FiledSignal>>;

@@ -179,7 +179,7 @@ fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
             .query_map([from], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         for item in filed {
-            super::incoming::relabel_gmail(&tx, item, Some(&a.1), &b.1)?;
+            super::incoming::relabel_gmail(&crate::store::over(&tx), item, Some(&a.1), &b.1)?;
         }
         tx.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
         hand_over_and_delete(&tx, from, into, &b.0, &b.1)?;

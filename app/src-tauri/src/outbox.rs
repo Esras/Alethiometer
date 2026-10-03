@@ -3,6 +3,9 @@
 //! `confirmed`. Failures stay visible and can be retried (⌘R). Nothing is
 //! removed locally until the remote side confirms.
 
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::domain::sources::SourceRow;
+use crate::time::Ts;
 use crate::error::{msg, Result};
 use crate::state::App;
 use crate::sync::{connectors, http, load_source, Ctx};
@@ -10,34 +13,44 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-/// Queue a write. Returns the outbox id.
-pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, item_id: Option<i64>) -> Result<i64> {
-    let tag: String = conn.query_row("SELECT tag FROM sources WHERE id = ?1", [source_id], |r| r.get(0))?;
-    if tag == "personal" && op != "marvin.add_task" {
+/// Queue a write to a source, if it takes writes. Returns the outbox id.
+pub fn request(uow: &dyn UnitOfWork, source_id: i64, op: &str, payload: &Value, item_id: Option<i64>) -> Result<i64> {
+    let source = uow.reads().sources().get(source_id)?.ok_or_else(|| msg("no such source"))?;
+    if source.tag == "personal" && op != "marvin.add_task" {
         return Err(msg("writes to personal sources are limited to Phase 2 life lines"));
     }
-    if let Some(name) = read_only(conn, source_id)? {
+    if let Some(name) = read_only_name(&source) {
         return Err(msg(format!("'{name}' is read-only (read_only in settings.json)")));
     }
-    conn.execute(
-        "INSERT INTO outbox (source_id, op, payload_json, item_id) VALUES (?1, ?2, ?3, ?4)",
-        params![source_id, op, payload.to_string(), item_id],
-    )?;
-    Ok(conn.last_insert_rowid())
+    uow.outbox().enqueue(source_id, op, &payload.to_string(), item_id)
+}
+
+/// The source's name if its config sets `"read_only": true`.
+pub fn read_only_name(source: &SourceRow) -> Option<&str> {
+    let config: Value = serde_json::from_str(&source.config_json).unwrap_or(Value::Null);
+    config.get("read_only").and_then(Value::as_bool).unwrap_or(false).then_some(source.name.as_str())
+}
+
+/// Whether a source takes no writes (`read_only` in its config).
+pub fn is_read_only(r: &dyn Reads, source_id: i64) -> Result<bool> {
+    Ok(r.sources().get(source_id)?.as_ref().is_some_and(|s| read_only_name(s).is_some()))
+}
+
+/// `request` for code not moved to units of work yet.
+pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, item_id: Option<i64>) -> Result<i64> {
+    request(&crate::store::over(conn), source_id, op, payload, item_id)
 }
 
 /// Name of the source if its config sets `"read_only": true`.
 pub fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
-    let (name, config): (String, String) =
-        conn.query_row("SELECT name, config_json FROM sources WHERE id = ?1", [source_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
-    Ok(config.get("read_only").and_then(Value::as_bool).unwrap_or(false).then_some(name))
+    let source = Reads::sources(&crate::store::over(conn)).get(source_id)?.ok_or_else(|| msg("no such source"))?;
+    Ok(read_only_name(&source).map(str::to_owned))
 }
 
 /// Apply the local side of a confirmed write.
-fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>, payload: &Value, receipt: &Value) -> Result<()> {
+fn on_confirmed(conn: &Connection, now: Ts, op: &str, item_id: Option<i64>, payload: &Value, receipt: &Value) -> Result<()> {
     if op == "jira.create_issue" && payload.get("assign_me").and_then(Value::as_bool) == Some(true) {
-        crate::queries::todos::issue_created(conn, payload, receipt)?;
+        crate::queries::todos::issue_created(&crate::store::over(conn), now, payload, receipt)?;
     }
     if let (Some(id), Some(done)) = (item_id, payload.get("done").and_then(Value::as_bool)) {
         if op == "jira.transition" || op == "obsidian.toggle_task" {
@@ -102,7 +115,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
                 "UPDATE outbox SET state = 'confirmed', confirmed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), receipt_json = ?2, error = NULL WHERE id = ?1",
                 params![id, receipt.to_string()],
             )?;
-            on_confirmed(&conn, &op, item_id, &serde_json::from_str(&payload).unwrap_or_default(), &receipt)?;
+            on_confirmed(&conn, app.clock.now(), &op, item_id, &serde_json::from_str(&payload).unwrap_or_default(), &receipt)?;
         }
         Err(e) => {
             conn.execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, e.to_string()])?;
@@ -196,12 +209,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 
 #[cfg(test)]
 pub fn tests_on_confirmed(conn: &Connection, op: &str, payload: &Value, receipt: &Value) {
-    on_confirmed(conn, op, None, payload, receipt).unwrap();
+    on_confirmed(conn, crate::time::Ts::new(jiff::Timestamp::now()), op, None, payload, receipt).unwrap();
 }
 
 #[cfg(test)]
 pub fn tests_on_confirmed_item(conn: &Connection, op: &str, item_id: i64, payload: &Value) {
-    on_confirmed(conn, op, Some(item_id), payload, &json!({})).unwrap();
+    on_confirmed(conn, crate::time::Ts::new(jiff::Timestamp::now()), op, Some(item_id), payload, &json!({})).unwrap();
 }
 
 #[cfg(test)]
@@ -230,7 +243,7 @@ mod integration_tests {
         .unwrap();
         let item = conn.last_insert_rowid();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
-        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
         let (op, payload, item_id): (String, String, i64) = conn
             .query_row("SELECT op, payload_json, item_id FROM outbox WHERE op = 'slack.mark_read'", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -254,7 +267,7 @@ mod integration_tests {
         let item = conn.last_insert_rowid();
         // Confirmed (seen = 1); then a thread reply arrives before the outbox sends.
         conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
-        super::on_confirmed(&conn, "slack.mark_read", Some(item), &json!({ "channel": "C1", "ts": "1727.1" }), &json!({})).unwrap();
+        super::on_confirmed(&conn, crate::time::t("2026-10-03T09:00:00"), "slack.mark_read", Some(item), &json!({ "channel": "C1", "ts": "1727.1" }), &json!({})).unwrap();
         let seen: i64 = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
         assert_eq!(seen, 0, "the reply is still in Incoming");
     }
@@ -273,7 +286,7 @@ mod integration_tests {
         .unwrap();
         let item = conn.last_insert_rowid();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
-        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE item_id = ?1", [item], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }
@@ -290,7 +303,7 @@ mod integration_tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }
@@ -300,7 +313,7 @@ mod integration_tests {
         let (app, _d) = app();
         let conn = app.db();
         let item: i64 = conn.query_row("SELECT id FROM items LIMIT 1", [], |r| r.get(0)).unwrap();
-        super::on_confirmed(&conn, "jira.create_issue", Some(item), &json!({}), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
+        super::on_confirmed(&conn, crate::time::t("2026-10-03T09:00:00"), "jira.create_issue", Some(item), &json!({}), &json!({ "key": "PLAT-9", "url": "https://x/browse/PLAT-9" })).unwrap();
         let (url, summary): (String, String) =
             conn.query_row("SELECT url, summary FROM items WHERE id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(url, "https://x/browse/PLAT-9");

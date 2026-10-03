@@ -96,17 +96,10 @@ pub struct Pill {
     pub weight: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct TopicRef {
-    pub id: i64,
-    pub name: String,
-    pub category: String,
-}
+pub use crate::domain::topics::TopicRef;
 
-pub fn topic_ref(conn: &rusqlite::Connection, id: i64) -> Result<TopicRef> {
-    Ok(conn.query_row("SELECT id, name, category FROM topics WHERE id = ?1", [id], |r| {
-        Ok(TopicRef { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? })
-    })?)
+pub fn topic_ref(r: &dyn crate::domain::ports::Reads, id: i64) -> Result<TopicRef> {
+    r.topics().get_ref(id)?.ok_or_else(|| msg("no such topic"))
 }
 
 #[cfg(test)]

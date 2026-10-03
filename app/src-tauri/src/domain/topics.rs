@@ -3,6 +3,14 @@
 use crate::error::Result;
 use crate::time::{Due, Ts};
 
+/// A topic by name, as lists show it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TopicRef {
+    pub id: i64,
+    pub name: String,
+    pub category: String,
+}
+
 /// A topic as the Topics index lists it.
 #[derive(Debug, Clone)]
 pub struct TopicSummary {
@@ -54,6 +62,7 @@ pub trait TopicViews {
     /// meeting is looked for in `(now, meetings_until]`.
     fn list(&self, archived: bool, now: Ts, meetings_until: Ts) -> Result<Vec<TopicSummary>>;
     fn head(&self, id: i64) -> Result<Option<TopicHead>>;
+    fn get_ref(&self, id: i64) -> Result<Option<TopicRef>>;
     fn confirmed_items(&self, id: i64) -> Result<Vec<LinkedItem>>;
     /// GitHub repos linked to the topic, sorted.
     fn repos(&self, id: i64) -> Result<Vec<String>>;
