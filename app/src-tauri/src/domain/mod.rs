@@ -16,6 +16,7 @@ pub mod notes;
 pub mod outbox;
 pub mod people;
 pub mod ports;
+pub mod priorities;
 pub mod search;
 pub mod sources;
 pub mod splits;

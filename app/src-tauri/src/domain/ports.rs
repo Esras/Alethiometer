@@ -13,6 +13,7 @@ use super::links::Links;
 use super::notes::{NoteLines, NotesViews};
 use super::outbox::Outbox;
 use super::people::{People, PeopleViews};
+use super::priorities::PriorityViews;
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
@@ -26,6 +27,7 @@ pub trait Reads {
     fn incoming(&self) -> &dyn IncomingViews;
     fn notes(&self) -> &dyn NotesViews;
     fn people(&self) -> &dyn PeopleViews;
+    fn priorities(&self) -> &dyn PriorityViews;
     fn search(&self) -> &dyn SearchViews;
     fn sources(&self) -> &dyn SourceViews;
     fn todos(&self) -> &dyn TodoViews;

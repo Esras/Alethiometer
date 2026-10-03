@@ -39,6 +39,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "search" => queries::search::route(name),
         "categories" => queries::categories::route(name),
         "people" => queries::people::route(name),
+        "priorities" => queries::priorities::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
     };
@@ -62,7 +63,6 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "agents" => crate::agents::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "categories" => queries::categories::call(app, name, args),
-        "priorities" => queries::priorities::call(app, name, args),
         "notes" => queries::notes::call(app, name, args),
         "people" => queries::people::call(app, name, args),
         "reflect" => queries::reflect::call(app, name, args),

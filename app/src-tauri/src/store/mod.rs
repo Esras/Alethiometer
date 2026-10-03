@@ -23,6 +23,7 @@ pub mod links;
 pub mod notes;
 pub mod outbox;
 pub mod people;
+pub mod priorities;
 pub mod schema;
 pub mod search;
 pub mod sources;
@@ -197,6 +198,7 @@ ports!(Reads {
     incoming: crate::domain::incoming::IncomingViews,
     notes: crate::domain::notes::NotesViews,
     people: crate::domain::people::PeopleViews,
+    priorities: crate::domain::priorities::PriorityViews,
     search: crate::domain::search::SearchViews,
     sources: crate::domain::sources::SourceViews,
     todos: crate::domain::todos::TodoViews,

@@ -10,14 +10,13 @@
 
 use super::{dur_label, ts_label, Pill, TopicRef};
 use crate::clock::Clock;
-use crate::time::{Date, Due, Ts};
-use crate::api::unknown;
+use crate::api::Route;
+use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
-use crate::state::App;
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub const QUADRANTS: [&str; 4] = ["now", "make_room", "quick", "can_wait"];
 
@@ -56,84 +55,24 @@ pub struct Quadrant {
     pub items: Vec<Row>,
 }
 
-pub fn call(app: &App, name: &str, _args: &Value) -> Result<Value> {
+pub fn route(name: &str) -> Option<Route> {
     match name {
-        "list" => Ok(json!({ "quadrants": list(&app.db(), &app.clock)? })),
-        _ => Err(unknown(name)),
+        "list" => Some(Route::Read(|r, ctx, _| Ok(json!({ "quadrants": list(r, ctx.clock)? })))),
+        _ => None,
     }
 }
 
 /// All four quadrants, always in the same order, rows by score descending.
-pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
-    let mut stmt = conn.prepare(
-        "SELECT p.item_id, p.quadrant, p.score, p.reasons_json,
-                i.title, i.summary, i.body, i.url, i.occurred_at, i.due_at, i.kind, s.kind,
-                i.due_day,
-                per.display_name, e.start, e.end, e.attendees,
-                (SELECT tl.topic_id FROM topic_links tl
-                  WHERE tl.item_id = i.id AND tl.state != 'wrong'
-                  ORDER BY tl.state = 'confirmed' DESC LIMIT 1)
-           FROM priorities p
-           JOIN items i ON i.id = p.item_id
-           JOIN sources s ON s.id = i.source_id
-           LEFT JOIN people per ON per.id = i.author_person_id
-           LEFT JOIN events e ON e.item_id = i.id
-          WHERE s.tag = 'work' AND i.status != 'done'
-          ORDER BY p.score DESC, i.id",
-    )?;
-    struct Raw {
-        id: i64,
-        quadrant: String,
-        score: f64,
-        reasons: String,
-        title: String,
-        summary: Option<String>,
-        body: String,
-        url: Option<String>,
-        at: Ts,
-        due: Option<Due>,
-        kind: String,
-        source: String,
-        author: Option<String>,
-        ev_start: Option<Ts>,
-        ev_end: Option<Ts>,
-        attendees: Option<String>,
-        topic_id: Option<i64>,
-    }
-    let raws = stmt
-        .query_map([], |r| {
-            Ok(Raw {
-                id: r.get(0)?,
-                quadrant: r.get(1)?,
-                score: r.get(2)?,
-                reasons: r.get(3)?,
-                title: r.get(4)?,
-                summary: r.get(5)?,
-                body: r.get(6)?,
-                url: r.get(7)?,
-                at: r.get(8)?,
-                due: Due::from_columns(r.get(9)?, r.get::<_, Option<Date>>(12)?),
-                kind: r.get(10)?,
-                source: r.get(11)?,
-                author: r.get(13)?,
-                ev_start: r.get(14)?,
-                ev_end: r.get(15)?,
-                attendees: r.get(16)?,
-                topic_id: r.get(17)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
+pub fn list(reads: &dyn Reads, clock: &Clock) -> Result<Vec<Quadrant>> {
     let mut out: Vec<Quadrant> = QUADRANTS.iter().map(|&key| Quadrant { key, items: vec![] }).collect();
-    for r in raws {
+    for r in reads.priorities().list()? {
         let Some(q) = out.iter_mut().find(|q| q.key == r.quadrant) else { continue };
-        let topic = r.topic_id.map(|id| super::topic_ref(&crate::store::over(conn), id)).transpose()?;
-        let stored: Vec<Reason> = serde_json::from_str(&r.reasons).unwrap_or_default();
+        let stored: Vec<Reason> = serde_json::from_str(&r.reasons_json).unwrap_or_default();
         let mut reasons = vec![];
         for reason in stored {
             match reason.live.as_deref() {
                 Some("meeting") => {
-                    if let Some(p) = meeting_pill(conn, r.id, r.topic_id, clock)? {
+                    if let Some(p) = meeting_pill(reads, r.item_id, r.topic.as_ref().map(|t| t.id), clock)? {
                         reasons.push(p);
                     }
                 }
@@ -141,12 +80,10 @@ pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
             }
         }
 
-        let when = match (r.ev_start, r.ev_end) {
-            (Some(s), Some(e)) if clock.day_of(s) == clock.today() => {
-                Some(format!("{}–{}", clock.local(s).strftime("%H:%M"), clock.local(e).strftime("%H:%M")))
-            }
-            (Some(s), Some(e)) => Some(format!("{}–{}", ts_label(s, clock, true), clock.local(e).strftime("%H:%M"))),
-            _ => match r.due {
+        let when = match r.event {
+            Some((s, e)) if clock.day_of(s) == clock.today() => Some(format!("{}–{}", clock.local(s).strftime("%H:%M"), clock.local(e).strftime("%H:%M"))),
+            Some((s, e)) => Some(format!("{}–{}", ts_label(s, clock, true), clock.local(e).strftime("%H:%M"))),
+            None => match r.due {
                 // "due Wed": the day only.
                 Some(d) => Some(format!("due {}", ts_label(d.deadline(clock), clock, false))),
                 None => Some(ts_label(r.at, clock, matches!(r.kind.as_str(), "email" | "message" | "thread"))),
@@ -155,11 +92,11 @@ pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
         let people = r.attendees.filter(|a| !a.is_empty()).or(r.author);
 
         q.items.push(Row {
-            item_id: r.id,
-            source: r.source,
+            item_id: r.item_id,
+            source: r.source_kind,
             kind: r.kind,
             title: r.title,
-            topic,
+            topic: r.topic,
             reasons,
             score: r.score,
             when,
@@ -175,21 +112,10 @@ pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Quadrant>> {
 /// "meeting in 8m" for the item's own meeting, or else the next meeting linked
 /// to its topic. Red within 15 minutes, yellow within the hour, green later.
 /// None once the meeting is over (or there isn't one today).
-fn meeting_pill(conn: &Connection, item_id: i64, topic_id: Option<i64>, clock: &Clock) -> Result<Option<Pill>> {
+fn meeting_pill(reads: &dyn Reads, item_id: i64, topic_id: Option<i64>, clock: &Clock) -> Result<Option<Pill>> {
     let now = clock.now();
     let (day_start, day_end) = clock.day_range(clock.today());
-    let next: Option<(Ts, Ts)> = conn
-        .query_row(
-            "SELECT e.start, e.end FROM events e
-              WHERE e.is_life_busy = 0 AND e.end > ?1 AND e.start >= ?2 AND e.start < ?5
-                AND (e.item_id = ?3 OR e.item_id IN
-                     (SELECT tl.item_id FROM topic_links tl WHERE tl.topic_id = ?4 AND tl.state != 'wrong'))
-              ORDER BY e.item_id = ?3 DESC, e.start LIMIT 1",
-            params![now, day_start, item_id, topic_id, day_end],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .ok();
-    let Some((start, _)) = next else { return Ok(None) };
+    let Some((start, _)) = reads.priorities().next_meeting(item_id, topic_id, now, day_start, day_end)? else { return Ok(None) };
     let secs = (start - now).as_secs();
     if secs <= 0 {
         return Ok(Some(Pill { label: "meeting now".into(), weight: "red".into() }));
@@ -449,6 +375,9 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::App;
+    use crate::time::Date;
+    use rusqlite::Connection;
 
     fn setup() -> (Connection, Date, tempfile::TempDir) {
         let conn = crate::db::open_in_memory().unwrap();
@@ -469,7 +398,7 @@ mod tests {
     #[test]
     fn four_quadrants_in_order_sorted_by_score() {
         let (conn, day, _d) = setup();
-        let qs = list(&conn, &at(day, "10:52")).unwrap();
+        let qs = list(&crate::store::over(&conn), &at(day, "10:52")).unwrap();
         assert_eq!(qs.iter().map(|q| q.key).collect::<Vec<_>>(), QUADRANTS);
         let now: Vec<_> = qs[0].items.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(now, ["Reply to Dana", "Platform vs Data reqs", "Approve Sr. EM offer"]);
@@ -486,7 +415,7 @@ mod tests {
     fn meeting_pill_is_live() {
         let (conn, day, _d) = setup();
         let row = |hm: &str| {
-            let qs = list(&conn, &at(day, hm)).unwrap();
+            let qs = list(&crate::store::over(&conn), &at(day, hm)).unwrap();
             let r = find(&qs, "Platform vs Data reqs");
             (r.reasons.iter().map(|p| (p.label.clone(), p.weight.clone())).collect::<Vec<_>>(), r.when.clone())
         };
@@ -512,7 +441,7 @@ mod tests {
         let personal = conn.last_insert_rowid();
         conn.execute("INSERT INTO priorities (item_id, quadrant, score) VALUES (?1, 'now', 10.0)", [personal]).unwrap();
         conn.execute("UPDATE items SET status = 'done' WHERE title = 'Approve Sr. EM offer'", []).unwrap();
-        let qs = list(&conn, &at(day, "10:52")).unwrap();
+        let qs = list(&crate::store::over(&conn), &at(day, "10:52")).unwrap();
         let titles: Vec<_> = qs.iter().flat_map(|q| &q.items).map(|r| r.title.as_str()).collect();
         assert!(!titles.contains(&"Personal thing"));
         assert!(!titles.contains(&"Approve Sr. EM offer"));
