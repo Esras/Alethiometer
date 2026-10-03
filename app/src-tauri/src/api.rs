@@ -3,17 +3,52 @@
 //!
 //! Commands are `<area>.<name>`; each area module owns its own `call`.
 
+//! This is also the middleware between the UI and the database: a command
+//! routed as [`Route::Read`] runs on one snapshot, one routed as
+//! [`Route::Write`] in one unit of work that commits if it returns `Ok` and
+//! rolls back otherwise (`store::Db`). Services never open or commit either.
+
+use crate::clock::Clock;
+use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::queries;
+use crate::settings::Settings;
 use crate::state::App;
 use serde_json::{json, Value};
 
+/// What a service may use besides storage.
+pub struct Ctx<'a> {
+    pub clock: &'a Clock,
+    pub settings: &'a Settings,
+}
+
+/// How a command runs, which decides what the middleware opens for it.
+pub enum Route {
+    /// Reads only, on one consistent snapshot.
+    Read(fn(&dyn Reads, &Ctx, &Value) -> Result<Value>),
+    /// Changes, in one unit of work.
+    Write(fn(&dyn UnitOfWork, &Ctx, &Value) -> Result<Value>),
+}
+
 pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
+    let route = match area {
+        "daystrip" => queries::daystrip::route(name),
+        _ => None,
+    };
+    if let Some(route) = route {
+        let settings = app.settings();
+        let ctx = Ctx { clock: &app.clock, settings: &settings };
+        return match route {
+            Route::Read(f) => app.store().read(|r| f(r, &ctx, args)),
+            Route::Write(f) => app.store().write(|uow| f(uow, &ctx, args)),
+        };
+    }
+    // Commands not moved to services yet, and ones that call out (network,
+    // files) and open their own short reads and writes around it.
     match area {
         "app" => app_call(app, name, args),
         "agents" => crate::agents::call(app, name, args),
-        "daystrip" => queries::daystrip::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "categories" => queries::categories::call(app, name, args),
         "incoming" => queries::incoming::call(app, name, args),

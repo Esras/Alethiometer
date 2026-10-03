@@ -17,7 +17,7 @@ pub struct Hooks {
 }
 
 pub struct App {
-    db: Mutex<Connection>,
+    db: crate::store::Db,
     /// Re-read from `settings.json` on every change (`crate::settings::live`).
     settings: RwLock<Arc<Settings>>,
     pub hooks: OnceLock<Hooks>,
@@ -70,7 +70,7 @@ impl App {
         let fake = std::env::var("ALETHIOMETER_FAKE_NOW").unwrap_or_else(|_| settings.fake_now.clone());
         let clock = Clock::new(&fake);
         let app = App {
-            db: Mutex::new(conn),
+            db: crate::store::Db::new(conn)?,
             clock,
             data_dir: data_dir.to_path_buf(),
             vault,
@@ -140,7 +140,15 @@ impl App {
         self.data_dir.join("settings.json")
     }
 
-    pub fn db(&self) -> MutexGuard<'_, Connection> {
-        self.db.lock().unwrap_or_else(|e| e.into_inner())
+    /// The database, for the edges only: `api.rs` (per command), a sync
+    /// batch, an outbox send, an agent flush. Services get a unit of work.
+    pub fn store(&self) -> &crate::store::Db {
+        &self.db
+    }
+
+    /// The writer connection without a transaction: the old access, for
+    /// code not moved to repositories yet (`store::Db::legacy`).
+    pub fn db(&self) -> crate::store::LegacyGuard<'_> {
+        self.db.legacy()
     }
 }

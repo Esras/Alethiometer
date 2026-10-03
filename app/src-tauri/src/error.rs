@@ -13,6 +13,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+    #[error("database: {0}")]
+    Pool(#[from] r2d2::Error),
 }
 
 impl Serialize for Error {

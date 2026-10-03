@@ -235,7 +235,7 @@ mod tests {
 
     /// A database at schema 20 (before this step), local times in Los Angeles.
     fn old_db() -> Connection {
-        let conn = crate::db::open_in_memory_at(20);
+        let conn = crate::store::schema::open_in_memory_at(20);
         conn.execute_batch(
             "INSERT INTO sources (id, kind, tag, name, cursor, last_sync_at) VALUES
                (1, 'slack', 'work', 'Slack', NULL, '2026-09-28 10:52:00'),

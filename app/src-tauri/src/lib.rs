@@ -2,7 +2,9 @@ pub mod agents;
 pub mod ai;
 pub mod api;
 pub mod clock;
-pub mod db;
+/// The schema and migrations (`store::schema`), under its old name.
+pub use store::schema as db;
+pub mod domain;
 pub mod embed;
 pub mod error;
 pub mod fsx;
@@ -13,9 +15,9 @@ pub mod queries;
 pub mod seed;
 pub mod settings;
 pub mod state;
+pub mod store;
 pub mod sync;
 pub mod time;
-pub mod utc_migration;
 
 #[cfg(feature = "desktop")]
 mod desktop {
