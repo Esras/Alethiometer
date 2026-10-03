@@ -30,8 +30,14 @@ pub trait OutboxViews {
 pub trait Outbox {
     /// Queue `op` for the source; returns its id.
     fn enqueue(&self, source_id: i64, op: &str, payload_json: &str, item_id: Option<i64>) -> Result<i64>;
-    /// Take the oldest pending row for sending: it's `sent` from now on.
-    fn claim_next(&self) -> Result<Option<OutboxEntry>>;
+    /// Take the oldest pending row with no earlier unfinished row (pending,
+    /// sent or failed) for the same item, so one item's writes go out in the
+    /// order they were made. It's `sent`, leased until `lease_until`.
+    fn claim_next(&self, lease_until: Ts) -> Result<Option<OutboxEntry>>;
+    /// Rows still `sent` after their lease (the sender died mid-send): an op
+    /// in `safe_to_resend` goes back to pending; any other fails, since it may
+    /// or may not have gone through. Returns (resent, failed).
+    fn recover_expired(&self, now: Ts, safe_to_resend: &[&str]) -> Result<(usize, usize)>;
     fn confirm(&self, id: i64, receipt_json: &str) -> Result<()>;
     fn fail(&self, id: i64, error: &str) -> Result<()>;
     /// Failed rows go back to pending: one, or all of them. How many did.

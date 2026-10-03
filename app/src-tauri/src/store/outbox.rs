@@ -66,12 +66,45 @@ impl Outbox for Sql<'_> {
         Ok(self.conn().last_insert_rowid())
     }
 
-    fn claim_next(&self) -> Result<Option<OutboxEntry>> {
-        let next: Option<i64> =
-            self.conn().query_row("SELECT id FROM outbox WHERE state = 'pending' ORDER BY id LIMIT 1", [], |r| r.get(0)).optional()?;
-        let Some(id) = next else { return Ok(None) };
-        self.conn().execute(&format!("UPDATE outbox SET state = 'sent', sent_at = {SQL_NOW}, attempts = attempts + 1 WHERE id = ?1"), [id])?;
-        self.get(id)
+    fn claim_next(&self, lease_until: Ts) -> Result<Option<OutboxEntry>> {
+        let id: Option<i64> = self
+            .conn()
+            .query_row(
+                &format!(
+                    "UPDATE outbox SET state = 'sent', sent_at = {SQL_NOW}, lease_until = ?1, attempts = attempts + 1
+                      WHERE id = (
+                        SELECT o.id FROM outbox o
+                         WHERE o.state = 'pending'
+                           AND NOT EXISTS (SELECT 1 FROM outbox e WHERE e.item_id = o.item_id AND e.id < o.id AND e.state IN ('pending', 'sent', 'failed'))
+                         ORDER BY o.id LIMIT 1)
+                     RETURNING id"
+                ),
+                [lease_until],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match id {
+            Some(id) => self.get(id),
+            None => Ok(None),
+        }
+    }
+
+    fn recover_expired(&self, now: Ts, safe_to_resend: &[&str]) -> Result<(usize, usize)> {
+        let safe = serde_json::to_string(safe_to_resend)?;
+        let expired = "state = 'sent' AND (lease_until IS NULL OR lease_until < ?1)";
+        let resent = self.conn().execute(
+            &format!("UPDATE outbox SET state = 'pending', lease_until = NULL WHERE {expired} AND op IN (SELECT value FROM json_each(?2))"),
+            params![now, safe],
+        )?;
+        let failed = self.conn().execute(
+            &format!(
+                "UPDATE outbox SET state = 'failed', lease_until = NULL,
+                        error = 'unknown whether it went through (the app stopped while sending): check, then retry or leave it'
+                  WHERE {expired} AND op NOT IN (SELECT value FROM json_each(?2))"
+            ),
+            params![now, safe],
+        )?;
+        Ok((resent, failed))
     }
 
     fn confirm(&self, id: i64, receipt_json: &str) -> Result<()> {

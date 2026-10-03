@@ -72,12 +72,48 @@ fn on_confirmed(uow: &dyn UnitOfWork, now: Ts, op: &str, item_id: Option<i64>, p
     Ok(())
 }
 
+/// How long a claimed row is held for its send. A send takes seconds; a row
+/// still `sent` after this means its sender died.
+const LEASE_MINUTES: i64 = 10;
+
+/// Ops that do the same thing when sent twice, so a send whose outcome is
+/// unknown is simply sent again: they set state (labels, read markers, a
+/// status), or the connector finds what an earlier send made (a calendar
+/// hold by its id, a Jira issue by its summary). Everything else (a reply, a
+/// comment, an append) could be doubled, so it fails for you to check.
+pub const SAFE_TO_RESEND: &[&str] = &[
+    "gmail.file",
+    "gmail.mark_read",
+    "gmail.archive",
+    "gmail.trash",
+    "gmail.restore",
+    "gmail.relabel",
+    "slack.mark_read",
+    "slack.react",
+    "jira.transition",
+    "jira.assign",
+    "jira.create_issue",
+    "github.close",
+    "github.label",
+    "gcal.rsvp",
+    "gcal.hold",
+    "obsidian.replace",
+    "obsidian.toggle_task",
+];
+
+/// Take back rows whose sender died mid-send (`SAFE_TO_RESEND`).
+pub fn recover(app: &App) -> Result<(usize, usize)> {
+    let now = app.clock.now();
+    app.store().write(|uow| uow.outbox().recover_expired(now, SAFE_TO_RESEND))
+}
+
 /// Send one pending row: claimed in one unit of work, sent with no database
 /// access, and its outcome (with the local side of a confirmed write)
 /// recorded in another. Returns false when there was nothing to send.
 pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
+    let lease = app.clock.now() + jiff::SignedDuration::from_mins(LEASE_MINUTES);
     let claimed = app.store().write(|uow| {
-        let Some(row) = uow.outbox().claim_next()? else { return Ok(None) };
+        let Some(row) = uow.outbox().claim_next(lease)? else { return Ok(None) };
         let source = crate::sync::source(uow.reads(), row.source_id)?;
         // Rows queued straight into the table (not via `request`) still respect read-only.
         let blocked = uow.reads().sources().get(row.source_id)?.as_ref().and_then(|s| read_only_name(s).map(str::to_owned));
@@ -121,6 +157,10 @@ pub fn start(app: std::sync::Arc<App>) {
         .spawn(move || {
             let http = http::UreqHttp::default();
             loop {
+                // Another app sharing this data dir may have died mid-send.
+                if let Err(e) = recover(&app) {
+                    eprintln!("outbox: {e}");
+                }
                 match process_one(&app, &http) {
                     Ok(true) => continue,
                     Ok(false) => {}
@@ -189,6 +229,7 @@ pub fn tests_on_confirmed_item(conn: &Connection, op: &str, item_id: i64, payloa
 
 #[cfg(test)]
 mod integration_tests {
+    use crate::domain::ports::{Reads, UnitOfWork};
     use crate::settings::Settings;
     use crate::state::App;
     use serde_json::json;
@@ -197,6 +238,65 @@ mod integration_tests {
         let dir = tempfile::tempdir().unwrap();
         let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
         (app, dir)
+    }
+
+    fn state(app: &App, id: i64) -> String {
+        app.store().read(|r| Ok(r.outbox().get(id)?.unwrap().state)).unwrap()
+    }
+
+    #[test]
+    fn an_items_writes_go_out_in_order_even_after_a_retry() {
+        let (app, _d) = app();
+        let gmail: i64 = app.db().query_row("SELECT id FROM sources WHERE kind = 'gmail'", [], |r| r.get(0)).unwrap();
+        let now = crate::time::t("2026-10-03T09:00:00");
+        let lease = now + jiff::SignedDuration::from_mins(10);
+        let (archive, restore) = app
+            .store()
+            .write(|uow| {
+                let p = json!({ "thread_id": "th1" });
+                Ok((uow.outbox().enqueue(gmail, "gmail.archive", &p.to_string(), Some(7))?, uow.outbox().enqueue(gmail, "gmail.restore", &p.to_string(), Some(7))?))
+            })
+            .unwrap();
+        let claim = || app.store().write(|uow| uow.outbox().claim_next(lease)).unwrap().map(|e| e.id);
+        assert_eq!(claim(), Some(archive));
+        app.store().write(|uow| uow.outbox().fail(archive, "Gmail 503")).unwrap();
+        // The undo waits behind the failed archive.
+        assert_eq!(claim(), None);
+        // ⌘R on the archive: it goes first, then the undo.
+        app.store().write(|uow| uow.outbox().retry(Some(archive))).unwrap();
+        assert_eq!(claim(), Some(archive));
+        app.store().write(|uow| uow.outbox().confirm(archive, "{}")).unwrap();
+        assert_eq!(claim(), Some(restore));
+    }
+
+    #[test]
+    fn a_send_cut_off_mid_way_is_resent_only_if_doing_it_twice_is_harmless() {
+        let (app, _d) = app();
+        let (slack, gmail): (i64, i64) = app
+            .db()
+            .query_row("SELECT (SELECT id FROM sources WHERE kind = 'slack'), (SELECT id FROM sources WHERE kind = 'gmail')", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        let now = crate::time::t("2026-10-03T09:00:00");
+        let lease = now + jiff::SignedDuration::from_mins(10);
+        let (archive, reply) = app
+            .store()
+            .write(|uow| {
+                let a = uow.outbox().enqueue(gmail, "gmail.archive", r#"{"thread_id":"th1"}"#, Some(1))?;
+                let r = uow.outbox().enqueue(slack, "slack.reply", r#"{"channel":"C1","thread_ts":"1.0","text":"on it"}"#, Some(2))?;
+                uow.outbox().claim_next(lease)?;
+                uow.outbox().claim_next(lease)?;
+                Ok((a, r))
+            })
+            .unwrap();
+        // The app stops before either send returns. While the lease holds, nothing moves.
+        let recover = |at: crate::time::Ts| app.store().write(|uow| uow.outbox().recover_expired(at, super::SAFE_TO_RESEND)).unwrap();
+        assert_eq!(recover(now + jiff::SignedDuration::from_mins(5)), (0, 0));
+        assert_eq!((state(&app, archive), state(&app, reply)), ("sent".into(), "sent".into()));
+        assert_eq!(recover(now + jiff::SignedDuration::from_mins(11)), (1, 1));
+        assert_eq!(state(&app, archive), "pending", "archiving twice is harmless");
+        assert_eq!(state(&app, reply), "failed", "a second reply would be a duplicate");
+        let error = app.store().read(|r| Ok(r.outbox().get(reply)?.unwrap().error)).unwrap().unwrap();
+        assert!(error.starts_with("unknown whether it went through"), "{error}");
     }
 
     #[test]
