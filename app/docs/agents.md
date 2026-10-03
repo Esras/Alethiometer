@@ -32,6 +32,36 @@ A `session/request_permission` pins a card above the composer and lists the sess
 - **Explained** (`agents/explain.rs`): the small AI tier says in two or three sentences what the command does. It never suggests what to trust, since the buttons can't apply a pattern. Cached per command; "Off" when the small tier is off.
 - The Needs you tag: `low` (read-only), `writes`, `network`, `unknown`, `outside repo`, `question` (asks).
 
+## Scion agents
+
+`agents/scion.rs` (+ `scion/api.rs`, `scion/map.rs`), one thread per enabled `scion` source (Settings › Sources: Hub URL, a `scion_pat_…` user access token as `scion.token`, optional project filter). Built from Scion's Go source at `2220c46` (GoogleCloudPlatform/scion, v0.3 preview, "grove" already renamed "project"); **never run against a live Hub**. Fixtures in `src-tauri/tests/fixtures/scion/` are hand-written from the Go JSON tags (the README there maps each to its Go type). The Hub's state shows in the tree (a red line when it can't connect), not in the sync chip.
+
+- **Polling, not SSE:** the Hub's stream is per agent, while one conversation list per project covers every room and DM. Every 3 s: `GET /conversations?include_project_groups=<project>`, then the messages of conversations whose `lastActivityAt` moved (or that hold a send still settling). Every 15 s (or right after you act): `/auth/me`, `/projects`, `/projects/{id}/agents`, room participants, and agent ↔ agent mail (`/chat/conversations/dm:…/interagent`) for agents whose activity moved.
+- **Tree:** a project's group threads (conversations of `kind: group`) are groups with a room row; their agent participants are the group's sessions; other agents sit in a group named after the project. An agent in several threads goes under the most recently active one; `ancestry` gives a subagent's parent.
+- **Status:** failed for phase `error` or activity `limits_exceeded` / `stalled` / `crashed`; waiting for an open ask or `waiting_for_input` / `blocked`; running while starting or `working` / `thinking` / `executing`; done for `completed`; idle otherwise.
+- **Rows:** `instruction` / `reply` / `mention` are messages (mention copies fold into one row; the ✓ count is recipients dispatched), `state-change` State, `system` a Hub notice, `input-needed` an ask (choices read from numbered or bulleted lines, keyed 1–3; it closes when the agent posts again, you send it something or answer it here, or it stops). `assistant-reply` (a copy of each turn's final text) is the session's Output. **A Scion session's thread is its messages and state changes only:** the Hub exposes no structured harness transcript (`/agents/{id}/logs` is raw `agent.log`).
+- **Delivery (08):** per message, `dispatchState` `pending | dispatched | failed | deferred` with `dispatchFailureReason`. Unreachable is `failed` with "Agent unreachable (<phase>)". "Deferred · X was mid-turn" is inferred (dispatched, X busy, X hasn't posted since); the Hub's own `deferred` only means the agent is being reincarnated. There's no retry time on the Hub, so "next" never shows. Discard, Cancel and Edit only hide the row here; nothing is deleted on the Hub. Start it again and send starts the agent, waits up to 2 minutes for it to run, then sends.
+- **Sending:** to a room, `POST /chat/conversations/{topic}/messages` (native chat; routing is the Hub's: @mentions, else the thread's default agent); a DM, `POST /agents/{id}/message {structured_message:{msg,type}}`. `⌘.` sends the harness's interrupt key (`POST /agents/{id}/keys`: Escape for Claude, C-c for others).
+- **New agent (05):** templates (same-named templates in different scopes are the "versions"), harness configs and brokers come from `/templates`, `/harness-configs` and `/projects/{id}/providers`; Start is `POST /agents`, then "Add to #room" `POST /conversations/{id}/participants` (if that's refused, it posts "@name joined this thread", since a mention also adds the agent).
+- **Terminal:** `scion attach <slug> --hub <url> -g <project>`.
+
+`scripts/fake-scion-hub.mjs` serves the fixtures on `http://127.0.0.1:1431` and keeps posts in memory, for UI work (any value for the `scion.token` secret).
+
+### To check against a live Hub
+
+1. Do UAT tokens reach `/api/v1/chat/*`, and is native chat on? Without it, room posts and agent ↔ agent mail don't work.
+2. The scopes the token needs: `project:read`, `agent:read`/`list`, `agent:message`, `agent:create`, `agent:lifecycle`, `agent:attach` (interrupt, agent ↔ agent mail).
+3. Does `POST /agents/{id}/message` take `{structured_message:{msg,type}}` with no version or sender (the web UI sends only `msg`), and `type: "reply"` from a user?
+4. Default order and largest `limit` of `/conversations/{id}/messages` (assumed newest first, like `store.ListMessages`).
+5. The sender and recipient on an agent's own post to a thread, and the system sender (guessed `system:hub`).
+6. Does `include_project_groups` list every project group to a user who isn't a participant?
+7. Does `runtimeBrokerId` take a name? Names are resolved to ids from providers or agents.
+8. Do your DMs with agents appear in `GET /conversations` as `kind: direct`, and do mention copies share `createdAt` exactly?
+9. `start` on a stopped agent and `/keys`; whether `pi` is a harness name (it isn't in this checkout).
+10. Unread counts are always 0 (the conversations API has no read state; chat thread lists have `hasUnread`), and threads have no goal, so a room's header is its name.
+11. The loop cap is Scion's hard-coded 10 mentions per agent pair per 10 minutes; suppressed mentions aren't stored, so no notice appears in the room unless the Hub posts one.
+12. How the Hub adds a newly started agent to an existing group thread (the design's open question; participants are tried first).
+
 ## Tree
 
 Projects (the repo of a local group, the Scion project), groups, and rows. Local groups are made in the New session form ("New group…", with a goal); a session with no group is under **Unsorted**, where the small tier guesses a group from its directory, title and first prompt ("Looks like alethiometer › Agents tab · Move · Not this", `agents/guess.rs`). Nothing moves until you press Move. A folded group shows its loudest status and count. Status marks: running dot, waiting half ring, idle ring, done check, failed x.

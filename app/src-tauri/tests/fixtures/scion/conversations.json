@@ -2,9 +2,9 @@
   "conversations": [
     {"id":"c1000000-0000-4000-8000-0000000000aa","projectId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","kind":"group","surface":"native",
      "externalRef":"thread:7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01:b1000000-0000-4000-8000-0000000000bb","displayName":"migration",
-     "defaultAgentId":"a1000000-0000-4000-8000-000000000001","driftState":"active","lastActivityAt":"2026-10-03T09:14:00Z","createdAt":"2026-10-03T08:00:00Z"},
+     "defaultAgentId":"a1000000-0000-4000-8000-000000000001","driftState":"active","lastActivityAt":"2026-09-30T09:14:00Z","createdAt":"2026-09-30T08:00:00Z"},
     {"id":"c2000000-0000-4000-8000-0000000000cc","kind":"direct","surface":"native",
      "externalRef":"dm:agent:a1000000-0000-4000-8000-000000000002:user:0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
-     "driftState":"active","lastActivityAt":"2026-10-03T09:05:00Z","createdAt":"2026-10-03T08:06:00Z"}
+     "driftState":"active","lastActivityAt":"2026-09-30T09:05:00Z","createdAt":"2026-09-30T08:06:00Z"}
   ]
 }

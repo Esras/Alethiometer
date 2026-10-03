@@ -14,7 +14,7 @@
    "channel": "web",
    "threadId": "dm:agent:a1000000-0000-4000-8000-000000000002:user:0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
    "conversationId": "c2000000-0000-4000-8000-0000000000cc",
-   "createdAt": "2026-10-03T08:40:00Z"
+   "createdAt": "2026-09-30T08:40:00Z"
   },
   {
    "id": "d0000000-0000-4000-8000-000000000001",
@@ -30,9 +30,9 @@
    "channel": "web",
    "threadId": "dm:agent:a1000000-0000-4000-8000-000000000002:user:0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
    "conversationId": "c2000000-0000-4000-8000-0000000000cc",
-   "createdAt": "2026-10-03T08:30:00Z",
+   "createdAt": "2026-09-30T08:30:00Z",
    "dispatchState": "dispatched",
-   "dispatchedAt": "2026-10-03T08:30:00Z"
+   "dispatchedAt": "2026-09-30T08:30:00Z"
   }
  ],
  "totalCount": 2

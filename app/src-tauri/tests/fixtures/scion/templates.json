@@ -4,7 +4,7 @@
      "harness":"claude","defaultHarnessConfig":"claude-web","image":"scion/claude:latest","contentHash":"9f2c1ab77e0d4b1c",
      "scope":"project","scopeId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
      "files":[{"path":"agents.md","size":120,"hash":"aa"},{"path":"scion-agent.yaml","size":80,"hash":"bb"},{"path":"skills/sql-diff/SKILL.md","size":300,"hash":"cc"},{"path":"skills/pr-notes/SKILL.md","size":200,"hash":"dd"}],
-     "status":"active","created":"2026-09-20T10:00:00Z","updated":"2026-10-01T10:00:00Z"},
+     "status":"active","created":"2026-09-20T10:00:00Z","updated":"2026-09-28T10:00:00Z"},
     {"id":"70000000-0000-4000-8000-000000000002","name":"coder","slug":"coder","harness":"claude","image":"scion/claude:latest","contentHash":"41d0e9c2aa000000",
      "scope":"global","files":[{"path":"agents.md","size":90,"hash":"ee"}],"status":"active","created":"2026-08-01T10:00:00Z","updated":"2026-08-01T10:00:00Z"},
     {"id":"70000000-0000-4000-8000-000000000003","name":"planner","slug":"planner","harness":"generic","image":"scion/base:latest","contentHash":"77aa",

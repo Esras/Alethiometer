@@ -277,10 +277,11 @@ fn tick(app: &App, hub: &Hub) -> anyhow::Result<()> {
 /// A send of yours that may still change: pending, or dispatched in the last
 /// two minutes (a broker can still report it failed).
 fn unsettled(st: &map::State, id: &str, conv: &map::Conv) -> bool {
-    let recent = chrono::Utc::now().timestamp_millis() - 120_000;
+    let now = chrono::Utc::now().timestamp_millis();
+    let recent = |t: i64| t > now - 120_000 && t <= now + 60_000;
     let agents_dm = s(&conv.meta, "externalRef");
     st.pending.iter().any(|p| p.key == format!("r:{id}") || p.key.rsplit(':').next().is_some_and(|a| !a.is_empty() && agents_dm.contains(a)))
-        || conv.messages.iter().any(|m| s(m, "dispatchState") == "pending" || (s(m, "dispatchState") == "dispatched" && map::ms(s(m, "createdAt")) > recent))
+        || conv.messages.iter().any(|m| s(m, "dispatchState") == "pending" || (s(m, "dispatchState") == "dispatched" && recent(map::ms(s(m, "createdAt")))))
 }
 
 /// Projects, agents and you; notes agents' state changes between refreshes.
