@@ -213,7 +213,7 @@ fn prepare(conn: &Connection, clock: &crate::clock::Clock, vault: &std::path::Pa
     // Message times as the user reads them: wall-clock "HH:MM" here.
     let hm = |at: &str| crate::time::Ts::parse(at).map(|t| clock.local(t).strftime("%H:%M").to_string()).unwrap_or_else(|| at.to_owned());
     let all = topics(conn, vault)?;
-    let cats = crate::queries::categories::list(conn)?;
+    let cats = crate::domain::ports::Reads::categories(&crate::store::over(conn)).list()?;
     let mut out = vec![];
     for (item_id, source, kind, title, summary, parent) in unsorted(conn, limit)? {
         let wrong = wrong_topics(conn, item_id)?;
@@ -558,9 +558,9 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
                 let conn = app.db();
                 let cat = reply_json(&reply)
                     .and_then(|v| v.get("new_topic_category")?.as_str().map(str::to_owned))
-                    .filter(|k| crate::queries::categories::exists(&conn, k).unwrap_or(false))
+                    .filter(|k| crate::queries::categories::exists(&crate::store::over(&conn), k).unwrap_or(false))
                     .unwrap_or_default();
-                crate::queries::topics::find_or_create(&conn, &name, &cat)?
+                crate::queries::topics::find_or_create(&crate::store::over(&conn), &name, &cat)?
             }
         };
         let s = Suggested { item_id: p.item_id, topic_id, confidence, reason };

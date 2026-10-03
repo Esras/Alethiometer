@@ -37,6 +37,7 @@ pub struct TopicHead {
     pub score: Option<f64>,
     /// Reason pills, as JSON.
     pub pills_json: String,
+    pub archived: bool,
 }
 
 /// An item confirmed under a topic.
@@ -66,4 +67,26 @@ pub trait TopicViews {
     fn confirmed_items(&self, id: i64) -> Result<Vec<LinkedItem>>;
     /// GitHub repos linked to the topic, sorted.
     fn repos(&self, id: i64) -> Result<Vec<String>>;
+}
+
+pub trait Topics {
+    /// A topic not archived with this name, ignoring case.
+    fn find_by_name(&self, name: &str) -> Result<Option<i64>>;
+    fn create(&self, name: &str, category: &str) -> Result<i64>;
+    /// False when there's no such topic.
+    fn rename(&self, id: i64, name: &str) -> Result<bool>;
+    fn set_category(&self, id: i64, category: &str) -> Result<bool>;
+    fn set_archived(&self, id: i64, archived: bool) -> Result<bool>;
+    /// Record where its note is, unless it already has one.
+    fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()>;
+    /// Items confirmed under the topic.
+    fn filed_items(&self, id: i64) -> Result<Vec<i64>>;
+    /// Merge `from` into `into` (named `into_name`, category `into_category`):
+    /// every link moves (where the item already has one to `into`, the stronger
+    /// state wins: confirmed, suggested, wrong), then everything else naming
+    /// `from` (people and repos linked by hand, Glean verdicts, Notes lines)
+    /// moves, `from`'s vector goes, `into`'s is marked stale, and `from` is
+    /// deleted. The one place that knows every table referring to a topic; a
+    /// test checks it against the schema's foreign keys.
+    fn merge(&self, from: i64, into: i64, into_name: &str, into_category: &str) -> Result<()>;
 }

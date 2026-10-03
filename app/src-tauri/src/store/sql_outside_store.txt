@@ -10,13 +10,12 @@
 8 glean/hydrate.rs
 5 glean/mod.rs
 30 outbox.rs
-9 queries/categories.rs
 2 queries/incoming.rs
 1 queries/notes.rs
 15 queries/people.rs
 5 queries/priorities.rs
 25 queries/reflect.rs
-22 queries/topics.rs
+5 queries/topics.rs
 14 seed.rs
 2 settings/api.rs
 5 settings/live.rs

@@ -330,10 +330,9 @@ fn apply(app: &App, new: Settings) -> State {
         restart = true;
     }
     if old.categories != new.categories {
-        let conn = app.db();
-        match crate::queries::categories::load(&conn, &new.categories) {
+        match app.store().write(|uow| crate::queries::categories::load(uow, &new.categories)) {
             Ok(true) => {
-                let _ = crate::queries::categories::save(&conn, &app.settings_path());
+                let _ = crate::queries::categories::save(app, &app.settings_path());
             }
             Ok(false) => {}
             Err(e) => notes.push(format!("categories not applied: {e}")),

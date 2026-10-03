@@ -37,6 +37,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "incoming" => queries::incoming::route(name),
         "topics" => queries::topics::route(name),
         "search" => queries::search::route(name),
+        "categories" => queries::categories::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
     };
@@ -89,8 +90,9 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
             let settings = app.settings();
-            let categories = queries::categories::map(&app.db())?;
-            let (incoming, todos) = app.store().read(|r| Ok((r.incoming().unseen_count()?, queries::todos::list(r, &app.clock)?.len())))?;
+            let (categories, incoming, todos) = app
+                .store()
+                .read(|r| Ok((queries::categories::map(r)?, r.incoming().unseen_count()?, queries::todos::list(r, &app.clock)?.len())))?;
             Ok(json!({
                 "categories": categories,
                 "day_start_hour": app.settings().day_start_hour,

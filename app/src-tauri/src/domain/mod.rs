@@ -7,6 +7,7 @@
 //! - **Read models** are what a screen lists: one query per screen, not an
 //!   aggregate per row (`ports::Reads`).
 
+pub mod categories;
 pub mod daystrip;
 pub mod incoming;
 pub mod items;

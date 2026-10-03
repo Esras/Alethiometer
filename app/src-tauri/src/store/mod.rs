@@ -15,6 +15,7 @@
 //! Each `store/<area>.rs` implements that area's ports (`crate::domain::ports`)
 //! on [`Sql`], a connection in the request's transaction.
 
+pub mod categories;
 pub mod daystrip;
 pub mod incoming;
 pub mod items;
@@ -191,6 +192,7 @@ macro_rules! ports {
 }
 
 ports!(Reads {
+    categories: crate::domain::categories::CategoryViews,
     day_strip: crate::domain::daystrip::DayStripViews,
     incoming: crate::domain::incoming::IncomingViews,
     notes: crate::domain::notes::NotesViews,
@@ -203,6 +205,7 @@ ports!(Reads {
 
 ports!(UnitOfWork {
     reads: Reads,
+    categories: crate::domain::categories::Categories,
     events: crate::domain::daystrip::Events,
     items: crate::domain::items::Items,
     links: crate::domain::links::Links,
@@ -211,6 +214,7 @@ ports!(UnitOfWork {
     sources: crate::domain::sources::Sources,
     splits: crate::domain::splits::Splits,
     todos: crate::domain::todos::Todos,
+    topics: crate::domain::topics::Topics,
 });
 
 #[cfg(test)]

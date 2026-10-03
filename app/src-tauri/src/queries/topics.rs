@@ -6,7 +6,8 @@ use crate::clock::Clock;
 use crate::time::{Due, Ts};
 use jiff::{SignedDuration, ToSpan};
 use crate::api::{unknown, Route};
-use crate::domain::ports::Reads;
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::error::msg;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
@@ -72,26 +73,27 @@ struct Entry {
 pub fn route(name: &str) -> Option<Route> {
     Some(match name {
         "list" => Route::Read(|r, ctx, args| list(r, ctx, args.get("archived").and_then(Value::as_bool).unwrap_or(false))),
+        "set_category" => Route::Write(|uow, _, args| {
+            let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
+            if !super::categories::exists(uow.reads(), &cat)? {
+                return Err(msg(format!("unknown category '{cat}'")));
+            }
+            if !uow.topics().set_category(id, &cat)? {
+                return Err(msg("no such topic"));
+            }
+            Ok(json!({ "ok": true }))
+        }),
+        "archive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, true)),
+        "unarchive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, false)),
+        "create" => Route::Write(|uow, _, args| create(uow, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str))),
+        "rename" => Route::Write(|uow, _, args| rename(uow, arg_i64(args, "id")?, &arg_str(args, "name")?)),
         _ => return None,
     })
 }
 
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
-        "set_category" => {
-            let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
-            let conn = app.db();
-            if !super::categories::exists(&conn, &cat)? {
-                return Err(crate::error::msg(format!("unknown category '{cat}'")));
-            }
-            conn.execute("UPDATE topics SET category = ?2 WHERE id = ?1", params![id, cat])?;
-            Ok(json!({ "ok": true }))
-        }
-        "archive" => set_archived(app, arg_i64(args, "id")?, true),
-        "unarchive" => set_archived(app, arg_i64(args, "id")?, false),
         "get" => get(app, arg_i64(args, "id")?),
-        "create" => create(app, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str)),
-        "rename" => rename(app, arg_i64(args, "id")?, &arg_str(args, "name")?),
         "merge" => merge(app, arg_i64(args, "from")?, arg_i64(args, "into")?),
         "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
@@ -100,124 +102,87 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
-fn create(app: &App, name: &str, category: Option<&str>) -> Result<Value> {
+fn create(uow: &dyn UnitOfWork, name: &str, category: Option<&str>) -> Result<Value> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(crate::error::msg("Topic name can't be empty"));
+        return Err(msg("Topic name can't be empty"));
     }
     let category = category.unwrap_or(super::categories::UNCATEGORIZED);
-    let conn = app.db();
-    if category != super::categories::UNCATEGORIZED && !super::categories::exists(&conn, category)? {
-        return Err(crate::error::msg(format!("unknown category '{category}'")));
+    if category != super::categories::UNCATEGORIZED && !super::categories::exists(uow.reads(), category)? {
+        return Err(msg(format!("unknown category '{category}'")));
     }
-    if find_by_name(&conn, name)?.is_some() {
-        return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
+    if uow.topics().find_by_name(name)?.is_some() {
+        return Err(msg(format!("a topic named '{name}' already exists")));
     }
-    Ok(json!({ "id": find_or_create(&conn, name, category)? }))
+    Ok(json!({ "id": uow.topics().create(name, category)? }))
 }
 
 /// Renames in place; the linked Obsidian note keeps its own path (14d).
-fn rename(app: &App, id: i64, name: &str) -> Result<Value> {
+fn rename(uow: &dyn UnitOfWork, id: i64, name: &str) -> Result<Value> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(crate::error::msg("Topic name can't be empty"));
+        return Err(msg("Topic name can't be empty"));
     }
-    let conn = app.db();
-    if let Some(other) = find_by_name(&conn, name)? {
-        if other != id {
-            return Err(crate::error::msg(format!("a topic named '{name}' already exists")));
-        }
+    if uow.topics().find_by_name(name)?.is_some_and(|other| other != id) {
+        return Err(msg(format!("a topic named '{name}' already exists")));
     }
-    conn.execute("UPDATE topics SET name = ?2 WHERE id = ?1", params![id, name])?;
+    if !uow.topics().rename(id, name)? {
+        return Err(msg("no such topic"));
+    }
     Ok(json!({ "ok": true }))
+}
+
+fn set_archived(uow: &dyn UnitOfWork, id: i64, on: bool) -> Result<Value> {
+    if !uow.topics().set_archived(id, on)? {
+        return Err(msg("no such topic"));
+    }
+    Ok(json!({ "ok": true }))
+}
+
+/// The topic named `name` (not archived), made in `category` if there's none.
+pub fn find_or_create(uow: &dyn UnitOfWork, name: &str, category: &str) -> Result<i64> {
+    match uow.topics().find_by_name(name)? {
+        Some(id) => Ok(id),
+        None => uow.topics().create(name, category),
+    }
 }
 
 /// Merge topic `from` into `into` (user decisions 2026-10-01). The UI stages
 /// a merge and only calls this when you leave the screen; until then `u`
 /// cancels it, so nothing here needs undoing.
-/// - Every signal link moves to `into`; where the item already has a link
-///   there, the stronger state wins (confirmed, then suggested, then wrong).
-///   People and repos linked by hand, and Notes lines pointing at `from`,
-///   move too.
+/// - Every signal link moves to `into` (`Topics::merge` has the rules), and
+///   so does everything else naming `from`.
 /// - Gmail threads filed under `from` get `into`'s category label when the
 ///   categories differ (`gmail.relabel`).
 /// - `from`'s note text (frontmatter left out) is appended to `into`'s note
-///   under "## Merged from <name>", an ordinary note save (outbox or file).
-///   `from`'s note file stays where it is.
+///   under "## Merged from <name>", an ordinary note save (outbox or file),
+///   after the merge commits. `from`'s note file stays where it is.
 /// - `from` is deleted.
 fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
-    use rusqlite::OptionalExtension;
     if from == into {
-        return Err(crate::error::msg("a topic can't be merged into itself"));
+        return Err(msg("a topic can't be merged into itself"));
     }
-    type Row = (String, String, Option<String>, Option<String>);
-    let row = |conn: &rusqlite::Connection, id: i64| -> Result<Option<Row>> {
-        Ok(conn
-            .query_row("SELECT name, category, obsidian_path, archived_at FROM topics WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-            .optional()?)
-    };
-    let (from_name, from_path, into_name, into_path) = {
-        let conn = app.db();
-        let a = row(&conn, from)?.ok_or_else(|| crate::error::msg("the topic to merge is gone"))?;
-        let b = row(&conn, into)?.ok_or_else(|| crate::error::msg("the topic to merge into is gone"))?;
-        if b.3.is_some() {
-            return Err(crate::error::msg(format!("'{}' is archived: unarchive it first", b.0)));
+    let (a, b) = app.store().write(|uow| {
+        let a = uow.reads().topics().head(from)?.ok_or_else(|| msg("the topic to merge is gone"))?;
+        let b = uow.reads().topics().head(into)?.ok_or_else(|| msg("the topic to merge into is gone"))?;
+        if b.archived {
+            return Err(msg(format!("'{}' is archived: unarchive it first", b.name)));
         }
-        let tx = conn.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason, updated_at)
-             SELECT item_id, ?2, state, confidence, reason, updated_at FROM topic_links WHERE topic_id = ?1 AND true
-             ON CONFLICT (item_id, topic_id) DO UPDATE SET state = CASE
-               WHEN 'confirmed' IN (state, excluded.state) THEN 'confirmed'
-               WHEN 'suggested' IN (state, excluded.state) THEN 'suggested'
-               ELSE 'wrong' END",
-            params![from, into],
-        )?;
         // Gmail threads filed under the old topic, while we still know which.
-        let filed: Vec<i64> = tx
-            .prepare("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed'")?
-            .query_map([from], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
+        let filed = uow.topics().filed_items(from)?;
+        uow.topics().merge(from, into, &b.name, &b.category)?;
         for item in filed {
-            super::incoming::relabel_gmail(&crate::store::over(&tx), item, Some(&a.1), &b.1)?;
+            super::incoming::relabel_gmail(uow, item, Some(&a.category), &b.category)?;
         }
-        tx.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
-        hand_over_and_delete(&tx, from, into, &b.0, &b.1)?;
-        tx.commit()?;
-        (a.0, a.2, b.0, b.2)
-    };
+        Ok((a, b))
+    })?;
     // The merge is committed: a note that can't be appended doesn't undo it,
     // it's reported (`from`'s note file is still there to copy by hand).
-    let note = match append_merged_note(app, into, &from_name, from_path.as_deref(), &into_name, into_path) {
+    let note = match append_merged_note(app, into, &a.name, a.obsidian_path.as_deref(), &b.name, b.obsidian_path) {
         Ok(n) => n.to_owned(),
         Err(e) => format!("failed: {e}"),
     };
     Ok(json!({ "ok": true, "note": note }))
-}
-
-/// Everything outside `topic_links` that names topic `from`, handed to
-/// `into` (named `into_name`, category `into_category`), then `from` itself
-/// deleted. The one place that knows every table referring to a topic: a
-/// test checks it against the schema's foreign keys.
-/// - People and repos linked by hand, Glean pins and rejects (`into`'s own
-///   verdict wins on the same result) and Notes lines move.
-/// - `from`'s vector goes, and `into`'s is marked stale: its text now
-///   includes `from`'s signals. Ids aren't AUTOINCREMENT, so a later topic
-///   can get `from`'s id and must not inherit its vector.
-fn hand_over_and_delete(tx: &rusqlite::Transaction, from: i64, into: i64, into_name: &str, into_category: &str) -> Result<()> {
-    for table in ["topic_people", "topic_repos", "search_feedback"] {
-        tx.execute(&format!("UPDATE OR IGNORE {table} SET topic_id = ?2 WHERE topic_id = ?1"), params![from, into])?;
-        tx.execute(&format!("DELETE FROM {table} WHERE topic_id = ?1"), [from])?;
-    }
-    tx.execute(
-        "UPDATE notes_lines SET target_json = json_set(target_json, '$.id', ?2, '$.label', ?3, '$.category', ?4)
-          WHERE json_extract(target_json, '$.type') = 'topic' AND json_extract(target_json, '$.id') = ?1",
-        params![from, into, into_name, into_category],
-    )?;
-    tx.execute("DELETE FROM vec_topics WHERE rowid = ?1", [from])?;
-    tx.execute("DELETE FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![from, into])?;
-    tx.execute("DELETE FROM topics WHERE id = ?1", [from])?;
-    Ok(())
 }
 
 /// Append the merged topic's note to the surviving topic's note. Returns
@@ -240,7 +205,7 @@ fn append_merged_note(app: &App, into: i64, from_name: &str, from_path: Option<&
     after.push_str(&format!("## Merged from {from_name}\n\n{body}\n"));
     let saved = save::save_note(app, &rel, before.as_deref(), &after)?;
     if !linked {
-        app.db().execute("UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL", params![into, path])?;
+        app.store().write(|uow| uow.topics().set_note_path_if_unset(into, &path))?;
     }
     Ok(match saved {
         save::Saved::Written => "appended",
@@ -260,32 +225,18 @@ fn strip_frontmatter(text: &str) -> &str {
     t
 }
 
-pub(crate) fn find_by_name(conn: &rusqlite::Connection, name: &str) -> Result<Option<i64>> {
-    use rusqlite::OptionalExtension;
-    Ok(conn.query_row("SELECT id FROM topics WHERE archived_at IS NULL AND name = ?1 COLLATE NOCASE", [name], |r| r.get(0)).optional()?)
-}
-
-pub(crate) fn find_or_create(conn: &rusqlite::Connection, name: &str, category: &str) -> Result<i64> {
-    if let Some(id) = find_by_name(conn, name)? {
-        return Ok(id);
-    }
-    conn.execute("INSERT INTO topics (name, category) VALUES (?1, ?2)", params![name, category])?;
-    Ok(conn.last_insert_rowid())
-}
-
 /// The topic's note edited in place (Topics pane, `e`). `base` is the text the
 /// editor loaded (`note.base` from `get`; null when the note didn't exist).
 /// Answers `{state: "saved"}`, `{state: "conflict", disk}` or
 /// `{state: "saving", outbox_id}` (follow it with `note_status`).
 fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value> {
-    let (name, path): (String, Option<String>) =
-        app.db().query_row("SELECT name, obsidian_path FROM topics WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let linked = path.is_some();
-    let path = path.unwrap_or_else(|| default_note_path(&name));
+    let head = app.store().read(|r| r.topics().head(id))?.ok_or_else(|| msg("no such topic"))?;
+    let linked = head.obsidian_path.is_some();
+    let path = head.obsidian_path.unwrap_or_else(|| default_note_path(&head.name));
     let rel = path.trim_start_matches("./").trim_start_matches('/');
     let saved = save::save_note(app, rel, base, text)?;
     if !linked {
-        app.db().execute("UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL", rusqlite::params![id, path])?;
+        app.store().write(|uow| uow.topics().set_note_path_if_unset(id, &path))?;
     }
     Ok(match saved {
         save::Saved::Written => json!({ "state": "saved" }),
@@ -344,17 +295,6 @@ fn last_label(t: Ts, clock: &Clock, source: Option<&str>) -> String {
         2..=6 => t.strftime("%a").to_string(),
         _ => t.strftime("%b %-d").to_string(),
     }
-}
-
-fn set_archived(app: &App, id: i64, on: bool) -> Result<Value> {
-    let n = app.db().execute(
-        "UPDATE topics SET archived_at = CASE WHEN ?2 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END WHERE id = ?1",
-        params![id, on],
-    )?;
-    if n == 0 {
-        return Err(crate::error::msg("no such topic"));
-    }
-    Ok(json!({ "ok": true }))
 }
 
 fn source_label(kind: &str) -> &'static str {
@@ -787,7 +727,7 @@ mod tests {
     #[test]
     fn every_table_naming_a_topic_is_handled_when_one_goes() {
         // A new table with a foreign key to topics must be added to
-        // hand_over_and_delete (or merging a topic that has rows there fails).
+        // Topics::merge in store/topics.rs (or merging a topic that has rows there fails).
         let conn = crate::db::open_in_memory().unwrap();
         let tables: Vec<String> = conn
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")

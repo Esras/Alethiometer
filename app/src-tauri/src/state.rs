@@ -83,10 +83,11 @@ impl App {
             this: OnceLock::new(),
         };
         let mut problem = problem;
-        match crate::queries::categories::load(&app.db(), &app.settings().categories) {
+        let from = app.settings().categories.clone();
+        match app.store().write(|uow| crate::queries::categories::load(uow, &from)) {
             // Migrated from the old form: written back, unless the file is the broken one.
             Ok(true) if problem.is_none() => {
-                if let Err(e) = crate::queries::categories::save(&app.db(), &data_dir.join("settings.json")) {
+                if let Err(e) = crate::queries::categories::save(&app, &data_dir.join("settings.json")) {
                     eprintln!("settings.json: couldn't write the migrated categories: {e}");
                 }
             }
