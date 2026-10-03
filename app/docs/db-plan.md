@@ -1,6 +1,6 @@
 # Database and sync architecture: plan
 
-Status: **agreed direction, not built.** Follows `REVIEW-2026-10-03.md`. The contained fixes from that review are in (commits `b2191b2`…`c3f2424`); this covers what needs a structural change.
+Status: **Phases 0 and 1 built (2026-10-03); 2 to 4 agreed, not built.** Follows `REVIEW-2026-10-03.md`. The contained fixes from that review are in (commits `b2191b2`…`c3f2424`); this covers what needs a structural change.
 
 Priorities: accuracy > performance, maintainability > speed of development.
 
@@ -76,6 +76,41 @@ api.rs          the middleware: opens a read or a unit of work per command, call
   4. AI, Glean and agents.
 
   The UTC types from Phase 0 are what models carry.
+
+### Phase 1 as built (2026-10-03)
+
+- **`store::Db`** (`src/store/mod.rs`): one writer connection and an `r2d2` pool of read-only readers (none for an in-memory database, where reads use the writer).
+  - `read(|r: &dyn Reads| …)` runs in `BEGIN DEFERRED` on a reader.
+  - `write(|uow: &dyn UnitOfWork| …)` runs in `BEGIN IMMEDIATE`, commits on `Ok`, and rolls back on an error or a panic.
+  - Debug builds log a write holding the writer over 100 ms, with its caller.
+  - Taking the writer twice on one thread panics instead of deadlocking.
+- **Ports per area** are in `domain/<area>.rs`, with `Reads` and `UnitOfWork` in `domain/ports.rs`. `store/<area>.rs` implements them on `Sql`, the connection in the request's transaction.
+- **`api.rs` is the middleware.** A module's `route(name)` returns `Route::Read` or `Route::Write`, and `api.rs` opens the read or unit of work around it. The outbox is woken after each write.
+  - A command that makes a network call or reads files has no route. It runs in the module's `call` and opens short reads and writes around that IO, never across it.
+  - The pattern is two-phase: names come from one snapshot, the files are read with nothing open, then the result is built. `ai::context::Notes`, the embedder's topic text and Glean's entities all work this way.
+  - The other edges open their own: a sync batch (`sync_source`), an outbox send (claim, send, record), an agent flush, an Agents-in-Incoming sync, and the sample-data seed.
+- **Proofs** (`store::tests`):
+  - `no_sql_outside_store`. Test modules may write fixtures directly.
+  - `a_long_read_runs_while_a_write_commits_and_keeps_its_snapshot`.
+  - `an_error_or_a_panic_rolls_the_whole_unit_of_work_back`.
+  - `concurrent_glean_calls_never_pass_the_daily_limit`.
+  - `queries::todos::a_confirm_that_fails_partway_changes_nothing`.
+- **`app.db()` is gone from the app.** It, `Db::legacy` and `store::over` (ports over a bare connection) are `cfg(test)` and used only for fixtures and checks. The connection-taking helpers (`sync::apply_in`, `register_sources`, `load_source`, `split::*`, `people::scan`) are test-only too.
+- **Fixed along the way:**
+  - Actions commit whole (Confirm, Move, Dismiss, merges, sync follow-ups, an Agents-in-Incoming sync).
+  - The outbox claim is atomic, and so is the Glean quota across processes.
+  - Notes, topic notes and People notes are no longer read while the database is held.
+  - Prompts, Ask Glean's evidence and the sample join times use local days.
+  - Categories write `settings.json` after commit and revert the table if that write fails.
+- **Different from the plan above:**
+  - The Agents tab's models stay in `agents::model`; `domain::agents` uses them.
+  - Some repositories still carry source fields as a JSON string (`raw_json`, `HostState.turn`).
+  - Models edited in the UI don't carry a revision yet (Phase 3's compare-and-set).
+  - The sample-data seed writes the stand-in vault's notes inside its unit of work. That happens once, on an empty database.
+- **Measured on the 200k-item scratch database** (release, the same output as before):
+  - `incoming.list`: 0.48 s, was 0.64 s.
+  - `topics.list`: 0.97 s, was 1.03 s.
+  - `notes.page`: about 2.1 s, unchanged; it waits on Phase 4.
 
 ## Phase 2: one worker per source; message upserts
 
