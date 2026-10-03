@@ -52,7 +52,7 @@ pub fn start(app: Arc<App>) {
         .name("agents-flush".into())
         .spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            if let Err(e) = a.agents.store.flush(&a.db()) {
+            if let Err(e) = a.agents.store.flush(|| a.db()) {
                 eprintln!("agents: flush failed: {e}");
             }
         })
@@ -65,7 +65,7 @@ pub fn start(app: Arc<App>) {
 /// The app is quitting: write what's pending. Local agents keep running in
 /// the agent host; the next start picks them up.
 pub fn shutdown(app: &App) {
-    let _ = app.agents.store.flush(&app.db());
+    let _ = app.agents.store.flush(|| app.db());
 }
 
 pub fn now(app: &App) -> String {

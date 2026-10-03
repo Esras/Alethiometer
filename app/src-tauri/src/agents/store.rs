@@ -23,6 +23,10 @@ pub struct Store {
     /// position move together), and while `flush` takes its snapshot, so a
     /// crash never stores rows from an event without its position or the
     /// reverse: the next run then neither repeats nor skips it.
+    ///
+    /// Lock order: gate → database → turn → store (`lock`). Never take the
+    /// gate while holding the database, and never take it twice on one
+    /// thread: work an event leads to runs after it's released (`acp::After`).
     gate: Mutex<()>,
 }
 
@@ -254,65 +258,76 @@ impl Inner {
     }
 }
 
+/// What changed since the last flush: the keys (to mark dirty again if the
+/// write fails) and their values at the time of the snapshot.
+#[derive(Default)]
+struct Changes {
+    hosts: Vec<(String, HostState)>,
+    gone_h: HashSet<String>,
+    groups: Vec<Group>,
+    sessions: Vec<Session>,
+    row_keys: Vec<(String, u64)>,
+    rows: Vec<(String, Row)>,
+    gone_g: HashSet<String>,
+    gone_s: HashSet<String>,
+}
+
+impl Changes {
+    fn is_empty(&self) -> bool {
+        self.hosts.is_empty() && self.gone_h.is_empty() && self.groups.is_empty() && self.sessions.is_empty() && self.row_keys.is_empty() && self.gone_g.is_empty() && self.gone_s.is_empty()
+    }
+}
+
 impl Store {
-    /// Write what changed since the last flush. Takes the store's lock only to
-    /// copy the changes out.
-    pub fn flush(&self, conn: &Connection) -> rusqlite::Result<()> {
-        // One snapshot of everything, between events, written in one transaction.
-        let (hosts, gone_h, groups, sessions, rows, gone_g, gone_s) = {
-            let _g = self.gate();
-            let mut i = self.lock();
-            let hosts: Vec<(String, HostState)> =
-                i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
-            let groups: Vec<Group> = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
-            let sessions: Vec<Session> =
-                i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
-            let keys: Vec<(String, u64)> = i.dirty_rows.drain().collect();
-            let rows: Vec<(String, Row)> = keys
-                .into_iter()
-                .filter_map(|(k, id)| i.threads.get(&k).and_then(|t| t.rows.iter().find(|r| r.id == id)).map(|r| (k, r.clone())))
-                .collect();
-            (hosts, std::mem::take(&mut i.gone_hosts), groups, sessions, rows, std::mem::take(&mut i.gone_groups), std::mem::take(&mut i.gone_sessions))
-        };
-        if hosts.is_empty() && gone_h.is_empty() && groups.is_empty() && sessions.is_empty() && rows.is_empty() && gone_g.is_empty() && gone_s.is_empty() {
+    /// Write what changed since the last flush, in one transaction.
+    ///
+    /// The snapshot is taken under the gate first and the database is opened
+    /// only after the gate is released (`db` is called then): the gate is
+    /// taken before the database everywhere else (an event loads its thread),
+    /// so holding the database while waiting for the gate would deadlock.
+    /// If the write fails, everything in it is marked dirty again.
+    pub fn flush<C: std::ops::Deref<Target = Connection>>(&self, db: impl FnOnce() -> C) -> rusqlite::Result<()> {
+        let ch = self.take_changes();
+        if ch.is_empty() {
             return Ok(());
         }
-        let tx = conn.unchecked_transaction()?;
-        for (id, h) in &hosts {
-            tx.execute(
-                "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
-                params![id, h.seq as i64, h.turn.to_string()],
-            )?;
+        let conn = db();
+        let r = write_changes(&conn, &ch);
+        if r.is_err() {
+            let mut i = self.lock();
+            i.dirty_hosts.extend(ch.hosts.into_iter().map(|(id, _)| id));
+            i.gone_hosts.extend(ch.gone_h);
+            i.dirty_groups.extend(ch.groups.into_iter().map(|g| g.id));
+            i.dirty_sessions.extend(ch.sessions.into_iter().map(|s| s.id));
+            i.dirty_rows.extend(ch.row_keys);
+            i.gone_groups.extend(ch.gone_g);
+            i.gone_sessions.extend(ch.gone_s);
         }
-        for id in &gone_h {
-            tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
+        r
+    }
+
+    /// One snapshot of everything, between events.
+    fn take_changes(&self) -> Changes {
+        let _g = self.gate();
+        let mut i = self.lock();
+        let hosts = i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
+        let groups = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
+        let sessions = i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
+        let row_keys: Vec<(String, u64)> = i.dirty_rows.drain().collect();
+        let rows = row_keys
+            .iter()
+            .filter_map(|(k, id)| i.threads.get(k).and_then(|t| t.rows.iter().find(|r| r.id == *id)).map(|r| (k.clone(), r.clone())))
+            .collect();
+        Changes {
+            hosts,
+            gone_h: std::mem::take(&mut i.gone_hosts),
+            groups,
+            sessions,
+            row_keys,
+            rows,
+            gone_g: std::mem::take(&mut i.gone_groups),
+            gone_s: std::mem::take(&mut i.gone_sessions),
         }
-        for g in &groups {
-            tx.execute(
-                "INSERT INTO agent_groups (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-                params![g.id, serde_json::to_string(g).unwrap_or_default()],
-            )?;
-        }
-        for s in &sessions {
-            tx.execute(
-                "INSERT INTO agent_sessions (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-                params![s.id, serde_json::to_string(s).unwrap_or_default()],
-            )?;
-        }
-        for (k, r) in &rows {
-            tx.execute(
-                "INSERT INTO agent_rows (thread, id, data) VALUES (?1, ?2, ?3) ON CONFLICT(thread, id) DO UPDATE SET data = excluded.data",
-                params![k, r.id as i64, serde_json::to_string(r).unwrap_or_default()],
-            )?;
-        }
-        for id in &gone_g {
-            tx.execute("DELETE FROM agent_groups WHERE id = ?1", [id])?;
-        }
-        for id in &gone_s {
-            tx.execute("DELETE FROM agent_sessions WHERE id = ?1", [id])?;
-            tx.execute("DELETE FROM agent_rows WHERE thread = ?1", [format!("s:{id}")])?;
-        }
-        tx.commit()
     }
 
     /// Local groups and sessions at startup. Transcripts load when opened.
@@ -333,6 +348,10 @@ impl Store {
             .filter_map(|r| r.ok())
             .map(|(id, seq, turn)| (id, HostState { seq: seq as u64, turn: serde_json::from_str(&turn).unwrap_or_default() }))
             .collect();
+        let last_ids: HashMap<String, u64> = conn
+            .prepare("SELECT thread, max(id) FROM agent_rows GROUP BY thread")?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut i = self.lock();
         for (id, h) in hosts {
             i.hosts.insert(id, h);
@@ -344,7 +363,10 @@ impl Store {
             // Attached again once the agent host says it's still running (`acp::restore`).
             s.live = false;
             let key = format!("s:{}", s.id);
-            i.threads.insert(key, Thread::default());
+            // Rows added before the transcript is read (a reply from Incoming, a
+            // reattach) number after the stored ones, so their ids never change.
+            let next_id = last_ids.get(&key).copied().unwrap_or(0);
+            i.threads.insert(key, Thread { next_id, ..Default::default() });
             i.sessions.insert(s.id.clone(), s);
         }
         i.bump_tree();
@@ -373,20 +395,58 @@ impl Store {
                     r
                 })
                 .collect();
-            // Rows that arrived before the load (a reattach) go after the stored ones.
+            // Rows that arrived before the load (a reattach, a reply) go after the
+            // stored ones. Their ids were numbered past the stored ones at
+            // startup (`load`) and are kept: turns and the flush refer to them.
             let newer: Vec<Row> = t.rows.drain(..).collect();
-            let mut next = stored_rows.last().map_or(0, |r| r.id);
-            for mut r in newer {
-                next += 1;
-                r.id = next;
-                stored_rows.push(r);
-            }
-            t.next_id = next;
+            let last_stored = stored_rows.last().map_or(0, |r| r.id);
+            debug_assert!(newer.iter().all(|r| r.id > last_stored), "a row pushed before the load collides with a stored one");
+            stored_rows.extend(newer);
+            t.next_id = t.next_id.max(stored_rows.last().map_or(0, |r| r.id)).max(last_stored);
             t.rows = stored_rows;
             t.loaded = true;
         }
         Ok(())
     }
+}
+
+fn write_changes(conn: &Connection, ch: &Changes) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (id, h) in &ch.hosts {
+        tx.execute(
+            "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
+            params![id, h.seq as i64, h.turn.to_string()],
+        )?;
+    }
+    for id in &ch.gone_h {
+        tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
+    }
+    for g in &ch.groups {
+        tx.execute(
+            "INSERT INTO agent_groups (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+            params![g.id, serde_json::to_string(g).unwrap_or_default()],
+        )?;
+    }
+    for s in &ch.sessions {
+        tx.execute(
+            "INSERT INTO agent_sessions (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+            params![s.id, serde_json::to_string(s).unwrap_or_default()],
+        )?;
+    }
+    for (k, r) in &ch.rows {
+        tx.execute(
+            "INSERT INTO agent_rows (thread, id, data) VALUES (?1, ?2, ?3) ON CONFLICT(thread, id) DO UPDATE SET data = excluded.data",
+            params![k, r.id as i64, serde_json::to_string(r).unwrap_or_default()],
+        )?;
+    }
+    for id in &ch.gone_g {
+        tx.execute("DELETE FROM agent_groups WHERE id = ?1", [id])?;
+    }
+    for id in &ch.gone_s {
+        tx.execute("DELETE FROM agent_sessions WHERE id = ?1", [id])?;
+        tx.execute("DELETE FROM agent_rows WHERE thread = ?1", [format!("s:{id}")])?;
+    }
+    tx.commit()
 }
 
 /// Colours are assigned per group in order of creation, unique within it
@@ -423,7 +483,7 @@ mod tests {
             i.update_row("s:acp-1", id, |r| r.text.push_str("lo"));
             i.set_host("acp-1", HostState { seq: 7, turn: serde_json::json!({ "sid": "s1" }) });
         }
-        s.flush(&c).unwrap();
+        s.flush(|| &c).unwrap();
         let back = Store::default();
         back.load(&c).unwrap();
         {
@@ -443,12 +503,39 @@ mod tests {
     }
 
     #[test]
+    fn a_row_added_before_the_transcript_loads_keeps_its_id() {
+        let c = conn();
+        let s = Store::default();
+        {
+            let mut i = s.lock();
+            i.put_session(Session { id: "acp-1".into(), ..Default::default() });
+            for t in ["first", "second", "third"] {
+                i.push_row("s:acp-1", Row { kind: Kind::You, text: t.into(), ..Default::default() });
+            }
+        }
+        s.flush(|| &c).unwrap();
+        // Next run: a reply goes out before anyone opens the transcript.
+        let back = Store::default();
+        back.load(&c).unwrap();
+        let id = back.lock().push_row("s:acp-1", Row { kind: Kind::You, text: "reply".into(), ..Default::default() });
+        assert_eq!(id, 4, "numbered after the stored rows");
+        back.lock().update_row("s:acp-1", id, |r| r.label = "delivered".into());
+        back.ensure_loaded(&c, "s:acp-1").unwrap();
+        back.flush(|| &c).unwrap();
+        let i = back.lock();
+        let rows: Vec<(u64, &str, &str)> = i.threads["s:acp-1"].rows.iter().map(|r| (r.id, r.text.as_str(), r.label.as_str())).collect();
+        assert_eq!(rows, vec![(1, "first", ""), (2, "second", ""), (3, "third", ""), (4, "reply", "delivered")]);
+        let stored: Vec<i64> = c.prepare("SELECT id FROM agent_rows WHERE thread = 's:acp-1' ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(stored, vec![1, 2, 3, 4], "the first prompt wasn't overwritten");
+    }
+
+    #[test]
     fn scion_state_is_not_stored() {
         let c = conn();
         let s = Store::default();
         s.lock().put_session(Session { id: "scion:hub:a1".into(), ..Default::default() });
         s.lock().push_row("s:scion:hub:a1", Row::default());
-        s.flush(&c).unwrap();
+        s.flush(|| &c).unwrap();
         let n: i64 = c.query_row("SELECT count(*) FROM agent_sessions", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }

@@ -626,6 +626,34 @@ fn conn_for(app: &App, id: &str) -> Option<Arc<Conn>> {
     Some(c)
 }
 
+/// Work an agent-host event leads to that runs after the gate is released:
+/// sending a held-back message takes the gate itself, and the rest talks to
+/// the agent host or reads the project. Nothing that takes the gate may run
+/// while it's held (it isn't re-entrant).
+pub(crate) enum After {
+    /// The turn is over and a message was held back: send it now.
+    Send(QueuedMessage),
+    /// The turn is over and nothing is waiting: refresh the facts box.
+    Facts,
+    /// The agent exited and its events are applied: the host can drop its log.
+    Forget,
+}
+
+fn run_after(app: &App, id: &str, after: After) {
+    match after {
+        After::Send(q) => {
+            if let (Some(a), Some(c)) = (app.arc(), app.agents.acp.get(id)) {
+                let row = push_you(app, id, &q.text, false, q.images.clone());
+                prompt(&a, &c, row, q.text, q.images);
+            }
+        }
+        After::Facts => super::facts::refresh(app, id),
+        After::Forget => {
+            let _ = daemon::call(app, &dproto::Request::Forget { id: id.to_owned() });
+        }
+    }
+}
+
 /// One event from the agent host, in order. Already-applied ones are skipped,
 /// so a resubscribe that overlaps is harmless.
 pub fn on_event(app: &Arc<App>, ev: Event) {
@@ -635,20 +663,26 @@ pub fn on_event(app: &Arc<App>, ev: Event) {
         }
         return;
     };
-    // Rows and the log position move together (see `Store::gate`).
+    let id = ev.id.clone();
+    if let Some(after) = apply_event(app, &conn, ev) {
+        run_after(app, &id, after);
+    }
+}
+
+/// Apply one event under the gate: rows and the log position move together
+/// (see `Store::gate`).
+fn apply_event(app: &Arc<App>, conn: &Arc<Conn>, ev: Event) -> Option<After> {
     let _gate = app.agents.store.gate();
     let seen = app.agents.store.lock().hosts.get(&ev.id).map(|h| h.seq).unwrap_or(0);
     if ev.seq <= seen {
-        return;
+        return None;
     }
     let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(&ev.id));
     let ts = ts_of(app, ev.at_ms);
-    match ev.kind {
+    let after = match ev.kind {
         dproto::Kind::Out => {
             // Adapters and wrappers sometimes print non-JSON lines; skip them.
-            if let Some(v) = ev.line.as_deref().and_then(|l| serde_json::from_str::<Value>(l.trim()).ok()) {
-                handle(app, &conn, v, &ts);
-            }
+            ev.line.as_deref().and_then(|l| serde_json::from_str::<Value>(l.trim()).ok()).and_then(|v| handle(app, conn, v, &ts))
         }
         dproto::Kind::Err => {
             let mut e = conn.stderr.lock().unwrap_or_else(|e| e.into_inner());
@@ -656,15 +690,15 @@ pub fn on_event(app: &Arc<App>, ev: Event) {
             if e.len() > 50 {
                 e.remove(0);
             }
+            None
         }
         dproto::Kind::Exit => {
-            exited(app, &conn, ev.line.as_deref(), &ts);
-            save_turn(app, &conn, Some(ev.seq));
-            let _ = daemon::call(app, &dproto::Request::Forget { id: ev.id });
-            return;
+            exited(app, conn, ev.line.as_deref(), &ts);
+            Some(After::Forget)
         }
-    }
-    save_turn(app, &conn, Some(ev.seq));
+    };
+    save_turn(app, conn, Some(ev.seq));
+    after
 }
 
 /// The agent's process ended: close what was open, say why if it was busy.
@@ -790,7 +824,7 @@ pub fn model_of(v: &Value) -> Option<String> {
     from_config.or(from_models).filter(|m| !m.is_empty()).map(|m| super::explain::short_model(&m))
 }
 
-fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
+fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) -> Option<After> {
     let method = v.get("method").and_then(Value::as_str);
     match (method, v.get("id")) {
         (Some(m), Some(id)) => {
@@ -805,7 +839,7 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
         }
         (Some("session/update"), None) => {
             if conn.replaying.load(Ordering::SeqCst) {
-                return;
+                return None;
             }
             if let Some(u) = v.pointer("/params/update") {
                 let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
@@ -814,7 +848,7 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
         }
         (Some(_), None) => {}
         (None, Some(id)) => {
-            let Some(id) = id.as_u64() else { return };
+            let id = id.as_u64()?;
             let r = match v.get("error") {
                 Some(e) => Err(e.clone()),
                 None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
@@ -822,11 +856,12 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
             if let Some(tx) = conn.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
                 let _ = tx.send(r);
             } else if conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.contains_key(&id) {
-                finish_prompt(app, conn, id, r, ts);
+                return finish_prompt(app, conn, id, r, ts);
             }
         }
         _ => {}
     }
+    None
 }
 
 fn meta<'a>(u: &'a Value, path: &str) -> Option<&'a Value> {
@@ -1674,6 +1709,9 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
 }
 
 fn push_you(app: &App, id: &str, text: &str, mid_turn: bool, images: Vec<RowImage>) -> u64 {
+    // Read the transcript first so "prompt" vs "message" sees the earlier rows.
+    // Never called under the gate, so taking the database here keeps the lock order.
+    let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(id));
     let ts = now(app);
     let mut i = app.agents.store.lock();
     let first = i.find_row(&session_thread(id), |r| r.kind == Kind::You).is_none();
@@ -1718,16 +1756,21 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     blocks.extend(images.iter().map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })));
     let sent = conn.write(&json!({ "jsonrpc": "2.0", "id": rpc, "method": "session/prompt", "params": { "sessionId": sid, "prompt": blocks } }));
     if let Err(e) = sent {
-        finish_prompt(app, conn, rpc, Err(json!({ "message": e.to_string() })), &now(app));
+        // Not under the gate here (it was dropped before writing).
+        if let Some(after) = finish_prompt(app, conn, rpc, Err(json!({ "message": e.to_string() })), &now(app)) {
+            run_after(app, &id, after);
+        }
     }
 }
 
-/// A prompt's answer: the turn is over (or failed).
-fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) {
+/// A prompt's answer: the turn is over (or failed). What follows (sending a
+/// held-back message, the facts box) is returned for the caller to run once
+/// the gate is free.
+fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Option<After> {
     let id = conn.session.clone();
     let key = session_thread(&id);
     let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(row) = t.prompts.remove(&rpc) else { return };
+    let row = t.prompts.remove(&rpc)?;
     let idle = t.prompts.is_empty();
     let mut i = app.agents.store.lock();
     for (k, rid) in t.open.drain() {
@@ -1789,15 +1832,10 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) {
             });
         }
     }
-    drop(i);
-    drop(t);
-    match (next, app.arc(), app.agents.acp.get(&id)) {
-        (Some(q), Some(a), Some(c)) => {
-            let row2 = push_you(app, &id, &q.text, false, q.images.clone());
-            prompt(&a, &c, row2, q.text, q.images);
-        }
-        _ if idle => super::facts::refresh(app, &id),
-        _ => {}
+    match next {
+        Some(q) => Some(After::Send(q)),
+        None if idle => Some(After::Facts),
+        None => None,
     }
 }
 

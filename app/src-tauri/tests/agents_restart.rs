@@ -101,7 +101,7 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
 
     // Hand over: the first app stops following and writes what it has, as on quit.
     first.agents.daemon.stop.store(true, Ordering::SeqCst);
-    first.agents.store.flush(&first.db()).unwrap();
+    first.agents.store.flush(|| first.db()).unwrap();
     let second = open(dir);
     let again = wait("the approval to come back after the restart", 20, || approval(&second, &id));
     assert_eq!(again, req, "the same request, still waiting");
@@ -150,7 +150,7 @@ fn a_question_is_answered_by_choice_then_text_across_a_restart() {
     assert_eq!(q["choices"][1]["detail"], "A file next to the app");
 
     first.agents.daemon.stop.store(true, Ordering::SeqCst);
-    first.agents.store.flush(&first.db()).unwrap();
+    first.agents.store.flush(|| first.db()).unwrap();
     let second = open(dir);
     let again = wait("the question to come back after the restart", 20, || ask(&second, &id));
     assert_eq!(again["id"], q["id"]);
@@ -293,4 +293,39 @@ fn coming_back_mid_stream_joins_backlog_and_live_cleanly() {
     }
     // 150 chunks over ~6 s; killed early, back while it's still streaming.
     crash_while_streaming(150, 5, Duration::from_millis(300));
+}
+
+/// A message sent mid-turn is held back and goes out when the turn ends.
+/// Sending it used to take the store's gate a second time on the thread
+/// that was already holding it (a deadlock that also held the database).
+#[test]
+fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "stream"), ("FAKE_ACP_CHUNKS", "20"), ("FAKE_ACP_DELAY_MS", "50")]);
+    let app = open(dir);
+    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "count" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let key = format!("s:{id}");
+    wait("the first chunks", 30, || {
+        let i = app.agents.store.lock();
+        i.threads.get(&key)?.rows.iter().any(|r| r.text.contains("t2 ")).then_some(())
+    });
+    alethiometer_lib::agents::call(&app, "send", &json!({ "thread": key, "text": "and again" })).unwrap();
+    wait("both turns to finish", 30, || {
+        let i = app.agents.store.lock();
+        let s = i.sessions.get(&id)?;
+        (s.status == Status::Idle && s.stats.turns == 2 && s.queued.is_empty()).then_some(())
+    });
+    // The flush thread (database, then the gate) must still get through.
+    wait("a flush", 10, || app.agents.store.flush(|| app.db()).ok());
+    let you: Vec<(String, String)> = {
+        let i = app.agents.store.lock();
+        i.threads[&key].rows.iter().filter(|r| r.kind == alethiometer_lib::agents::model::Kind::You).map(|r| (r.text.clone(), r.delivery.as_ref().map(|d| d.state.clone()).unwrap_or_default())).collect()
+    };
+    assert_eq!(you, vec![("count".to_owned(), "delivered".to_owned()), ("and again".to_owned(), "delivered".to_owned())]);
+    stop_host(dir, host);
 }
