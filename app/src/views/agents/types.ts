@@ -140,8 +140,27 @@ export interface Request {
   } | null;
   tag: string;
   question: string;
-  choices: { key: string; title: string; detail: string }[];
+  choices: { key: string; title: string; detail: string; value?: string }[];
   via: string;
+  /** An ACP elicitation's requestedSchema (JSON Schema, an object of fields). */
+  form?: FormSchema | null;
+}
+
+export interface FormField {
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: unknown;
+  oneOf?: { const: string; title?: string; description?: string }[];
+  anyOf?: { const: string; title?: string; description?: string }[];
+  enum?: string[];
+  items?: FormField;
+}
+
+export interface FormSchema {
+  type: 'object';
+  properties: Record<string, FormField>;
+  required?: string[];
 }
 
 export interface Tree {

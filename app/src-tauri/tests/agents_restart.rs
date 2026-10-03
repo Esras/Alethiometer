@@ -1,7 +1,8 @@
 //! A local agent outlives the app.
 //!
 //! - An approval asked in one App is answered in the next one, on the same
-//!   agent process and JSON-RPC request (in-process handover).
+//!   agent process and JSON-RPC request (in-process handover); a question
+//!   (`elicitation/create`) the same way, by choice and then by text.
 //! - The app is killed (`kill -9`, the devserver binary as a separate
 //!   process) while the agent streams; the agent keeps going, and the next
 //!   app shows every chunk exactly once: once after the turn finished while
@@ -121,6 +122,55 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
     assert_eq!(rows.iter().filter(|r| r["kind"] == "you").count(), 1, "nothing replayed twice");
     let tools: Vec<&Value> = rows.iter().filter(|r| r["kind"] == "tool").collect();
     assert!(tools.iter().any(|r| r["tool"]["name"] == "bash" && r["note"].as_str().is_some_and(|n| n.starts_with("allowed once"))), "the approved command is a tool row again");
+
+    stop_host(dir, host);
+}
+
+fn ask(app: &App, session: &str) -> Option<Value> {
+    let i = app.agents.store.lock();
+    i.requests.values().find(|r| r.session_id == session && r.kind == "ask").map(|r| serde_json::to_value(r).unwrap())
+}
+
+#[test]
+fn a_question_is_answered_by_choice_then_text_across_a_restart() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "ask")]);
+
+    let first = open(dir);
+    let id = alethiometer_lib::agents::call(&first, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Add a cache" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let q = wait("the first question", 30, || ask(&first, &id));
+    assert_eq!(q["question"], "Which database should the cache use?");
+    let titles: Vec<&str> = q["choices"].as_array().unwrap().iter().map(|c| c["title"].as_str().unwrap()).collect();
+    assert_eq!(titles, ["Postgres", "SQLite"]);
+    assert_eq!(q["choices"][1]["detail"], "A file next to the app");
+
+    first.agents.daemon.stop.store(true, Ordering::SeqCst);
+    first.agents.store.flush(&first.db()).unwrap();
+    let second = open(dir);
+    let again = wait("the question to come back after the restart", 20, || ask(&second, &id));
+    assert_eq!(again["id"], q["id"]);
+    wait("the session to be attached", 10, || second.agents.store.lock().sessions.get(&id).filter(|s| s.live).map(|_| ()));
+
+    alethiometer_lib::agents::call(&second, "answer", &json!({ "request": again["id"], "choice": "2" })).unwrap();
+    let next = wait("the text question", 20, || ask(&second, &id).filter(|r| r["id"] != again["id"]));
+    assert!(next["choices"].as_array().unwrap().is_empty());
+    alethiometer_lib::agents::call(&second, "answer", &json!({ "request": next["id"], "text": "cache_entries" })).unwrap();
+
+    wait("the turn to finish", 30, || second.agents.store.lock().sessions.get(&id).filter(|s| s.status == Status::Idle).map(|_| ()));
+    let rows: Vec<Value> = {
+        let i = second.agents.store.lock();
+        i.threads[&format!("s:{id}")].rows.iter().map(|r| serde_json::to_value(r).unwrap()).collect()
+    };
+    let out: String = rows.iter().filter(|r| r["kind"] == "output").map(|r| r["text"].as_str().unwrap_or("")).collect();
+    assert_eq!(out, r#"Got {"question_0":"SQLite"} then {"value":"cache_entries"}"#);
+    let asks: Vec<&str> = rows.iter().filter(|r| r["kind"] == "ask").map(|r| r["note"].as_str().unwrap_or("")).collect();
+    assert_eq!(asks.len(), 2, "one row per question, none repeated by the restart");
+    assert_eq!(asks, ["answered: SQLite", "answered: cache_entries"]);
 
     stop_host(dir, host);
 }

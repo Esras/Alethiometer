@@ -10,7 +10,9 @@
 // FAKE_ACP_FAST=1 drops the delays (tests). FAKE_ACP_MODE=stream plays a turn
 // of numbered output chunks instead ("t1 t2 … tN ", FAKE_ACP_CHUNKS, every
 // FAKE_ACP_DELAY_MS), with no permission asks: the restart tests check it
-// arrives exactly once.
+// arrives exactly once. FAKE_ACP_MODE=ask asks two questions through
+// elicitation/create (a choice like Claude Code's AskUserQuestion, then text
+// like pi's input) and says what it got.
 
 import readline from 'node:readline';
 
@@ -24,6 +26,7 @@ let cancelled = false;
 let turn = 0;
 let used = 18000;
 let mode = 'default';
+let elicits = false;
 const MODES = { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'acceptEdits', name: 'Accept Edits' }, { id: 'plan', name: 'Plan' }] };
 
 function request(method, params) {
@@ -75,10 +78,64 @@ async function stream() {
   return cancelled ? 'cancelled' : 'end_turn';
 }
 
+async function ask() {
+  if (!elicits) {
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'This client can’t answer questions.' } });
+    return 'end_turn';
+  }
+  if (process.env.FAKE_ACP_ASK === 'form') {
+    // Two questions at once, like AskUserQuestion with several: shown as a form.
+    const r = await request('elicitation/create', {
+      sessionId: session,
+      mode: 'form',
+      message: 'Please answer the following questions.',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          question_0: { type: 'string', title: 'Database', description: 'Where should the cache live?', oneOf: [{ const: 'Postgres', title: 'Postgres' }, { const: 'SQLite', title: 'SQLite' }] },
+          question_0_custom: { type: 'string', title: 'Other' },
+          question_1: { type: 'array', title: 'Evict', description: 'When should entries go?', items: { anyOf: [{ const: 'TTL', title: 'After a TTL' }, { const: 'LRU', title: 'Least recently used' }, { const: 'Size', title: 'Over a size cap' }] } },
+        },
+      },
+    });
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Got ${r?.action === 'accept' ? JSON.stringify(r.content) : r?.action}` } });
+    return 'end_turn';
+  }
+  const pick = await request('elicitation/create', {
+    sessionId: session,
+    mode: 'form',
+    message: 'Which database should the cache use?',
+    requestedSchema: {
+      type: 'object',
+      properties: {
+        question_0: {
+          type: 'string',
+          title: 'Database',
+          oneOf: [
+            { const: 'Postgres', title: 'Postgres', description: 'The one we already run' },
+            { const: 'SQLite', title: 'SQLite', description: 'A file next to the app' },
+          ],
+        },
+        question_0_custom: { type: 'string', title: 'Other' },
+      },
+    },
+  });
+  const name = await request('elicitation/create', {
+    sessionId: session,
+    mode: 'form',
+    message: 'What should the table be called?',
+    requestedSchema: { type: 'object', properties: { value: { type: 'string', title: 'Answer' } }, required: ['value'] },
+  });
+  const got = (r) => (r?.action === 'accept' ? JSON.stringify(r.content) : r?.action ?? 'nothing');
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Got ${got(pick)} then ${got(name)}` } });
+  return cancelled ? 'cancelled' : 'end_turn';
+}
+
 async function play(text) {
   turn++;
   cancelled = false;
   if (process.env.FAKE_ACP_MODE === 'stream') return stream();
+  if (process.env.FAKE_ACP_MODE === 'ask') return ask();
   const t = `t${turn}`;
   await chunks('agent_thought_chunk', 'Probably a flex row without min-width. Check Header.tsx before touching the modal, then look for overrides.');
   await tool(`${t}_read`, 'Read', 'read', 'Read src/settings/Header.tsx', { file_path: `${process.cwd()}/src/settings/Header.tsx` }, Array.from({ length: 64 }, (_, i) => `${i + 1}\tline ${i + 1}`).join('\n'));
@@ -137,6 +194,7 @@ rl.on('line', async (line) => {
   const reply = (result) => send({ id: m.id, result });
   switch (m.method) {
     case 'initialize':
+      elicits = !!m.params?.clientCapabilities?.elicitation?.form;
       return reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } }, authMethods: [] });
     case 'session/new':
       session = `fake-${Date.now().toString(36)}`;

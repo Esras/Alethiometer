@@ -284,6 +284,9 @@ pub struct Request {
     pub choices: Vec<Choice>,
     /// "input-needed · 4m" source label, and the room it came through.
     pub via: String,
+    /// An ACP elicitation's `requestedSchema`: the fields the agent asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -325,6 +328,9 @@ pub struct Choice {
     pub key: String,
     pub title: String,
     pub detail: String,
+    /// What answering with it sends (an elicitation option's `const`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub value: String,
 }
 
 /// Rough tokens for text the agent didn't count (thinking): ~4 chars a token.

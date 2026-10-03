@@ -19,7 +19,7 @@
 //! again when you message it, and its ACP session resumed (`session/resume`,
 //! else `session/load` with the replay dropped: the transcript is stored).
 
-use super::model::{Delivery, Kind, PermOption, Request, Row, RowImage, Session, Status, Tool, Who};
+use super::model::{Choice, Delivery, Kind, PermOption, Request, Row, RowImage, Session, Status, Tool, Who};
 use super::store::HostState;
 use super::{daemon, now, session_thread};
 use crate::error::{msg, Result};
@@ -82,12 +82,32 @@ pub struct Conn {
     stderr: Mutex<Vec<String>>,
 }
 
-/// An approval waiting on you: the agent's request id and what it asked.
+/// An approval or question waiting on you: the agent's request id and what it asked.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Waiting {
     rpc: Value,
     params: Value,
+    /// `session/request_permission` (empty in turns stored before asks) or `elicitation/create`.
+    #[serde(default)]
+    method: String,
 }
+
+impl Waiting {
+    fn is_ask(&self) -> bool {
+        self.method == ELICIT
+    }
+
+    /// What settles it without an answer.
+    fn cancelled(&self) -> Value {
+        if self.is_ask() {
+            json!({ "action": "cancel" })
+        } else {
+            json!({ "outcome": { "outcome": "cancelled" } })
+        }
+    }
+}
+
+const ELICIT: &str = "elicitation/create";
 
 /// Where streamed updates go, and what's in flight. Stored after every
 /// event, so another run of the app can carry on from it.
@@ -403,7 +423,7 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
             "initialize",
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
-                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {} } },
                 "clientInfo": { "name": "alethiometer", "version": env!("CARGO_PKG_VERSION") },
             }),
             Some(INIT_TIMEOUT),
@@ -591,7 +611,11 @@ pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
                 for w in waiting {
                     let req = format!("{}:{}", s.id, w.rpc);
                     if !app.agents.store.lock().requests.contains_key(&req) {
-                        permission(app, &conn, w.rpc.clone(), &w.params);
+                        if w.is_ask() {
+                            elicit(app, &conn, w.rpc.clone(), &w.params);
+                        } else {
+                            permission(app, &conn, w.rpc.clone(), &w.params);
+                        }
                     }
                 }
             }
@@ -657,6 +681,7 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
             let params = v.get("params").cloned().unwrap_or(Value::Null);
             match m {
                 "session/request_permission" => permission(app, conn, id.clone(), &params),
+                ELICIT => elicit(app, conn, id.clone(), &params),
                 _ => {
                     let _ = conn.write(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("{m} isn't supported by this client") } }));
                 }
@@ -1234,7 +1259,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let _ = target;
     {
         let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone() });
+        turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone(), method: "session/request_permission".into() });
         let mut i = app.agents.store.lock();
         let existing = turn.tools.get(&call).map(|(_, id, _)| *id);
         let row_id = match existing {
@@ -1257,6 +1282,142 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         i.update_session(&session, |s| s.status = Status::Waiting);
     }
     super::explain::request(app, &req_id);
+}
+
+/// `elicitation/create`: the agent asks you something (Claude Code's
+/// AskUserQuestion, pi's questions and text input). Shown as an Ask. Form
+/// mode only; a URL elicitation is declined.
+fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
+    let session = conn.session.clone();
+    let schema = p.get("requestedSchema").cloned().unwrap_or(Value::Null);
+    if p.get("mode").and_then(Value::as_str) != Some("form") || !schema.get("properties").is_some_and(Value::is_object) {
+        let _ = conn.respond(&rpc_id, json!({ "action": "decline" }));
+        return;
+    }
+    let ts = now(app);
+    let req_id = format!("{session}:{rpc_id}");
+    let question = p.get("message").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+    let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
+    let req = Request {
+        id: req_id.clone(),
+        session_id: session.clone(),
+        thread: session_thread(&session),
+        kind: "ask".into(),
+        at: ts.clone(),
+        title: question.clone(),
+        cwd: s.cwd.clone(),
+        question: question.clone(),
+        choices: one_choice(&schema).map(|(_, c)| c).unwrap_or_default(),
+        tag: "question".into(),
+        via: "question".into(),
+        form: Some(schema),
+        ..Default::default()
+    };
+    let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+    turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone(), method: ELICIT.into() });
+    let mut i = app.agents.store.lock();
+    let key = session_thread(&session);
+    if i.find_row(&key, |r| r.request.as_deref() == Some(req_id.as_str())).is_none() {
+        i.push_row(&key, Row { at: ts, kind: Kind::Ask, who: Some(Who::agent(&s.name, Some(session.clone()))), text: question, request: Some(req_id), ..Default::default() });
+    }
+    i.put_request(req);
+    i.update_session(&session, |s| s.status = Status::Waiting);
+}
+
+/// The form's one single-choice field and its options, when that's all it
+/// needs (other fields optional free text): answered with a click.
+fn one_choice(schema: &Value) -> Option<(String, Vec<Choice>)> {
+    let props = schema.get("properties")?.as_object()?;
+    let required: Vec<&str> = schema.get("required").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let mut found = None;
+    for (name, f) in props {
+        match (field_options(f), f.get("type").and_then(Value::as_str)) {
+            (Some(opts), Some("string")) if found.is_none() => found = Some((name.clone(), opts)),
+            (None, Some("string")) if !required.contains(&name.as_str()) => {}
+            _ => return None,
+        }
+    }
+    let (name, opts) = found?;
+    let choices = opts
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let value = o.get("const").and_then(Value::as_str).unwrap_or("").to_owned();
+            let title = o.get("title").and_then(Value::as_str).unwrap_or(&value);
+            // pi's questionnaire writes "1. Label - what it means" as one label.
+            let title = title.trim().trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches(['.', ')']).trim_start();
+            let title = if title.is_empty() { value.as_str() } else { title };
+            let (title, detail) = match o.get("description").and_then(Value::as_str) {
+                Some(d) => (title.to_owned(), d.to_owned()),
+                None => title.split_once(" - ").or_else(|| title.split_once(" — ")).map(|(a, b)| (a.trim().to_owned(), b.trim().to_owned())).unwrap_or_else(|| (title.to_owned(), String::new())),
+            };
+            Choice { key: (i + 1).to_string(), title, detail, value }
+        })
+        .collect();
+    Some((name, choices))
+}
+
+/// A field's options as `{const, title, description}`: JSON Schema `oneOf`/`anyOf`, or a plain `enum`.
+fn field_options(f: &Value) -> Option<Vec<Value>> {
+    if let Some(a) = f.get("oneOf").or_else(|| f.get("anyOf")).and_then(Value::as_array) {
+        return Some(a.clone());
+    }
+    let e = f.get("enum")?.as_array()?;
+    let names = f.get("enumNames").and_then(Value::as_array);
+    Some(e.iter().enumerate().map(|(i, v)| json!({ "const": v, "title": names.and_then(|n| n.get(i)).cloned().unwrap_or(v.clone()) })).collect())
+}
+
+fn plain(v: &Value) -> String {
+    v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())
+}
+
+/// The first free-text field: where a written reply goes.
+fn text_field(schema: &Value) -> Option<String> {
+    schema.get("properties")?.as_object()?.iter().find(|(_, f)| f.get("type").and_then(Value::as_str) == Some("string") && field_options(f).is_none()).map(|(k, _)| k.clone())
+}
+
+/// Answer an Ask from `elicitation/create`: one of its choices (by key),
+/// written text, or the whole form. Text with nowhere to go declines the
+/// question and is sent as your next message instead.
+pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>, content: Option<Value>) -> Result<()> {
+    let req = app.agents.store.lock().requests.get(req_id).cloned().ok_or_else(|| msg("That question was already answered"))?;
+    let conn = app.agents.acp.get(&req.session_id).ok_or_else(|| msg("the agent isn't running anymore"))?;
+    let schema = req.form.clone().unwrap_or(Value::Null);
+    let text = text.map(str::trim).filter(|t| !t.is_empty());
+    let (reply, said, after) = if let Some(c) = content {
+        let said = c.as_object().map(|o| o.values().map(|v| v.as_array().map(|a| a.iter().map(plain).collect::<Vec<_>>().join(", ")).unwrap_or_else(|| plain(v))).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+        (json!({ "action": "accept", "content": c }), said, None)
+    } else if let Some(key) = choice {
+        let (field, choices) = one_choice(&schema).ok_or_else(|| msg("That question has no choices"))?;
+        let c = choices.iter().find(|c| c.key == key || c.value == key).ok_or_else(|| msg("not one of its choices"))?;
+        (json!({ "action": "accept", "content": { field: c.value } }), c.title.clone(), None)
+    } else if let Some(t) = text {
+        match text_field(&schema) {
+            Some(field) => (json!({ "action": "accept", "content": { field: t } }), t.to_owned(), None),
+            None => (json!({ "action": "decline" }), "replied below".to_owned(), Some(t.to_owned())),
+        }
+    } else {
+        return Err(msg("Pick a choice or write a reply"));
+    };
+    let w = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.remove(req_id).ok_or_else(|| msg("That question was already answered"))?;
+    conn.respond(&w.rpc, reply)?;
+    {
+        let mut i = app.agents.store.lock();
+        i.remove_request(req_id);
+        let key = req.thread.clone();
+        if let Some(id) = i.find_row(&key, |r| r.request.as_deref() == Some(req_id)).map(|r| r.id) {
+            i.update_row(&key, id, |r| {
+                r.request = None;
+                r.note = format!("answered: {said}");
+            });
+        }
+        let still_waiting = i.requests.values().any(|r| r.session_id == req.session_id);
+        i.update_session(&req.session_id, |s| s.status = if still_waiting { Status::Waiting } else { Status::Running });
+    }
+    if let Some(t) = after {
+        send(app, &req.session_id, &t, vec![])?;
+    }
+    Ok(())
 }
 
 /// An edit's diff, shortened, for the approval card: the path, then -/+ lines.
@@ -1522,9 +1683,9 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
 pub fn interrupt(app: &App, id: &str) -> Result<()> {
     let id = id.split('~').next().unwrap_or(id);
     let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running"))?;
-    let waiting: Vec<(String, Value)> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.drain().map(|(k, w)| (k, w.rpc)).collect();
-    for (req, rpc) in waiting {
-        let _ = conn.respond(&rpc, json!({ "outcome": { "outcome": "cancelled" } }));
+    let waiting: Vec<(String, Waiting)> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.drain().collect();
+    for (req, w) in waiting {
+        let _ = conn.respond(&w.rpc, w.cancelled());
         app.agents.store.lock().remove_request(&req);
     }
     conn.notify("session/cancel", json!({ "sessionId": conn.sid() }))
@@ -1677,6 +1838,32 @@ pub(crate) mod tests {
         assert_eq!(tool_label(&pi_read, "/r"), ("read".into(), "src/a.ts".into()));
         let grep = json!({ "_meta": { "claudeCode": { "toolName": "Grep" } }, "title": "grep -n \"x\" src" });
         assert_eq!(tool_label(&grep, "/r"), ("grep".into(), "-n \"x\" src".into()));
+    }
+
+    #[test]
+    fn questions_read_as_choices() {
+        // pi-acp: the questionnaire's numbered "label - meaning" options.
+        let pi = json!({ "type": "object", "properties": { "value": { "type": "string", "oneOf": [
+            { "const": "1. Postgres - the one we run", "title": "1. Postgres - the one we run" },
+            { "const": "2. SQLite", "title": "2. SQLite" }
+        ] } }, "required": ["value"] });
+        let (field, c) = one_choice(&pi).unwrap();
+        assert_eq!(field, "value");
+        assert_eq!((c[0].key.as_str(), c[0].title.as_str(), c[0].detail.as_str()), ("1", "Postgres", "the one we run"));
+        assert_eq!((c[1].title.as_str(), c[1].value.as_str()), ("SQLite", "2. SQLite"), "answers with the agent's own value");
+        assert_eq!(text_field(&pi), None);
+        // Claude Code: a choice and an optional "Other", which a written reply fills.
+        let claude = json!({ "type": "object", "properties": {
+            "question_0": { "type": "string", "oneOf": [{ "const": "A", "title": "A", "description": "first" }] },
+            "question_0_custom": { "type": "string", "title": "Other" }
+        } });
+        assert_eq!(one_choice(&claude).unwrap().1[0].detail, "first");
+        assert_eq!(text_field(&claude).as_deref(), Some("question_0_custom"));
+        // Two questions, or a multi-select: the card shows a form instead.
+        let two = json!({ "type": "object", "properties": { "a": { "type": "string", "enum": ["x"] }, "b": { "type": "string", "enum": ["y"] } } });
+        assert!(one_choice(&two).is_none());
+        let many = json!({ "type": "object", "properties": { "a": { "type": "array", "items": { "anyOf": [{ "const": "x" }] } } } });
+        assert!(one_choice(&many).is_none());
     }
 
     #[test]
