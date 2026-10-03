@@ -47,7 +47,9 @@ export async function commitMerges() {
   merges.list = [];
   for (const m of list) {
     try {
-      await call('topics.merge', { from: m.from, into: m.into });
+      const r = await call<{ note: string }>('topics.merge', { from: m.from, into: m.into });
+      // Merged; only the note text couldn't be appended.
+      if (r.note.startsWith('failed')) merges.err = `Merged ${m.fromName} into ${m.intoName}, but its note wasn't appended (${r.note}). ${m.fromName}'s note file is still there.`;
     } catch (e) {
       merges.err = `Merging ${m.fromName} into ${m.intoName} failed: ${String((e as Error).message ?? e)}`;
     }

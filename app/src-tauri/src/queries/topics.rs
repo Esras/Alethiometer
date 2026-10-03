@@ -172,21 +172,42 @@ fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
             super::incoming::relabel_gmail(&tx, item, Some(&a.1), &b.1)?;
         }
         tx.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
-        tx.execute("INSERT OR IGNORE INTO topic_people (topic_id, person_id) SELECT ?2, person_id FROM topic_people WHERE topic_id = ?1", params![from, into])?;
-        tx.execute("DELETE FROM topic_people WHERE topic_id = ?1", [from])?;
-        tx.execute("INSERT OR IGNORE INTO topic_repos (topic_id, repo) SELECT ?2, repo FROM topic_repos WHERE topic_id = ?1", params![from, into])?;
-        tx.execute("DELETE FROM topic_repos WHERE topic_id = ?1", [from])?;
-        tx.execute(
-            "UPDATE notes_lines SET target_json = json_set(target_json, '$.id', ?2, '$.label', ?3, '$.category', ?4)
-              WHERE json_extract(target_json, '$.type') = 'topic' AND json_extract(target_json, '$.id') = ?1",
-            params![from, into, b.0, b.1],
-        )?;
-        tx.execute("DELETE FROM topics WHERE id = ?1", [from])?;
+        hand_over_and_delete(&tx, from, into, &b.0, &b.1)?;
         tx.commit()?;
         (a.0, a.2, b.0, b.2)
     };
-    let note = append_merged_note(app, into, &from_name, from_path.as_deref(), &into_name, into_path)?;
+    // The merge is committed: a note that can't be appended doesn't undo it,
+    // it's reported (`from`'s note file is still there to copy by hand).
+    let note = match append_merged_note(app, into, &from_name, from_path.as_deref(), &into_name, into_path) {
+        Ok(n) => n.to_owned(),
+        Err(e) => format!("failed: {e}"),
+    };
     Ok(json!({ "ok": true, "note": note }))
+}
+
+/// Everything outside `topic_links` that names topic `from`, handed to
+/// `into` (named `into_name`, category `into_category`), then `from` itself
+/// deleted. The one place that knows every table referring to a topic: a
+/// test checks it against the schema's foreign keys.
+/// - People and repos linked by hand, Glean pins and rejects (`into`'s own
+///   verdict wins on the same result) and Notes lines move.
+/// - `from`'s vector goes, and `into`'s is marked stale: its text now
+///   includes `from`'s signals. Ids aren't AUTOINCREMENT, so a later topic
+///   can get `from`'s id and must not inherit its vector.
+fn hand_over_and_delete(tx: &rusqlite::Transaction, from: i64, into: i64, into_name: &str, into_category: &str) -> Result<()> {
+    for table in ["topic_people", "topic_repos", "search_feedback"] {
+        tx.execute(&format!("UPDATE OR IGNORE {table} SET topic_id = ?2 WHERE topic_id = ?1"), params![from, into])?;
+        tx.execute(&format!("DELETE FROM {table} WHERE topic_id = ?1"), [from])?;
+    }
+    tx.execute(
+        "UPDATE notes_lines SET target_json = json_set(target_json, '$.id', ?2, '$.label', ?3, '$.category', ?4)
+          WHERE json_extract(target_json, '$.type') = 'topic' AND json_extract(target_json, '$.id') = ?1",
+        params![from, into, into_name, into_category],
+    )?;
+    tx.execute("DELETE FROM vec_topics WHERE rowid = ?1", [from])?;
+    tx.execute("DELETE FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![from, into])?;
+    tx.execute("DELETE FROM topics WHERE id = ?1", [from])?;
+    Ok(())
 }
 
 /// Append the merged topic's note to the surviving topic's note. Returns
@@ -811,6 +832,60 @@ mod tests {
         drop(conn);
         assert!(crate::api::call(&app, "topics.merge", &json!({ "from": q4, "into": q4 })).is_err());
         assert!(crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).is_err(), "already gone");
+    }
+
+    #[test]
+    fn every_table_naming_a_topic_is_handled_when_one_goes() {
+        // A new table with a foreign key to topics must be added to
+        // hand_over_and_delete (or merging a topic that has rows there fails).
+        let conn = crate::db::open_in_memory().unwrap();
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        let mut referring: Vec<String> = tables
+            .into_iter()
+            .filter(|t| {
+                conn.prepare(&format!("SELECT \"table\" FROM pragma_foreign_key_list('{t}')"))
+                    .unwrap()
+                    .query_map([], |r| r.get::<_, String>(0))
+                    .unwrap()
+                    .any(|r| r.unwrap() == "topics")
+            })
+            .collect();
+        referring.sort();
+        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos"]);
+    }
+
+    #[test]
+    fn merging_a_topic_with_glean_pins_and_a_vector() {
+        let (app, _dir) = app();
+        let dd = topic_id(&app, "Datadog renewal");
+        let q4 = topic_id(&app, "Q4 headcount");
+        {
+            let conn = app.db();
+            for (t, key, verdict) in [(dd, "https://a", "pin"), (dd, "https://b", "reject"), (q4, "https://b", "pin")] {
+                conn.execute("INSERT INTO search_feedback (topic_id, key, verdict) VALUES (?1, ?2, ?3)", params![t, key, verdict]).unwrap();
+            }
+            crate::embed::store(&conn, "topic", dd, "m", "h1", &[0.5; 384]).unwrap();
+            crate::embed::store(&conn, "topic", q4, "m", "h2", &[0.25; 384]).unwrap();
+        }
+        crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).unwrap();
+        let conn = app.db();
+        let fb: Vec<(String, String)> = conn
+            .prepare("SELECT key, verdict FROM search_feedback WHERE topic_id = ?1 ORDER BY key")
+            .unwrap()
+            .query_map([q4], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(fb, [("https://a".to_owned(), "pin".to_owned()), ("https://b".to_owned(), "pin".to_owned())], "moved; the surviving topic's own verdict wins");
+        assert!(crate::embed::vector(&conn, "topic", dd).unwrap().is_none(), "the merged topic's vector is gone");
+        let stale: i64 = conn.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![dd, q4], |r| r.get(0)).unwrap();
+        assert_eq!(stale, 0, "the surviving topic is re-embedded");
     }
 
     #[test]
