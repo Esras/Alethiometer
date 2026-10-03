@@ -151,6 +151,26 @@
           }
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
         }}></textarea>
+    {:else if field.widget === 'swatches'}
+      <span class="swatches">
+        {#each o.presets ?? [] as c (c)}
+          <button class="sw" class:on={String(value).toLowerCase() === c.toLowerCase()} style:background={c} title={c} aria-label={c} onclick={() => onset(c)}></button>
+        {/each}
+      </span>
+    {:else if field.widget === 'segmented'}
+      <div class="seg">
+        {#each o.enum ?? [] as opt}
+          <button class:on={(value ?? '') === opt} onclick={() => onset(opt)}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</button>
+        {/each}
+      </div>
+    {:else if field.widget === 'palette'}
+      {#if editing}
+        <ListEdit items={(value as string[]) ?? []} {editing} {onedit} onchange={(v) => onset(v)} />
+      {:else}
+        <button class="swatches" onclick={() => onedit(true)} title="↵ edit">
+          {#each (value as string[]) ?? [] as c, i (i)}<span class="sw static" style:background={c}></span>{/each}
+        </button>
+      {/if}
     {:else if field.widget === 'person_color'}
       <span class="swatch" style:background={personColor(Number(value ?? 0))}></span>
       <Stepper value={Number(value ?? 0)} step={1} min={0} max={255} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -341,5 +361,28 @@
   }
   .readonly .lbl {
     color: var(--tx-2);
+  }
+  .swatches {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 4px;
+  }
+  .sw {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    flex: none;
+    opacity: 0.9;
+  }
+  .sw.on {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px var(--bg-app),
+      0 0 0 4px var(--tx-title);
+  }
+  .sw.static {
+    width: 16px;
+    height: 16px;
   }
 </style>

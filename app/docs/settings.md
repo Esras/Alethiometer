@@ -25,9 +25,10 @@ Connectors still read their own config from JSON. `settings::sources::tests::def
 1. **General**: Window (`ui_scale`), Type (`ui_font`, `mono_font`, `ui_font_size`, `reading_font_size`), Day strip, Topics, Notes (vault), Data (sample data).
 2. **Categories**: the Topics index category editor (writes `categories` back).
 3. **People**: your colour, your accounts, when to suggest a People note.
-4. **Sources**: one sub-item per source, plus Add source. Pages: Identity, Secrets, What it reads (Categories on Google Calendar), Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.
+4. **Sources**: one sub-item per source (a Scion Hub is one: `scion`, see `agents.md`), plus Add source. Pages: Identity, Secrets, What it reads (Categories on Google Calendar), Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.
 5. **AI**: allowed providers (read-only), Bedrock region and profile, models (each tier has an on/off toggle, `ai.small.enabled` / `ai.large.enabled`) with today's usage, prices (editable for now; see ISSUES.md), local embeddings state.
-6. **Developer**: `fake_now` (dev builds only) and the settings path.
+6. **Agents**: a live preview, then Approvals (`agents.accept_edits`), Message colors (`←`/`→` picks a preset, Reset to default), Agent names, Boxes. `⌫` resets a row. See `agents.md`.
+7. **Developer**: `fake_now` (dev builds only) and the settings path.
 
 `life_calendars` moves into the Proton source's `urls` the first time the app opens the file.
 
@@ -41,4 +42,4 @@ Interface sizes are rem off the root font size (`ui_font_size`, default 13). Rea
 
 ## Keys
 
-`j`/`k` setting, `1`–`6` or `⇥` section, `⌥j`/`⌥k` previous/next source, `↵` edit, `−`/`+` step, `space` toggle, `r` replace secret, `a` add source, `⇧X` remove source, `s` sync now, `/` find, `esc` close.
+`j`/`k` setting, `1`–`7` or `⇥` section, `←`/`→` pick a colour (Agents), `⌫` reset (Agents), `⌥j`/`⌥k` previous/next source, `↵` edit, `−`/`+` step, `space` toggle, `r` replace secret, `a` add source, `⇧X` remove source, `s` sync now, `/` find, `esc` close.

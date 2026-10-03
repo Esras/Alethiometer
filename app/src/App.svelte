@@ -14,6 +14,7 @@
   import Search from './views/Search.svelte';
   import Reflect from './views/Reflect.svelte';
   import Todos from './views/Todos.svelte';
+  import Agents from './views/Agents.svelte';
   import Topics from './views/Topics.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
 
@@ -41,7 +42,7 @@
       e.preventDefault();
       return;
     }
-    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && ui.tab !== 'todos' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
+    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && ui.tab !== 'todos' && ui.tab !== 'agents' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
       ui.searchOpen = true;
       e.preventDefault();
       return;
@@ -51,13 +52,24 @@
       e.preventDefault();
       return;
     }
-    if (mod(e) && /^[1-6]$/.test(e.key)) {
+    if (mod(e) && /^[1-7]$/.test(e.key)) {
       setTab(TABS[Number(e.key) - 1].id);
       e.preventDefault();
       return;
     }
+    // g i / g a: go to Incoming / Agents (the g itself still reaches the view).
+    if (!isTyping(e) && !mod(e) && !e.altKey && !ui.searchOpen) {
+      if (Date.now() - gAt < 800 && (e.key === 'i' || e.key === 'a')) {
+        gAt = 0;
+        setTab(e.key === 'i' ? 'incoming' : 'agents');
+        e.preventDefault();
+        return;
+      }
+      gAt = e.key === 'g' ? Date.now() : 0;
+    }
     dispatchKey(e);
   }
+  let gAt = 0;
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -76,6 +88,7 @@
       {:else if ui.tab === 'topics'}<Topics />
       {:else if ui.tab === 'notes'}<Notes />
       {:else if ui.tab === 'search'}<Search />
+      {:else if ui.tab === 'agents'}<Agents />
       {:else}<Reflect />{/if}
     </main>
   {/if}

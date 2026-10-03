@@ -18,7 +18,8 @@ pub struct Field {
     pub desc: String,
     /// toggle, number, text, enum, list, map, tier, prices, font, folder,
     /// scale, hour, categories, person_color, code, masked_list,
-    /// slack_channels, category, category_map, hour_range, glean_calls.
+    /// slack_channels, category, category_map, hour_range, glean_calls,
+    /// swatches, segmented, palette.
     pub widget: String,
     #[serde(skip_serializing_if = "Value::is_null")]
     pub opts: Value,
@@ -67,7 +68,7 @@ fn widget_for(root: &Value, s: &Value) -> String {
     .into()
 }
 
-const OPTS: &[&str] = &["x-unit", "x-step", "x-min", "x-max", "x-enum", "x-readonly", "x-restart", "x-dev", "x-advanced", "x-secret", "x-note", "x-optional", "x-pair", "x-mono"];
+const OPTS: &[&str] = &["x-unit", "x-step", "x-min", "x-max", "x-enum", "x-readonly", "x-restart", "x-dev", "x-advanced", "x-secret", "x-note", "x-optional", "x-pair", "x-mono", "x-presets"];
 
 fn opts(s: &Value) -> Value {
     let mut m = Map::new();

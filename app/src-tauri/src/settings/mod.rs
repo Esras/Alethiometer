@@ -57,7 +57,7 @@ impl JsonSchema for Categories {
 /// Keychain (or `secrets.json` on Linux).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SourceConfig {
-    /// slack, gmail, gcal, jira, github, obsidian, protoncal or glean.
+    /// slack, gmail, gcal, jira, github, obsidian, protoncal, glean or scion.
     pub kind: String,
     #[schemars(extend("x-label" = "Name", "x-group" = "identity"))]
     pub name: String,
@@ -172,6 +172,124 @@ pub struct Settings {
     /// People notes, person colours and new-person suggestions.
     #[schemars(extend("x-section" = "people"))]
     pub people: PeopleSettings,
+    /// The Agents tab: local harnesses, colours, names and boxes.
+    #[schemars(extend("x-section" = "agents"))]
+    pub agents: AgentsSettings,
+}
+
+/// The Agents tab (`app/docs/agents.md`). Colours are a first pass: each is
+/// picked from a few presets on Settings › Agents.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct AgentsSettings {
+    /// Local ACP agents Alethiometer can start. Each signs in its own way.
+    #[schemars(extend("x-hidden" = true))]
+    pub harnesses: Vec<Harness>,
+    /// Edits inside the project go through; shell commands and anything outside still ask.
+    ///
+    /// Starts each local session in the agent's own accept-edits mode (Claude
+    /// Code's `acceptEdits`), so the agent applies the rule. Agents without such
+    /// a mode, or that never ask (Pi), are unaffected.
+    #[schemars(extend("x-group" = "Approvals", "x-label" = "Let agents edit inside the project"))]
+    pub accept_edits: bool,
+    pub colors: AgentColors,
+    pub names: AgentNames,
+    pub boxes: AgentBoxes,
+}
+
+/// A local agent launched over ACP (stdio). `command` is looked up on the login shell's PATH.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Harness {
+    pub key: String,
+    pub label: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct AgentColors {
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "You", "x-widget" = "swatches", "x-presets" = ["#504945", "#665c54", "#7c6f64"]))]
+    pub you: String,
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "Tool calls", "x-widget" = "swatches", "x-presets" = ["#8a9a5b", "#83a598", "#76b0a8", "#e0a46e", "#a89984"]))]
+    pub tool: String,
+    /// Subagents, DMs between agents, and room mentions.
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "Messages", "x-widget" = "swatches", "x-presets" = ["#9a9fd6", "#d3869b", "#c78bc4", "#83a598", "#76b0a8"]))]
+    pub message: String,
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "Hub", "x-widget" = "swatches", "x-presets" = ["#fabd2f", "#e3b778", "#928374"]))]
+    pub hub: String,
+    /// Asks and approvals.
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "Needs you", "x-widget" = "swatches", "x-presets" = ["#fe8019", "#fb4934"]))]
+    pub needs_you: String,
+}
+
+impl Default for AgentColors {
+    fn default() -> Self {
+        AgentColors { you: "#504945".into(), tool: "#8a9a5b".into(), message: "#9a9fd6".into(), hub: "#fabd2f".into(), needs_you: "#fe8019".into() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct AgentNames {
+    /// Agent: one colour per agent. Template: one per Scion template.
+    #[schemars(extend("x-group" = "Agent names", "x-label" = "Color names by", "x-enum" = ["agent", "template", "off"], "x-widget" = "segmented"))]
+    pub color_by: String,
+    /// Unique within a group, reused across groups.
+    #[schemars(extend("x-group" = "Agent names", "x-label" = "Palette", "x-widget" = "palette"))]
+    pub palette: Vec<String>,
+    /// The pane header already says whose it is.
+    #[schemars(extend("x-group" = "Agent names", "x-label" = "Name your own rows in a transcript"))]
+    pub self_in_transcript: bool,
+}
+
+impl Default for AgentNames {
+    fn default() -> Self {
+        AgentNames {
+            color_by: "agent".into(),
+            palette: ["#7fb3d5", "#b8bb26", "#b9a6e0", "#8ec07c", "#e5a8a0"].map(String::from).to_vec(),
+            self_in_transcript: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct AgentBoxes {
+    /// Fill and border of every box.
+    #[schemars(extend("x-group" = "Boxes", "x-label" = "Strength", "x-enum" = ["subtle", "normal", "strong"], "x-widget" = "segmented"))]
+    pub strength: String,
+    /// The latest run stays open.
+    #[schemars(extend("x-group" = "Boxes", "x-label" = "Fold older agent ↔ agent runs"))]
+    pub fold_pairs: bool,
+}
+
+impl Default for AgentBoxes {
+    fn default() -> Self {
+        AgentBoxes { strength: "normal".into(), fold_pairs: true }
+    }
+}
+
+impl Default for AgentsSettings {
+    fn default() -> Self {
+        let h = |key: &str, label: &str, args: &[&str]| Harness {
+            key: key.into(),
+            label: label.into(),
+            command: "npx".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: BTreeMap::new(),
+        };
+        AgentsSettings {
+            harnesses: vec![h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"]), h("pi", "Pi", &["-y", "pi-acp"])],
+            accept_edits: true,
+            colors: AgentColors::default(),
+            names: AgentNames::default(),
+            boxes: AgentBoxes::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -232,6 +350,7 @@ impl Default for Settings {
             sources: vec![],
             demo_data: true,
             people: PeopleSettings::default(),
+            agents: AgentsSettings::default(),
         }
     }
 }
@@ -264,6 +383,28 @@ impl Settings {
         }
         if !(8.0..=32.0).contains(&self.ui_font_size) || !(8.0..=32.0).contains(&self.reading_font_size) {
             anyhow::bail!("ui_font_size and reading_font_size must be between 8 and 32");
+        }
+        let hex = |c: &str| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit());
+        let a = &self.agents;
+        for (k, c) in [("you", &a.colors.you), ("tool", &a.colors.tool), ("message", &a.colors.message), ("hub", &a.colors.hub), ("needs_you", &a.colors.needs_you)] {
+            if !hex(c) {
+                anyhow::bail!("agents.colors.{k} must be a #rrggbb colour");
+            }
+        }
+        if a.names.palette.is_empty() || !a.names.palette.iter().all(|c| hex(c)) {
+            anyhow::bail!("agents.names.palette must be a non-empty list of #rrggbb colours");
+        }
+        if !matches!(a.names.color_by.as_str(), "agent" | "template" | "off") {
+            anyhow::bail!("agents.names.color_by must be agent, template or off");
+        }
+        if !matches!(a.boxes.strength.as_str(), "subtle" | "normal" | "strong") {
+            anyhow::bail!("agents.boxes.strength must be subtle, normal or strong");
+        }
+        let mut keys = std::collections::BTreeSet::new();
+        for h in &a.harnesses {
+            if h.key.trim().is_empty() || h.command.trim().is_empty() || !keys.insert(h.key.as_str()) {
+                anyhow::bail!("agents.harnesses: each needs a unique key and a command");
+            }
         }
         let mut seen = std::collections::BTreeSet::new();
         for (i, s) in self.sources.iter().enumerate() {

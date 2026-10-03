@@ -20,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0014_message_read.sql"),
     include_str!("../migrations/0015_embeddings.sql"),
     include_str!("../migrations/0016_glean.sql"),
+    include_str!("../migrations/0017_agents.sql"),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.

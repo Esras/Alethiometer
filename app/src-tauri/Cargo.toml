@@ -37,6 +37,9 @@ thiserror = "2"
 dirs = "7"
 tiny_http = "0.12"
 regex = "1"
+# Agents tab: parses shell commands for the approval card's Parsed panel.
+tree-sitter = "0.25"
+tree-sitter-bash = "0.25"
 ureq = { version = "3", features = ["json"] }
 # Slack Socket Mode websocket; rustls + webpki roots, the same TLS stack ureq uses.
 tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }

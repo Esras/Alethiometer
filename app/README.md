@@ -23,6 +23,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Settings modal (⌘,), live reload of settings.json, typed source configs | done. See `docs/settings.md` |
 | Local embeddings (bge-small, tract, sqlite-vec) | done, model downloads on first run; untested with the real model. See `docs/ai.md` |
 | Glean (search-only): ⌘K and Search view routes, Assistant with Glean | done against recorded responses; untested live. See `docs/sources/glean.md` |
+| Agents tab (Agents Final 01–08): local ACP sessions (Claude Code, Pi), Scion Hub rooms and agents, approvals with a shell parse, Settings › Agents | local sessions tested against a scripted ACP agent and recorded claude-agent-acp traffic; Scion built from its source, never run against a Hub. See `docs/agents.md` |
 
 ## Run it
 
@@ -99,7 +100,7 @@ Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine 
 
 | Key | Where | Action |
 |---|---|---|
-| `⌘1`–`⌘5` | anywhere | switch tab |
+| `⌘1`–`⌘7` | anywhere | switch tab (`⌘7` Agents); `g i` / `g a` Incoming / Agents |
 | `⌘K` or `/` | anywhere | search (`⌥↵` Glean, `⌥A` anchor, `⇧↵` off-topic, `⌘T` link, `⌘⌫` reject, `⌘↵` Search view) |
 | `⌘,` / `⌘⇧,` | anywhere | Settings / open settings.json |
 | `e` | Assistant (Glean) | Sources panel (`⇥` Kept/Dropped, `p` pin, `x` reject) |
@@ -114,3 +115,4 @@ Times are stored as local naive timestamps (`YYYY-MM-DDTHH:MM:SS`). That's fine 
 | `j`/`k`/`h`/`l`, `↵`, `o`, `p`, `v` | Priorities | move, open topic, open in app, peek, compact/expand quadrant |
 | `Tab`, `⌃↵`/`⌘↵`, `⌘R`, `[` `]`, `t` | Notes | change destination, send to Incoming, retry, previous/next day, today |
 | `d` `w` `m` `q`, `l`, `[` `]`, `j`/`k`, `>` `<` `x`, `u`, `a` | Reflect | scope, lens, period, carry row, carry actions, undo, ask |
+| `Tab`, `j`/`k`, `h`/`l`, `↵`, `n`, `e`, `c`, `g`, `t`/`m`, `o` `s` `a` `d`, `1`–`3`, `r`, `⌘.`, `?` | Agents | zone, move, fold, open/reply, new agent, fold row, copy, latest, tabs, approve, answer, reply, interrupt, keys (`docs/agents.md`) |

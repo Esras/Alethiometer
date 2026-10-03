@@ -19,6 +19,8 @@
         <span class="badge" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
       {:else if t.id === 'todos' && ui.info?.todo_count}
         <span class="badge" class:on={ui.tab === t.id}>{ui.info.todo_count}</span>
+      {:else if t.id === 'agents' && ui.info?.agents_waiting}
+        <span class="badge" class:on={ui.tab === t.id}>{ui.info.agents_waiting}</span>
       {/if}
     </button>
   {/each}

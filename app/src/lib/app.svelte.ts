@@ -5,7 +5,7 @@ import { call } from './api';
 import type { AppInfo, Category } from './types';
 
 /** `search` (18d) is a tab only while it's open: it isn't in TABS. */
-export type Tab = 'incoming' | 'priorities' | 'topics' | 'todos' | 'notes' | 'reflect' | 'search';
+export type Tab = 'incoming' | 'priorities' | 'topics' | 'todos' | 'notes' | 'reflect' | 'agents' | 'search';
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'incoming', label: 'Incoming' },
   { id: 'priorities', label: 'Priorities' },
@@ -13,6 +13,7 @@ export const TABS: { id: Tab; label: string }[] = [
   { id: 'todos', label: 'Todos' },
   { id: 'notes', label: 'Notes' },
   { id: 'reflect', label: 'Reflect' },
+  { id: 'agents', label: 'Agents' },
 ];
 
 export const ui = $state({

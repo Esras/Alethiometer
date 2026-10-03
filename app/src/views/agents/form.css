@@ -1,0 +1,254 @@
+/* The new-agent forms (05): replaces the composer while open. */
+.form {
+  border-radius: var(--r-panel);
+  background: var(--bg-panel);
+  border: 1px solid rgba(142, 192, 124, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+.form .top {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.form .top i {
+  font-size: 1.231rem;
+  color: var(--aqua);
+}
+.form .t {
+  color: var(--tx-title);
+  font-weight: 500;
+}
+.form .sub {
+  font: 0.885rem var(--font-mono);
+  color: var(--tx-label);
+}
+.form .esc {
+  margin-left: auto;
+  font: 0.808rem var(--font-mono);
+  color: var(--tx-label);
+}
+.form .cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 16px;
+  padding: 10px 12px 0;
+}
+.form .fields {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+  align-content: start;
+}
+.form .lab {
+  flex: none;
+  white-space: nowrap;
+  font-size: 0.808rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-label);
+}
+.form .input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--r-input);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  min-width: 0;
+}
+.form .input:focus-within {
+  border-color: var(--aqua);
+}
+.form .input input,
+.form .input select {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  padding: 0;
+  font: 0.9615rem var(--font-mono);
+  color: var(--tx-body);
+}
+.form .input select option {
+  background: var(--bg-panel);
+}
+.form .note {
+  margin-left: auto;
+  font: 0.846rem var(--font-mono);
+  color: var(--tx-disabled);
+  white-space: nowrap;
+}
+.form .chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  outline: none;
+  border-radius: var(--r-input);
+}
+.form .chips:focus-visible {
+  box-shadow: 0 0 0 1px var(--aqua);
+}
+.form .chip {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font: 0.923rem var(--font-mono);
+  border: 1px solid var(--border-strong);
+  color: var(--tx-2);
+}
+.form .chip .v {
+  font-size: 0.808rem;
+  color: var(--tx-label);
+  opacity: 0.8;
+}
+.form .chip.on {
+  background: rgba(142, 192, 124, 0.14);
+  border-color: var(--aqua);
+  color: var(--aqua);
+}
+.form .chip.on .v {
+  color: var(--aqua);
+}
+.form .check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.9615rem;
+  color: var(--tx-2);
+}
+.form .box {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.form .box.on {
+  background: var(--aqua);
+  border-color: var(--aqua);
+}
+.form .box i {
+  font-size: 0.769rem;
+  color: var(--bg-app);
+}
+.form .right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.form .row-lab {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.form .row-lab .note {
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.form .ro {
+  padding: 6px 10px;
+  border-radius: var(--r-input);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--tx-muted);
+  text-wrap: pretty;
+  max-height: 110px;
+  overflow-y: auto;
+}
+.form .skills {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.form .skill {
+  font: 0.846rem var(--font-mono);
+  color: var(--tx-2);
+  background: var(--bg-head);
+  border-radius: var(--r-block);
+  padding: 1px 6px;
+}
+.form textarea {
+  padding: 6px 10px;
+  border-radius: var(--r-input);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--tx-body);
+  resize: vertical;
+  outline: none;
+}
+.form textarea:focus {
+  border-color: var(--aqua);
+}
+.form .err {
+  font-size: 0.923rem;
+  color: var(--orange);
+}
+.form .foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.form .b {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: var(--r-input);
+  border: 1px solid var(--border-strong);
+  color: var(--tx-2);
+  white-space: nowrap;
+}
+.form .b.primary {
+  background: rgba(142, 192, 124, 0.14);
+  border-color: var(--aqua);
+  color: var(--aqua);
+  font-weight: 500;
+}
+.form .b:disabled {
+  opacity: 0.6;
+}
+.form .k {
+  font: 0.808rem var(--font-mono);
+  color: var(--tx-label);
+}
+.form .primary .k {
+  color: var(--aqua);
+  opacity: 0.75;
+}
+.form .cmd {
+  margin-left: auto;
+  min-width: 0;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font: 0.885rem var(--font-mono);
+  color: var(--tx-label);
+}
+.form .cmd span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.form .cmd button {
+  color: var(--tx-label);
+}

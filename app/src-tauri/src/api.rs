@@ -12,6 +12,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
     match area {
         "app" => app_call(app, name, args),
+        "agents" => crate::agents::call(app, name, args),
         "daystrip" => queries::daystrip::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "categories" => queries::categories::call(app, name, args),
@@ -70,6 +71,9 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "settings_rev": app.settings_state().rev,
                 // The Assistant searches Glean first when a Glean source is on.
                 "glean": crate::glean::config(app).is_some(),
+                // How the Agents tab looks (Settings › Agents), and the Needs you count for its tab.
+                "agents": { "colors": settings.agents.colors, "names": settings.agents.names, "boxes": settings.agents.boxes },
+                "agents_waiting": app.agents.store.lock().requests.len(),
             }))
         }
         "open_url" => {

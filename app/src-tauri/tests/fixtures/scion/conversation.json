@@ -1,0 +1,9 @@
+{"id":"c1000000-0000-4000-8000-0000000000aa","projectId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","kind":"group","surface":"native",
+ "externalRef":"thread:7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01:b1000000-0000-4000-8000-0000000000bb","displayName":"migration",
+ "defaultAgentId":"a1000000-0000-4000-8000-000000000001","driftState":"active","lastActivityAt":"2026-10-03T09:14:00Z","createdAt":"2026-10-03T08:00:00Z",
+ "participants":[
+   {"id":"p1","conversationId":"c1000000-0000-4000-8000-0000000000aa","principalKind":"user","principalId":"0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01","role":"member","joinedAt":"2026-10-03T08:00:00Z"},
+   {"id":"p2","conversationId":"c1000000-0000-4000-8000-0000000000aa","principalKind":"agent","principalId":"a1000000-0000-4000-8000-000000000001","role":"member","joinedAt":"2026-10-03T08:01:00Z"},
+   {"id":"p3","conversationId":"c1000000-0000-4000-8000-0000000000aa","principalKind":"agent","principalId":"a1000000-0000-4000-8000-000000000002","role":"member","joinedAt":"2026-10-03T08:06:00Z"},
+   {"id":"p4","conversationId":"c1000000-0000-4000-8000-0000000000aa","principalKind":"agent","principalId":"a1000000-0000-4000-8000-000000000003","role":"member","joinedAt":"2026-10-03T08:11:00Z"}
+ ]}

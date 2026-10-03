@@ -26,6 +26,35 @@ pub trait Platform: Send + Sync {
         let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
         std::process::Command::new(cmd).arg(url).spawn().map(|_| ())
     }
+    /// A terminal window in `cwd`, running `command` if given (attach to an agent).
+    fn open_terminal(&self, cwd: &str, command: Option<&str>) -> std::io::Result<()> {
+        let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+        let mut line = String::new();
+        if !cwd.is_empty() {
+            line.push_str(&format!("cd {}", quote(cwd)));
+        }
+        if let Some(c) = command {
+            if !line.is_empty() {
+                line.push_str(" && ");
+            }
+            line.push_str(c);
+        }
+        if cfg!(target_os = "macos") {
+            let script = format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", line.replace('\\', "\\\\").replace('"', "\\\""));
+            std::process::Command::new("osascript").arg("-e").arg(script).spawn().map(|_| ())
+        } else {
+            let line = if line.is_empty() { "exec $SHELL".to_string() } else { format!("{line}; exec $SHELL") };
+            std::process::Command::new("x-terminal-emulator").arg("-e").arg("sh").arg("-c").arg(line).spawn().map(|_| ())
+        }
+    }
+    /// Open `path` in an app by name ("Zed"), falling back to its CLI.
+    fn open_in_app(&self, app: &str, path: &str) -> std::io::Result<()> {
+        if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg("-a").arg(app).arg(path).spawn().map(|_| ())
+        } else {
+            std::process::Command::new(app.to_lowercase()).arg(path).spawn().map(|_| ())
+        }
+    }
 }
 
 /// Secrets in `<data dir>/secrets.json`, mode 0600. When each was set goes in

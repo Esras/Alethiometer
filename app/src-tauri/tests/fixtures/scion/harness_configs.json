@@ -1,0 +1,11 @@
+{
+  "harnessConfigs": [
+    {"id":"80000000-0000-4000-8000-000000000001","name":"claude-web","slug":"claude-web","harness":"claude",
+     "config":{"harness":"claude","image":"scion/claude:latest","model":"claude-sonnet-4-6","authSelectedType":"oauth-token"},
+     "scope":"global","status":"active","imageStatus":"valid","created":"2026-08-01T10:00:00Z","updated":"2026-08-01T10:00:00Z"},
+    {"id":"80000000-0000-4000-8000-000000000002","name":"gemini","slug":"gemini","harness":"gemini",
+     "config":{"harness":"gemini","model":"gemini-2.5-pro","authSelectedType":"api-key"},
+     "scope":"project","scopeId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","status":"active","imageStatus":"unknown","created":"2026-08-01T10:00:00Z","updated":"2026-08-01T10:00:00Z"}
+  ],
+  "totalCount": 2
+}

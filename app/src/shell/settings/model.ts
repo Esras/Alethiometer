@@ -27,6 +27,7 @@ export interface Field {
     optional?: boolean;
     pair?: string;
     mono?: boolean;
+    presets?: string[];
   };
 }
 
@@ -107,12 +108,13 @@ export const SECTIONS = [
   { id: 'people', label: 'People', icon: 'users', blurb: 'You, and when to suggest a People note for a new sender.' },
   { id: 'sources', label: 'Sources', icon: 'plugs-connected', blurb: '' },
   { id: 'ai', label: 'AI', icon: 'sparkle', blurb: 'Work data only goes to allowed providers. Anything else fails closed.' },
+  { id: 'agents', label: 'Agents', icon: 'robot', blurb: 'How rooms and transcripts look.' },
   { id: 'developer', label: 'Developer', icon: 'wrench', blurb: 'For working on Alethiometer itself.' },
 ] as const;
 export type Section = (typeof SECTIONS)[number]['id'];
 
 /** Group order per page (anything unlisted keeps its schema order, after these). */
-export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Bedrock', 'Models', 'Prices', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
+export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Bedrock', 'Models', 'Prices', 'Approvals', 'Message colors', 'Agent names', 'Boxes', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
 
 export const GROUP_LABELS: Record<string, string> = {
   identity: 'Identity',

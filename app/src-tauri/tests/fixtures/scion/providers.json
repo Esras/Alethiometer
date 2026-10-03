@@ -1,0 +1,4 @@
+{"providers":[
+  {"projectId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","brokerId":"e1000000-0000-4000-8000-000000000001","brokerName":"gcp-1","status":"online","lastSeen":"2026-10-03T09:14:00Z","agentLimit":10,"agentCount":3,"agentLimitSource":"broker"},
+  {"projectId":"7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01","brokerId":"e1000000-0000-4000-8000-000000000002","brokerName":"laptop","localPath":"~/src/ingest-svc/.scion","status":"offline","lastSeen":"2026-10-02T18:00:00Z"}
+]}

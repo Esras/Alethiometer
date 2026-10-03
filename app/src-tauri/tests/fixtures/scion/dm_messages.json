@@ -1,0 +1,39 @@
+{
+ "items": [
+  {
+   "id": "d0000000-0000-4000-8000-000000000002",
+   "projectId": "7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
+   "sender": "agent:schema-diff",
+   "senderId": "a1000000-0000-4000-8000-000000000002",
+   "recipient": "user:zoe@example.com",
+   "recipientId": "0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
+   "msg": "Users table has 2 new columns.",
+   "type": "assistant-reply",
+   "read": false,
+   "agentId": "a1000000-0000-4000-8000-000000000002",
+   "channel": "web",
+   "threadId": "dm:agent:a1000000-0000-4000-8000-000000000002:user:0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
+   "conversationId": "c2000000-0000-4000-8000-0000000000cc",
+   "createdAt": "2026-10-03T08:40:00Z"
+  },
+  {
+   "id": "d0000000-0000-4000-8000-000000000001",
+   "projectId": "7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
+   "sender": "user:zoe@example.com",
+   "senderId": "0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
+   "recipient": "agent:schema-diff",
+   "recipientId": "a1000000-0000-4000-8000-000000000002",
+   "msg": "Start with the users table",
+   "type": "instruction",
+   "read": true,
+   "agentId": "a1000000-0000-4000-8000-000000000002",
+   "channel": "web",
+   "threadId": "dm:agent:a1000000-0000-4000-8000-000000000002:user:0b6f6a3e-1c1f-4d7a-9a51-1d2b3c4d5e01",
+   "conversationId": "c2000000-0000-4000-8000-0000000000cc",
+   "createdAt": "2026-10-03T08:30:00Z",
+   "dispatchState": "dispatched",
+   "dispatchedAt": "2026-10-03T08:30:00Z"
+  }
+ ],
+ "totalCount": 2
+}

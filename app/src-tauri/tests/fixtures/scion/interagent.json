@@ -1,0 +1,40 @@
+{
+ "messages": [
+  {
+   "id": "90000000-0000-4000-8000-000000000001",
+   "projectId": "7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
+   "sender": "agent:planner",
+   "senderId": "a1000000-0000-4000-8000-000000000001",
+   "recipient": "agent:schema-diff",
+   "recipientId": "a1000000-0000-4000-8000-000000000002",
+   "msg": "Please diff staging first",
+   "type": "instruction",
+   "read": false,
+   "agentId": "a1000000-0000-4000-8000-000000000002",
+   "channel": "",
+   "threadId": "",
+   "conversationId": "c3000000-0000-4000-8000-0000000000dd",
+   "createdAt": "2026-10-03T08:20:00Z",
+   "dispatchState": "dispatched",
+   "dispatchedAt": "2026-10-03T08:20:00Z"
+  },
+  {
+   "id": "f0000000-0000-4000-8000-000000000003",
+   "projectId": "7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01",
+   "sender": "agent:schema-diff",
+   "senderId": "a1000000-0000-4000-8000-000000000002",
+   "recipient": "agent:planner",
+   "recipientId": "a1000000-0000-4000-8000-000000000001",
+   "msg": "@planner diff ready: 3 tables changed",
+   "type": "instruction",
+   "read": false,
+   "agentId": "a1000000-0000-4000-8000-000000000001",
+   "channel": "",
+   "threadId": "b1000000-0000-4000-8000-0000000000bb",
+   "conversationId": "c1000000-0000-4000-8000-0000000000aa",
+   "createdAt": "2026-10-03T09:02:00Z",
+   "dispatchState": "dispatched",
+   "dispatchedAt": "2026-10-03T09:02:00Z"
+  }
+ ]
+}
