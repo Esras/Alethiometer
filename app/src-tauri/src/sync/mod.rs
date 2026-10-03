@@ -577,6 +577,23 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_keyed_by_id_keeps_the_read_state_it_had_under_its_hash() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        let comment = Message { at: now, author: "Kim".into(), text: "looks good".into(), ..Default::default() };
+        let mut it = issue(true);
+        it.messages = vec![comment.clone()];
+        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        conn.execute("UPDATE item_messages SET read = 1", []).unwrap();
+        // The connector now keys comments by id.
+        it.raw_json = serde_json::json!({ "msgs": ["jira:10001"] });
+        apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap();
+        let rows: Vec<(String, bool)> =
+            conn.prepare("SELECT ext_key, read FROM item_messages").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(rows, vec![("jira:10001".to_owned(), true)]);
+    }
+
+    #[test]
     fn profiles_are_stored_newest_wins() {
         let conn = crate::db::open_in_memory().unwrap();
         conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();

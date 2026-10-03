@@ -73,13 +73,17 @@ impl Ingest for Sql<'_> {
 
     fn upsert_messages(&self, item_id: i64, messages: &[(&Message, &str)]) -> Result<()> {
         let c = self.conn();
+        // A message first stored under a hash (before its source keyed it)
+        // keeps its read state under its new key.
         let mut upsert = c.prepare_cached(
-            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)
+            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id, context, read)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, coalesce((SELECT read FROM item_messages WHERE item_id = ?1 AND ext_key = ?8), 0))
              ON CONFLICT (item_id, ext_key) DO UPDATE SET at = excluded.at, author = excluded.author, text = excluded.text,
                 author_id = excluded.author_id, context = excluded.context",
         )?;
         for (m, key) in messages {
-            upsert.execute(params![item_id, m.at, m.author, m.text, key, m.author_id, m.context])?;
+            let hashed = crate::domain::splits::content_key(&m.at.to_db(), &m.author, &m.text);
+            upsert.execute(params![item_id, m.at, m.author, m.text, key, m.author_id, m.context, hashed])?;
         }
         // A hashed key changes with the message: what the source no longer
         // sends under it is an earlier version, not a message of its own.
