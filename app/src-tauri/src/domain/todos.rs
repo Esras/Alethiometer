@@ -34,6 +34,10 @@ pub struct TodoRow {
 pub trait TodoViews {
     /// Open todos, by item id.
     fn open(&self) -> Result<Vec<TodoRow>>;
+    /// An item's body.
+    fn body(&self, item_id: i64) -> Result<String>;
+    /// The latest `n` messages an item holds (not context), oldest first: (author, text).
+    fn latest_messages(&self, item_id: i64, n: usize) -> Result<Vec<(String, String)>>;
     /// The todos held on these items, by item.
     fn held(&self, item_ids: &[i64]) -> Result<Vec<(i64, Held)>>;
 }
@@ -49,4 +53,6 @@ pub trait Todos {
     fn set_discarded(&self, item_id: i64, discarded: bool) -> Result<()>;
     /// Your estimate in minutes; None clears it.
     fn set_estimate(&self, item_id: i64, minutes: Option<i64>) -> Result<()>;
+    /// The AI's estimate, unless there's one already (yours or its). True when stored.
+    fn estimate_by_ai(&self, item_id: i64, minutes: i64) -> Result<bool>;
 }

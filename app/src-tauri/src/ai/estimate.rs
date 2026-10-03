@@ -5,7 +5,7 @@ use super::{Deps, Tier};
 use crate::error::Result;
 use crate::queries::todos::{self, TodoExt};
 use crate::state::App;
-use rusqlite::params;
+use crate::domain::ports::Reads;
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt::Write;
@@ -40,7 +40,7 @@ pub fn parse(reply: &str) -> Option<i64> {
     (m > 0.0).then(|| snap(m))
 }
 
-fn prompt(conn: &rusqlite::Connection, t: &todos::Todo) -> Result<String> {
+fn prompt(r: &dyn Reads, t: &todos::Todo) -> Result<String> {
     let mut p = format!("Todo: {}\n", clip(&t.title, 300));
     let kind = match &t.ext {
         TodoExt::Local(_) => "a todo in the user's own list".to_string(),
@@ -51,7 +51,7 @@ fn prompt(conn: &rusqlite::Connection, t: &todos::Todo) -> Result<String> {
     if let Some(topic) = &t.topic {
         let _ = writeln!(p, "Topic: {}", clip(&topic.name, 80));
     }
-    let body: String = conn.query_row("SELECT body FROM items WHERE id = ?1", [t.item_id], |r| r.get(0))?;
+    let body = r.todos().body(t.item_id)?;
     if !body.trim().is_empty() {
         let _ = writeln!(p, "Details: {}", clip(&body, 800));
     }
@@ -59,13 +59,7 @@ fn prompt(conn: &rusqlite::Connection, t: &todos::Todo) -> Result<String> {
         TodoExt::Local(l) => l.from_item,
         _ => None,
     };
-    let mut stmt = conn.prepare(
-        "SELECT author, text FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at DESC, id DESC LIMIT 6",
-    )?;
-    let mut msgs = stmt
-        .query_map([from_item.unwrap_or(t.item_id)], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    msgs.reverse();
+    let msgs = r.todos().latest_messages(from_item.unwrap_or(t.item_id), 6)?;
     if !msgs.is_empty() {
         p.push_str(if from_item.is_some() { "\nMade from these messages:\n" } else { "\nRecent comments:\n" });
         for (author, text) in msgs {
@@ -79,15 +73,10 @@ pub fn estimate_todos(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
         return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), estimated: 0 });
     }
-    let pending: Vec<(i64, String)> = {
-        let conn = app.db();
-        let mut out = vec![];
+    let pending: Vec<(i64, String)> = app.store().read(|r| {
         let unestimated = |t: &&todos::Todo| t.estimate.is_none() && !matches!(&t.ext, TodoExt::Jira(j) if j.is_epic());
-        for t in todos::list(&crate::store::over(&conn), &app.clock)?.iter().filter(unestimated).take(limit) {
-            out.push((t.item_id, prompt(&conn, t)?));
-        }
-        out
-    };
+        todos::list(r, &app.clock)?.iter().filter(unestimated).take(limit).map(|t| Ok((t.item_id, prompt(r, t)?))).collect()
+    })?;
     let mut out = Outcome { status: "ok", message: None, estimated: 0 };
     for (item_id, p) in pending {
         let reply = match super::complete(app, deps, Tier::Small, SYSTEM, &p, MAX_TOKENS) {
@@ -99,10 +88,9 @@ pub fn estimate_todos(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
             }
         };
         let Some(minutes) = parse(&reply) else { continue };
-        out.estimated += app.db().execute(
-            "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'ai') ON CONFLICT (item_id) DO NOTHING",
-            params![item_id, minutes],
-        )?;
+        if app.store().write(|uow| uow.todos().estimate_by_ai(item_id, minutes))? {
+            out.estimated += 1;
+        }
     }
     Ok(out)
 }

@@ -1,7 +1,6 @@
 3 agents/facts.rs
 8 agents/incoming.rs
 16 agents/store.rs
-3 ai/estimate.rs
 12 embed/mod.rs
 6 glean/ask.rs
 8 glean/hydrate.rs

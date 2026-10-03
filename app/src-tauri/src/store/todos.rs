@@ -9,6 +9,20 @@ use rusqlite::{params, OptionalExtension};
 use crate::error::Result;
 
 impl TodoViews for Sql<'_> {
+    fn body(&self, item_id: i64) -> Result<String> {
+        Ok(self.conn().query_row("SELECT body FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
+    }
+
+    fn latest_messages(&self, item_id: i64, n: usize) -> Result<Vec<(String, String)>> {
+        let mut rows: Vec<(String, String)> = self
+            .conn()
+            .prepare_cached("SELECT author, text FROM item_messages WHERE item_id = ?1 AND context = 0 ORDER BY at DESC, id DESC LIMIT ?2")?
+            .query_map(params![item_id, n as i64], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        rows.reverse();
+        Ok(rows)
+    }
+
     fn open(&self) -> Result<Vec<TodoRow>> {
         Ok(self
             .conn()
@@ -86,6 +100,13 @@ impl Todos for Sql<'_> {
             params![item_id, if discarded { "discarded" } else { "held" }],
         )?;
         Ok(())
+    }
+
+    fn estimate_by_ai(&self, item_id: i64, minutes: i64) -> Result<bool> {
+        Ok(self
+            .conn()
+            .execute("INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'ai') ON CONFLICT (item_id) DO NOTHING", params![item_id, minutes])?
+            == 1)
     }
 
     fn set_estimate(&self, item_id: i64, minutes: Option<i64>) -> Result<()> {
