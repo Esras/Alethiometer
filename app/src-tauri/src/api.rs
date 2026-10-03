@@ -30,9 +30,10 @@ pub enum Route {
     Write(fn(&dyn UnitOfWork, &Ctx, &Value) -> Result<Value>),
 }
 
-pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
-    let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
-    let route = match area {
+/// How `cmd` runs, if it's routed (read or write) rather than a module's own `call`.
+pub fn route_of(cmd: &str) -> Option<Route> {
+    let (area, name) = cmd.split_once('.')?;
+    match area {
         "daystrip" => queries::daystrip::route(name),
         "incoming" => queries::incoming::route(name),
         "topics" => queries::topics::route(name),
@@ -44,8 +45,12 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "outbox" => crate::outbox::route(name),
         "todos" => queries::todos::route(name),
         _ => None,
-    };
-    if let Some(route) = route {
+    }
+}
+
+pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
+    let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
+    if let Some(route) = route_of(cmd) {
         let settings = app.settings();
         let ctx = Ctx { clock: &app.clock, settings: &settings };
         return match route {
@@ -62,6 +67,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     // files) and open their own short reads and writes around it.
     match area {
         "app" => app_call(app, name, args),
+        "live" => crate::live::call(app, name, args),
         "agents" => crate::agents::call(app, name, args),
         "topics" => queries::topics::call(app, name, args),
         "categories" => queries::categories::call(app, name, args),

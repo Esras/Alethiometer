@@ -29,6 +29,8 @@ pub struct App {
     pub workers: crate::sync::worker::Workers,
     /// The Notes suggestion index's per-topic words (`queries::notes`).
     pub notes_index: crate::queries::notes::IndexCache,
+    /// Live queries the UI subscribed to (`live`).
+    pub live: crate::live::Live,
     settings_state: Mutex<crate::settings::live::State>,
     /// Set by `shared`, so code holding `&App` can start background work.
     this: OnceLock<std::sync::Weak<App>>,
@@ -85,6 +87,7 @@ impl App {
             agents: Default::default(),
             workers: Default::default(),
             notes_index: Default::default(),
+            live: Default::default(),
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };
@@ -130,6 +133,8 @@ impl App {
     /// Swap in new settings (after `settings.json` changed).
     pub fn set_settings(&self, s: Settings) {
         *self.settings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(s);
+        // Read commands take settings too: live queries run again.
+        crate::live::Live::refresh_all(self);
     }
 
     /// Change settings in memory only (tests).

@@ -9,6 +9,7 @@ pub mod embed;
 pub mod error;
 pub mod fsx;
 pub mod glean;
+pub mod live;
 pub mod outbox;
 pub mod platform;
 pub mod queries;

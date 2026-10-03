@@ -17,6 +17,7 @@
 
 pub mod agents;
 pub mod categories;
+pub mod changes;
 pub mod context;
 pub mod daystrip;
 pub mod embed;
@@ -45,10 +46,12 @@ pub mod utc_migration;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::Result;
 use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::hooks::{AuthContext, Authorization};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 use std::cell::Cell;
+use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Reader connections: enough for the UI's calls and the sync threads' reads at once.
@@ -60,6 +63,7 @@ pub struct Db {
     writer: Mutex<Connection>,
     /// None for an in-memory database (tests): reads go through the writer.
     readers: Option<r2d2::Pool<SqliteConnectionManager>>,
+    changes: Arc<changes::Changes>,
 }
 
 /// Ports over a test's own connection (fixtures).
@@ -120,7 +124,49 @@ impl Db {
             ),
             None => None,
         };
-        Ok(Db { writer: Mutex::new(writer), readers })
+        let changes = Arc::new(changes::Changes::default());
+        changes.install(&writer)?;
+        Ok(Db { writer: Mutex::new(writer), readers, changes })
+    }
+
+    /// Which tables commits changed (`changes::Changes`).
+    pub fn changes(&self) -> &Arc<changes::Changes> {
+        &self.changes
+    }
+
+    /// `read`, also returning every table the reads touched (SQLite's
+    /// authorizer reports them as statements are prepared, so the
+    /// connection's statement cache is emptied first).
+    pub fn read_traced<T>(&self, f: impl FnOnce(&dyn Reads) -> Result<T>) -> Result<(T, BTreeSet<String>)> {
+        let seen = Arc::new(Mutex::new(BTreeSet::new()));
+        let trace = |c: &Connection| -> rusqlite::Result<()> {
+            c.flush_prepared_statement_cache();
+            let seen = seen.clone();
+            c.authorizer(Some(move |ctx: AuthContext<'_>| changes::authorize(ctx, Some(&seen))))
+        };
+        // A reader goes back to no authorizer; the writer (in-memory
+        // databases read through it) to its own.
+        let untrace = |c: &Connection| c.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+        let untrace_writer = |c: &Connection| c.authorizer(Some(|ctx: AuthContext<'_>| changes::authorize(ctx, None)));
+        let out = match &self.readers {
+            Some(pool) => {
+                let mut c = pool.get()?;
+                trace(&c)?;
+                let out = c.transaction_with_behavior(TransactionBehavior::Deferred).map_err(Into::into).and_then(|tx| f(&Sql(&tx)));
+                untrace(&c)?;
+                out
+            }
+            None => {
+                let _w = Writing::enter();
+                let mut c = self.lock();
+                trace(&c)?;
+                let out = c.transaction_with_behavior(TransactionBehavior::Deferred).map_err(Into::into).and_then(|tx| f(&Sql(&tx)));
+                untrace_writer(&c)?;
+                out
+            }
+        }?;
+        let tables = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
+        Ok((out, tables))
     }
 
     /// One consistent snapshot, on a reader connection.
@@ -154,6 +200,10 @@ impl Db {
             Ok(v) => tx.commit().map(|()| v).map_err(Into::into),
             Err(e) => Err(e), // dropping `tx` rolls back
         };
+        match out {
+            Ok(_) => self.changes.publish(),
+            Err(_) => self.changes.discard(),
+        }
         if cfg!(debug_assertions) && started.elapsed() > SLOW_WRITE {
             eprintln!("database: a write from {caller} held the writer for {:?}", started.elapsed());
         }

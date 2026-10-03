@@ -30,7 +30,7 @@ tauri-build = { version = "2.7", features = [], optional = true }
 tauri = { version = "2.12", features = [], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-rusqlite = { version = "0.40", features = ["bundled", "chrono", "jiff"] }
+rusqlite = { version = "0.40", features = ["bundled", "chrono", "jiff", "hooks"] }
 # Reader connections for `store::Db` (the writer is one connection behind a mutex).
 r2d2 = "0.8"
 r2d2_sqlite = "0.35"
