@@ -9,25 +9,34 @@ use rusqlite::{params, OptionalExtension};
 
 impl TopicViews for Sql<'_> {
     fn list(&self, archived: bool, now: Ts, meetings_until: Ts) -> Result<Vec<TopicSummary>> {
-        let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
-        let mine = "tl.topic_id = t.id AND tl.state = 'confirmed'";
+        // Counts from the views; the latest signal is one seek on
+        // `topic_links_latest`; the next meeting comes from the week's events.
         Ok(self
             .conn()
-            .prepare_cached(&format!(
-                "SELECT t.id, t.name, t.category, t.obsidian_path,
-                        (SELECT count(*) FROM {links} WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0),
-                        (SELECT count(*) FROM {links}
-                          WHERE {mine} AND i.kind IN ('task', 'issue', 'email') AND i.owner IS NOT NULL AND i.status = 'open'),
-                        (SELECT max(coalesce(i.ended_at, i.occurred_at)) FROM {links} WHERE {mine} AND i.occurred_at <= ?1),
-                        (SELECT s.kind FROM {links} JOIN sources s ON s.id = i.source_id WHERE {mine} AND i.occurred_at <= ?1
-                          ORDER BY coalesce(i.ended_at, i.occurred_at) DESC LIMIT 1),
+            .prepare_cached(
+                "WITH latest AS (
+                   SELECT t.id AS topic_id,
+                          (SELECT tl.item_id FROM topic_links tl
+                            WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND tl.item_at <= ?1
+                            ORDER BY tl.item_at DESC LIMIT 1) AS item_id
+                     FROM topics t WHERE (t.archived_at IS NOT NULL) = ?3),
+                 meetings AS (
+                   SELECT tl.topic_id, e.start, e.title,
+                          row_number() OVER (PARTITION BY tl.topic_id ORDER BY e.start, e.id) AS n
+                     FROM events e JOIN topic_links tl ON tl.item_id = e.item_id AND tl.state = 'confirmed'
+                    WHERE e.start > ?1 AND e.start <= ?2)
+                 SELECT t.id, t.name, t.category, t.obsidian_path,
+                        coalesce(nc.n, 0), coalesce(oc.n, 0),
+                        coalesce(li.ended_at, li.occurred_at), ls.kind,
                         m.start, m.title
                    FROM topics t
-                   LEFT JOIN events m ON m.id = (
-                        SELECT e.id FROM {links} JOIN events e ON e.item_id = i.id
-                         WHERE {mine} AND e.start > ?1 AND e.start <= ?2 ORDER BY e.start LIMIT 1)
-                  WHERE (t.archived_at IS NOT NULL) = ?3"
-            ))?
+                   JOIN latest l ON l.topic_id = t.id
+                   LEFT JOIN items li ON li.id = l.item_id
+                   LEFT JOIN sources ls ON ls.id = li.source_id
+                   LEFT JOIN topic_new_counts nc ON nc.topic_id = t.id
+                   LEFT JOIN topic_open_counts oc ON oc.topic_id = t.id
+                   LEFT JOIN meetings m ON m.topic_id = t.id AND m.n = 1",
+            )?
             .query_map(params![now, meetings_until, archived], |r| {
                 let start: Option<Ts> = r.get(8)?;
                 Ok(TopicSummary {
