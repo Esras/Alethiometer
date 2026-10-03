@@ -102,13 +102,15 @@ day before the cursor; re-seen issues are simply updated.
 
 **New signal (`bump`)** on an issue Alethiometer already has, when after the cursor:
 - someone else changed its **status or assignee** (from the changelog), or
-- someone else **@mentioned you** in a new comment.
+- someone else **commented** (any comment, not only one that @mentions you).
 
-Your own changes (including writes sent from Alethiometer) never resurface an item.
+Changes to other fields (priority, due date, summary, labels…) don't. Your own changes
+(including writes sent from Alethiometer) never resurface an item.
 
 **Mentions:** JQL can't reliably find issues that mention you (`comment ~ currentUser()`
 is unsupported in Jira Cloud and gives inconsistent results), so the default JQL
-doesn't try. Mentions on issues you're assigned to, reported or watch do bump them.
+doesn't try. Comments on issues you're assigned to, reported or watch, mentions
+included, do bump them.
 If you want to experiment, add `OR comment ~ currentUser()` to `jql`.
 
 ## What is written (outbox ops)

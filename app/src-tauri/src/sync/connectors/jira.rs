@@ -32,7 +32,7 @@ pub const DEFAULT_SECRET: &str = "jira_api_token";
 
 /// Mentions can't be searched reliably in JQL (`comment ~ currentUser()` is
 /// unsupported and inconsistent in Jira Cloud), so the default covers what JQL
-/// can express. Mentions on these issues still bump them (see `bump`).
+/// can express. Comments on these issues, mentions included, bump them (see `bump`).
 pub const DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()";
 
 const PAGE_SIZE: usize = 100;
@@ -323,8 +323,9 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
 }
 
 /// New signal on an issue we already had: someone else changed its status or
-/// assignee, or @mentioned you in a new comment, after the cursor. Our own
-/// changes (e.g. a transition sent from the outbox) never resurface an item.
+/// assignee, or commented, after the cursor. Other field changes don't count.
+/// Our own changes (e.g. a transition sent from the outbox) never resurface an
+/// item.
 fn bump(issue: &Value, me: &str, cursor: Ts) -> bool {
     let after = |v: &Value| v.get("created").and_then(Value::as_str).and_then(Ts::parse).is_some_and(|t| t > cursor);
     let by_other = |v: &Value| v.pointer("/author/accountId").and_then(Value::as_str) != Some(me);
@@ -336,20 +337,9 @@ fn bump(issue: &Value, me: &str, cursor: Ts) -> bool {
                 field == "status" || field == "assignee"
             })
     });
-    let mentioned = issue
-        .pointer("/fields/comment/comments")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .any(|c| after(c) && by_other(c) && c.get("body").is_some_and(|b| mentions(b, me)));
-    changed || mentioned
-}
-
-fn mentions(adf: &Value, account: &str) -> bool {
-    if adf.get("type").and_then(Value::as_str) == Some("mention") && adf.pointer("/attrs/id").and_then(Value::as_str) == Some(account) {
-        return true;
-    }
-    adf.get("content").and_then(Value::as_array).is_some_and(|c| c.iter().any(|n| mentions(n, account)))
+    let commented =
+        issue.pointer("/fields/comment/comments").and_then(Value::as_array).into_iter().flatten().any(|c| after(c) && by_other(c));
+    changed || commented
 }
 
 fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
@@ -765,7 +755,7 @@ mod tests {
     }
 
     #[test]
-    fn bumps_on_others_status_change_or_new_mention_only() {
+    fn bumps_on_others_status_change_or_new_comment() {
         // Cursor between the fixtures' older and newer events.
         let (b, _) = polled(Some("2026-09-26T12:00:00.000Z"));
         let by_key = |k: &str| b.items.iter().find(|i| i.external_id == k).unwrap();
@@ -773,12 +763,29 @@ mod tests {
         assert!(by_key("PLAT-1170").bump);
         // PLAT-1150: status changed to Done by Kim after the cursor.
         assert!(by_key("PLAT-1150").bump);
-        // PLAT-1201: only my own assignee change after the cursor, and a mention of someone else.
-        assert!(!by_key("PLAT-1201").bump);
+        // PLAT-1201: my own assignee change, and a comment by Jordan that doesn't mention me.
+        assert!(by_key("PLAT-1201").bump);
 
         // Everything is older than a later cursor: nothing bumps.
         let (b, _) = polled(Some("2026-09-27T09:00:00.000Z"));
         assert!(b.items.iter().all(|i| !i.bump));
+    }
+
+    #[test]
+    fn my_own_changes_and_other_fields_dont_bump() {
+        let cursor = Ts::parse("2026-09-26T12:00:00.000Z").unwrap();
+        let later = "2026-09-26T17:00:00.000+0000";
+        let issue = |histories: Value, comments: Value| {
+            json!({ "changelog": { "histories": histories }, "fields": { "comment": { "comments": comments } } })
+        };
+        let history = |who: &str, field: &str| json!({ "created": later, "author": { "accountId": who }, "items": [{ "fieldId": field }] });
+        let comment = |who: &str, at: &str| json!({ "created": at, "author": { "accountId": who }, "body": { "type": "doc", "content": [] } });
+
+        assert!(!bump(&issue(json!([]), json!([comment("acc-me", later)])), "acc-me", cursor));
+        assert!(!bump(&issue(json!([history("acc-kim", "priority"), history("acc-kim", "duedate")]), json!([])), "acc-me", cursor));
+        assert!(!bump(&issue(json!([]), json!([comment("acc-kim", "2026-09-26T11:00:00.000+0000")])), "acc-me", cursor));
+        assert!(bump(&issue(json!([]), json!([comment("acc-kim", later)])), "acc-me", cursor));
+        assert!(bump(&issue(json!([history("acc-kim", "status")]), json!([])), "acc-me", cursor));
     }
 
     #[test]

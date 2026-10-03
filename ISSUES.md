@@ -44,9 +44,13 @@ Built: Incoming mirrors the whole Inbox (read or not), filing labels by category
 
 Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title gets its own full-width line (wrapping instead of truncating), and below it one muted info line joins `meta` (author · time) with the connector's `summary`, dropping ` · ` parts that repeat. Found on Jira issues, where `meta` names the reporter and `summary` is "Status · assignee", so the same name showed twice and the header was squished next to the action buttons. Still unlabeled when reporter and assignee differ ("Alice · 10:41 · Open · Bob"). The user wants to adjust the design; labeling roles would mean changing the Jira connector's `summary`, which the Topics timeline also shows.
 
+### Jira: field changes other than status and assignee aren't updates (user, 2026-10-03: maybe never)
+
+A change by someone else to priority, due date, summary, labels or any other field doesn't bring an issue back to Incoming; only status, assignee and comments do (`bump` in `sync/connectors/jira.rs`). The item still picks up the new values on the next poll. The user isn't sure these should count; revisit if a missed due-date change bites.
+
 ### Slack messages as "updates" on filed items
 
-Unseen items with a `confirmed` link now show under their topic in Incoming as updates (with Confirm, like any signal). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira only counts status/assignee changes by others and @mentions as updates, not plain comments.
+Unseen items with a `confirmed` link now show under their topic in Incoming as updates (with Confirm, like any signal). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira counts status/assignee changes and comments by others as updates.
 
 ### Sample data writes vault files inside its database transaction
 
