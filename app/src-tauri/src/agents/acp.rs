@@ -125,6 +125,10 @@ pub(crate) struct Turn {
     /// Permission requests waiting on you, by request id.
     #[serde(default)]
     waiting: HashMap<String, Waiting>,
+    /// What each open tool call has said about itself (kind, title, name,
+    /// input): a permission request may repeat only what changed.
+    #[serde(default)]
+    calls: HashMap<String, Value>,
     /// Prompts sent and not yet answered: JSON-RPC id → your row.
     #[serde(default)]
     prompts: BTreeMap<u64, u64>,
@@ -911,8 +915,31 @@ pub fn tool_label(u: &Value, cwd: &str) -> (String, String) {
     (n.to_owned(), d)
 }
 
+/// Fold a tool call update into what's known about the call. Not its
+/// content: that can be large, and a permission request's own content is its message.
+fn remember(turn: &mut Turn, call: &str, u: &Value) {
+    let e = turn.calls.entry(call.to_owned()).or_insert_with(|| json!({}));
+    for k in ["kind", "title", "name"] {
+        if let Some(v) = u.get(k).filter(|v| !v.is_null()) {
+            e[k] = v.clone();
+        }
+    }
+    if let Some(n) = meta(u, "/claudeCode/toolName") {
+        e["name"] = n.clone();
+    }
+    if let Some(input) = u.get("rawInput").and_then(Value::as_object).filter(|o| !o.is_empty()) {
+        // A Write's whole file isn't needed to label or parse it.
+        let small: serde_json::Map<String, Value> = input.iter().filter(|(_, v)| v.to_string().len() <= 8192).map(|(k, v)| (k.clone(), v.clone())).collect();
+        e["rawInput"] = Value::Object(small);
+    }
+    if matches!(u.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
+        turn.calls.remove(call);
+    }
+}
+
 fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
     let Some(call) = u.get("toolCallId").and_then(Value::as_str) else { return };
+    remember(turn, call, u);
     let store = &app.agents.store;
     let cwd = store.lock().sessions.get(session).map(|s| s.cwd.clone()).unwrap_or_default();
     let is_subagent = meta(u, "/claudeCode/subagent").and_then(Value::as_bool) == Some(true) || turn.subagents.contains_key(call);
@@ -1189,8 +1216,21 @@ fn refresh_subagent_summary(app: &App, turn: &Turn, child: &str) {
 /// `session/request_permission`: pin an approval with the agent's own options.
 fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let session = conn.session.clone();
-    let tc = p.get("toolCall").cloned().unwrap_or(Value::Null);
-    let call = tc.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
+    let asked = p.get("toolCall").cloned().unwrap_or(Value::Null);
+    let call = asked.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
+    // The request's toolCall is an update: what it leaves out is what the call already said.
+    let mut tc = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).calls.get(&call).cloned().unwrap_or_else(|| json!({}));
+    if let Some(o) = asked.as_object() {
+        for (k, v) in o.iter().filter(|(_, v)| !v.is_null()) {
+            tc[k] = v.clone();
+        }
+    }
+    // Text the agent (or a gate in it) sent with the request: shown, never explained.
+    let message = asked
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|blocks| blocks.iter().filter(|b| b.get("type").and_then(Value::as_str) == Some("content")).filter_map(|b| b.pointer("/content/text").and_then(Value::as_str)).map(|t| strip_fence(t).trim().to_owned()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n"))
+        .unwrap_or_default();
     let ts = now(app);
     let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
     let (name, detail) = tool_label(&tc, &s.cwd);
@@ -1245,6 +1285,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         title: plain,
         tool: format!("{name} · {}", tilde(&s.cwd)),
         cwd: s.cwd.clone(),
+        message: if message == command { String::new() } else { message },
         command: command.clone(),
         options,
         parsed,
@@ -1400,7 +1441,6 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
         return Err(msg("Pick a choice or write a reply"));
     };
     let w = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.remove(req_id).ok_or_else(|| msg("That question was already answered"))?;
-    conn.respond(&w.rpc, reply)?;
     {
         let mut i = app.agents.store.lock();
         i.remove_request(req_id);
@@ -1412,8 +1452,12 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
             });
         }
         let still_waiting = i.requests.values().any(|r| r.session_id == req.session_id);
-        i.update_session(&req.session_id, |s| s.status = if still_waiting { Status::Waiting } else { Status::Running });
+        if !still_waiting {
+            i.update_session(&req.session_id, |s| s.status = Status::Running);
+        }
     }
+    // Stored before it's sent, as in `respond`.
+    conn.respond(&w.rpc, reply)?;
     if let Some(t) = after {
         send(app, &req.session_id, &t, vec![])?;
     }
@@ -1470,7 +1514,6 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
         }
         t.waiting.remove(req_id).ok_or_else(|| msg("already answered"))?.rpc
     };
-    conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }))?;
     let ts = now(app);
     let hm = ts.get(11..16).unwrap_or("").to_owned();
     let verdict = match opt.kind.as_str() {
@@ -1496,8 +1539,12 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
             });
         }
         let still_waiting = i.requests.values().any(|r| r.session_id == req.session_id);
-        i.update_session(&req.session_id, |s| s.status = if still_waiting { Status::Waiting } else { Status::Running });
+        if !still_waiting {
+            i.update_session(&req.session_id, |s| s.status = Status::Running);
+        }
     }
+    // Stored before it's sent: a turn that ends at once must find nothing waiting, or it never goes idle.
+    conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }))?;
     if let Some(r) = reason.filter(|r| !r.trim().is_empty()) {
         send(app, &req.session_id, r, vec![])?;
     }

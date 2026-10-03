@@ -127,6 +127,8 @@ export interface Request {
   cwd: string;
   command: string;
   options: { id: string; name: string; kind: string; key: string }[];
+  /** Text the agent sent with an approval (a gate's prompt). Shown, never explained. */
+  message?: string;
   parsed: { verdict: string; steps: Step[]; checks: { ok: boolean; text: string }[] } | null;
   explained: {
     state: 'pending' | 'ok' | 'error' | 'off';

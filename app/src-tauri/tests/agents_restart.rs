@@ -175,6 +175,29 @@ fn a_question_is_answered_by_choice_then_text_across_a_restart() {
     stop_host(dir, host);
 }
 
+#[test]
+fn a_gate_that_repeats_only_the_call_id_still_shows_the_command() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "gate")]);
+    let app = open(dir);
+    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Clean up" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let req_id = wait("the gate", 30, || approval(&app, &id));
+    let req = app.agents.store.lock().requests[&req_id].clone();
+    assert_eq!(req.command, "rm -rf build && node scripts/clean.js", "from the tool call the request points at");
+    assert!(req.parsed.is_some(), "a shell command, so it's parsed (and explained)");
+    assert_eq!(req.message, "Dangerous command: deletes files. Allow?");
+    alethiometer_lib::agents::call(&app, "respond", &json!({ "request": req_id, "option": "1" })).unwrap();
+    wait("the turn to finish", 30, || app.agents.store.lock().sessions.get(&id).filter(|s| s.status == Status::Idle).map(|_| ()));
+    let out: String = app.agents.store.lock().threads[&format!("s:{id}")].rows.iter().filter(|r| r.kind == alethiometer_lib::agents::model::Kind::Output).map(|r| r.text.clone()).collect();
+    assert_eq!(out, "gate: choice-0");
+    stop_host(dir, host);
+}
+
 /// The devserver binary as its own process, on a free port.
 struct Server {
     child: std::process::Child,

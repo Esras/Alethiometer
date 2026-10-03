@@ -274,6 +274,10 @@ pub struct Request {
     pub cwd: String,
     /// The full command or path the approval is about.
     pub command: String,
+    /// Text the agent sent with an approval (a gate's prompt, a description).
+    /// Shown as is; never given to the explainer.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub message: String,
     pub options: Vec<PermOption>,
     pub parsed: Option<crate::agents::shell::Parsed>,
     pub explained: Option<Explained>,

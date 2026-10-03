@@ -12,7 +12,9 @@
 // FAKE_ACP_DELAY_MS), with no permission asks: the restart tests check it
 // arrives exactly once. FAKE_ACP_MODE=ask asks two questions through
 // elicitation/create (a choice like Claude Code's AskUserQuestion, then text
-// like pi's input) and says what it got.
+// like pi's input) and says what it got. FAKE_ACP_MODE=gate gates a bash
+// call the way pi-acp does for an extension's prompt: the request repeats
+// only the call's id and title, with the gate's text as content.
 
 import readline from 'node:readline';
 
@@ -131,11 +133,28 @@ async function ask() {
   return cancelled ? 'cancelled' : 'end_turn';
 }
 
+async function gate() {
+  const cmd = 'rm -rf build && node scripts/clean.js';
+  update({ sessionUpdate: 'tool_call', toolCallId: 'g1', kind: 'execute', title: cmd, status: 'pending', rawInput: { command: cmd } });
+  const r = await request('session/request_permission', {
+    sessionId: session,
+    toolCall: { toolCallId: 'g1', title: cmd, status: 'in_progress', content: [{ type: 'terminal', terminalId: 'g1' }, { type: 'content', content: { type: 'text', text: 'Dangerous command: deletes files. Allow?' } }] },
+    options: [
+      { optionId: 'choice-0', name: 'Yes', kind: 'allow_once' },
+      { optionId: 'choice-1', name: 'No', kind: 'reject_once' },
+    ],
+  });
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'g1', status: 'completed', content: [] });
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `gate: ${r?.outcome?.optionId ?? 'none'}` } });
+  return 'end_turn';
+}
+
 async function play(text) {
   turn++;
   cancelled = false;
   if (process.env.FAKE_ACP_MODE === 'stream') return stream();
   if (process.env.FAKE_ACP_MODE === 'ask') return ask();
+  if (process.env.FAKE_ACP_MODE === 'gate') return gate();
   const t = `t${turn}`;
   await chunks('agent_thought_chunk', 'Probably a flex row without min-width. Check Header.tsx before touching the modal, then look for overrides.');
   await tool(`${t}_read`, 'Read', 'read', 'Read src/settings/Header.tsx', { file_path: `${process.cwd()}/src/settings/Header.tsx` }, Array.from({ length: 64 }, (_, i) => `${i + 1}\tline ${i + 1}`).join('\n'));

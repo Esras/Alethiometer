@@ -64,6 +64,7 @@
       <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
     </div>
     {#if req.command}<div class="command">{pretty}</div>{/if}
+    {#if req.message}<div class="said" title="Sent by the agent with the request; the explainer never sees it"><i class="ph ph-chat-text"></i><span>{req.message}</span></div>{/if}
     {#if req.parsed || req.explained}
       <div class="panels" class:solo={!req.parsed || !req.explained}>
         {#if req.parsed}
@@ -195,6 +196,22 @@
     overflow-wrap: anywhere;
     max-height: 160px;
     overflow-y: auto;
+  }
+  .said {
+    margin: 6px 12px 0;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 0.962rem;
+    line-height: 1.5;
+    color: var(--tx-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .said i {
+    color: var(--tx-label);
   }
   .panels {
     margin: 8px 12px 0;
