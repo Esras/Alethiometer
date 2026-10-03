@@ -55,6 +55,20 @@
     ag.zone = 'tree';
   }
 
+  const host = $derived(ag.tree?.agentd);
+  const localLive = $derived((ag.tree?.sessions ?? []).filter((s) => s.source === 'acp' && !s.parent_id && s.live).length);
+  const anyLocal = $derived((ag.tree?.sessions ?? []).some((s) => s.source === 'acp'));
+  let armed = $state<'' | 'stop' | 'restart'>('');
+  function twice(what: 'stop' | 'restart') {
+    if (armed !== what && localLive > 0) {
+      armed = what;
+      setTimeout(() => (armed = ''), 4000);
+      return;
+    }
+    armed = '';
+    act(what === 'stop' ? 'stop_all' : 'host_restart', {}).catch(() => {});
+  }
+
   // Ages tick faster than the 15 s app clock while the tab is open.
   let now = $state(Date.now());
   $effect(() => {
@@ -165,6 +179,30 @@
       </div>
     {/each}
   </div>
+
+  {#if host && (anyLocal || (host.state !== 'idle' && host.state !== ''))}
+    <div class="hostline" class:bad={host.state === 'missing' || host.state === 'error' || host.state === 'unsupported'} title={host.error || host.binary}>
+      <i class="ph {host.state === 'running' ? 'ph-cpu' : host.state === 'starting' ? 'ph-circle-notch' : 'ph-plugs'}"></i>
+      {#if host.state === 'running'}
+        <span>Agent host · v{host.version} · {localLive} running</span>
+        {#if host.stale}<span class="note">a newer build is ready</span>{/if}
+      {:else if host.state === 'idle' || host.state === ''}
+        <span>Agent host · starts with the next local session</span>
+      {:else if host.state === 'starting'}
+        <span>Agent host · starting…</span>
+      {:else}
+        <span class="err">{host.error || 'Agent host unavailable'}</span>
+      {/if}
+      <span class="hacts">
+        {#if host.state === 'running' && localLive > 0}
+          <button onclick={() => twice('stop')}>{armed === 'stop' ? `Stops ${localLive} · click again` : 'Stop all'}</button>
+        {/if}
+        {#if host.state === 'running' ? host.stale : host.state === 'error' || host.state === 'missing'}
+          <button onclick={() => twice('restart')}>{armed === 'restart' ? `Stops ${localLive} · click again` : host.state === 'running' ? 'Restart host' : 'Retry'}</button>
+        {/if}
+      </span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -531,5 +569,40 @@
   }
   .hub-err i {
     color: var(--red);
+  }
+  .hostline {
+    flex: none;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 14px 8px;
+    border-top: 1px solid var(--bg-head);
+    font: 0.846rem var(--font-mono);
+    color: var(--tx-label);
+    min-width: 0;
+  }
+  .hostline > span:not(.hacts) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hostline.bad i,
+  .hostline .err {
+    color: var(--orange);
+  }
+  .hostline .note {
+    color: var(--yellow);
+  }
+  .hacts {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    flex: none;
+  }
+  .hacts button {
+    color: var(--tx-2);
+  }
+  .hacts button:hover {
+    color: var(--aqua);
   }
 </style>

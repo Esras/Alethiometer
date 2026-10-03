@@ -1,33 +1,46 @@
-//! Local agents over ACP v1 (JSON-RPC 2.0, one message per line on stdio).
-//! Alethiometer is the client: it launches the harness's adapter
-//! (`agents.harnesses`, e.g. claude-agent-acp, pi-acp), which signs in its own
-//! way. No fs/terminal capabilities are offered, so agents use their own tools.
+//! Local agents over ACP v1 (JSON-RPC 2.0, one message per line).
+//! Alethiometer is the client: the harness's adapter (`agents.harnesses`,
+//! e.g. claude-agent-acp, pi-acp) signs in its own way. No fs/terminal
+//! capabilities are offered, so agents use their own tools.
+//!
+//! The adapters run in the agent host (`daemon`, `app/agentd`), not in the
+//! app: a quit, crash or rebuild of the app leaves them running, mid-turn or
+//! waiting on an approval. Their stdout comes back as numbered events
+//! (`on_event`); everything needed to pick up after a restart (open rows,
+//! tool calls, prompts and approvals in flight) is the `Turn`, stored with
+//! how far the log has been read (`store::HostState`).
 //!
 //! `session/update` notifications become rows (`apply`); a
 //! `session/request_permission` becomes a pinned approval answered with one of
 //! the agent's own options. "Always" is whatever the agent offers: the agent
 //! keeps that rule, not Alethiometer.
 //!
-//! Sessions outlive the process: the transcript is stored, and sending to a
-//! session from an earlier run starts the adapter again and resumes it
-//! (`session/resume`, else `session/load` with the replay dropped).
+//! An agent that exited (its host stopped, the machine restarted) is started
+//! again when you message it, and its ACP session resumed (`session/resume`,
+//! else `session/load` with the replay dropped: the transcript is stored).
 
 use super::model::{Delivery, Kind, PermOption, Request, Row, Session, Status, Tool, Who};
-use super::{now, session_thread};
+use super::store::HostState;
+use super::{daemon, now, session_thread};
 use crate::error::{msg, Result};
 use crate::state::App;
+use agentd::proto::{self as dproto, Event, HostInfo};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::collections::{BTreeMap, HashMap};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const PROTOCOL_VERSION: u64 = 1;
 /// npx may download the adapter on first run.
 const INIT_TIMEOUT: Duration = Duration::from_secs(240);
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn now_ms() -> u64 {
+    dproto::now_ms()
+}
 
 #[derive(Default)]
 pub struct Host {
@@ -41,58 +54,90 @@ impl Host {
         self.conns.lock().unwrap_or_else(|e| e.into_inner()).get(id).filter(|c| c.alive.load(Ordering::SeqCst)).cloned()
     }
 
-    pub fn any_alive(&self) -> bool {
-        self.conns.lock().unwrap_or_else(|e| e.into_inner()).values().any(|c| c.alive.load(Ordering::SeqCst))
+    fn any(&self, id: &str) -> Option<Arc<Conn>> {
+        self.conns.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
     }
 
-    pub fn stop_all(&self) {
-        let conns: Vec<Arc<Conn>> = self.conns.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, c)| c).collect();
-        for c in conns {
-            c.kill();
-        }
+    fn all(&self) -> Vec<Arc<Conn>> {
+        self.conns.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
     }
 }
 
 type Reply = std::result::Result<Value, Value>;
 
-/// One adapter process and the session it runs.
+/// One agent in the agent host, and the ACP session it runs.
 pub struct Conn {
     session: String,
-    stdin: Mutex<Option<ChildStdin>>,
-    child: Mutex<Option<Child>>,
+    app: std::sync::Weak<App>,
+    /// JSON-RPC ids: unique across app restarts (a prompt's answer can arrive in the next run).
     next: AtomicU64,
+    /// Requests this run is waiting on (initialize, session/new …).
     pending: Mutex<HashMap<u64, mpsc::Sender<Reply>>>,
     alive: AtomicBool,
+    /// Stopped on purpose: its exit isn't a failure.
+    stopping: AtomicBool,
     /// While `session/load` replays history, its updates are dropped (the transcript is stored).
     replaying: AtomicBool,
-    acp_session: Mutex<String>,
-    caps: Mutex<Value>,
     turn: Mutex<Turn>,
     stderr: Mutex<Vec<String>>,
 }
 
-/// Where streamed updates go in the current turn.
-#[derive(Default)]
+/// An approval waiting on you: the agent's request id and what it asked.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct Waiting {
+    rpc: Value,
+    params: Value,
+}
+
+/// Where streamed updates go, and what's in flight. Stored after every
+/// event, so another run of the app can carry on from it.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Turn {
-    /// Prompts sent and not yet answered.
-    in_flight: usize,
-    /// Open output / thinking row per thread (a subagent's go to its own thread).
-    open: HashMap<(String, Kind), u64>,
-    /// toolCallId → (thread, row id, first seen).
-    tools: HashMap<String, (String, u64, Instant)>,
+    /// Open output / thinking row per thread (a subagent's go to its own thread), keyed by `open_key`.
+    #[serde(default)]
+    open: HashMap<String, u64>,
+    /// toolCallId → (thread, row id, started ms).
+    #[serde(default)]
+    tools: HashMap<String, (String, u64, u64)>,
     /// Subagent Task toolCallId → child session id.
+    #[serde(default)]
     subagents: HashMap<String, String>,
-    /// Permission requests waiting on you: request id → JSON-RPC id.
-    waiting: HashMap<String, Value>,
+    /// Permission requests waiting on you, by request id.
+    #[serde(default)]
+    waiting: HashMap<String, Waiting>,
+    /// Prompts sent and not yet answered: JSON-RPC id → your row.
+    #[serde(default)]
+    prompts: BTreeMap<u64, u64>,
+    #[serde(default)]
+    caps: Value,
+    /// The ACP sessionId.
+    #[serde(default)]
+    sid: String,
+}
+
+fn open_key(thread: &str, k: Kind) -> String {
+    format!("{thread}\u{1f}{k:?}")
 }
 
 impl Conn {
+    fn new(app: &App, session: &str, turn: Turn, alive: bool) -> Conn {
+        Conn {
+            session: session.to_owned(),
+            app: app.arc().map(|a| Arc::downgrade(&a)).unwrap_or_default(),
+            next: AtomicU64::new(now_ms() * 1000),
+            pending: Mutex::new(HashMap::new()),
+            alive: AtomicBool::new(alive),
+            stopping: AtomicBool::new(false),
+            replaying: AtomicBool::new(false),
+            turn: Mutex::new(turn),
+            stderr: Mutex::new(vec![]),
+        }
+    }
+
     fn write(&self, v: &Value) -> Result<()> {
-        let mut g = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
-        let w = g.as_mut().ok_or_else(|| msg("the agent has exited"))?;
-        let mut line = serde_json::to_string(v)?;
-        line.push('\n');
-        w.write_all(line.as_bytes()).and_then(|_| w.flush()).map_err(|e| msg(format!("couldn't write to the agent: {e}")))
+        let app = self.app.upgrade().ok_or_else(|| msg("shutting down"))?;
+        let line = serde_json::to_string(v)?;
+        daemon::call(&app, &dproto::Request::Write { id: self.session.clone(), line }).map(|_| ())
     }
 
     fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Result<Value> {
@@ -119,26 +164,23 @@ impl Conn {
         self.write(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
     }
 
+    /// Stop the agent in the host; its exit comes back as an event.
     fn kill(&self) {
-        self.alive.store(false, Ordering::SeqCst);
-        // Closing stdin ends both adapters; the kill catches one that hangs.
-        self.stdin.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(mut c) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            #[cfg(unix)]
-            {
-                // The adapter's own children (npx → node) are in its process group.
-                let _ = Command::new("kill").arg("-TERM").arg(format!("-{}", c.id())).status();
+        if let Some(app) = self.app.upgrade() {
+            if let Err(e) = daemon::call(&app, &dproto::Request::Kill { id: self.session.clone() }) {
+                eprintln!("agents: couldn't stop {}: {e}", self.session);
             }
-            let _ = c.kill();
-            let _ = c.wait();
         }
+    }
+
+    fn fail_pending(&self) {
         for (_, tx) in self.pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
             let _ = tx.send(Err(json!({ "message": "the agent exited" })));
         }
     }
 
     fn sid(&self) -> String {
-        self.acp_session.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.turn.lock().unwrap_or_else(|e| e.into_inner()).sid.clone()
     }
 
     fn stderr_tail(&self) -> String {
@@ -332,53 +374,29 @@ fn fail(app: &App, id: &str, why: &str) {
     i.push_row(&session_thread(id), Row { at: ts, kind: Kind::Failed, text: why.to_owned(), label: "couldn't start".into(), ..Default::default() });
 }
 
-/// Launch the adapter, initialize, and open (or resume) the ACP session.
+/// Start the adapter in the agent host, initialize, and open (or resume) the ACP session.
 fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> {
     let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
     let settings = app.settings();
     let h = settings.agents.harnesses.iter().find(|h| h.key == s.template).ok_or_else(|| msg(format!("the {} harness is gone from settings", s.template)))?;
     let path = login_path();
     let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH (agents.harnesses.{}.command)", h.command, h.key)))?;
-    let mut cmd = Command::new(exe);
-    cmd.args(&h.args).current_dir(&s.cwd).env("PATH", &path).envs(&h.env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-    let mut child = cmd.spawn().map_err(|e| msg(format!("couldn't start {}: {e}", h.command)))?;
-    let stdout = child.stdout.take().ok_or_else(|| msg("no stdout"))?;
-    let stderr = child.stderr.take().ok_or_else(|| msg("no stderr"))?;
-    let conn = Arc::new(Conn {
-        session: id.to_owned(),
-        stdin: Mutex::new(child.stdin.take()),
-        child: Mutex::new(Some(child)),
-        next: AtomicU64::new(1),
-        pending: Mutex::new(HashMap::new()),
-        alive: AtomicBool::new(true),
-        replaying: AtomicBool::new(false),
-        acp_session: Mutex::new(String::new()),
-        caps: Mutex::new(Value::Null),
-        turn: Mutex::new(Turn::default()),
-        stderr: Mutex::new(vec![]),
-    });
+    // A new process starts its turn over; its events keep counting from where the log was read.
+    let after = app.agents.store.lock().hosts.get(id).map(|h| h.seq).unwrap_or(0);
+    app.agents.store.lock().set_host(id, HostState { seq: after, turn: Value::Null });
+    let conn = Arc::new(Conn::new(app, id, Turn::default(), true));
     app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), conn.clone());
-    {
-        let c = conn.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
-                let mut e = c.stderr.lock().unwrap_or_else(|e| e.into_inner());
-                e.push(line);
-                if e.len() > 50 {
-                    e.remove(0);
-                }
-            }
-        });
+    let mut env: BTreeMap<String, String> = h.env.clone().into_iter().collect();
+    env.insert("PATH".into(), path);
+    let spawned = daemon::call(
+        app,
+        &dproto::Request::Spawn { id: id.to_owned(), cmd: exe.display().to_string(), args: h.args.clone(), env, cwd: s.cwd.clone(), after },
+    );
+    if let Err(e) = spawned {
+        conn.alive.store(false, Ordering::SeqCst);
+        return Err(e);
     }
-    {
-        let (a, c) = (app.clone(), conn.clone());
-        std::thread::Builder::new().name(format!("acp-{id}")).spawn(move || read_loop(&a, &c, stdout)).map_err(|e| msg(e.to_string()))?;
-    }
+    daemon::kick(app);
 
     let init = conn
         .request(
@@ -396,7 +414,7 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
             msg(if tail.is_empty() { e.to_string() } else { format!("{e} · {tail}") })
         })?;
     let caps = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
-    *conn.caps.lock().unwrap_or_else(|e| e.into_inner()) = caps.clone();
+    conn.turn.lock().unwrap_or_else(|e| e.into_inner()).caps = caps.clone();
 
     let cwd = s.cwd.clone();
     let opened = match resume {
@@ -419,7 +437,7 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         conn.kill();
         e
     })?;
-    *conn.acp_session.lock().unwrap_or_else(|e| e.into_inner()) = sid.clone();
+    conn.turn.lock().unwrap_or_else(|e| e.into_inner()).sid = sid.clone();
     // In-project edits are the agent's call to let through (agents.accept_edits).
     if settings.agents.accept_edits {
         if let Some(mode) = accept_edits_mode(&opened) {
@@ -437,7 +455,179 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
             s.model = m;
         }
     });
+    save_turn(app, &conn, None);
     Ok(conn)
+}
+
+/// Store the turn (and, after an event, how far the log has been read).
+fn save_turn(app: &App, conn: &Conn, seq: Option<u64>) {
+    let turn = serde_json::to_value(&*conn.turn.lock().unwrap_or_else(|e| e.into_inner())).unwrap_or(Value::Null);
+    let mut i = app.agents.store.lock();
+    let seq = seq.unwrap_or_else(|| i.hosts.get(&conn.session).map(|h| h.seq).unwrap_or(0));
+    i.set_host(&conn.session, HostState { seq, turn });
+}
+
+/// An event's time on the app's clock (which `fake_now` may shift).
+fn ts_of(app: &App, at_ms: u64) -> String {
+    let ms = at_ms as i64 + app.clock.offset_ms();
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|t| t.with_timezone(&chrono::Local).naive_local().format("%Y-%m-%dT%H:%M:%S").to_string())
+        .unwrap_or_else(|| now(app))
+}
+
+/// The Conn for a session's agent, made from its stored turn when this run hasn't seen it yet.
+fn conn_for(app: &App, id: &str) -> Option<Arc<Conn>> {
+    if let Some(c) = app.agents.acp.any(id) {
+        return Some(c);
+    }
+    let exists = app.agents.store.lock().sessions.get(id).is_some_and(|s| s.source == "acp" && s.parent_id.is_none());
+    if !exists {
+        return None;
+    }
+    let turn: Turn = app.agents.store.lock().hosts.get(id).and_then(|h| serde_json::from_value(h.turn.clone()).ok()).unwrap_or_default();
+    let c = Arc::new(Conn::new(app, id, turn, false));
+    app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), c.clone());
+    Some(c)
+}
+
+/// One event from the agent host, in order. Already-applied ones are skipped,
+/// so a resubscribe that overlaps is harmless.
+pub fn on_event(app: &Arc<App>, ev: Event) {
+    let Some(conn) = conn_for(app, &ev.id) else {
+        if ev.kind == dproto::Kind::Exit {
+            let _ = daemon::call(app, &dproto::Request::Forget { id: ev.id });
+        }
+        return;
+    };
+    let seen = app.agents.store.lock().hosts.get(&ev.id).map(|h| h.seq).unwrap_or(0);
+    if ev.seq <= seen {
+        return;
+    }
+    let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(&ev.id));
+    let ts = ts_of(app, ev.at_ms);
+    match ev.kind {
+        dproto::Kind::Out => {
+            // Adapters and wrappers sometimes print non-JSON lines; skip them.
+            if let Some(v) = ev.line.as_deref().and_then(|l| serde_json::from_str::<Value>(l.trim()).ok()) {
+                handle(app, &conn, v, &ts);
+            }
+        }
+        dproto::Kind::Err => {
+            let mut e = conn.stderr.lock().unwrap_or_else(|e| e.into_inner());
+            e.push(ev.line.unwrap_or_default());
+            if e.len() > 50 {
+                e.remove(0);
+            }
+        }
+        dproto::Kind::Exit => {
+            exited(app, &conn, ev.line.as_deref(), &ts);
+            save_turn(app, &conn, Some(ev.seq));
+            let _ = daemon::call(app, &dproto::Request::Forget { id: ev.id });
+            return;
+        }
+    }
+    save_turn(app, &conn, Some(ev.seq));
+}
+
+/// The agent's process ended: close what was open, say why if it was busy.
+fn exited(app: &App, conn: &Conn, note: Option<&str>, ts: &str) {
+    let was_alive = conn.alive.swap(false, Ordering::SeqCst);
+    conn.fail_pending();
+    let busy = {
+        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        let busy = !t.prompts.is_empty();
+        let open: Vec<(String, u64)> = t.open.drain().map(|(k, id)| (k.split('\u{1f}').next().unwrap_or("").to_owned(), id)).collect();
+        t.prompts.clear();
+        t.waiting.clear();
+        let mut i = app.agents.store.lock();
+        for (k, id) in open {
+            i.update_row(&k, id, |r| r.open = false);
+        }
+        busy
+    };
+    let tail = note.map(str::to_owned).unwrap_or_else(|| conn.stderr_tail());
+    let mut i = app.agents.store.lock();
+    let reqs: Vec<String> = i.requests.values().filter(|r| r.session_id == conn.session).map(|r| r.id.clone()).collect();
+    for r in reqs {
+        i.remove_request(&r);
+    }
+    let failed = !conn.stopping.swap(false, Ordering::SeqCst) && (busy || i.sessions.get(&conn.session).is_some_and(|s| s.status == Status::Waiting));
+    i.update_session(&conn.session, |s| {
+        s.live = false;
+        if failed {
+            s.status = Status::Failed;
+            s.problem = if tail.is_empty() { "the agent exited".into() } else { tail.clone() };
+        } else if s.status != Status::Failed {
+            s.status = Status::Idle;
+        }
+    });
+    let children: Vec<String> = i.sessions.values().filter(|c| c.parent_id.as_deref() == Some(conn.session.as_str()) && c.status == Status::Running).map(|c| c.id.clone()).collect();
+    for c in children {
+        i.update_session(&c, |c| {
+            c.status = Status::Idle;
+            c.live = false;
+        });
+    }
+    if failed && (was_alive || note.is_some()) {
+        i.push_row(&session_thread(&conn.session), Row { at: ts.into(), kind: Kind::Failed, label: "exited".into(), text: if tail.is_empty() { "The agent exited.".into() } else { tail }, ..Default::default() });
+    }
+}
+
+/// After (re)connecting to the agent host: attach the agents still running,
+/// with the approvals they were waiting on; settle the ones that aren't.
+pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
+    let alive: HashMap<&str, bool> = hosts.iter().map(|h| (h.id.as_str(), h.alive)).collect();
+    let local: Vec<Session> = app.agents.store.lock().sessions.values().filter(|s| s.source == "acp" && s.parent_id.is_none()).cloned().collect();
+    for s in local {
+        match alive.get(s.id.as_str()) {
+            Some(true) => {
+                let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(&s.id));
+                let Some(conn) = conn_for(app, &s.id) else { continue };
+                conn.alive.store(true, Ordering::SeqCst);
+                let waiting: Vec<Waiting> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.values().cloned().collect();
+                app.agents.store.lock().update_session(&s.id, |x| x.live = true);
+                for w in waiting {
+                    let req = format!("{}:{}", s.id, w.rpc);
+                    if !app.agents.store.lock().requests.contains_key(&req) {
+                        permission(app, &conn, w.rpc.clone(), &w.params);
+                    }
+                }
+            }
+            // Exited while we were away: its events (ending in the exit) are still to come.
+            Some(false) => {}
+            None => {
+                // Nothing in the host: whatever it was doing is over.
+                if matches!(s.status, Status::Running | Status::Waiting) {
+                    app.agents.store.lock().update_session(&s.id, |x| {
+                        x.status = Status::Idle;
+                        x.live = false;
+                    });
+                }
+            }
+        }
+    }
+    // Logs of agents this app no longer knows.
+    for h in hosts.iter().filter(|h| !h.alive) {
+        if app.agents.store.lock().sessions.get(&h.id).is_none() {
+            let _ = daemon::call(app, &dproto::Request::Forget { id: h.id.clone() });
+        }
+    }
+}
+
+/// The connection to the agent host broke: nothing is attached until it's back.
+pub fn host_gone(app: &App) {
+    for c in app.agents.acp.all() {
+        c.alive.store(false, Ordering::SeqCst);
+        c.fail_pending();
+        app.agents.store.lock().update_session(&c.session, |s| s.live = false);
+    }
+}
+
+/// Anything local that needs the agent host.
+pub fn any_local(app: &App) -> bool {
+    let i = app.agents.store.lock();
+    !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+        || i.sessions.values().any(|s| s.source == "acp" && s.parent_id.is_none() && (matches!(s.status, Status::Running | Status::Waiting) || s.live))
 }
 
 /// The agent's own mode that applies edits without asking, if it has one.
@@ -458,40 +648,7 @@ pub fn model_of(v: &Value) -> Option<String> {
     from_config.or(from_models).filter(|m| !m.is_empty()).map(|m| super::explain::short_model(&m))
 }
 
-fn read_loop(app: &Arc<App>, conn: &Arc<Conn>, stdout: std::process::ChildStdout) {
-    for line in BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        // Adapters and wrappers sometimes print non-JSON lines; skip them.
-        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
-        handle(app, conn, v);
-    }
-    let was_alive = conn.alive.swap(false, Ordering::SeqCst);
-    for (_, tx) in conn.pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
-        let _ = tx.send(Err(json!({ "message": "the agent exited" })));
-    }
-    let tail = conn.stderr_tail();
-    let ts = now(app);
-    let mut i = app.agents.store.lock();
-    let reqs: Vec<String> = i.requests.values().filter(|r| r.session_id == conn.session).map(|r| r.id.clone()).collect();
-    for r in reqs {
-        i.remove_request(&r);
-    }
-    let failed = i.sessions.get(&conn.session).is_some_and(|s| s.status == Status::Running || s.status == Status::Waiting);
-    i.update_session(&conn.session, |s| {
-        s.live = false;
-        if failed && was_alive {
-            s.status = Status::Failed;
-            s.problem = if tail.is_empty() { "the agent exited".into() } else { tail.clone() };
-        } else if s.status != Status::Failed {
-            s.status = Status::Idle;
-        }
-    });
-    if failed && was_alive {
-        i.push_row(&session_thread(&conn.session), Row { at: ts, kind: Kind::Failed, label: "exited".into(), text: if tail.is_empty() { "The agent exited.".into() } else { tail }, ..Default::default() });
-    }
-}
-
-fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value) {
+fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) {
     let method = v.get("method").and_then(Value::as_str);
     match (method, v.get("id")) {
         (Some(m), Some(id)) => {
@@ -508,20 +665,21 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value) {
                 return;
             }
             if let Some(u) = v.pointer("/params/update") {
-                let ts = now(app);
                 let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-                apply(app, &conn.session, &mut turn, u, &ts);
+                apply(app, &conn.session, &mut turn, u, ts);
             }
         }
         (Some(_), None) => {}
         (None, Some(id)) => {
             let Some(id) = id.as_u64() else { return };
+            let r = match v.get("error") {
+                Some(e) => Err(e.clone()),
+                None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
+            };
             if let Some(tx) = conn.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
-                let r = match v.get("error") {
-                    Some(e) => Err(e.clone()),
-                    None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
-                };
                 let _ = tx.send(r);
+            } else if conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.contains_key(&id) {
+                finish_prompt(app, conn, id, r, ts);
             }
         }
         _ => {}
@@ -556,12 +714,12 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
             let other = if k == Kind::Output { Kind::Thinking } else { Kind::Output };
             let mut i = store.lock();
             // A new kind of text closes the other open row.
-            if let Some(id) = turn.open.remove(&(key.clone(), other)) {
+            if let Some(id) = turn.open.remove(&open_key(&key, other)) {
                 i.update_row(&key, id, |r| r.open = false);
             }
-            let last_is_open = turn.open.get(&(key.clone(), k)).is_some_and(|id| i.threads.get(&key).and_then(|t| t.rows.last()).is_some_and(|r| r.id == *id));
+            let last_is_open = turn.open.get(&open_key(&key, k)).is_some_and(|id| i.threads.get(&key).and_then(|t| t.rows.last()).is_some_and(|r| r.id == *id));
             if last_is_open {
-                let id = turn.open[&(key.clone(), k)];
+                let id = turn.open[&open_key(&key, k)];
                 i.update_row(&key, id, |r| {
                     r.text.push_str(text);
                     if k == Kind::Thinking {
@@ -569,7 +727,7 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                     }
                 });
             } else {
-                if let Some(id) = turn.open.remove(&(key.clone(), k)) {
+                if let Some(id) = turn.open.remove(&open_key(&key, k)) {
                     i.update_row(&key, id, |r| r.open = false);
                 }
                 let row = Row {
@@ -582,7 +740,7 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                     ..Default::default()
                 };
                 let id = i.push_row(&key, row);
-                turn.open.insert((key, k), id);
+                turn.open.insert(open_key(&key, k), id);
             }
         }
         "tool_call" | "tool_call_update" => tool_update(app, session, turn, u, ts),
@@ -739,7 +897,7 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
     let mut i = store.lock();
     // Text streamed before a tool call is done.
     for k in [Kind::Output, Kind::Thinking] {
-        if let Some(id) = turn.open.remove(&(key.clone(), k)) {
+        if let Some(id) = turn.open.remove(&open_key(&key, k)) {
             i.update_row(&key, id, |r| r.open = false);
         }
     }
@@ -756,11 +914,11 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
                 ..Default::default()
             };
             let id = i.push_row(&key, row);
-            turn.tools.insert(call.to_owned(), (key.clone(), id, Instant::now()));
+            turn.tools.insert(call.to_owned(), (key.clone(), id, now_ms()));
             id
         }
     };
-    let started = turn.tools.get(call).map(|t| t.2).unwrap_or_else(Instant::now);
+    let started = turn.tools.get(call).map(|t| t.2).unwrap_or_else(now_ms);
     let has_label = u.get("title").is_some() || u.get("rawInput").is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()));
     let (name, detail) = tool_label(u, &cwd);
     let content = u.get("content").and_then(Value::as_array).cloned();
@@ -814,7 +972,7 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
         }
         if done {
             r.open = false;
-            t.ms = Some(started.elapsed().as_millis() as u64);
+            t.ms = Some(now_ms().saturating_sub(started));
             if t.result.is_empty() {
                 if let Some(o) = &raw_out {
                     t.result = strip_fence(o);
@@ -890,7 +1048,7 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
                 ..Default::default()
             };
             let id = i.push_row(&key, row);
-            turn.tools.insert(call.to_owned(), (key.clone(), id, Instant::now()));
+            turn.tools.insert(call.to_owned(), (key.clone(), id, now_ms()));
             turn.subagents.insert(call.to_owned(), child.clone());
             child
         }
@@ -929,7 +1087,7 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
         }
         if done {
             r.open = false;
-            let ms = total_ms.unwrap_or(started.elapsed().as_millis() as u64);
+            let ms = total_ms.unwrap_or(now_ms().saturating_sub(started));
             if let Some(summary) = r.children.iter_mut().find(|c| c.ext == "summary").and_then(|c| c.tool.as_mut()) {
                 summary.ms = Some(ms);
                 summary.status = status.unwrap_or("completed").into();
@@ -1086,7 +1244,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let _ = target;
     {
         let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        turn.waiting.insert(req_id.clone(), rpc_id);
+        turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone() });
         let mut i = app.agents.store.lock();
         let existing = turn.tools.get(&call).map(|(_, id, _)| *id);
         let row_id = match existing {
@@ -1094,7 +1252,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
             None => {
                 let id = i.push_row(&key, Row { at: ts.clone(), kind: Kind::Tool, tool: Some(Tool { name: name.clone(), detail: detail.clone(), status: "pending".into(), ..Default::default() }), ext: call.clone(), open: true, ..Default::default() });
                 if !call.is_empty() {
-                    turn.tools.insert(call.clone(), (key.clone(), id, Instant::now()));
+                    turn.tools.insert(call.clone(), (key.clone(), id, now_ms()));
                 }
                 id
             }
@@ -1157,9 +1315,9 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
         // The tool's time starts when it's allowed, not while it waited on you.
         let call = app.agents.store.lock().find_row(&req.thread, |r| r.request.as_deref() == Some(req_id)).map(|r| r.ext.clone());
         if let Some(entry) = call.and_then(|c| t.tools.get_mut(&c)) {
-            entry.2 = Instant::now();
+            entry.2 = now_ms();
         }
-        t.waiting.remove(req_id).ok_or_else(|| msg("already answered"))?
+        t.waiting.remove(req_id).ok_or_else(|| msg("already answered"))?.rpc
     };
     conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }))?;
     let ts = now(app);
@@ -1209,104 +1367,112 @@ fn push_you(app: &App, id: &str, text: &str, mid_turn: bool) -> u64 {
     i.push_row(&session_thread(id), row)
 }
 
-/// Send `session/prompt` and wait for the turn to end on its own thread.
+/// Send `session/prompt`. Its answer may come in a later run of the app, so
+/// it's tracked in the turn (`prompts`) and finished in `finish_prompt`.
 fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
-    let a = app.clone();
-    let c = conn.clone();
-    std::thread::spawn(move || {
-        let id = c.session.clone();
-        let key = session_thread(&id);
-        let first = {
-            let mut t = c.turn.lock().unwrap_or_else(|e| e.into_inner());
-            t.in_flight += 1;
-            t.in_flight == 1
-        };
-        {
-            let ts = now(&a);
-            let mut i = a.agents.store.lock();
-            if first {
-                i.update_row(&key, row, |r| {
-                    if let Some(d) = r.delivery.as_mut() {
-                        d.state = "delivered".into();
-                        d.delivered_at = ts.clone();
-                        d.count = 1;
-                    }
-                });
-            } else {
-                i.update_session(&id, |s| s.queued.push(row));
-            }
-            i.update_session(&id, |s| {
-                s.status = Status::Running;
-                s.active_at = ts;
-            });
-        }
-        let sid = c.sid();
-        let res = c.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), None);
-        let ts = now(&a);
-        let mut t = c.turn.lock().unwrap_or_else(|e| e.into_inner());
-        t.in_flight = t.in_flight.saturating_sub(1);
-        let idle = t.in_flight == 0;
-        let mut i = a.agents.store.lock();
-        for ((k, _), rid) in t.open.drain() {
-            i.update_row(&k, rid, |r| r.open = false);
-        }
-        // The next queued message is the one the agent takes now.
-        let next = i.sessions.get(&id).and_then(|s| s.queued.first().copied());
-        if let Some(n) = next {
-            i.update_row(&key, n, |r| {
+    let id = conn.session.clone();
+    let key = session_thread(&id);
+    let rpc = conn.next.fetch_add(1, Ordering::SeqCst);
+    let first = {
+        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        t.prompts.insert(rpc, row);
+        t.prompts.len() == 1
+    };
+    {
+        let ts = now(app);
+        let mut i = app.agents.store.lock();
+        if first {
+            i.update_row(&key, row, |r| {
                 if let Some(d) = r.delivery.as_mut() {
                     d.state = "delivered".into();
                     d.delivered_at = ts.clone();
                     d.count = 1;
                 }
             });
-        }
-        let waiting = i.requests.values().any(|r| r.session_id == id);
-        let mut problem = None;
-        match &res {
-            Ok(v) => {
-                let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
-                if stop == "cancelled" {
-                    i.push_row(&key, state_row(&ts, "interrupted"));
-                } else if stop != "end_turn" {
-                    i.push_row(&key, state_row(&ts, &format!("turn ended · {}", stop.replace('_', " "))));
-                }
-            }
-            Err(e) => {
-                let e = e.to_string();
-                let auth = e.contains("uthentication") || e.contains("login") || e.contains("log in");
-                let text = if auth { format!("{e} · sign in to the harness in a terminal, then send again") } else { e.clone() };
-                i.push_row(&key, Row { at: ts.clone(), kind: Kind::Failed, label: "prompt failed".into(), text, ..Default::default() });
-                i.update_row(&key, row, |r| {
-                    if let Some(d) = r.delivery.as_mut() {
-                        if d.state != "delivered" {
-                            d.state = "failed".into();
-                            d.reason = e.clone();
-                        }
-                    }
-                });
-                problem = Some(e);
-            }
+        } else {
+            i.update_session(&id, |s| s.queued.push(row));
         }
         i.update_session(&id, |s| {
-            if next.is_some() {
-                s.queued.remove(0);
-            }
-            s.stats.turns += 1;
-            s.active_at = ts.clone();
-            if let Some(p) = &problem {
-                s.problem = p.clone();
-            }
-            if idle && !waiting {
-                s.status = if problem.is_some() { Status::Failed } else { Status::Idle };
+            s.status = Status::Running;
+            s.active_at = ts;
+        });
+    }
+    save_turn(app, conn, None);
+    let sid = conn.sid();
+    let sent = conn.write(&json!({ "jsonrpc": "2.0", "id": rpc, "method": "session/prompt", "params": { "sessionId": sid, "prompt": [{ "type": "text", "text": text }] } }));
+    if let Err(e) = sent {
+        finish_prompt(app, conn, rpc, Err(json!({ "message": e.to_string() })), &now(app));
+    }
+}
+
+/// A prompt's answer: the turn is over (or failed).
+fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) {
+    let id = conn.session.clone();
+    let key = session_thread(&id);
+    let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(row) = t.prompts.remove(&rpc) else { return };
+    let idle = t.prompts.is_empty();
+    let mut i = app.agents.store.lock();
+    for (k, rid) in t.open.drain() {
+        let thread = k.split('\u{1f}').next().unwrap_or("").to_owned();
+        i.update_row(&thread, rid, |r| r.open = false);
+    }
+    // The next queued message is the one the agent takes now.
+    let next = i.sessions.get(&id).and_then(|s| s.queued.first().copied());
+    if let Some(n) = next {
+        i.update_row(&key, n, |r| {
+            if let Some(d) = r.delivery.as_mut() {
+                d.state = "delivered".into();
+                d.delivered_at = ts.to_owned();
+                d.count = 1;
             }
         });
-        drop(i);
-        drop(t);
-        if idle {
-            super::facts::refresh(&a, &id);
+    }
+    let waiting = i.requests.values().any(|r| r.session_id == id);
+    let mut problem = None;
+    match &res {
+        Ok(v) => {
+            let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
+            if stop == "cancelled" {
+                i.push_row(&key, state_row(ts, "interrupted"));
+            } else if stop != "end_turn" {
+                i.push_row(&key, state_row(ts, &format!("turn ended · {}", stop.replace('_', " "))));
+            }
+        }
+        Err(e) => {
+            let e = rpc_error(e);
+            let auth = e.contains("uthentication") || e.contains("login") || e.contains("log in");
+            let text = if auth { format!("{e} · sign in to the harness in a terminal, then send again") } else { e.clone() };
+            i.push_row(&key, Row { at: ts.into(), kind: Kind::Failed, label: "prompt failed".into(), text, ..Default::default() });
+            i.update_row(&key, row, |r| {
+                if let Some(d) = r.delivery.as_mut() {
+                    if d.state != "delivered" {
+                        d.state = "failed".into();
+                        d.reason = e.clone();
+                    }
+                }
+            });
+            problem = Some(e);
+        }
+    }
+    i.update_session(&id, |s| {
+        if next.is_some() {
+            s.queued.remove(0);
+        }
+        s.stats.turns += 1;
+        s.active_at = ts.to_owned();
+        if let Some(p) = &problem {
+            s.problem = p.clone();
+        }
+        if idle && !waiting {
+            s.status = if problem.is_some() { Status::Failed } else { Status::Idle };
         }
     });
+    drop(i);
+    drop(t);
+    if idle {
+        super::facts::refresh(app, &id);
+    }
 }
 
 /// Message a local session. One from an earlier run is started again first.
@@ -1316,7 +1482,7 @@ pub fn send(app: &App, id: &str, text: &str) -> Result<()> {
     }
     let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     if let Some(conn) = app.agents.acp.get(id) {
-        let mid = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).in_flight > 0;
+        let mid = !conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.is_empty();
         let row = push_you(app, id, text, mid);
         prompt(&arc, &conn, row, text.to_owned());
         return Ok(());
@@ -1361,7 +1527,7 @@ pub fn send(app: &App, id: &str, text: &str) -> Result<()> {
 pub fn interrupt(app: &App, id: &str) -> Result<()> {
     let id = id.split('~').next().unwrap_or(id);
     let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running"))?;
-    let waiting: Vec<(String, Value)> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.drain().collect();
+    let waiting: Vec<(String, Value)> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.drain().map(|(k, w)| (k, w.rpc)).collect();
     for (req, rpc) in waiting {
         let _ = conn.respond(&rpc, json!({ "outcome": { "outcome": "cancelled" } }));
         app.agents.store.lock().remove_request(&req);
@@ -1369,10 +1535,10 @@ pub fn interrupt(app: &App, id: &str) -> Result<()> {
     conn.notify("session/cancel", json!({ "sessionId": conn.sid() }))
 }
 
-/// Stop the adapter process. The transcript stays; sending starts it again.
+/// Stop the agent (its process in the host). The transcript stays; sending starts it again.
 pub fn stop(app: &App, id: &str) {
-    let conn = app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
-    if let Some(c) = conn {
+    if let Some(c) = app.agents.acp.any(id) {
+        c.stopping.store(true, Ordering::SeqCst);
         c.kill();
     }
     let mut i = app.agents.store.lock();
@@ -1386,6 +1552,15 @@ pub fn stop(app: &App, id: &str) {
             s.status = Status::Idle;
         }
     });
+}
+
+/// Stop every local agent.
+pub fn stop_all(app: &App) -> usize {
+    let live: Vec<String> = app.agents.acp.all().into_iter().filter(|c| c.alive.load(Ordering::SeqCst)).map(|c| c.session.clone()).collect();
+    for id in &live {
+        stop(app, id);
+    }
+    live.len()
 }
 
 /// Open in Zed: the session's directory.

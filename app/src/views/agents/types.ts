@@ -152,6 +152,8 @@ export interface Tree {
   harnesses: { key: string; label: string; command: string }[];
   hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
+  /** The agent host (app/agentd) local agents run in. */
+  agentd: { state: 'idle' | 'starting' | 'running' | 'missing' | 'error' | 'unsupported' | ''; version: string; pid: number; error: string; stale: boolean; binary: string };
 }
 
 export interface ThreadData {

@@ -37,7 +37,6 @@ mod desktop {
         crate::agents::start(app.clone());
         let scale = app.settings().ui_scale.clamp(0.5, 3.0);
         let core = app.clone();
-        let on_close = app.clone();
         let on_exit = app.clone();
         tauri::Builder::default()
             .setup(move |a| {
@@ -58,31 +57,14 @@ mod desktop {
                 });
                 Ok(())
             })
-            // Local agents keep running while the window is closed; only Quit stops them.
-            .on_window_event(move |w, e| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                    if crate::agents::any_running(&on_close) {
-                        api.prevent_close();
-                        let _ = w.hide();
-                    }
-                }
-            })
             .manage(app)
             .invoke_handler(tauri::generate_handler![call])
             .build(tauri::generate_context!())
             .expect("error while running Alethiometer")
-            .run(move |handle, e| match e {
-                #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { .. } => {
-                    use tauri::Manager;
-                    if let Some(w) = handle.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                }
-                tauri::RunEvent::Exit => crate::agents::shutdown(&on_exit),
-                _ => {
-                    let _ = handle;
+            // Local agents live in the agent host and keep running after this.
+            .run(move |_, e| {
+                if let tauri::RunEvent::Exit = e {
+                    crate::agents::shutdown(&on_exit);
                 }
             });
     }

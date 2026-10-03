@@ -8,7 +8,10 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
-    "devserver": "cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --bin devserver",
+    "agentd": "cargo build --manifest-path agentd/Cargo.toml",
+    "agentd:release": "cargo build --release --manifest-path agentd/Cargo.toml",
+    "devserver": "npm run agentd && cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --bin devserver",
+    "build:mac": "tauri build --bundles app && node scripts/bundle-agentd.mjs",
     "tauri": "tauri"
   },
   "devDependencies": {

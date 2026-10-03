@@ -7,6 +7,13 @@
 use super::model::{Group, Request, Row, Session};
 use rusqlite::{params, Connection};
 use std::collections::{BTreeMap, HashMap, HashSet};
+
+/// A local agent's place in the agent host's log, and its turn state.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostState {
+    pub seq: u64,
+    pub turn: serde_json::Value,
+}
 use std::sync::{Mutex, MutexGuard};
 
 #[derive(Default)]
@@ -23,6 +30,10 @@ pub struct Inner {
     pub sessions: BTreeMap<String, Session>,
     pub threads: HashMap<String, Thread>,
     pub requests: BTreeMap<String, Request>,
+    /// Local agents by session id (not part of the tree; no revision bump).
+    pub hosts: HashMap<String, HostState>,
+    dirty_hosts: HashSet<String>,
+    gone_hosts: HashSet<String>,
     dirty_groups: HashSet<String>,
     dirty_sessions: HashSet<String>,
     dirty_rows: HashSet<(String, u64)>,
@@ -50,6 +61,11 @@ impl Store {
 
     pub fn rev(&self) -> u64 {
         self.lock().rev
+    }
+
+    /// Where to resume each local agent's log.
+    pub fn host_seqs(&self) -> BTreeMap<String, u64> {
+        self.lock().hosts.iter().map(|(k, h)| (k.clone(), h.seq)).collect()
     }
 }
 
@@ -124,6 +140,9 @@ impl Inner {
                 self.gone_sessions.insert(id.to_owned());
             }
             self.threads.remove(&format!("s:{id}"));
+            if self.hosts.remove(id).is_some() {
+                self.gone_hosts.insert(id.to_owned());
+            }
             self.requests.retain(|_, r| r.session_id != id);
             self.bump_tree();
         }
@@ -194,6 +213,14 @@ impl Inner {
         // A removed row shows as a reset: the UI drops rows it no longer gets.
     }
 
+    /// Record how far an agent's log has been applied, with its turn state.
+    pub fn set_host(&mut self, id: &str, h: HostState) {
+        if self.hosts.get(id) != Some(&h) {
+            self.hosts.insert(id.to_owned(), h);
+            self.dirty_hosts.insert(id.to_owned());
+        }
+    }
+
     pub fn put_request(&mut self, r: Request) {
         if self.requests.get(&r.id) == Some(&r) {
             return;
@@ -222,6 +249,25 @@ impl Store {
     /// Write what changed since the last flush. Takes the store's lock only to
     /// copy the changes out.
     pub fn flush(&self, conn: &Connection) -> rusqlite::Result<()> {
+        let (hosts, gone_h) = {
+            let mut i = self.lock();
+            let hosts: Vec<(String, HostState)> =
+                i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
+            (hosts, std::mem::take(&mut i.gone_hosts))
+        };
+        if !hosts.is_empty() || !gone_h.is_empty() {
+            let tx = conn.unchecked_transaction()?;
+            for (id, h) in &hosts {
+                tx.execute(
+                    "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
+                    params![id, h.seq as i64, h.turn.to_string()],
+                )?;
+            }
+            for id in &gone_h {
+                tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
+            }
+            tx.commit()?;
+        }
         let (groups, sessions, rows, gone_g, gone_s) = {
             let mut i = self.lock();
             let groups: Vec<Group> = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
@@ -278,16 +324,22 @@ impl Store {
             .query_map([], |r| r.get::<_, String>(0))?
             .filter_map(|d| d.ok().and_then(|d| serde_json::from_str(&d).ok()))
             .collect();
+        let hosts: Vec<(String, HostState)> = conn
+            .prepare("SELECT id, seq, turn FROM agent_hosts")?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?
+            .filter_map(|r| r.ok())
+            .map(|(id, seq, turn)| (id, HostState { seq: seq as u64, turn: serde_json::from_str(&turn).unwrap_or_default() }))
+            .collect();
         let mut i = self.lock();
+        for (id, h) in hosts {
+            i.hosts.insert(id, h);
+        }
         for g in groups {
             i.groups.insert(g.id.clone(), g);
         }
         for mut s in sessions {
-            // Nothing is attached after a restart; opening the session reattaches.
+            // Attached again once the agent host says it's still running (`acp::restore`).
             s.live = false;
-            if matches!(s.status, super::model::Status::Running | super::model::Status::Waiting) {
-                s.status = super::model::Status::Idle;
-            }
             let key = format!("s:{}", s.id);
             i.threads.insert(key, Thread::default());
             i.sessions.insert(s.id.clone(), s);
@@ -366,6 +418,7 @@ mod tests {
             i.put_session(Session { id: "acp-1".into(), name: "header-fix".into(), status: Status::Running, live: true, ..Default::default() });
             let id = i.push_row("s:acp-1", Row { kind: Kind::Output, text: "Hel".into(), open: true, ..Default::default() });
             i.update_row("s:acp-1", id, |r| r.text.push_str("lo"));
+            i.set_host("acp-1", HostState { seq: 7, turn: serde_json::json!({ "sid": "s1" }) });
         }
         s.flush(&c).unwrap();
         let back = Store::default();
@@ -373,8 +426,10 @@ mod tests {
         {
             let i = back.lock();
             let sess = &i.sessions["acp-1"];
-            assert_eq!(sess.status, Status::Idle);
+            assert_eq!(sess.status, Status::Running, "kept until the agent host says otherwise");
             assert!(!sess.live);
+            assert_eq!(i.hosts["acp-1"].seq, 7);
+            assert_eq!(i.hosts["acp-1"].turn["sid"], "s1");
         }
         back.ensure_loaded(&c, "s:acp-1").unwrap();
         let i = back.lock();

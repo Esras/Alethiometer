@@ -155,7 +155,10 @@
     <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<span class="k">N</span></button>
   {/if}
   {#if session?.source === 'acp' && (session.status === 'running' || session.status === 'waiting') && session.live}
-    <button class="btn" onclick={() => act('interrupt', { session: session.id })}><i class="ph ph-stop"></i>Interrupt<span class="k">⌘.</span></button>
+    <button class="btn" onclick={() => act('interrupt', { session: session.id })}><i class="ph ph-hand-palm"></i>Interrupt<span class="k">⌘.</span></button>
+  {/if}
+  {#if session?.source === 'acp' && session.live && !session.id.includes('~')}
+    <button class="btn" title="Stop the agent; sending starts it again" onclick={() => act('stop', { session: session.id })}><i class="ph ph-stop"></i>Stop</button>
   {/if}
   {#if room || session?.source === 'scion'}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
