@@ -322,7 +322,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     let id = format!("acp-{:08x}", rand_u32());
     let name = a.name.clone().filter(|n| !n.trim().is_empty()).map(|n| n.trim().to_owned()).unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
     let group_key = a.group_id.clone().unwrap_or_else(|| "unsorted".into());
-    let color = super::store::color_for(&app.db(), &group_key, &id, settings.agents.names.palette.len())?;
+    let color = super::store::color_for(app.store(), &group_key, &id, settings.agents.names.palette.len())?;
     let (title, subtitle) = title_from(&a.task);
     let ts = now(app);
     let s = Session {
@@ -674,7 +674,7 @@ fn apply_event(app: &Arc<App>, conn: &Arc<Conn>, ev: Event) -> Option<After> {
     if ev.seq <= seen {
         return None;
     }
-    let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(&ev.id));
+    let _ = app.agents.store.ensure_loaded(app.store(), &session_thread(&ev.id));
     let ts = ts_of(app, ev.at_ms);
     let after = match ev.kind {
         dproto::Kind::Out => {
@@ -750,7 +750,7 @@ pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
     for s in local {
         match alive.get(s.id.as_str()) {
             Some(true) => {
-                let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(&s.id));
+                let _ = app.agents.store.ensure_loaded(app.store(), &session_thread(&s.id));
                 let Some(conn) = conn_for(app, &s.id) else { continue };
                 conn.alive.store(true, Ordering::SeqCst);
                 let waiting: Vec<Waiting> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.values().cloned().collect();
@@ -1211,7 +1211,7 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
             let parent = store.lock().sessions.get(session).cloned().unwrap_or_default();
             let child = format!("{session}~{}", call.trim_start_matches("toolu_").chars().take(8).collect::<String>());
             let group = parent.group_id.clone().unwrap_or_else(|| "unsorted".into());
-            let color = super::store::color_for(&app.db(), &group, &child, app.settings().agents.names.palette.len()).unwrap_or(0);
+            let color = super::store::color_for(app.store(), &group, &child, app.settings().agents.names.palette.len()).unwrap_or(0);
             let mut i = store.lock();
             i.put_session(Session {
                 id: child.clone(),
@@ -1708,7 +1708,7 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
 fn push_you(app: &App, id: &str, text: &str, mid_turn: bool, images: Vec<RowImage>) -> u64 {
     // Read the transcript first so "prompt" vs "message" sees the earlier rows.
     // Never called under the gate, so taking the database here keeps the lock order.
-    let _ = app.agents.store.ensure_loaded(&app.db(), &session_thread(id));
+    let _ = app.agents.store.ensure_loaded(app.store(), &session_thread(id));
     let ts = now(app);
     let mut i = app.agents.store.lock();
     let first = i.find_row(&session_thread(id), |r| r.kind == Kind::You).is_none();

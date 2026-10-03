@@ -369,7 +369,7 @@ pub(crate) fn publish(app: &App, hub: &Hub) {
     let snap = {
         let st = hub.st();
         let cx = map::Cx { source: &hub.source, web: &web, live };
-        map::build(&cx, &st, &mut |g, n| super::store::color_for(&app.db(), g, n, palette).unwrap_or(0))
+        map::build(&cx, &st, &mut |g, n| super::store::color_for(app.store(), g, n, palette).unwrap_or(0))
     };
     let listed: HashSet<&str> = snap.threads.iter().flat_map(|(_, rows)| rows.iter().map(|r| r.ext.as_str())).filter(|e| !e.starts_with("local:")).collect();
     hub.st().pending.retain(|p| p.row.ext.starts_with("local:") || !listed.contains(p.row.ext.as_str()));

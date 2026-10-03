@@ -44,7 +44,7 @@ pub struct Agents {
 /// Load local state, then keep it flushed, follow the agent host, and keep
 /// the Scion Hubs connected.
 pub fn start(app: Arc<App>) {
-    if let Err(e) = app.agents.store.load(&app.db()) {
+    if let Err(e) = app.agents.store.load(app.store()) {
         eprintln!("agents: couldn't load sessions: {e}");
     }
     let a = app.clone();
@@ -52,7 +52,7 @@ pub fn start(app: Arc<App>) {
         .name("agents-flush".into())
         .spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            if let Err(e) = a.agents.store.flush(|| a.db()) {
+            if let Err(e) = a.agents.store.flush(a.store()) {
                 eprintln!("agents: flush failed: {e}");
             }
         })
@@ -65,7 +65,7 @@ pub fn start(app: Arc<App>) {
 /// The app is quitting: write what's pending. Local agents keep running in
 /// the agent host; the next start picks them up.
 pub fn shutdown(app: &App) {
-    let _ = app.agents.store.flush(|| app.db());
+    let _ = app.agents.store.flush(app.store());
 }
 
 /// Now, as the store's rows hold times: a UTC instant (`crate::time::Ts`).
@@ -103,7 +103,7 @@ fn tree(app: &App) -> Value {
 /// A thread's rows changed since `since`. `tab = "messages"` is screen 04:
 /// you ↔ the agent, your mentions of it in rooms, and its asks.
 fn thread(app: &App, key: &str, since: u64, tab: &str) -> Result<Value> {
-    app.agents.store.ensure_loaded(&app.db(), key)?;
+    app.agents.store.ensure_loaded(app.store(), key)?;
     let i = app.agents.store.lock();
     let rows: Vec<Row> = match (tab, key.strip_prefix("s:")) {
         ("messages", Some(id)) => messages_view(&i, id),
@@ -305,7 +305,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let color = {
                 let s = session_of(app, &id)?;
                 let palette = app.settings().agents.names.palette.len();
-                store::color_for(&app.db(), group.as_deref().unwrap_or("unsorted"), &s.id, palette)?
+                store::color_for(app.store(), group.as_deref().unwrap_or("unsorted"), &s.id, palette)?
             };
             app.agents.store.lock().update_session(&id, |s| {
                 s.group_id = group;

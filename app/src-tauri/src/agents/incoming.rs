@@ -18,7 +18,7 @@ use crate::error::Result;
 use crate::state::App;
 use crate::time::Ts;
 use crate::sync::{self, Batch, ItemUpsert, Message};
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::domain::ports::UnitOfWork;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::Ordering;
@@ -252,12 +252,8 @@ fn ran(from: &str, to: &str) -> String {
 }
 
 /// The `agents` source's row, made the first time.
-pub fn source_id(conn: &Connection) -> Result<i64> {
-    if let Some(id) = conn.query_row("SELECT id FROM sources WHERE kind = ?1", [KIND], |r| r.get(0)).optional()? {
-        return Ok(id);
-    }
-    conn.execute("INSERT INTO sources (kind, tag, name, config_json, enabled) VALUES (?1, 'work', 'Agents', '{}', 1)", [KIND])?;
-    Ok(conn.last_insert_rowid())
+pub fn source_id(uow: &dyn UnitOfWork) -> Result<i64> {
+    uow.sources().ensure_local(KIND, "Agents")
 }
 
 /// Bring Incoming in line with the store. Returns whether anything changed.
@@ -271,56 +267,49 @@ pub fn sync(app: &App) -> Result<bool> {
         }
         *last = print;
     }
-    let conn = app.db();
-    let sid = source_id(&conn)?;
-    let source = sync::load_source(&conn, sid)?;
-    // What's there: external id → (seen, resolved by us, session).
-    let mut have: HashMap<String, (bool, bool, String)> = HashMap::new();
-    {
-        let mut stmt = conn.prepare("SELECT external_id, seen, coalesce(json_extract(raw_json, '$.auto_seen'), 0), coalesce(json_extract(raw_json, '$.agent.session'), '') FROM items WHERE source_id = ?1")?;
-        for r in stmt.query_map([sid], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)? != 0, r.get::<_, i64>(2)? != 0, r.get::<_, String>(3)?))))? {
-            let (k, v) = r?;
-            have.insert(k, v);
+    // One unit of work: the signals, what no longer applies, and their topics.
+    let needs_guess = app.store().write(|uow| {
+        let sid = source_id(uow)?;
+        let source = sync::source(uow.reads(), sid)?;
+        // What's there: external id → (seen, resolved by us, session).
+        let have: HashMap<String, (bool, bool, String)> =
+            uow.reads().agents().signals(sid)?.into_iter().map(|s| (s.external_id, (s.seen, s.auto_seen, s.session))).collect();
+        let wanted: HashSet<&str> = sigs.iter().map(|s| s.ext.as_str()).collect();
+        let mut batch = Batch::default();
+        let mut fresh = vec![];
+        for s in &sigs {
+            let prev = have.get(&s.ext);
+            // New, or back after we resolved it: new signal. Dismissed by you: stays out.
+            let bump = prev.is_none_or(|p| p.0 && p.1);
+            if prev.is_none() {
+                fresh.push(s);
+            }
+            let mut info = s.info.clone();
+            info["why"] = json!(s.why);
+            batch.items.push(ItemUpsert {
+                external_id: s.ext.clone(),
+                kind: s.kind.clone(),
+                title: format!("{} {}", s.name, s.reason),
+                body: s.context.clone(),
+                occurred_at: Ts::parse(&s.at).unwrap_or_default(),
+                ended_at: s.ended.as_deref().and_then(Ts::parse),
+                status: "open".into(),
+                msg_count: Some(s.messages.iter().filter(|m| !m.3).count() as i64),
+                raw_json: json!({ "agent": info }),
+                messages: s.messages.iter().map(|(at, who, text, faded)| Message { at: Ts::parse(at).unwrap_or_default(), author: who.clone(), text: text.clone(), author_id: None, context: *faded }).collect(),
+                bump,
+                ..Default::default()
+            });
         }
-    }
-    let wanted: HashSet<&str> = sigs.iter().map(|s| s.ext.as_str()).collect();
-    let mut batch = Batch::default();
-    let mut fresh = vec![];
-    for s in &sigs {
-        let prev = have.get(&s.ext);
-        // New, or back after we resolved it: new signal. Dismissed by you: stays out.
-        let bump = prev.is_none_or(|p| p.0 && p.1);
-        if prev.is_none() {
-            fresh.push(s);
+        sync::apply(uow, &source, &batch, app.clock.now())?;
+        // No longer true (answered, replied to, delivered, restarted): out of Incoming, marked as ours.
+        for (ext, (seen, _, session)) in &have {
+            if !*seen && !wanted.contains(ext.as_str()) && !unknown.contains(session) {
+                uow.agents().auto_seen(sid, ext)?;
+            }
         }
-        let mut info = s.info.clone();
-        info["why"] = json!(s.why);
-        batch.items.push(ItemUpsert {
-            external_id: s.ext.clone(),
-            kind: s.kind.clone(),
-            title: format!("{} {}", s.name, s.reason),
-            body: s.context.clone(),
-            occurred_at: Ts::parse(&s.at).unwrap_or_default(),
-            ended_at: s.ended.as_deref().and_then(Ts::parse),
-            status: "open".into(),
-            msg_count: Some(s.messages.iter().filter(|m| !m.3).count() as i64),
-            raw_json: json!({ "agent": info }),
-            messages: s.messages.iter().map(|(at, who, text, faded)| Message { at: Ts::parse(at).unwrap_or_default(), author: who.clone(), text: text.clone(), author_id: None, context: *faded }).collect(),
-            bump,
-            ..Default::default()
-        });
-    }
-    sync::apply_in(&conn, &source, &batch, app.clock.now())?;
-    // No longer true (answered, replied to, delivered, restarted): out of Incoming, marked as ours.
-    for (ext, (seen, _, session)) in &have {
-        if !*seen && !wanted.contains(ext.as_str()) && !unknown.contains(session) {
-            conn.execute(
-                "UPDATE items SET seen = 1, raw_json = json_set(raw_json, '$.auto_seen', 1) WHERE source_id = ?1 AND external_id = ?2",
-                params![sid, ext],
-            )?;
-        }
-    }
-    let needs_guess = file(&conn, sid, &fresh)?;
+        file(uow, sid, &fresh)
+    })?;
     app.agents.incoming_rev.fetch_add(1, Ordering::SeqCst);
     if needs_guess {
         suggest_later(app);
@@ -330,47 +319,22 @@ pub fn sync(app: &App) -> Result<bool> {
 
 /// A new signal's topic: its ticket's, else the one its session's other signals
 /// are filed under. Returns whether any is left for the AI to guess.
-fn file(conn: &Connection, sid: i64, fresh: &[&Sig]) -> Result<bool> {
+fn file(uow: &dyn UnitOfWork, sid: i64, fresh: &[&Sig]) -> Result<bool> {
+    let r = uow.reads();
     let mut guess = false;
     for s in fresh {
-        let Some(item) = conn.query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![sid, s.ext], |r| r.get::<_, i64>(0)).optional()? else { continue };
+        let Some(item) = uow.items().find(sid, &s.ext)? else { continue };
         let by_ticket = match &s.ticket {
-            Some(k) => conn
-                .query_row(
-                    "SELECT tl.topic_id FROM items i JOIN sources src ON src.id = i.source_id JOIN topic_links tl ON tl.item_id = i.id
-                      WHERE src.kind = 'jira' AND i.external_id = ?1 AND tl.state IN ('confirmed', 'suggested')
-                      ORDER BY tl.state = 'confirmed' DESC LIMIT 1",
-                    [k],
-                    |r| r.get::<_, i64>(0),
-                )
-                .optional()?
-                .map(|t| (t, format!("ticket {k}"))),
+            Some(k) => r.agents().ticket_topic(k)?.map(|t| (t, format!("ticket {k}"))),
             None => None,
-        };
-        let by_session = || -> Result<Option<(i64, String)>> {
-            Ok(conn
-                .query_row(
-                    "SELECT tl.topic_id FROM items i JOIN topic_links tl ON tl.item_id = i.id
-                      WHERE i.source_id = ?1 AND i.id != ?2 AND json_extract(i.raw_json, '$.agent.session') = ?3 AND tl.state IN ('confirmed', 'suggested')
-                      ORDER BY tl.state = 'confirmed' DESC, tl.updated_at DESC LIMIT 1",
-                    params![sid, item, s.session],
-                    |r| r.get::<_, i64>(0),
-                )
-                .optional()?
-                .map(|t| (t, "same session".to_owned())))
         };
         let topic = match by_ticket {
             Some(t) => Some(t),
-            None => by_session()?,
+            None => r.agents().session_topic(sid, item, &s.session)?.map(|t| (t, "same session".to_owned())),
         };
         match topic {
             Some((t, why)) => {
-                conn.execute(
-                    "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
-                     SELECT ?1, ?2, 'suggested', 0.9, ?3 WHERE NOT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')
-                     ON CONFLICT (item_id, topic_id) DO NOTHING",
-                    params![item, t, why],
-                )?;
+                uow.links().suggest_if_unlinked(item, t, 0.9, &why)?;
             }
             None => guess = true,
         }
@@ -423,6 +387,7 @@ pub fn start(app: std::sync::Arc<App>) {
 mod tests {
     use super::*;
     use crate::agents::model::{Fact, Request, Who};
+    use rusqlite::OptionalExtension;
     use crate::ai::context::tests::app;
 
     fn session(app: &App, id: &str, source: &str) {

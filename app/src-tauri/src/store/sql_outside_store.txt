@@ -1,6 +1,3 @@
-3 agents/facts.rs
-8 agents/incoming.rs
-16 agents/store.rs
 2 queries/incoming.rs
 1 queries/notes.rs
 3 queries/priorities.rs

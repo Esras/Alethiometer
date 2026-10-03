@@ -101,7 +101,7 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
 
     // Hand over: the first app stops following and writes what it has, as on quit.
     first.agents.daemon.stop.store(true, Ordering::SeqCst);
-    first.agents.store.flush(|| first.db()).unwrap();
+    first.agents.store.flush(first.store()).unwrap();
     let second = open(dir);
     let again = wait("the approval to come back after the restart", 20, || approval(&second, &id));
     assert_eq!(again, req, "the same request, still waiting");
@@ -150,7 +150,7 @@ fn a_question_is_answered_by_choice_then_text_across_a_restart() {
     assert_eq!(q["choices"][1]["detail"], "A file next to the app");
 
     first.agents.daemon.stop.store(true, Ordering::SeqCst);
-    first.agents.store.flush(|| first.db()).unwrap();
+    first.agents.store.flush(first.store()).unwrap();
     let second = open(dir);
     let again = wait("the question to come back after the restart", 20, || ask(&second, &id));
     assert_eq!(again["id"], q["id"]);
@@ -321,7 +321,7 @@ fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
         (s.status == Status::Idle && s.stats.turns == 2 && s.queued.is_empty()).then_some(())
     });
     // The flush thread (database, then the gate) must still get through.
-    wait("a flush", 10, || app.agents.store.flush(|| app.db()).ok());
+    wait("a flush", 10, || app.agents.store.flush(app.store()).ok());
     let you: Vec<(String, String)> = {
         let i = app.agents.store.lock();
         i.threads[&key].rows.iter().filter(|r| r.kind == alethiometer_lib::agents::model::Kind::You).map(|r| (r.text.clone(), r.delivery.as_ref().map(|d| d.state.clone()).unwrap_or_default())).collect()

@@ -5,15 +5,11 @@
 //! Scion state isn't stored: it comes back from the Hub.
 
 use super::model::{Group, Request, Row, Session};
-use rusqlite::{params, Connection};
+pub use crate::domain::agents::HostState;
+use crate::domain::ports::UnitOfWork;
+use crate::error::Result;
+use crate::store::Db;
 use std::collections::{BTreeMap, HashMap, HashSet};
-
-/// A local agent's place in the agent host's log, and its turn state.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostState {
-    pub seq: u64,
-    pub turn: serde_json::Value,
-}
 use std::sync::{Mutex, MutexGuard};
 
 #[derive(Default)]
@@ -282,17 +278,16 @@ impl Store {
     /// Write what changed since the last flush, in one transaction.
     ///
     /// The snapshot is taken under the gate first and the database is opened
-    /// only after the gate is released (`db` is called then): the gate is
-    /// taken before the database everywhere else (an event loads its thread),
-    /// so holding the database while waiting for the gate would deadlock.
-    /// If the write fails, everything in it is marked dirty again.
-    pub fn flush<C: std::ops::Deref<Target = Connection>>(&self, db: impl FnOnce() -> C) -> rusqlite::Result<()> {
+    /// only after the gate is released: the gate is taken before the database
+    /// everywhere else (an event loads its thread), so holding the database
+    /// while waiting for the gate would deadlock. If the write fails,
+    /// everything in it is marked dirty again.
+    pub fn flush(&self, db: &Db) -> Result<()> {
         let ch = self.take_changes();
         if ch.is_empty() {
             return Ok(());
         }
-        let conn = db();
-        let r = write_changes(&conn, &ch);
+        let r = db.write(|uow| write_changes(uow, &ch));
         if r.is_err() {
             let mut i = self.lock();
             i.dirty_hosts.extend(ch.hosts.into_iter().map(|(id, _)| id));
@@ -331,27 +326,9 @@ impl Store {
     }
 
     /// Local groups and sessions at startup. Transcripts load when opened.
-    pub fn load(&self, conn: &Connection) -> rusqlite::Result<()> {
-        let groups: Vec<Group> = conn
-            .prepare("SELECT data FROM agent_groups")?
-            .query_map([], |r| r.get::<_, String>(0))?
-            .filter_map(|d| d.ok().and_then(|d| serde_json::from_str(&d).ok()))
-            .collect();
-        let sessions: Vec<Session> = conn
-            .prepare("SELECT data FROM agent_sessions")?
-            .query_map([], |r| r.get::<_, String>(0))?
-            .filter_map(|d| d.ok().and_then(|d| serde_json::from_str(&d).ok()))
-            .collect();
-        let hosts: Vec<(String, HostState)> = conn
-            .prepare("SELECT id, seq, turn FROM agent_hosts")?
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?
-            .filter_map(|r| r.ok())
-            .map(|(id, seq, turn)| (id, HostState { seq: seq as u64, turn: serde_json::from_str(&turn).unwrap_or_default() }))
-            .collect();
-        let last_ids: HashMap<String, u64> = conn
-            .prepare("SELECT thread, max(id) FROM agent_rows GROUP BY thread")?
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?
-            .collect::<rusqlite::Result<_>>()?;
+    pub fn load(&self, db: &Db) -> Result<()> {
+        let saved = db.read(|r| r.agents().saved())?;
+        let (groups, sessions, hosts, last_ids) = (saved.groups, saved.sessions, saved.hosts, saved.last_row_ids);
         let mut i = self.lock();
         for (id, h) in hosts {
             i.hosts.insert(id, h);
@@ -374,15 +351,11 @@ impl Store {
     }
 
     /// Read a stored transcript the first time it's opened.
-    pub fn ensure_loaded(&self, conn: &Connection, key: &str) -> rusqlite::Result<()> {
+    pub fn ensure_loaded(&self, db: &Db, key: &str) -> Result<()> {
         if !stored(key) || self.lock().threads.get(key).is_none_or(|t| t.loaded) {
             return Ok(());
         }
-        let rows: Vec<Row> = conn
-            .prepare("SELECT data FROM agent_rows WHERE thread = ?1 ORDER BY id")?
-            .query_map([key], |r| r.get::<_, String>(0))?
-            .filter_map(|d| d.ok().and_then(|d| serde_json::from_str(&d).ok()))
-            .collect();
+        let rows = db.read(|r| r.agents().transcript(key))?;
         let mut i = self.lock();
         let rev = i.bump();
         let t = i.thread(key);
@@ -410,57 +383,35 @@ impl Store {
     }
 }
 
-fn write_changes(conn: &Connection, ch: &Changes) -> rusqlite::Result<()> {
-    let tx = conn.unchecked_transaction()?;
+fn write_changes(uow: &dyn UnitOfWork, ch: &Changes) -> Result<()> {
+    let a = uow.agents();
     for (id, h) in &ch.hosts {
-        tx.execute(
-            "INSERT INTO agent_hosts (id, seq, turn) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, turn = excluded.turn",
-            params![id, h.seq as i64, h.turn.to_string()],
-        )?;
+        a.put_host(id, h)?;
     }
     for id in &ch.gone_h {
-        tx.execute("DELETE FROM agent_hosts WHERE id = ?1", [id])?;
+        a.remove_host(id)?;
     }
     for g in &ch.groups {
-        tx.execute(
-            "INSERT INTO agent_groups (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-            params![g.id, serde_json::to_string(g).unwrap_or_default()],
-        )?;
+        a.put_group(g)?;
     }
     for s in &ch.sessions {
-        tx.execute(
-            "INSERT INTO agent_sessions (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
-            params![s.id, serde_json::to_string(s).unwrap_or_default()],
-        )?;
+        a.put_session(s)?;
     }
     for (k, r) in &ch.rows {
-        tx.execute(
-            "INSERT INTO agent_rows (thread, id, data) VALUES (?1, ?2, ?3) ON CONFLICT(thread, id) DO UPDATE SET data = excluded.data",
-            params![k, r.id as i64, serde_json::to_string(r).unwrap_or_default()],
-        )?;
+        a.put_row(k, r)?;
     }
     for id in &ch.gone_g {
-        tx.execute("DELETE FROM agent_groups WHERE id = ?1", [id])?;
+        a.remove_group(id)?;
     }
     for id in &ch.gone_s {
-        tx.execute("DELETE FROM agent_sessions WHERE id = ?1", [id])?;
-        tx.execute("DELETE FROM agent_rows WHERE thread = ?1", [format!("s:{id}")])?;
+        a.remove_session(id)?;
     }
-    tx.commit()
+    Ok(())
 }
 
-/// Colours are assigned per group in order of creation, unique within it
-/// while the palette lasts, and kept (`agent_colors`).
-pub fn color_for(conn: &Connection, group: &str, name: &str, palette_len: usize) -> rusqlite::Result<usize> {
-    if let Ok(i) = conn.query_row("SELECT idx FROM agent_colors WHERE grp = ?1 AND name = ?2", params![group, name], |r| r.get::<_, i64>(0)) {
-        return Ok(i as usize);
-    }
-    let used: Vec<i64> =
-        conn.prepare("SELECT idx FROM agent_colors WHERE grp = ?1 ORDER BY rowid")?.query_map([group], |r| r.get(0))?.collect::<Result<_, _>>()?;
-    let n = palette_len.max(1);
-    let idx = (0..n).find(|i| !used.contains(&(*i as i64))).unwrap_or(used.len() % n);
-    conn.execute("INSERT INTO agent_colors (grp, name, idx) VALUES (?1, ?2, ?3)", params![group, name, idx as i64])?;
-    Ok(idx)
+/// `name`'s colour in `group` (`AgentState::color`).
+pub fn color_for(db: &Db, group: &str, name: &str, palette_len: usize) -> Result<usize> {
+    db.write(|uow| uow.agents().color(group, name, palette_len))
 }
 
 #[cfg(test)]
@@ -468,8 +419,8 @@ mod tests {
     use super::*;
     use crate::agents::model::{Kind, Status};
 
-    fn conn() -> Connection {
-        crate::db::open_in_memory().unwrap()
+    fn conn() -> Db {
+        Db::new(crate::db::open_in_memory().unwrap()).unwrap()
     }
 
     #[test]
@@ -483,7 +434,7 @@ mod tests {
             i.update_row("s:acp-1", id, |r| r.text.push_str("lo"));
             i.set_host("acp-1", HostState { seq: 7, turn: serde_json::json!({ "sid": "s1" }) });
         }
-        s.flush(|| &c).unwrap();
+        s.flush(&c).unwrap();
         let back = Store::default();
         back.load(&c).unwrap();
         {
@@ -513,7 +464,7 @@ mod tests {
                 i.push_row("s:acp-1", Row { kind: Kind::You, text: t.into(), ..Default::default() });
             }
         }
-        s.flush(|| &c).unwrap();
+        s.flush(&c).unwrap();
         // Next run: a reply goes out before anyone opens the transcript.
         let back = Store::default();
         back.load(&c).unwrap();
@@ -521,11 +472,11 @@ mod tests {
         assert_eq!(id, 4, "numbered after the stored rows");
         back.lock().update_row("s:acp-1", id, |r| r.label = "delivered".into());
         back.ensure_loaded(&c, "s:acp-1").unwrap();
-        back.flush(|| &c).unwrap();
+        back.flush(&c).unwrap();
         let i = back.lock();
         let rows: Vec<(u64, &str, &str)> = i.threads["s:acp-1"].rows.iter().map(|r| (r.id, r.text.as_str(), r.label.as_str())).collect();
         assert_eq!(rows, vec![(1, "first", ""), (2, "second", ""), (3, "third", ""), (4, "reply", "delivered")]);
-        let stored: Vec<i64> = c.prepare("SELECT id FROM agent_rows WHERE thread = 's:acp-1' ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        let stored: Vec<i64> = c.legacy().prepare("SELECT id FROM agent_rows WHERE thread = 's:acp-1' ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
         assert_eq!(stored, vec![1, 2, 3, 4], "the first prompt wasn't overwritten");
     }
 
@@ -535,8 +486,8 @@ mod tests {
         let s = Store::default();
         s.lock().put_session(Session { id: "scion:hub:a1".into(), ..Default::default() });
         s.lock().push_row("s:scion:hub:a1", Row::default());
-        s.flush(|| &c).unwrap();
-        let n: i64 = c.query_row("SELECT count(*) FROM agent_sessions", [], |r| r.get(0)).unwrap();
+        s.flush(&c).unwrap();
+        let n: i64 = c.legacy().query_row("SELECT count(*) FROM agent_sessions", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
     }
 

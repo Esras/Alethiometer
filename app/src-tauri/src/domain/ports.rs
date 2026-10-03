@@ -5,6 +5,7 @@
 //! Neither hands out a connection or runs SQL given as text. Each area's
 //! ports and models are in `domain/<area>.rs`.
 
+use super::agents::{AgentState, AgentViews};
 use super::categories::{Categories, CategoryViews};
 use super::context::ContextViews;
 use super::daystrip::{DayStripViews, Events};
@@ -29,6 +30,7 @@ use super::usage::{Usage, UsageViews};
 
 /// Read models, one port per screen or area.
 pub trait Reads {
+    fn agents(&self) -> &dyn AgentViews;
     fn categories(&self) -> &dyn CategoryViews;
     fn context(&self) -> &dyn ContextViews;
     fn day_strip(&self) -> &dyn DayStripViews;
@@ -52,6 +54,7 @@ pub trait Reads {
 /// One request's changes. Reads inside it see its own writes.
 pub trait UnitOfWork {
     fn reads(&self) -> &dyn Reads;
+    fn agents(&self) -> &dyn AgentState;
     fn categories(&self) -> &dyn Categories;
     fn events(&self) -> &dyn Events;
     fn ingest(&self) -> &dyn Ingest;
