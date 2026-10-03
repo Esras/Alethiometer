@@ -623,6 +623,10 @@ fn settled_family(conn: &Connection, item_id: i64) -> Result<Option<(i64, String
 }
 
 fn mark_slack_read(conn: &Connection, source_id: i64, item_id: i64, raws: &[Value]) -> Result<()> {
+    // A read-only source gets no remote op (enqueue would refuse it, after Confirm had written half its work).
+    if crate::outbox::read_only(conn, source_id)?.is_some() {
+        return Ok(());
+    }
     let mut newest: Option<(f64, String, String)> = None;
     for raw in raws {
         if let (Some(channel), Some(ts)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) {

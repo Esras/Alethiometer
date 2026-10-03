@@ -57,10 +57,9 @@ fn on_confirmed(conn: &Connection, op: &str, item_id: Option<i64>, payload: &Val
                     )?;
                 }
             }
-            "slack.mark_read" => {
-                conn.execute("UPDATE items SET seen = 1 WHERE id = ?1", [id])?;
-            }
-            "jira.transition" | "github.close" => {
+            // Nothing local: Confirm already took the item out of Incoming, and a
+            // reply that came in since (it set `seen = 0` again) must stay there.
+            "slack.mark_read" | "jira.transition" | "github.close" => {
                 // The next poll brings the real status; nothing to guess here.
             }
             _ => {}
@@ -240,6 +239,43 @@ mod integration_tests {
         assert_eq!(op, "slack.mark_read");
         assert_eq!(item_id, item);
         assert!(payload.contains("1727.1"));
+    }
+
+    #[test]
+    fn a_reply_after_confirm_stays_when_the_mark_read_lands() {
+        let (app, _d) = app();
+        let conn = app.db();
+        let slack: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO items (source_id, external_id, kind, title, occurred_at, seen, raw_json) VALUES (?1, 'C1/2', 'thread', '#x', '2026-09-28T09:00:00', 1, '{}')",
+            [slack],
+        )
+        .unwrap();
+        let item = conn.last_insert_rowid();
+        // Confirmed (seen = 1); then a thread reply arrives before the outbox sends.
+        conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
+        super::on_confirmed(&conn, "slack.mark_read", Some(item), &json!({ "channel": "C1", "ts": "1727.1" }), &json!({})).unwrap();
+        let seen: i64 = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        assert_eq!(seen, 0, "the reply is still in Incoming");
+    }
+
+    #[test]
+    fn confirming_on_a_read_only_slack_source_queues_nothing_and_succeeds() {
+        let (app, _d) = app();
+        let conn = app.db();
+        let slack: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        conn.execute("UPDATE sources SET config_json = json_set(config_json, '$.read_only', json('true')) WHERE id = ?1", [slack]).unwrap();
+        let topic: i64 = conn.query_row("SELECT id FROM topics LIMIT 1", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO items (source_id, external_id, kind, title, occurred_at, raw_json) VALUES (?1, 'C1/3', 'thread', '#x', '2026-09-28T09:00:00', ?2)",
+            rusqlite::params![slack, json!({ "channel": "C1", "mark_ts": "1727.1" }).to_string()],
+        )
+        .unwrap();
+        let item = conn.last_insert_rowid();
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
+        crate::queries::incoming::confirm(&conn, item, topic).unwrap();
+        let n: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE item_id = ?1", [item], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]
