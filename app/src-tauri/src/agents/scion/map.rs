@@ -17,7 +17,7 @@
 
 use crate::agents::explain::short_model;
 use crate::agents::model::{Choice, Delivery, Fact, Group, Kind, Request, Room, Row, Session, Stats, Status, Who};
-use chrono::{DateTime, Local};
+use crate::time::Ts;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -90,15 +90,12 @@ pub fn ask_id(source: &str, message: &str) -> String {
 
 /// Milliseconds since the epoch; 0 for empty or Go's zero time.
 pub fn ms(t: &str) -> i64 {
-    DateTime::parse_from_rfc3339(t).map(|d| d.timestamp_millis()).ok().filter(|m| *m > 0).unwrap_or(0)
+    Ts::parse(t).map(Ts::unix_ms).filter(|m| *m > 0).unwrap_or(0)
 }
 
-/// Hub time (RFC 3339, UTC) → the store's local `YYYY-MM-DDTHH:MM:SS`.
+/// Hub time (RFC 3339) → the store's form (`Ts::to_db`); empty for empty or Go's zero time.
 pub fn local(t: &str) -> String {
-    match DateTime::parse_from_rfc3339(t) {
-        Ok(d) if d.timestamp() > 0 => d.with_timezone(&Local).format("%Y-%m-%dT%H:%M:%S").to_string(),
-        _ => String::new(),
-    }
+    Ts::parse(t).filter(|d| d.unix_ms() > 0).map(Ts::to_db).unwrap_or_default()
 }
 
 /// "claude" → "Claude Code".

@@ -159,9 +159,9 @@ pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope:
     let ctx = {
         let conn = app.db();
         match (scope, topic_id) {
-            (Some("today"), _) | (None, None) => context::for_today(&conn, app.clock.now().date())?,
-            (Some("topic") | None, Some(id)) => context::for_topic(&conn, &app.vault, id)?,
-            (Some("topics"), _) => context::for_topics(&conn, &app.vault)?,
+            (Some("today"), _) | (None, None) => context::for_today(&conn, &app.clock, app.clock.today())?,
+            (Some("topic") | None, Some(id)) => context::for_topic(&conn, &app.clock, &app.vault, id)?,
+            (Some("topics"), _) => context::for_topics(&conn, &app.clock, &app.vault)?,
             (Some("topic"), None) => return Err(msg("scope 'topic' needs a topic_id")),
             (Some(other), _) => return Err(msg(format!("unknown scope '{other}' (use 'topic', 'topics' or 'today')"))),
         }
@@ -207,11 +207,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "usage" => {
             let conn = app.db();
             let mut stmt = conn.prepare(
-                "SELECT tier, model, date(at) = date('now', 'localtime'), count(*), sum(input_tokens), sum(output_tokens)
-                   FROM ai_usage WHERE at >= datetime('now', 'localtime', '-7 days') GROUP BY 1, 2, 3 ORDER BY tier DESC",
+                "SELECT tier, model, at >= ?1, count(*), sum(input_tokens), sum(output_tokens)
+                   FROM ai_usage WHERE at >= ?2 GROUP BY 1, 2, 3 ORDER BY tier DESC",
             )?;
+            let today_start = app.clock.day_range(app.clock.today()).0;
+            let week_ago = app.clock.now() - jiff::SignedDuration::from_hours(24 * 7);
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?)))?
+                .query_map(rusqlite::params![today_start, week_ago], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let mut out: Vec<Value> = vec![];
             for (tier, model, today, calls, input, output) in rows {

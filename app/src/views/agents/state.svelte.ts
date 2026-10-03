@@ -227,7 +227,7 @@ export function nodes(): Node[] {
 /** Nodes j/k can land on. */
 export const selectable = (n: Node) => n.type === 'group' || n.type === 'room' || n.type === 'session';
 
-/** "4s", "2m", "3h", "2d" since a local timestamp. */
+/** "4s", "2m", "3h", "2d" since an instant. */
 export function age(ts: string, now: number): string {
   if (!ts) return '';
   const t = new Date(ts).getTime();
@@ -238,7 +238,7 @@ export function age(ts: string, now: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export const hm = (ts: string) => ts.slice(11, 16);
+export { clockHM as hm } from '../../lib/app.svelte';
 
 export async function act(cmd: string, args: Record<string, unknown>) {
   try {

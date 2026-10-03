@@ -110,7 +110,7 @@ impl Platform for FileSecrets {
         all.insert(key.into(), value.into());
         crate::fsx::write_atomic(&self.path, serde_json::to_string_pretty(&all)?.as_bytes(), Some(0o600))?;
         let mut meta = self.read_meta();
-        meta.insert(key.into(), chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
+        meta.insert(key.into(), crate::time::Ts::new(jiff::Timestamp::now()).to_db());
         crate::fsx::write_atomic(&self.meta, serde_json::to_string_pretty(&meta)?.as_bytes(), Some(0o600))?;
         Ok(())
     }

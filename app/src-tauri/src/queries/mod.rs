@@ -14,7 +14,9 @@ pub mod todos;
 pub mod topics;
 
 use crate::error::{msg, Result};
-use chrono::{NaiveDate, NaiveDateTime};
+use crate::clock::Clock;
+use crate::time::{Date, Due, Ts};
+use jiff::civil::DateTime;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -33,48 +35,48 @@ pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
     args.get(key).and_then(Value::as_i64)
 }
 
-pub fn parse_ts(s: &str) -> Option<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok()
+/// A stored instant (`crate::time`).
+pub fn parse_ts(s: &str) -> Option<Ts> {
+    Ts::parse(s)
 }
 
-pub fn parse_date(s: &str) -> Result<NaiveDate> {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| msg(format!("bad date '{s}'")))
+pub fn parse_date(s: &str) -> Result<Date> {
+    s.parse::<Date>().map_err(|_| msg(format!("bad date '{s}'")))
 }
 
-/// Minutes since local midnight.
-pub fn minute_of_day(t: NaiveDateTime) -> i64 {
-    use chrono::Timelike;
-    (t.hour() * 60 + t.minute()) as i64
+/// Minutes since midnight of a wall-clock time.
+pub fn minute_of_day(t: DateTime) -> i64 {
+    t.hour() as i64 * 60 + t.minute() as i64
 }
 
-/// Human label relative to `now`: "Today 16:45", "Thu 14:00", "Sep 25", "Wed" (date only).
-pub fn when_label(t: NaiveDateTime, now: NaiveDateTime, with_time: bool) -> String {
-    let days = (t.date() - now.date()).num_days();
-    let time = t.format("%H:%M");
+/// Human label for a wall-clock time relative to `now` (both from
+/// `Clock::local`): "Today 16:45", "Thu 14:00", "Sep 25", "Wed" (date only).
+pub fn when_label(t: DateTime, now: DateTime, with_time: bool) -> String {
+    let days = (t.date() - now.date()).get_days();
+    let time = t.strftime("%H:%M");
     match days {
         0 if with_time => format!("Today {time}"),
         0 => "Today".into(),
-        1..=6 if with_time => format!("{} {time}", t.format("%a")),
-        1..=6 => t.format("%a").to_string(),
-        _ => t.format("%b %-d").to_string(),
+        1..=6 if with_time => format!("{} {time}", t.strftime("%a")),
+        1..=6 => t.strftime("%a").to_string(),
+        _ => t.strftime("%b %-d").to_string(),
     }
 }
 
-/// Due dates with no time of day (Jira's `duedate`, Obsidian `📅`) are stored at
-/// 23:59:59 so they sort after that day's timed items; views show them as a day.
-pub const DAY_ONLY_DUE: &str = "23:59:59";
-
-pub fn due_is_day_only(t: NaiveDateTime) -> bool {
-    t.format("%H:%M:%S").to_string() == DAY_ONLY_DUE
+/// An instant's label here, relative to now.
+pub fn ts_label(t: Ts, clock: &Clock, with_time: bool) -> String {
+    when_label(clock.local(t), clock.local_now(), with_time)
 }
 
 /// "today", "Wed", "Oct 9", plus the time when the due date has one ("today 15:00").
-pub fn due_label(t: NaiveDateTime, now: NaiveDateTime) -> String {
-    let day = when_label(t, now, false).replace("Today", "today");
-    if due_is_day_only(t) {
-        day
-    } else {
-        format!("{day} {}", t.format("%H:%M"))
+pub fn due_label(due: Due, clock: &Clock) -> String {
+    let now = clock.local_now();
+    match due {
+        Due::Day(d) => when_label(d.at(12, 0, 0, 0), now, false).replace("Today", "today"),
+        Due::At(t) => {
+            let t = clock.local(t);
+            format!("{} {}", when_label(t, now, false).replace("Today", "today"), t.strftime("%H:%M"))
+        }
     }
 }
 
@@ -113,10 +115,21 @@ mod tests {
 
     #[test]
     fn due_labels_show_time_only_when_there_is_one() {
-        let now = parse_ts("2026-09-28T10:52:00").unwrap();
-        assert_eq!(due_label(parse_ts("2026-09-28T23:59:59").unwrap(), now), "today");
-        assert_eq!(due_label(parse_ts("2026-09-28T15:00:00").unwrap(), now), "today 15:00");
-        assert_eq!(due_label(parse_ts("2026-09-30T23:59:59").unwrap(), now), "Wed");
-        assert_eq!(due_label(parse_ts("2026-09-30T17:30:00").unwrap(), now), "Wed 17:30");
+        let la = jiff::tz::TimeZone::get("America/Los_Angeles").unwrap();
+        let clock = Clock::fixed(Ts::parse("2026-09-28T17:52:00Z").unwrap(), la); // 10:52 there
+        let day = |s: &str| Due::Day(s.parse().unwrap());
+        let at = |s: &str| Due::At(Ts::parse(s).unwrap());
+        assert_eq!(due_label(day("2026-09-28"), &clock), "today");
+        assert_eq!(due_label(at("2026-09-28T22:00:00Z"), &clock), "today 15:00");
+        assert_eq!(due_label(day("2026-09-30"), &clock), "Wed");
+        assert_eq!(due_label(at("2026-10-01T00:30:00Z"), &clock), "Wed 17:30");
+        assert_eq!(due_label(day("2026-10-09"), &clock), "Oct 9");
+        // Moving to Zurich (19:52 there): a calendar day stays that day; an instant moves with the wall clock.
+        let zurich = Clock::fixed(Ts::parse("2026-09-28T17:52:00Z").unwrap(), jiff::tz::TimeZone::get("Europe/Zurich").unwrap());
+        assert_eq!(due_label(day("2026-09-28"), &zurich), "today");
+        assert_eq!(due_label(at("2026-09-28T22:00:00Z"), &zurich), "Tue 00:00");
+        // A day-only due is due by the end of that day where you are.
+        assert_eq!(day("2026-09-28").deadline(&clock).to_db(), "2026-09-29T06:59:59.999Z");
+        assert_eq!(day("2026-09-28").deadline(&zurich).to_db(), "2026-09-28T21:59:59.999Z");
     }
 }

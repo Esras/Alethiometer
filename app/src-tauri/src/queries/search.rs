@@ -74,7 +74,6 @@ pub const HIT_END: char = '\u{2}';
 /// (the split review needs two).
 fn results(app: &App, q: &str) -> Result<Value> {
     let Some(fq) = fts_query(q) else { return Ok(json!({ "q": q, "results": [] })) };
-    let now = app.clock.now();
     let conn = app.db();
     let mut stmt = conn.prepare(
         "WITH hits AS (
@@ -102,7 +101,7 @@ fn results(app: &App, q: &str) -> Result<Value> {
                 "id": r.get::<_, i64>(0)?,
                 "title": r.get::<_, String>(1)?,
                 "source": r.get::<_, String>(2)?,
-                "when": super::parse_ts(&at).map(|t| super::when_label(t, now, false)).unwrap_or_default(),
+                "when": super::parse_ts(&at).map(|t| super::ts_label(t, &app.clock, false)).unwrap_or_default(),
                 "at": at,
                 "snippet": if snippet.contains(HIT_START) || summary.is_empty() { snippet } else { summary },
                 "topic": match topic {

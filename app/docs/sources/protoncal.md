@@ -63,7 +63,7 @@ Each poll downloads every link (`webcal://` is fetched as `https://`) and keeps 
 - `DTSTART`, `DTEND` / `DURATION`, `RRULE`, `RDATE`, `EXDATE`, `RECURRENCE-ID`, `TRANSP`, `STATUS`.
 - `SUMMARY`, `DESCRIPTION`, `LOCATION`, `ATTENDEE`, `ORGANIZER` and alarms are never read. `UID` is only hashed in memory, to match a moved or cancelled instance to its series; it's never stored.
 - Recurring events are expanded within the window (`rrule` crate), with excluded dates, extra dates and moved or cancelled instances applied.
-- Times are converted to local time: `TZID` (IANA names, including `/mozilla.org/…/Europe/Berlin`-style prefixes), UTC (`…Z`), or floating (kept as wall time). DST changes are handled per zone. A Windows zone name that isn't recognized is read as floating time.
+- Times are converted to UTC instants: `TZID` (IANA names, including `/mozilla.org/…/Europe/Berlin`-style prefixes), UTC (`…Z`), or floating (read as wall time in your zone). DST changes are handled per zone. A Windows zone name that isn't recognized is read as floating time.
 - Events marked free (`TRANSP:TRANSPARENT`) and cancelled events are skipped.
 - Overlapping and back-to-back intervals are merged.
 

@@ -7,9 +7,11 @@
 //!   the payload, so a retry after a lost response finds the same event instead
 //!   of creating a second one.
 
-use super::{enc, rfc3339_local, Api, Config};
-use crate::queries::parse_ts;
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Weekday};
+use super::{enc, rfc3339, Api, Config};
+use crate::clock::Clock;
+use crate::time::{Date, Ts};
+use jiff::civil::Weekday;
+use jiff::{SignedDuration, ToSpan};
 use serde_json::{json, Value};
 
 pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
@@ -62,13 +64,14 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
     let id = hold_id(&cfg.calendar_id, &item_id, carried_from);
 
     let given = (
-        payload.get("start").and_then(Value::as_str).and_then(parse_ts),
-        payload.get("end").and_then(Value::as_str).and_then(parse_ts),
+        payload.get("start").and_then(Value::as_str).and_then(Ts::parse),
+        payload.get("end").and_then(Value::as_str).and_then(Ts::parse),
     );
     let (start, end) = match given {
         (Some(s), Some(e)) if s < e => (s, e),
         _ => {
-            let from = NaiveDate::parse_from_str(carried_from, "%Y-%m-%d").unwrap_or(api.ctx.now.date()).max(api.ctx.now.date());
+            let today = api.ctx.clock.today();
+            let from = carried_from.parse::<Date>().unwrap_or(today).max(today);
             find_slot(api, cfg, from)?
         }
     };
@@ -77,8 +80,8 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
         "id": id,
         "summary": title,
         "description": format!("Hold from Alethiometer (carried forward from {carried_from})."),
-        "start": { "dateTime": rfc3339_local(start) },
-        "end": { "dateTime": rfc3339_local(end) },
+        "start": { "dateTime": rfc3339(start) },
+        "end": { "dateTime": rfc3339(end) },
         "visibility": "private",
         "transparency": "opaque",
         "reminders": { "useDefault": true },
@@ -100,8 +103,8 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
     };
     Ok(json!({
         "event_id": created.get("id").and_then(Value::as_str).unwrap_or(&id),
-        "start": crate::seed::fmt(start),
-        "end": crate::seed::fmt(end),
+        "start": start,
+        "end": end,
         "html_link": created.get("htmlLink"),
     }))
 }
@@ -114,24 +117,26 @@ fn hold_id(calendar: &str, item_id: &str, carried_from: &str) -> String {
 }
 
 /// Next workdays after `after`, as many as the config searches.
-fn workdays(after: NaiveDate, n: usize) -> Vec<NaiveDate> {
+fn workdays(after: Date, n: usize) -> Vec<Date> {
     (1..)
-        .map(|i| after + Duration::days(i))
-        .filter(|d| !matches!(d.weekday(), Weekday::Sat | Weekday::Sun))
+        .map(|i: i64| after + i.days())
+        .filter(|d| !matches!(d.weekday(), Weekday::Saturday | Weekday::Sunday))
         .take(n)
         .collect()
 }
 
-/// First gap of `hold_minutes` inside the hold hours, reading busy time from the calendar.
-fn find_slot(api: &Api, cfg: &Config, after: NaiveDate) -> anyhow::Result<(NaiveDateTime, NaiveDateTime)> {
+/// First gap of `hold_minutes` inside the hold hours (wall-clock hours here),
+/// reading busy time from the calendar.
+fn find_slot(api: &Api, cfg: &Config, after: Date) -> anyhow::Result<(Ts, Ts)> {
+    let clock = &api.ctx.clock;
     let days = workdays(after, cfg.hold_search_days);
     let (first, last) = (days[0], *days.last().unwrap_or(&days[0]));
-    let at = |d: NaiveDate, h: u32| d.and_time(chrono::NaiveTime::MIN) + Duration::hours(h as i64);
+    let at = |d: Date, h: u32| hour_here(clock, d, h);
     let base = format!(
         "{}?singleEvents=true&orderBy=startTime&maxResults=250&timeMin={}&timeMax={}",
         cfg.events_url(),
-        enc(&rfc3339_local(at(first, 0))),
-        enc(&rfc3339_local(at(last, 24)))
+        enc(&rfc3339(at(first, 0))),
+        enc(&rfc3339(at(last, 24)))
     );
     let mut busy = Vec::new();
     let mut page: Option<String> = None;
@@ -152,7 +157,7 @@ fn find_slot(api: &Api, cfg: &Config, after: NaiveDate) -> anyhow::Result<(Naive
         }
     }
     busy.sort();
-    let len = Duration::minutes(cfg.hold_minutes);
+    let len = SignedDuration::from_mins(cfg.hold_minutes);
     for d in days {
         let (open, close) = (at(d, cfg.hold_day_start), at(d, cfg.hold_day_end));
         let mut t = quarter_up(open);
@@ -169,19 +174,25 @@ fn find_slot(api: &Api, cfg: &Config, after: NaiveDate) -> anyhow::Result<(Naive
     anyhow::bail!("no free {}-minute slot in the next {} workdays", cfg.hold_minutes, cfg.hold_search_days)
 }
 
-/// Round up to the next quarter hour, so holds look like a person placed them.
-fn quarter_up(t: NaiveDateTime) -> NaiveDateTime {
-    let secs = (t.minute() % 15) as i64 * 60 + t.second() as i64;
-    let floor = t - Duration::seconds(secs) - Duration::nanoseconds(t.nanosecond() as i64);
-    if floor == t {
-        t
+/// Hour `h` (0–24) of a day here; 24 is the start of the next day.
+fn hour_here(clock: &Clock, d: Date, h: u32) -> Ts {
+    if h >= 24 {
+        clock.day_range(d).1
     } else {
-        floor + Duration::minutes(15)
+        clock.from_local(d.at(h as i8, 0, 0, 0))
     }
 }
 
+/// Round up to the next quarter hour, so holds look like a person placed them.
+/// (Every zone's offset is a whole number of quarter hours, so UTC quarters are local ones.)
+fn quarter_up(t: Ts) -> Ts {
+    const Q: i64 = 15 * 60 * 1000;
+    let ms = t.unix_ms();
+    Ts::from_unix_ms(ms.div_euclid(Q) * Q + if ms.rem_euclid(Q) == 0 { 0 } else { Q }).expect("in range")
+}
+
 /// Busy span of a listed event: timed, not free, not cancelled, not declined by you.
-fn busy_span(ev: &Value) -> Option<(NaiveDateTime, NaiveDateTime)> {
+fn busy_span(ev: &Value) -> Option<(Ts, Ts)> {
     if ev.get("status").and_then(Value::as_str) == Some("cancelled") || ev.get("transparency").and_then(Value::as_str) == Some("transparent") {
         return None;
     }
@@ -194,15 +205,15 @@ fn busy_span(ev: &Value) -> Option<(NaiveDateTime, NaiveDateTime)> {
     if declined {
         return None;
     }
-    let s = crate::sync::local_ts(ev.get("start")?.get("dateTime")?.as_str()?)?;
-    let e = crate::sync::local_ts(ev.get("end")?.get("dateTime")?.as_str()?)?;
-    Some((parse_ts(&s)?, parse_ts(&e)?))
+    let s = Ts::parse(ev.get("start")?.get("dateTime")?.as_str()?)?;
+    let e = Ts::parse(ev.get("end")?.get("dateTime")?.as_str()?)?;
+    Some((s, e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::oauth::TokenCache;
-    use super::super::tests::{fixture, http, now, secrets, source};
+    use super::super::tests::{clock, fixture, http, now, secrets, source};
     use super::*;
     use crate::sync::http::FakeHttp;
     use crate::sync::Ctx;
@@ -210,7 +221,7 @@ mod tests {
     fn send(http: &FakeHttp, config: Value, op: &str, payload: Value) -> anyhow::Result<Value> {
         let src = source(config, None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: now() };
+        let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: clock() };
         let api = Api { ctx: &ctx, cache: &TokenCache::new() };
         let cfg = Config::from(&src.config);
         match op {
@@ -268,10 +279,10 @@ mod tests {
     #[test]
     fn hold_goes_into_the_first_free_slot_tomorrow() {
         let http = http();
-        // Local-time busy blocks, so the test holds in any time zone.
+        // The connector tests' clock is in UTC, so wall-clock hours there are UTC hours.
         let busy = |id: &str, s: &str, e: &str, extra: Value| {
             let mut ev = json!({ "id": id, "status": "confirmed",
-                "start": { "dateTime": rfc3339_local(parse_ts(s).unwrap()) }, "end": { "dateTime": rfc3339_local(parse_ts(e).unwrap()) } });
+                "start": { "dateTime": format!("{s}Z") }, "end": { "dateTime": format!("{e}Z") } });
             ev.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
             ev
         };
@@ -292,8 +303,8 @@ mod tests {
         assert_eq!(url, "https://www.googleapis.com/calendar/v3/calendars/primary/events");
         // Busy 09:00-10:00 and 10:15-10:55; the 15-minute gap is too short, 10:55 rounds to 11:00;
         // free and declined events don't count.
-        let expect_start = rfc3339_local(parse_ts("2026-09-29T11:00:00").unwrap());
-        let expect_end = rfc3339_local(parse_ts("2026-09-29T11:30:00").unwrap());
+        let expect_start = "2026-09-29T11:00:00Z";
+        let expect_end = "2026-09-29T11:30:00Z";
         assert_eq!(ev["start"]["dateTime"], expect_start);
         assert_eq!(ev["end"]["dateTime"], expect_end);
         assert_eq!(ev["summary"], "Draft Q4 hiring plan");
@@ -304,7 +315,7 @@ mod tests {
         let id = ev["id"].as_str().unwrap();
         assert!(id.len() >= 5 && id.chars().all(|c| c.is_ascii_digit() || ('a'..='v').contains(&c)));
         assert_eq!(receipt["event_id"], "alethiometer0c2d9a8b7e6f5a4b3c2d1e0f");
-        assert_eq!(receipt["start"], "2026-09-29T11:00:00");
+        assert_eq!(receipt["start"], "2026-09-29T11:00:00.000Z");
         // Same payload, same id: a retry can't create a duplicate.
         assert_eq!(id, hold_id("primary", "42", "2026-09-28"));
     }
@@ -318,7 +329,7 @@ mod tests {
         let r = send(&http, json!({}), "hold", json!({ "item_id": 42, "title": "Draft Q4 hiring plan", "carried_from": "2026-09-28" })).unwrap();
         assert_eq!(r["event_id"], "alethiometer0c2d9a8b7e6f5a4b3c2d1e0f");
         // Empty day: first slot at the start of hold hours.
-        assert_eq!(r["start"], "2026-09-29T09:00:00");
+        assert_eq!(r["start"], "2026-09-29T09:00:00.000Z");
     }
 
     #[test]
@@ -329,12 +340,12 @@ mod tests {
             &http,
             json!({}),
             "hold",
-            json!({ "item_id": 1, "title": "x", "carried_from": "2026-09-28", "start": "2026-10-02T14:00:00", "end": "2026-10-02T15:00:00" }),
+            json!({ "item_id": 1, "title": "x", "carried_from": "2026-09-28", "start": "2026-10-02T14:00:00Z", "end": "2026-10-02T15:00:00Z" }),
         )
         .unwrap();
-        assert_eq!(r["start"], "2026-10-02T14:00:00");
+        assert_eq!(r["start"], "2026-10-02T14:00:00.000Z");
         assert!(sent(&http, "GET").is_empty(), "no slot search when times are given");
-        let fri = NaiveDate::from_ymd_opt(2026, 10, 2).unwrap();
-        assert_eq!(workdays(fri, 2), [NaiveDate::from_ymd_opt(2026, 10, 5).unwrap(), NaiveDate::from_ymd_opt(2026, 10, 6).unwrap()]);
+        let fri = jiff::civil::date(2026, 10, 2);
+        assert_eq!(workdays(fri, 2), [jiff::civil::date(2026, 10, 5), jiff::civil::date(2026, 10, 6)]);
     }
 }

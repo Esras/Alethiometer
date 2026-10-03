@@ -2,7 +2,8 @@
 
 use super::gcal::oauth::{self, TokenCache};
 use super::gcal::{enc, name_from_email, strip_html, Api};
-use crate::sync::{local_from_unix, Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message};
+use crate::time::Ts;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -234,7 +235,7 @@ fn map_thread(id: &str, th: &Value, account: &str, prev: Option<i64>, label_cat:
     msgs.sort_by_key(|m| internal_ms(m));
     let (first, last) = (*msgs.first()?, *msgs.last()?);
     let last_ms = internal_ms(last);
-    let at = |m: &Value| local_from_unix(internal_ms(m) as f64 / 1000.0).unwrap_or_default();
+    let at = |m: &Value| Ts::from_unix_ms(internal_ms(m)).unwrap_or_default();
     let messages: Vec<Message> = msgs
         .iter()
         .map(|m| {
@@ -483,7 +484,7 @@ mod tests {
     fn poll(http: &FakeHttp, cursor: Option<String>) -> Batch {
         let src = source(cursor);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: crate::sync::connectors::gcal::tests::now() };
+        let ctx = Ctx { source: &src, http, secret: &secret, now: crate::sync::connectors::gcal::tests::now(), clock: crate::sync::connectors::gcal::tests::clock() };
         poll_with(&ctx, &TokenCache::new()).unwrap()
     }
 
@@ -499,9 +500,8 @@ mod tests {
         b.items.iter().find(|i| i.external_id == id).unwrap_or_else(|| panic!("no item {id}"))
     }
 
-    fn utc(h: u32, m: u32) -> String {
-        let t = chrono::NaiveDate::from_ymd_opt(2026, 9, 28).unwrap().and_hms_opt(h, m, 0).unwrap().and_utc();
-        local_from_unix(t.timestamp() as f64).unwrap()
+    fn utc(h: u32, m: u32) -> Ts {
+        Ts::parse(&format!("2026-09-28T{h:02}:{m:02}:00Z")).unwrap()
     }
 
     fn full_list(http: &FakeHttp) {
@@ -555,7 +555,7 @@ mod tests {
             [("Dana Kim", "Can someone senior join a call today?\nWe're seeing delays again."), ("Lee, Sam", "I can take it at 16:15.")]
         );
         assert_eq!(a.messages[1].at, utc(14, 22));
-        assert_eq!(a.ended_at.clone(), Some(utc(14, 41)));
+        assert_eq!(a.ended_at, Some(utc(14, 41)));
         assert_eq!(a.msg_count, Some(3));
         let author = a.author.as_ref().unwrap();
         assert_eq!((author.handle.as_str(), author.display_name.as_str()), ("sam.lee@acme.com", "Lee, Sam"));
@@ -568,7 +568,7 @@ mod tests {
         let http = google();
         let src = Source { id: 1, kind: "gmail".into(), tag: "work".into(), name: "Work mail".into(), config: json!({ "category_labels": { "vendors": "Vendors" } }), cursor: None };
         let secret = secrets;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::sync::connectors::gcal::tests::now() };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::sync::connectors::gcal::tests::now(), clock: crate::sync::connectors::gcal::tests::clock() };
         http.on("GET", "/users/me/profile", 200, fixture!("profile.json"));
         http.on("GET", "/threads?q=", 200, fixture!("threads_page1.json"));
         http.on("GET", "pageToken=09876543210987654321", 200, fixture!("threads_page2.json"));
@@ -685,7 +685,7 @@ mod tests {
     fn send(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
         let src = source(None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: crate::sync::connectors::gcal::tests::now() };
+        let ctx = Ctx { source: &src, http, secret: &secret, now: crate::sync::connectors::gcal::tests::now(), clock: crate::sync::connectors::gcal::tests::clock() };
         Gmail.send(&ctx, op, &payload)
     }
 
@@ -781,7 +781,7 @@ mod tests {
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
-        assert_eq!(crate::sync::apply(&conn, &src, &first).unwrap(), 3);
+        assert_eq!(crate::sync::apply(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
         conn.execute("INSERT INTO categories (key, label, color, position) VALUES ('customers', 'Customers', '#fff', 9)", []).unwrap();
         conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'customers'), (2, 'Hiring', 'work')", []).unwrap();
         let id = |ext: &str| -> i64 { conn.query_row("SELECT id FROM items WHERE external_id = ?1", [ext], |r| r.get(0)).unwrap() };

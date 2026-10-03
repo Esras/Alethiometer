@@ -9,6 +9,8 @@
 //! topic can't blow up the request.
 
 use crate::error::Result;
+use crate::clock::Clock;
+use crate::time::{Date, Ts};
 use rusqlite::{params, Connection};
 use std::fmt::Write;
 use std::path::Path;
@@ -103,7 +105,7 @@ fn is_open_task(r: &ItemRow) -> bool {
     matches!(r.kind.as_str(), "task" | "issue" | "email") && r.owner.is_some() && r.status == "open"
 }
 
-fn item_block(conn: &Connection, r: &ItemRow) -> Result<String> {
+fn item_block(conn: &Connection, clock: &Clock, r: &ItemRow) -> Result<String> {
     let mut b = format!("\n[item {}] {} {} · {}", r.id, r.source, r.kind, r.at.replace('T', " "));
     if let Some(e) = &r.ended {
         let _ = write!(b, " to {}", e.replace('T', " "));
@@ -125,11 +127,11 @@ fn item_block(conn: &Connection, r: &ItemRow) -> Result<String> {
     // Most recent messages, shown oldest to newest.
     let mut stmt = conn.prepare("SELECT at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2")?;
     let mut msgs = stmt
-        .query_map(params![r.id, MSGS_PER_ITEM as i64], |m| Ok((m.get::<_, String>(0)?, m.get::<_, String>(1)?, m.get::<_, String>(2)?)))?
+        .query_map(params![r.id, MSGS_PER_ITEM as i64], |m| Ok((m.get::<_, Ts>(0)?, m.get::<_, String>(1)?, m.get::<_, String>(2)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     msgs.reverse();
     for (at, author, text) in msgs {
-        let _ = writeln!(b, "  {} {author}: {}", at.get(11..16).unwrap_or(&at), clip(&text, MSG_CAP));
+        let _ = writeln!(b, "  {} {author}: {}", clock.local(at).strftime("%H:%M"), clip(&text, MSG_CAP));
     }
     Ok(b)
 }
@@ -147,15 +149,14 @@ fn topic_rows(conn: &Connection, topic_id: i64, state: &str) -> Result<Vec<ItemR
 
 /// Context for questions about one topic: its note, its new signals still in
 /// Incoming (suggested, not confirmed), open tasks, then confirmed items newest first.
-pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Context> {
+pub fn for_topic(conn: &Connection, clock: &Clock, vault: &Path, topic_id: i64) -> Result<Context> {
     let (name, note) = topic_note(conn, vault, topic_id)?;
     let mut ctx = Context::default();
     ctx.push(&format!("Topic: {name}\n"), None);
     if !note.trim().is_empty() {
         ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(&note, NOTE_CAP)), None);
     }
-    let now = chrono::Local::now().naive_local();
-    let people = crate::queries::people::agent_context(conn, vault, topic_id, now)?;
+    let people = crate::queries::people::agent_context(conn, vault, topic_id, clock)?;
     if !people.is_empty() {
         ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
     }
@@ -163,7 +164,7 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
     if !suggested.is_empty() {
         ctx.push("\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n", None);
         for r in &suggested {
-            if !ctx.push(&item_block(conn, r)?, Some(r.id)) {
+            if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
                 break;
             }
         }
@@ -173,7 +174,7 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
     let (open, rest): (Vec<&ItemRow>, Vec<&ItemRow>) = rows.iter().partition(|r| is_open_task(r));
     ctx.push("\nItems linked to this topic (newest first):\n", None);
     for r in open.into_iter().chain(rest) {
-        if !ctx.push(&item_block(conn, r)?, Some(r.id)) {
+        if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
             break;
         }
     }
@@ -182,7 +183,7 @@ pub fn for_topic(conn: &Connection, vault: &Path, topic_id: i64) -> Result<Conte
 
 /// Context for reviewing the topic list (Topics index): every active topic with its
 /// note gist, size, last activity and a few recent work item titles.
-pub fn for_topics(conn: &Connection, vault: &Path) -> Result<Context> {
+pub fn for_topics(conn: &Connection, clock: &Clock, vault: &Path) -> Result<Context> {
     let mut ctx = Context::default();
     ctx.push("Active topics (id, name, linked work items, last activity, note gist, recent items):\n", None);
     let mut stmt = conn.prepare(
@@ -194,7 +195,7 @@ pub fn for_topics(conn: &Connection, vault: &Path) -> Result<Context> {
            FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
     )?;
     let topics = stmt
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?, r.get::<_, Option<String>>(4)?)))?
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?, r.get::<_, Option<Ts>>(4)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut recent = conn.prepare(
         "SELECT i.title, s.tag FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
@@ -209,7 +210,7 @@ pub fn for_topics(conn: &Connection, vault: &Path) -> Result<Context> {
             .map(|(t, _)| clip(&t, 80))
             .collect();
         let gist = path.map(|p| note_gist(&std::fs::read_to_string(vault.join(p)).unwrap_or_default())).unwrap_or_default();
-        let last = last.as_deref().and_then(|l| l.get(..10)).unwrap_or("never");
+        let last = last.map(|l| clock.day_of(l).to_string()).unwrap_or_else(|| "never".into());
         let block = format!("- [topic {id}] {name} · {n} items · last {last}\n  note: {gist}\n  recent: {}\n", titles.join("; "));
         if !ctx.push(&block, None) {
             break;
@@ -219,24 +220,24 @@ pub fn for_topics(conn: &Connection, vault: &Path) -> Result<Context> {
 }
 
 /// Context for "today": today's work calendar and work items touched today.
-pub fn for_today(conn: &Connection, today: chrono::NaiveDate) -> Result<Context> {
-    let day = today.format("%Y-%m-%d").to_string();
+pub fn for_today(conn: &Connection, clock: &Clock, today: Date) -> Result<Context> {
+    let (day_start, day_end) = clock.day_range(today);
     let mut ctx = Context::default();
-    ctx.push(&format!("Today is {}.\n\nWork calendar today:\n", today.format("%A %Y-%m-%d")), None);
+    ctx.push(&format!("Today is {}.\n\nWork calendar today:\n", today.strftime("%A %Y-%m-%d")), None);
 
     let mut stmt = conn.prepare(
         "SELECT e.item_id, s.tag, e.start, e.end, e.title, e.attendees, e.tentative
            FROM events e JOIN sources s ON s.id = e.source_id
-          WHERE s.tag = 'work' AND e.is_life_busy = 0 AND e.title IS NOT NULL AND e.start >= ?1 AND e.start < date(?1, '+1 day')
+          WHERE s.tag = 'work' AND e.is_life_busy = 0 AND e.title IS NOT NULL AND e.start >= ?1 AND e.start < ?2
           ORDER BY e.start",
     )?;
     let events = stmt
-        .query_map([&day], |r| {
+        .query_map(params![day_start, day_end], |r| {
             Ok((
                 r.get::<_, Option<i64>>(0)?,
                 r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
+                r.get::<_, Ts>(2)?,
+                r.get::<_, Ts>(3)?,
                 r.get::<_, String>(4)?,
                 r.get::<_, Option<String>>(5)?,
                 r.get::<_, bool>(6)?,
@@ -247,7 +248,7 @@ pub fn for_today(conn: &Connection, today: chrono::NaiveDate) -> Result<Context>
         if tag != "work" {
             continue;
         }
-        let mut line = format!("- {}–{} {}", start.get(11..16).unwrap_or(&start), end.get(11..16).unwrap_or(&end), clip(&title, 200));
+        let mut line = format!("- {}–{} {}", clock.local(start).strftime("%H:%M"), clock.local(end).strftime("%H:%M"), clip(&title, 200));
         if let Some(a) = attendees.filter(|a| !a.is_empty()) {
             let _ = write!(line, " (with {})", clip(&a, 200));
         }
@@ -267,15 +268,15 @@ pub fn for_today(conn: &Connection, today: chrono::NaiveDate) -> Result<Context>
         "SELECT {ITEM_COLS}
            FROM items i JOIN sources s ON s.id = i.source_id
           WHERE s.tag = 'work' AND i.kind != 'event'
-            AND (substr(i.occurred_at, 1, 10) = ?1 OR substr(i.ended_at, 1, 10) = ?1
-                 OR EXISTS (SELECT 1 FROM item_messages m WHERE m.item_id = i.id AND substr(m.at, 1, 10) = ?1))
+            AND ((i.occurred_at >= ?1 AND i.occurred_at < ?2) OR (i.ended_at >= ?1 AND i.ended_at < ?2)
+                 OR EXISTS (SELECT 1 FROM item_messages m WHERE m.item_id = i.id AND m.at >= ?1 AND m.at < ?2))
           ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"
     ))?;
     let rows: Vec<ItemRow> =
-        stmt.query_map([&day], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|r| r.tag == "work").collect();
+        stmt.query_map(params![day_start, day_end], item_row)?.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|r| r.tag == "work").collect();
     ctx.push("\nWork items touched today (newest first):\n", None);
     for r in &rows {
-        if !ctx.push(&item_block(conn, r)?, Some(r.id)) {
+        if !ctx.push(&item_block(conn, clock, r)?, Some(r.id)) {
             break;
         }
     }
@@ -329,20 +330,20 @@ pub mod tests {
     pub fn plant_personal(app: &App, topic: i64) -> i64 {
         let conn = app.db();
         let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'personal' LIMIT 1", [], |r| r.get(0)).unwrap();
-        let today = app.clock.now().date().format("%Y-%m-%d").to_string();
+        let at = |h: i8, m: i8| app.clock.from_local(app.clock.today().at(h, m, 0, 0));
         conn.execute(
             "INSERT INTO items (source_id, external_id, kind, title, body, summary, occurred_at, status, owner, seen)
              VALUES (?1, 'p-1', 'task', 'PERSONAL-SECRET dentist', 'PERSONAL-SECRET body', 'PERSONAL-SECRET summary', ?2, 'open', 'you', 0)",
-            params![src, format!("{today}T09:30:00")],
+            params![src, at(9, 30)],
         )
         .unwrap();
         let id = conn.last_insert_rowid();
-        conn.execute("INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, 'me', 'PERSONAL-SECRET msg')", params![id, format!("{today}T09:31:00")]).unwrap();
+        conn.execute("INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, 'me', 'PERSONAL-SECRET msg')", params![id, at(9, 31)]).unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![id, topic]).unwrap();
         // A titled event on the personal source too (apply() would never allow this).
         conn.execute(
             "INSERT INTO events (item_id, source_id, start, end, title, category, is_life_busy) VALUES (?1, ?2, ?3, ?4, 'PERSONAL-SECRET appt', 'life', 0)",
-            params![id, src, format!("{today}T15:00:00"), format!("{today}T16:00:00")],
+            params![id, src, at(15, 0), at(16, 0)],
         )
         .unwrap();
         id
@@ -364,7 +365,7 @@ pub mod tests {
                 conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![conn.last_insert_rowid(), id]).unwrap();
             }
         }
-        let ctx = for_topic(&app.db(), &app.vault, id).unwrap();
+        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
         assert!(ctx.text.contains("not yet confirmed"));
         assert!(ctx.text.contains("FRESH-SUGGESTION"));
         assert!(!ctx.text.contains("OLD-SUGGESTION"));
@@ -374,7 +375,7 @@ pub mod tests {
     fn topic_context_has_note_items_and_messages() {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
-        let ctx = for_topic(&app.db(), &app.vault, id).unwrap();
+        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
         assert!(ctx.text.contains("Topic: Datadog renewal"));
         assert!(ctx.text.contains("True-down at 12 months"), "note text included");
         assert!(ctx.text.contains("[item "));
@@ -389,9 +390,9 @@ pub mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, id);
-        let today = app.clock.now().date();
-        let topic = for_topic(&app.db(), &app.vault, id).unwrap();
-        let day = for_today(&app.db(), today).unwrap();
+        let today = app.clock.today();
+        let topic = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
+        let day = for_today(&app.db(), &app.clock, today).unwrap();
         for ctx in [topic, day] {
             assert!(!ctx.text.contains("PERSONAL-SECRET"), "{}", ctx.text);
             assert!(!ctx.used.contains(&personal));
@@ -401,7 +402,7 @@ pub mod tests {
     #[test]
     fn today_has_work_meetings_but_no_life_blocks() {
         let (app, _dir) = app();
-        let ctx = for_today(&app.db(), app.clock.now().date()).unwrap();
+        let ctx = for_today(&app.db(), &app.clock, app.clock.today()).unwrap();
         assert!(ctx.text.contains("Q4 headcount"), "{}", ctx.text);
         assert!(ctx.text.contains("Acme call") && ctx.text.contains("[tentative]"));
         // Life blocks (12:00–13:00 etc.) have no title and must not appear at all.
@@ -426,7 +427,7 @@ pub mod tests {
                 conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![item, id]).unwrap();
             }
         }
-        let ctx = for_topic(&app.db(), &app.vault, id).unwrap();
+        let ctx = for_topic(&app.db(), &app.clock, &app.vault, id).unwrap();
         assert!(ctx.text.len() <= BUDGET);
         assert!(ctx.text.contains("Bulk 199"), "newest kept");
         assert!(!ctx.text.contains("Bulk 0\n"), "oldest dropped");

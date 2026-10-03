@@ -1,10 +1,11 @@
 //! Todos (22a, 22c): items you own in a system that holds todos; see docs/todos.md.
 
-use super::{arg_i64, arg_str, due_label, opt_i64, parse_date, parse_ts, TopicRef};
+use super::{arg_i64, arg_str, due_label, opt_i64, parse_date, TopicRef};
+use crate::clock::Clock;
+use crate::time::{Date, Due, Ts};
 use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::state::App;
-use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -88,7 +89,8 @@ pub struct Todo {
     pub item_id: i64,
     pub title: String,
     pub from: Option<String>,
-    pub due: Option<String>,
+    /// The deadline (a UTC instant; a day-only due is the end of that day here), for sorting.
+    pub due: Option<Ts>,
     pub due_label: Option<String>,
     pub overdue: bool,
     pub topic: Option<TopicRef>,
@@ -105,7 +107,7 @@ const TODO_SQL: &str = "FROM items i JOIN sources s ON s.id = i.source_id LEFT J
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     let conn = app.db();
     match name {
-        "list" => Ok(json!({ "todos": list(&conn, app.clock.now())?, "jira": jira_target(&conn)? })),
+        "list" => Ok(json!({ "todos": list(&conn, &app.clock)?, "jira": jira_target(&conn)? })),
         "complete" | "reopen" => {
             complete(&conn, arg_i64(args, "item_id")?, name == "complete")?;
             crate::outbox::wake();
@@ -138,21 +140,27 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
-type Row = (i64, String, String, Option<String>, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<i64>, Option<String>);
+type Row = (i64, String, String, Option<Due>, Option<String>, String, Option<String>, Option<i64>, Option<String>, Option<i64>, Option<String>);
 
-pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Todo>> {
+/// Open todos, soonest deadline first (undated last).
+pub fn list(conn: &Connection, clock: &Clock) -> Result<Vec<Todo>> {
+    let now = clock.now();
     let mut stmt = conn.prepare(&format!(
         "SELECT i.id, s.kind, i.title, i.due_at, i.url, i.raw_json, i.summary,
                 (SELECT tl.topic_id FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong'
                   ORDER BY tl.state = 'confirmed' DESC LIMIT 1),
                 (SELECT quadrant FROM priorities p WHERE p.item_id = i.id),
-                e.minutes, e.by
+                e.minutes, e.by, i.due_day
          {TODO_SQL}
-         ORDER BY i.due_at IS NULL, i.due_at, i.id"
+         ORDER BY i.id"
     ))?;
-    let rows: Vec<Row> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?)))?
+    let mut rows: Vec<Row> = stmt
+        .query_map([], |r| {
+            let due = Due::from_columns(r.get(3)?, r.get::<_, Option<Date>>(11)?);
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, due, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
+    rows.sort_by_key(|r| (r.3.is_none(), r.3.map(|d| d.deadline(clock)), r.0));
     let skip = excluded_projects(conn)?;
     let mut out = vec![];
     for (item_id, source, title, due, url, raw, summary, topic, priority, minutes, by) in rows {
@@ -165,14 +173,14 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Todo>> {
             TodoExt::Jira(_) => None,
             TodoExt::Obsidian(_) => summary,
         };
-        let at = due.as_deref().and_then(parse_ts);
+        let deadline = due.map(|d| d.deadline(clock));
         out.push(Todo {
             item_id,
             title,
             from,
-            due_label: at.map(|t| due_label(t, now)),
-            overdue: at.is_some_and(|t| t < now),
-            due,
+            due_label: due.map(|d| due_label(d, clock)),
+            overdue: deadline.is_some_and(|t| t < now),
+            due: deadline,
             topic: topic.map(|id| super::topic_ref(conn, id)).transpose()?,
             priority,
             url,
@@ -229,7 +237,7 @@ pub fn set_estimate(conn: &Connection, item_id: i64, minutes: Option<i64>) -> Re
     match minutes {
         Some(m) if m > 0 => conn.execute(
             "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'you')
-             ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you', updated_at = datetime('now', 'localtime')",
+             ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
             params![item_id, m],
         )?,
         Some(_) => return Err(msg("an estimate is a positive number of minutes")),
@@ -278,9 +286,9 @@ pub fn create(conn: &Connection, d: &Draft, topic_id: Option<i64>, from_item: Op
     let src = super::notes::alethiometer_source(conn)?;
     let ext = LocalExt { from, from_item, notes_line_id: None };
     conn.execute(
-        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_at, status, owner, seen, raw_json)
-         VALUES (?1, 'todo-new', 'task', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'), ?4, 'open', 'you', 1, ?5)",
-        params![src, d.text, url, d.due.as_ref().map(|d| format!("{d}T{}", super::DAY_ONLY_DUE)), serde_json::to_string(&ext)?],
+        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_day, status, owner, seen, raw_json)
+         VALUES (?1, 'todo-new', 'task', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?4, 'open', 'you', 1, ?5)",
+        params![src, d.text, url, d.due, serde_json::to_string(&ext)?],
     )?;
     let id = conn.last_insert_rowid();
     conn.execute("UPDATE items SET external_id = 'todo-' || id WHERE id = ?1", [id])?;
@@ -327,11 +335,11 @@ pub fn issue_created(conn: &Connection, payload: &Value, receipt: &Value) -> Res
         return Ok(());
     };
     let summary = payload.get("summary").and_then(Value::as_str).unwrap_or_default();
-    let due = payload.get("due").and_then(Value::as_str).map(|d| format!("{d}T{}", super::DAY_ONLY_DUE));
+    let due = payload.get("due").and_then(Value::as_str).and_then(|d| d.parse::<Date>().ok());
     let raw = json!({ "key": key, "fields": { "summary": summary, "status": { "name": "To Do" } } });
     conn.execute(
-        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_at, status, owner, seen, raw_json)
-         SELECT id, ?1, 'issue', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'), ?4, 'open', 'you', 1, ?5
+        "INSERT INTO items (source_id, external_id, kind, title, url, occurred_at, due_day, status, owner, seen, raw_json)
+         SELECT id, ?1, 'issue', ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?4, 'open', 'you', 1, ?5
            FROM sources WHERE kind = 'jira' AND enabled = 1
          ON CONFLICT (source_id, external_id) DO NOTHING",
         params![key, format!("{key} · {summary}"), url, due, raw.to_string()],
@@ -368,8 +376,8 @@ mod tests {
             )
             .unwrap();
         let other: i64 = conn.query_row("SELECT id FROM topics WHERE id != ?1 LIMIT 1", [topic], |r| r.get(0)).unwrap();
-        let now = app.clock.now();
-        let before = list(&conn, now).unwrap().len();
+        let now = app.clock.clone();
+        let before = list(&conn, &now).unwrap().len();
         let hold = |target: &str, text: &str| call(&app, "hold", &json!({ "item_id": item, "target": target, "text": text, "due": "2026-10-02" })).unwrap();
         drop(conn);
         assert!(call(&app, "hold", &json!({ "item_id": item, "target": "marvin", "text": "x" })).is_err());
@@ -380,13 +388,14 @@ mod tests {
         crate::queries::incoming::move_to(&app.db(), item, other, Some(topic)).unwrap();
         let conn = app.db();
         assert!(held(&conn, item).unwrap().is_none());
-        let todos = list(&conn, now).unwrap();
+        let todos = list(&conn, &now).unwrap();
         assert_eq!(todos.len(), before + 1);
         let t = todos.iter().find(|t| t.title == "Reply to Kim").unwrap();
-        assert_eq!((t.topic.as_ref().map(|t| t.id), t.due.as_deref()), (Some(other), Some("2026-10-02T23:59:59")));
+        // Due on that day: its deadline is the end of Oct 2 here.
+        assert_eq!((t.topic.as_ref().map(|t| t.id), t.due), (Some(other), Some(Due::Day(jiff::civil::date(2026, 10, 2)).deadline(&app.clock))));
         assert!(matches!(&t.ext, TodoExt::Local(l) if l.from_item == Some(item) && l.from.is_some()));
         complete(&conn, t.item_id, true).unwrap();
-        assert_eq!(list(&conn, now).unwrap().len(), before);
+        assert_eq!(list(&conn, &now).unwrap().len(), before);
 
         drop(conn);
         hold("jira", "Retry budget for ingest");
@@ -398,7 +407,7 @@ mod tests {
             .unwrap();
         assert_eq!(payload, json!({ "summary": "Retry budget for ingest", "assign_me": true, "due": "2026-10-02", "topic_id": topic }));
         crate::outbox::tests_on_confirmed(&conn, "jira.create_issue", &payload, &json!({ "key": "PLAT-77", "url": "https://j/browse/PLAT-77" }));
-        let t = list(&conn, now).unwrap().into_iter().find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77")).unwrap();
+        let t = list(&conn, &now).unwrap().into_iter().find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77")).unwrap();
         assert_eq!(t.topic.map(|t| t.id), Some(topic));
         let appended: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op LIKE 'obsidian.%'", [], |r| r.get(0)).unwrap();
         assert_eq!(appended, 0, "making a todo never writes to the topic's note");
@@ -407,9 +416,9 @@ mod tests {
         let tr: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'jira.transition'", [], |r| r.get(0)).unwrap();
         let tr: Value = serde_json::from_str(&tr).unwrap();
         assert_eq!(tr, json!({ "key": "PLAT-77", "transition_name": "Done", "done": true }));
-        assert!(list(&conn, now).unwrap().iter().any(|x| x.item_id == t.item_id), "open until Jira confirms");
+        assert!(list(&conn, &now).unwrap().iter().any(|x| x.item_id == t.item_id), "open until Jira confirms");
         crate::outbox::tests_on_confirmed_item(&conn, "jira.transition", t.item_id, &tr);
-        assert!(!list(&conn, now).unwrap().iter().any(|x| x.item_id == t.item_id));
+        assert!(!list(&conn, &now).unwrap().iter().any(|x| x.item_id == t.item_id));
     }
 
     fn conn_confirm(app: &App, item: i64, topic: i64) {
@@ -435,7 +444,7 @@ mod tests {
         }
         conn.execute("UPDATE sources SET config_json = '{\"todo_exclude_projects\": [\"dpr\"]}' WHERE kind = 'jira'", []).unwrap();
         let keys: Vec<String> =
-            list(&conn, app.clock.now()).unwrap().into_iter().filter_map(|t| if let TodoExt::Jira(j) = t.ext { Some(j.key) } else { None }).collect();
+            list(&conn, &app.clock).unwrap().into_iter().filter_map(|t| if let TodoExt::Jira(j) = t.ext { Some(j.key) } else { None }).collect();
         assert!(keys.contains(&"DEVOPS-9".to_string()) && !keys.contains(&"DPR-7".to_string()), "{keys:?}");
     }
 

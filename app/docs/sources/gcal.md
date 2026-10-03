@@ -120,7 +120,7 @@ Each event becomes an item of kind `event`:
 | summary | "Priya, Jordan, Lee +2" (first names; you and rooms left out), plus "needs your response", "tentative", "declined" or "all day" |
 | author | organizer email as handle, display name as the person name. Nothing for your own events |
 | url | `htmlLink` |
-| day strip block | start/end in local time, category from `colorId`, attendees summary. **Tentative** (dashed) when your response is `tentative` or `needsAction`, or the event itself is tentative |
+| day strip block | start/end stored in UTC, placed on the strip in your local time, category from `colorId`, attendees summary. **Tentative** (dashed) when your response is `tentative` or `needsAction`, or the event itself is tentative |
 
 - **All-day events** (offsites, OOO days) stay as items but get no block on the 08–19 strip.
 - **Declined** events stay as items with status `done` and no strip block. Re-accepting brings the block back.

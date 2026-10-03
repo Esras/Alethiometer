@@ -104,7 +104,7 @@ pub fn store(conn: &Connection, kind: &str, id: i64, model: &str, text_hash: &st
     conn.execute(&format!("INSERT INTO {t} (rowid, embedding) VALUES (?1, ?2)"), params![id, to_blob(v)])?;
     conn.execute(
         "INSERT INTO embed_meta (kind, id, model, hash) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (kind, id) DO UPDATE SET model = excluded.model, hash = excluded.hash, at = datetime('now', 'localtime')",
+         ON CONFLICT (kind, id) DO UPDATE SET model = excluded.model, hash = excluded.hash, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
         params![kind, id, model, text_hash],
     )?;
     Ok(())

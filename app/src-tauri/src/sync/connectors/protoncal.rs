@@ -10,7 +10,6 @@
 //! The links themselves grant access to the calendar (Proton puts the
 //! decryption key in the URL), so they never appear in logs or error messages.
 
-use crate::seed::fmt;
 use crate::settings::{Settings, SourceConfig};
 use crate::sync::{Batch, Busy, Connector, Ctx};
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
@@ -32,7 +31,14 @@ impl Connector for ProtonCalendar {
             anyhow::bail!("no calendar links: add Proton \"Limited view\" links to settings.life_calendars");
         }
         let days = |k: &str, d: i64| cfg.get(k).and_then(Value::as_i64).unwrap_or(d).clamp(0, 400);
-        let today = ctx.now.date();
+        // Recurrences are expanded by the `rrule` crate, which works in chrono's
+        // types: the window and the local zone go in as chrono values, and the
+        // busy times come back out as instants through the clock.
+        let today = {
+            let d = ctx.clock.today();
+            NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32).expect("valid date")
+        };
+        let zone: chrono_tz::Tz = ctx.clock.tz().iana_name().and_then(|n| n.parse().ok()).unwrap_or(chrono_tz::UTC);
         let window = Window {
             start: today - Duration::days(days("past_days", 1)),
             end: today + Duration::days(days("future_days", 14) + 1),
@@ -55,9 +61,10 @@ impl Connector for ProtonCalendar {
             if !resp.body.contains("BEGIN:VCALENDAR") {
                 anyhow::bail!("calendar {n}: response is not an ICS calendar (is the link still active?)");
             }
-            all.extend(busy_from_ics(&resp.body, &window, &chrono::Local).map_err(|e| anyhow::anyhow!("calendar {n}: {e}"))?);
+            all.extend(busy_from_ics(&resp.body, &window, &zone).map_err(|e| anyhow::anyhow!("calendar {n}: {e}"))?);
         }
-        let busy = merge(all).into_iter().map(|(s, e)| Busy { start: fmt(s), end: fmt(e) }).collect();
+        let here = |t: NaiveDateTime| ctx.clock.from_local(t.format("%Y-%m-%dT%H:%M:%S").to_string().parse().expect("a wall-clock time"));
+        let busy = merge(all).into_iter().map(|(s, e)| Busy { start: here(s), end: here(e) }).collect();
         Ok(Batch { busy: Some(busy), ..Default::default() })
     }
 }
@@ -595,7 +602,7 @@ mod tests {
         http.on("GET", "/url/SecondCalendar00/", 200, TIMEZONES);
         let src = source(json!({ "urls": [LINK, "webcal://calendar.proton.me/api/calendar/v1/url/SecondCalendar00/calendar.ics?x=1"] }));
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: dt("2026-09-28T10:52") };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
         let batch = ProtonCalendar.poll(&ctx).unwrap();
         assert!(batch.items.is_empty());
         assert!(batch.cursor.is_none());
@@ -628,9 +635,9 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "calendar.proton.me", 200, MIXED);
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: dt("2026-09-28T10:52") };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
         let batch = ProtonCalendar.poll(&ctx).unwrap();
-        crate::sync::apply(&conn, &src, &batch).unwrap();
+        crate::sync::apply(&conn, &src, &batch, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let (n, titled, items): (i64, i64, i64) = conn
             .query_row(
                 "SELECT count(*), count(title), (SELECT count(*) FROM items) FROM events WHERE is_life_busy = 1",
@@ -647,13 +654,13 @@ mod tests {
         http.on("GET", "calendar.proton.me", 404, "<html>Not found: /api/calendar/v1/url/AbCdEfGhIjKlMnOp</html>");
         let src = source(json!({ "urls": [LINK] }));
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: dt("2026-09-28T10:52") };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
         let err = ProtonCalendar.poll(&ctx).unwrap_err().to_string();
         assert_eq!(err, "calendar 1: HTTP 404");
 
         // No route: FakeHttp's error message includes the URL; it must be redacted.
         let http = FakeHttp::default();
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: dt("2026-09-28T10:52") };
+        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
         let err = ProtonCalendar.poll(&ctx).unwrap_err().to_string();
         for part in ["AbCdEfGhIjKlMnOp", "q1w2e3r4t5y6", "Zx9Yw8Vu7Ts6"] {
             assert!(!err.contains(part), "{err}");

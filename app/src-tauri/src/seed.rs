@@ -8,13 +8,17 @@
 //! module adds its own items through its `seed` function.
 
 use crate::state::App;
-use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use crate::clock::Clock;
+use crate::time::{Date, Due, Ts};
+use jiff::civil::Time;
+use jiff::ToSpan;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 
 pub struct Ctx<'a> {
     pub conn: &'a Connection,
-    pub today: NaiveDate,
+    pub clock: Clock,
+    pub today: Date,
     pub sources: HashMap<&'static str, i64>,
     pub people: HashMap<&'static str, i64>,
     pub topics: HashMap<&'static str, i64>,
@@ -22,10 +26,15 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// Local timestamp `days` from today at "HH:MM".
-    pub fn at(&self, days: i64, hm: &str) -> String {
-        let t = NaiveTime::parse_from_str(hm, "%H:%M").expect("bad seed time");
-        fmt(self.today.and_time(t) + Duration::days(days))
+    /// "HH:MM" here, `days` from today.
+    pub fn at(&self, days: i64, hm: &str) -> Ts {
+        let t = Time::strptime("%H:%M", hm).expect("bad seed time");
+        self.clock.from_local((self.today + days.days()).to_datetime(t))
+    }
+
+    /// The calendar day `days` from today.
+    pub fn day(&self, days: i64) -> Date {
+        self.today + days.days()
     }
 
     pub fn source(&self, kind: &str) -> i64 {
@@ -47,8 +56,8 @@ impl<'a> Ctx<'a> {
         self.conn
             .execute(
                 "INSERT INTO items (source_id, external_id, kind, title, body, summary, url, author_person_id,
-                   occurred_at, ended_at, due_at, status, msg_count, owner, seen)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                   occurred_at, ended_at, due_at, status, msg_count, owner, seen, due_day)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     self.source(it.source),
                     format!("seed-{n}"),
@@ -60,11 +69,12 @@ impl<'a> Ctx<'a> {
                     it.author.map(|a| self.person(a)),
                     it.occurred_at,
                     it.ended_at,
-                    it.due_at,
+                    Due::columns(it.due).0,
                     it.status,
                     it.msg_count,
                     it.owner,
                     it.seen as i64,
+                    Due::columns(it.due).1,
                 ],
             )
             .expect("seed item");
@@ -82,12 +92,12 @@ impl<'a> Ctx<'a> {
 
     /// A Slack message: its author id is `U0` and the name's first word in
     /// capitals (`slack_id`), which the sample People notes list.
-    pub fn slack(&self, item_id: i64, at: &str, author: &str, text: &str) -> i64 {
+    pub fn slack(&self, item_id: i64, at: Ts, author: &str, text: &str) -> i64 {
         self.slack_keyed(item_id, at, author, text, None, None)
     }
 
     /// `slack` with the message's key (Slack ts) and, for a thread reply, its parent's key.
-    pub fn slack_keyed(&self, item_id: i64, at: &str, author: &str, text: &str, key: Option<&str>, reply_to: Option<&str>) -> i64 {
+    pub fn slack_keyed(&self, item_id: i64, at: Ts, author: &str, text: &str, key: Option<&str>, reply_to: Option<&str>) -> i64 {
         self.conn
             .execute(
                 "INSERT INTO item_messages (item_id, at, author, text, author_id, ext_key, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -97,7 +107,7 @@ impl<'a> Ctx<'a> {
         self.conn.last_insert_rowid()
     }
 
-    pub fn message(&self, item_id: i64, at: &str, author: &str, text: &str) {
+    pub fn message(&self, item_id: i64, at: Ts, author: &str, text: &str) {
         self.conn
             .execute(
                 "INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, ?3, ?4)",
@@ -147,9 +157,9 @@ pub struct ItemSeed {
     pub summary: Option<String>,
     pub url: Option<String>,
     pub author: Option<&'static str>,
-    pub occurred_at: String,
-    pub ended_at: Option<String>,
-    pub due_at: Option<String>,
+    pub occurred_at: Ts,
+    pub ended_at: Option<Ts>,
+    pub due: Option<Due>,
     pub status: &'static str,
     pub msg_count: Option<i64>,
     pub owner: Option<String>,
@@ -166,9 +176,9 @@ impl Default for ItemSeed {
             summary: None,
             url: None,
             author: None,
-            occurred_at: String::new(),
+            occurred_at: Ts::default(),
             ended_at: None,
-            due_at: None,
+            due: None,
             status: "open",
             msg_count: None,
             owner: None,
@@ -186,9 +196,6 @@ pub fn slack_id(name: &str) -> String {
 /// Your Slack user id in the sample data (the Slack source's `me`).
 pub const ME: &str = "Zach";
 
-pub fn fmt(t: NaiveDateTime) -> String {
-    t.format("%Y-%m-%dT%H:%M:%S").to_string()
-}
 
 pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     // Sample People, Topics and daily notes are files: never in a real vault.
@@ -201,7 +208,7 @@ pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
         return Ok(());
     }
     let tx = conn.transaction()?;
-    seed(&tx, app.clock.now().date(), &app.vault)?;
+    seed(&tx, &app.clock, &app.vault)?;
     tx.commit()?;
     Ok(())
 }
@@ -255,7 +262,8 @@ fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMa
     Ok(())
 }
 
-pub fn seed(conn: &Connection, today: NaiveDate, vault: &std::path::Path) -> anyhow::Result<()> {
+pub fn seed(conn: &Connection, clock: &Clock, vault: &std::path::Path) -> anyhow::Result<()> {
+    let today = clock.today();
     let mut sources = HashMap::new();
     for (kind, tag, name) in [
         ("gcal", "work", "Google Calendar"),
@@ -314,7 +322,7 @@ pub fn seed(conn: &Connection, today: NaiveDate, vault: &std::path::Path) -> any
         topics.insert(name, conn.last_insert_rowid());
     }
 
-    let ctx = Ctx { conn, today, sources, people, topics, counter: std::cell::Cell::new(0) };
+    let ctx = Ctx { conn, clock: clock.clone(), today, sources, people, topics, counter: std::cell::Cell::new(0) };
 
     // Today's calendar (the strip in every mock). Now is ~10:52 in the mocks.
     ctx.meeting(0, "08:00", "08:30", "Coffee", "self", "", false);

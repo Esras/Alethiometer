@@ -93,12 +93,8 @@ pub fn config(app: &App) -> Option<GleanConfig> {
 static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<Hit>)>>> = Mutex::new(None);
 
 /// The real date: the daily limit is Glean's quota, not the dev clock's.
-fn today() -> String {
-    chrono::Local::now().format("%Y-%m-%d").to_string()
-}
-
-pub fn used_today(conn: &Connection) -> Result<i64> {
-    Ok(conn.query_row("SELECT n FROM glean_calls WHERE day = ?1", [today()], |r| r.get(0)).optional()?.unwrap_or(0))
+pub fn used_today(conn: &Connection, clock: &crate::clock::Clock) -> Result<i64> {
+    Ok(conn.query_row("SELECT n FROM glean_calls WHERE day = ?1", [clock.real_today()], |r| r.get(0)).optional()?.unwrap_or(0))
 }
 
 /// Search Glean for `query`. Cached per query for `cache_minutes`; counts
@@ -120,13 +116,13 @@ pub fn search(app: &App, http: &dyn Http, query: &str) -> std::result::Result<Ve
     }
     {
         let conn = app.db();
-        let used = used_today(&conn).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
+        let used = used_today(&conn, &app.clock).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
         if used >= cfg.calls_per_day {
             return Err(Unavailable::Limit { per_day: cfg.calls_per_day });
         }
         let _ = conn.execute(
             "INSERT INTO glean_calls (day, n) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET n = n + 1",
-            [today()],
+            [app.clock.real_today()],
         );
     }
     let body = request_body(&cfg, query);
@@ -201,7 +197,7 @@ pub fn parse(v: &Value) -> Vec<Hit> {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|x| x.get("snippet").or_else(|| x.get("text")).and_then(Value::as_str)).collect::<Vec<_>>().join(" … "))
                 .unwrap_or_default();
-            let updated = meta.get("updateTime").or_else(|| meta.get("createTime")).and_then(Value::as_str).and_then(crate::sync::local_ts);
+            let updated = meta.get("updateTime").or_else(|| meta.get("createTime")).and_then(Value::as_str).and_then(crate::time::Ts::parse).map(crate::time::Ts::to_db);
             Some(Hit {
                 title: if title.is_empty() { url.clone() } else { title },
                 url,
@@ -257,7 +253,7 @@ pub fn feedback(conn: &Connection, topic_id: i64, key: &str, verdict: &str, titl
         "pin" | "reject" => {
             conn.execute(
                 "INSERT INTO search_feedback (topic_id, key, verdict, title, url, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (topic_id, key) DO UPDATE SET verdict = excluded.verdict, at = datetime('now', 'localtime')",
+                 ON CONFLICT (topic_id, key) DO UPDATE SET verdict = excluded.verdict, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![topic_id, key, verdict, title, url, source],
             )?;
         }
@@ -327,7 +323,7 @@ pub mod tests {
         let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(body["query"], "datadog renewal");
         assert_eq!(body["pageSize"], 30);
-        assert_eq!(used_today(&app.db()).unwrap(), 1);
+        assert_eq!(used_today(&app.db(), &app.clock).unwrap(), 1);
         search(&app, &http, "q2").unwrap();
         search(&app, &http, "q3").unwrap();
         assert_eq!(search(&app, &http, "q4").unwrap_err(), Unavailable::Limit { per_day: 3 });

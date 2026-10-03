@@ -277,7 +277,7 @@ fn tick(app: &App, hub: &Hub) -> anyhow::Result<()> {
 /// A send of yours that may still change: pending, or dispatched in the last
 /// two minutes (a broker can still report it failed).
 fn unsettled(st: &map::State, id: &str, conv: &map::Conv) -> bool {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = jiff::Timestamp::now().as_millisecond();
     let recent = |t: i64| t > now - 120_000 && t <= now + 60_000;
     let agents_dm = s(&conv.meta, "externalRef");
     st.pending.iter().any(|p| p.key == format!("r:{id}") || p.key.rsplit(':').next().is_some_and(|a| !a.is_empty() && agents_dm.contains(a)))
@@ -316,7 +316,7 @@ fn refresh(c: &Client, hub: &Hub) -> anyhow::Result<()> {
                 None
             };
             if let Some(text) = text {
-                let at = if s(a, "updated").is_empty() { chrono::Utc::now().to_rfc3339() } else { s(a, "updated").to_owned() };
+                let at = if s(a, "updated").is_empty() { crate::time::Ts::new(jiff::Timestamp::now()).to_db() } else { s(a, "updated").to_owned() };
                 let t = st.transitions.entry(id.clone()).or_default();
                 t.push((at, text.trim_start_matches(" → ").to_owned()));
                 if t.len() > 50 {
@@ -713,7 +713,7 @@ pub fn start_agent(app: &App, args: &Value) -> Result<String> {
             let topic = hub.st().convs.get(&room).and_then(|c| map::topic_of(&c.meta).map(str::to_owned));
             let joined = topic.ok_or(e).and_then(|t| c.post_thread(&t, &format!("@{} joined this thread", s(&agent, "slug")), None, &format!("join:{id}")));
             if let Err(e) = joined {
-                let at = chrono::Utc::now().to_rfc3339();
+                let at = crate::time::Ts::new(jiff::Timestamp::now()).to_db();
                 hub.st().transitions.entry(id.clone()).or_default().push((at, format!("couldn't add to the room: {e}")));
             }
         }

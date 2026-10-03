@@ -81,10 +81,35 @@ function tick() {
   ui.nowMs = Date.now() + (ui.info?.clock_offset_ms ?? 0);
 }
 
+const formats = new Map<string, Intl.DateTimeFormat>();
+
+/** An instant's wall-clock parts in the core's zone (`info.tz`), so the UI
+ *  and the core agree on "today" and "10:52". Instants arrive as UTC
+ *  ("2026-10-03T08:52:00.000Z") or epoch ms. */
+export function wall(at: string | number) {
+  const tz = ui.info?.tz ?? '';
+  let f = formats.get(tz);
+  if (!f) {
+    const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' };
+    try {
+      f = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz || undefined });
+    } catch {
+      f = new Intl.DateTimeFormat('en-US', opts); // a zone this browser doesn't know: its own
+    }
+    formats.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(typeof at === 'number' ? at : new Date(at)).map((x) => [x.type, x.value]));
+  const h = Number(p.hour);
+  const m = Number(p.minute);
+  return { day: `${p.year}-${p.month}-${p.day}`, weekday: p.weekday, minute: h * 60 + m + Number(p.second) / 60, hm: `${p.hour}:${p.minute}` };
+}
+
+/** "10:52" for an instant, on the app's clock. */
+export const clockHM = (at: string | number | null | undefined) => (at ? wall(at).hm : '');
+
 /** Minutes since local midnight, from the (possibly offset) clock. */
 export function nowMinute(): number {
-  const d = new Date(ui.nowMs);
-  return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  return wall(ui.nowMs).minute;
 }
 
 export const UNCATEGORIZED: Category = { label: 'Uncategorized', color: '#504945' };
@@ -140,14 +165,14 @@ export function urgencyColor(minutesLeft: number): string {
 
 /** Next-meeting pill in the Topics index: red within 30 min, yellow later today, green on another day. */
 export function meetingPill(start: string): { label: string; weight: 'red' | 'yellow' | 'green' } {
-  const t = new Date(start);
-  const mins = Math.max(0, Math.round((t.getTime() - ui.nowMs) / 60000));
+  const t = new Date(start).getTime();
+  const mins = Math.max(0, Math.round((t - ui.nowMs) / 60000));
   if (mins <= 30) return { label: `in ${mins} min`, weight: 'red' };
-  if (t.toDateString() === new Date(ui.nowMs).toDateString()) {
+  const w = wall(t);
+  if (w.day === wall(ui.nowMs).day) {
     return { label: `in ${Math.floor(mins / 60)}h ${mins % 60}m`, weight: 'yellow' };
   }
-  const day = t.toLocaleDateString('en-US', { weekday: 'short' });
-  return { label: `${day} ${hm(t.getHours() * 60 + t.getMinutes())}`, weight: 'green' };
+  return { label: `${w.weekday} ${w.hm}`, weight: 'green' };
 }
 
 export function hm(min: number): string {

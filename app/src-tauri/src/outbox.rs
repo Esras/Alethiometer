@@ -80,7 +80,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         .optional()?;
     let Some((id, source_id, op, payload, item_id)) = row else { return Ok(false) };
     app.db().execute(
-        "UPDATE outbox SET state = 'sent', sent_at = datetime('now', 'localtime'), attempts = attempts + 1 WHERE id = ?1",
+        "UPDATE outbox SET state = 'sent', sent_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), attempts = attempts + 1 WHERE id = ?1",
         [id],
     )?;
     let source = load_source(&app.db(), source_id)?;
@@ -91,7 +91,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         None => Err(anyhow::anyhow!("no connector for '{}'", source.kind)),
         Some(c) => {
             let secret = |k: &str| app.platform.secret_get(k);
-            let ctx = Ctx { source: &source, http, secret: &secret, now: app.clock.now() };
+            let ctx = Ctx { source: &source, http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
             c.send(&ctx, &op, &serde_json::from_str(&payload)?)
         }
     };
@@ -99,7 +99,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
     match result {
         Ok(receipt) => {
             conn.execute(
-                "UPDATE outbox SET state = 'confirmed', confirmed_at = datetime('now', 'localtime'), receipt_json = ?2, error = NULL WHERE id = ?1",
+                "UPDATE outbox SET state = 'confirmed', confirmed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), receipt_json = ?2, error = NULL WHERE id = ?1",
                 params![id, receipt.to_string()],
             )?;
             on_confirmed(&conn, &op, item_id, &serde_json::from_str(&payload).unwrap_or_default(), &receipt)?;
@@ -162,7 +162,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let mut stmt = conn.prepare(
                 "SELECT o.id, s.name, o.op, o.state, o.error, o.item_id, o.created_at, o.confirmed_at
                    FROM outbox o JOIN sources s ON s.id = o.source_id
-                  WHERE o.state != 'confirmed' OR o.confirmed_at > datetime('now', 'localtime', '-1 day')
+                  WHERE o.state != 'confirmed' OR o.confirmed_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')
                   ORDER BY o.id DESC LIMIT 200",
             )?;
             let rows = stmt

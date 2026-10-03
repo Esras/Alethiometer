@@ -42,7 +42,7 @@ pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Re
     let conn = app.db();
     let (name, note) = crate::ai::context::topic_note(&conn, &app.vault, t)?;
     let r = crate::queries::people::Resolver::load(&conn, &app.settings().people)?;
-    let people: Vec<String> = crate::queries::people::for_topic(&conn, &r, t, app.clock.now(), 4)?.into_iter().map(|p| p.name).collect();
+    let people: Vec<String> = crate::queries::people::for_topic(&conn, &r, t, &app.clock, 4)?.into_iter().map(|p| p.name).collect();
     let ents = entities(app, &conn, t)?;
     let titles: Vec<String> = conn
         .prepare(
@@ -270,7 +270,7 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
             (Some(a), Some(v)) => v.get(i).map(|v| crate::embed::cosine(a, v)),
             _ => None,
         };
-        let old = h.updated.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).num_days() > cfg.window_days);
+        let old = h.updated.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).as_hours() / 24 > cfg.window_days);
         let fb = feedback.get(&h.url).map(|(v, _)| v.as_str());
         let shared = ents.as_ref().and_then(|e| shared_entity(e, h));
         let sim_label = sim.map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)).unwrap_or_default();
