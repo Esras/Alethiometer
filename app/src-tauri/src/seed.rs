@@ -7,22 +7,26 @@
 //! Core records (sources, people, topics, today's calendar) live here. Each view
 //! module adds its own items through its `seed` function.
 
-use crate::state::App;
 use crate::clock::Clock;
+use crate::domain::ports::UnitOfWork;
+use crate::domain::sample::{SampleData, SampleEvent, SampleItem, SampleMessage};
+use crate::state::App;
 use crate::time::{Date, Due, Ts};
 use jiff::civil::Time;
 use jiff::ToSpan;
-use rusqlite::{params, Connection};
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 pub struct Ctx<'a> {
-    pub conn: &'a Connection,
+    pub uow: &'a dyn UnitOfWork,
     pub clock: Clock,
     pub today: Date,
     pub sources: HashMap<&'static str, i64>,
     pub people: HashMap<&'static str, i64>,
     pub topics: HashMap<&'static str, i64>,
     counter: std::cell::Cell<i64>,
+    /// Meetings' items by (days from today, title).
+    meetings: RefCell<HashMap<(i64, String), i64>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -49,45 +53,42 @@ impl<'a> Ctx<'a> {
         *self.topics.get(name).unwrap_or_else(|| panic!("no seed topic {name}"))
     }
 
+    pub fn sample(&self) -> &dyn SampleData {
+        self.uow.sample()
+    }
+
+    /// The item of a meeting `ctx.meeting` added.
+    pub fn meeting_id(&self, days: i64, title: &str) -> i64 {
+        *self.meetings.borrow().get(&(days, title.to_owned())).unwrap_or_else(|| panic!("no seed meeting {title} on day {days}"))
+    }
+
     /// Insert an item and return its id. Use `ItemSeed { ..Default::default() }`.
     pub fn item(&self, it: ItemSeed) -> i64 {
         let n = self.counter.get() + 1;
         self.counter.set(n);
-        self.conn
-            .execute(
-                "INSERT INTO items (source_id, external_id, kind, title, body, summary, url, author_person_id,
-                   occurred_at, ended_at, due_at, status, msg_count, owner, seen, due_day)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-                params![
-                    self.source(it.source),
-                    format!("seed-{n}"),
-                    it.kind,
-                    it.title,
-                    it.body,
-                    it.summary,
-                    it.url,
-                    it.author.map(|a| self.person(a)),
-                    it.occurred_at,
-                    it.ended_at,
-                    Due::columns(it.due).0,
-                    it.status,
-                    it.msg_count,
-                    it.owner,
-                    it.seen as i64,
-                    Due::columns(it.due).1,
-                ],
-            )
-            .expect("seed item");
-        self.conn.last_insert_rowid()
+        self.sample()
+            .item(&SampleItem {
+                source_id: self.source(it.source),
+                external_id: format!("seed-{n}"),
+                kind: it.kind.into(),
+                title: it.title,
+                body: it.body,
+                summary: it.summary,
+                url: it.url,
+                author_id: it.author.map(|a| self.person(a)),
+                occurred_at: it.occurred_at,
+                ended_at: it.ended_at,
+                due: it.due,
+                status: it.status.into(),
+                msg_count: it.msg_count,
+                owner: it.owner,
+                seen: it.seen,
+            })
+            .expect("seed item")
     }
 
     pub fn link(&self, item_id: i64, topic: &str, state: &str) {
-        self.conn
-            .execute(
-                "INSERT INTO topic_links (item_id, topic_id, state, confidence) VALUES (?1, ?2, ?3, 0.9)",
-                params![item_id, self.topic(topic), state],
-            )
-            .expect("seed link");
+        self.sample().link(item_id, self.topic(topic), state).expect("seed link");
     }
 
     /// A Slack message: its author id is `U0` and the name's first word in
@@ -98,22 +99,14 @@ impl<'a> Ctx<'a> {
 
     /// `slack` with the message's key (Slack ts) and, for a thread reply, its parent's key.
     pub fn slack_keyed(&self, item_id: i64, at: Ts, author: &str, text: &str, key: Option<&str>, reply_to: Option<&str>) -> i64 {
-        self.conn
-            .execute(
-                "INSERT INTO item_messages (item_id, at, author, text, author_id, ext_key, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![item_id, at, author, text, slack_id(author), key, reply_to],
-            )
-            .expect("seed message");
-        self.conn.last_insert_rowid()
+        let author_id = slack_id(author);
+        self.sample()
+            .message(&SampleMessage { item_id, at, author, text, author_id: Some(&author_id), ext_key: key, reply_to })
+            .expect("seed message")
     }
 
     pub fn message(&self, item_id: i64, at: Ts, author: &str, text: &str) {
-        self.conn
-            .execute(
-                "INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, ?3, ?4)",
-                params![item_id, at, author, text],
-            )
-            .expect("seed message");
+        self.sample().message(&SampleMessage { item_id, at, author, text, ..Default::default() }).expect("seed message");
     }
 
     /// Work calendar event with a backing item. Returns the item id.
@@ -128,23 +121,27 @@ impl<'a> Ctx<'a> {
             seen: true,
             ..Default::default()
         });
-        self.conn
-            .execute(
-                "INSERT INTO events (item_id, source_id, start, end, title, category, tentative, attendees)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![item, self.source("gcal"), self.at(days, start), self.at(days, end), title, category, tentative as i64, attendees],
-            )
+        self.sample()
+            .event(&SampleEvent {
+                item_id: Some(item),
+                source_id: self.source("gcal"),
+                start: self.at(days, start),
+                end: self.at(days, end),
+                title: Some(title),
+                category,
+                tentative,
+                attendees: Some(attendees),
+                life: false,
+            })
             .expect("seed event");
+        self.meetings.borrow_mut().insert((days, title.to_owned()), item);
         item
     }
 
     /// Untitled busy block from a Proton "Limited view" link.
     pub fn life_block(&self, days: i64, start: &str, end: &str) {
-        self.conn
-            .execute(
-                "INSERT INTO events (source_id, start, end, category, is_life_busy) VALUES (?1, ?2, ?3, 'life', 1)",
-                params![self.source("protoncal"), self.at(days, start), self.at(days, end)],
-            )
+        self.sample()
+            .event(&SampleEvent { source_id: self.source("protoncal"), start: self.at(days, start), end: self.at(days, end), category: "life", life: true, ..Default::default() })
             .expect("seed life block");
     }
 }
@@ -202,21 +199,21 @@ pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     if !app.settings().obsidian_vault.is_empty() {
         return Ok(());
     }
-    let mut conn = app.db();
-    let n: i64 = conn.query_row("SELECT count(*) FROM sources", [], |r| r.get(0))?;
-    if n > 0 {
-        return Ok(());
-    }
-    let tx = conn.transaction()?;
-    seed(&tx, &app.clock, &app.vault)?;
-    tx.commit()?;
+    // One unit of work; the sample notes are written into the stand-in vault
+    // inside it, once, on an empty database.
+    app.store().write(|uow| {
+        if uow.sample().has_sources()? {
+            return Ok(());
+        }
+        Ok(seed(uow, &app.clock, &app.vault)?)
+    })?;
     Ok(())
 }
 
 /// People notes (17a/17b) for the sample people, in the stand-in vault, and
 /// the rows `queries::people::scan` would make from them. Marco has none, so
 /// Incoming can suggest one for him.
-fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMap<&'static str, i64>) -> anyhow::Result<()> {
+fn seed_people_notes(sample: &dyn SampleData, vault: &std::path::Path, people: &HashMap<&'static str, (i64, &str)>) -> anyhow::Result<()> {
     let notes: [(&str, Option<&str>, Option<&str>, &str); 8] = [
         ("Jordan", Some("jordan.lee@work.com"), Some("jlee-work"), "[[Platform]]"),
         ("Priya", Some("priya.n@work.com"), None, "[[Data eng]]"),
@@ -230,8 +227,7 @@ fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMa
     let dir = vault.join(crate::queries::people::PEOPLE_DIR);
     std::fs::create_dir_all(&dir)?;
     for (name, email, github, team) in notes {
-        let id = people[name];
-        let role: Option<String> = conn.query_row("SELECT role FROM people WHERE id = ?1", [id], |r| r.get(0))?;
+        let (id, role) = people[name];
         let slack = slack_id(name);
         let mut text = format!("---\naliases: []\nslack: {slack}\n");
         if let Some(e) = email {
@@ -240,9 +236,7 @@ fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMa
         if let Some(g) = github {
             text.push_str(&format!("github: {g}\n"));
         }
-        if let Some(r) = &role {
-            text.push_str(&format!("role: {r}\n"));
-        }
+        text.push_str(&format!("role: {role}\n"));
         if !team.is_empty() {
             text.push_str(&format!("team: \"{team}\"\n"));
         }
@@ -252,17 +246,15 @@ fn seed_people_notes(conn: &Connection, vault: &std::path::Path, people: &HashMa
             std::fs::write(&path, text)?;
         }
         let rel = format!("{}/{name}.md", crate::queries::people::PEOPLE_DIR);
-        conn.execute("UPDATE people SET note_path = ?2 WHERE id = ?1", params![id, rel])?;
-        for (kind, acct) in [("slack", Some(slack.as_str())), ("email", email), ("github", github)] {
-            if let Some(a) = acct {
-                conn.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, a, id])?;
-            }
-        }
+        let accounts: Vec<(&str, &str)> =
+            [("slack", Some(slack.as_str())), ("email", email), ("github", github)].into_iter().filter_map(|(k, a)| a.map(|a| (k, a))).collect();
+        sample.person_note(id, &rel, &accounts)?;
     }
     Ok(())
 }
 
-pub fn seed(conn: &Connection, clock: &Clock, vault: &std::path::Path) -> anyhow::Result<()> {
+pub fn seed(uow: &dyn UnitOfWork, clock: &Clock, vault: &std::path::Path) -> anyhow::Result<()> {
+    let sample = uow.sample();
     let today = clock.today();
     let mut sources = HashMap::new();
     for (kind, tag, name) in [
@@ -279,8 +271,7 @@ pub fn seed(conn: &Connection, clock: &Clock, vault: &std::path::Path) -> anyhow
     ] {
         // Named apart from what Settings › Add source calls a new source, so a
         // real source never takes over the sample rows (sources match on kind and name).
-        conn.execute("INSERT INTO sources (kind, tag, name) VALUES (?1, ?2, ?3)", params![kind, tag, format!("{name} (sample)")])?;
-        sources.insert(kind, conn.last_insert_rowid());
+        sources.insert(kind, sample.source(kind, tag, &format!("{name} (sample)"))?);
     }
 
     let mut people = HashMap::new();
@@ -295,11 +286,11 @@ pub fn seed(conn: &Connection, clock: &Clock, vault: &std::path::Path) -> anyhow
         ("Lee", "HR business partner"),
         ("Dana", "Acme · VP Eng"),
     ] {
-        conn.execute("INSERT INTO people (display_name, role) VALUES (?1, ?2)", params![name, role])?;
-        people.insert(name, conn.last_insert_rowid());
+        people.insert(name, (sample.person(name, role)?, role));
     }
-    seed_people_notes(conn, vault, &people)?;
-    conn.execute("UPDATE sources SET cursor = ?1 WHERE kind = 'slack'", [serde_json::json!({ "me": slack_id(ME) }).to_string()])?;
+    seed_people_notes(sample, vault, &people)?;
+    let people: HashMap<&'static str, i64> = people.into_iter().map(|(k, (id, _))| (k, id)).collect();
+    sample.set_cursor(sources["slack"], &serde_json::json!({ "me": slack_id(ME) }).to_string())?;
 
     let mut topics = HashMap::new();
     for (name, category, path) in [
@@ -315,14 +306,10 @@ pub fn seed(conn: &Connection, clock: &Clock, vault: &std::path::Path) -> anyhow
         ("On-call load", "work", "Topics/On-call load.md"),
         ("Conference CFP", "work", "Topics/Conference CFP.md"),
     ] {
-        conn.execute(
-            "INSERT INTO topics (name, category, obsidian_path) VALUES (?1, ?2, ?3)",
-            params![name, category, path],
-        )?;
-        topics.insert(name, conn.last_insert_rowid());
+        topics.insert(name, sample.topic(name, category, path)?);
     }
 
-    let ctx = Ctx { conn, clock: clock.clone(), today, sources, people, topics, counter: std::cell::Cell::new(0) };
+    let ctx = Ctx { uow, clock: clock.clone(), today, sources, people, topics, counter: std::cell::Cell::new(0), meetings: RefCell::default() };
 
     // Today's calendar (the strip in every mock). Now is ~10:52 in the mocks.
     ctx.meeting(0, "08:00", "08:30", "Coffee", "self", "", false);

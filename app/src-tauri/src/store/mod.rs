@@ -30,6 +30,7 @@ pub mod outbox;
 pub mod people;
 pub mod priorities;
 pub mod reflect;
+pub mod sample;
 pub mod schema;
 pub mod search;
 pub mod sources;
@@ -235,6 +236,7 @@ ports!(UnitOfWork {
     outbox: crate::domain::outbox::Outbox,
     people: crate::domain::people::People,
     reflections: crate::domain::reflect::Reflections,
+    sample: crate::domain::sample::SampleData,
     sources: crate::domain::sources::Sources,
     splits: crate::domain::splits::Splits,
     suggest_runs: crate::domain::suggest::SuggestRuns,

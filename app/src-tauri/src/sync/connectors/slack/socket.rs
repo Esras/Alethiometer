@@ -24,7 +24,7 @@
 use super::api::Client;
 use super::{Config, State};
 use crate::state::App;
-use crate::sync::{http::UreqHttp, load_source, sync_source};
+use crate::sync::{http::UreqHttp, sync_source};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{mpsc, Arc, LazyLock, Mutex};
@@ -192,7 +192,7 @@ enum Exit {
 }
 
 fn connect_and_listen(app: &App, source_id: i64, gen: u64, tx: &mpsc::Sender<()>) -> anyhow::Result<Exit> {
-    let source = load_source(&app.db(), source_id)?;
+    let source = app.store().read(|r| crate::sync::source(r, source_id))?;
     let cfg = Config::from_json(&source.config);
     let Some(token) = app.platform.secret_get(&cfg.app_token_secret) else {
         return Ok(Exit::Stop(format!("no app-level token in secret '{}'", cfg.app_token_secret)));
@@ -227,7 +227,7 @@ fn connect_and_listen(app: &App, source_id: i64, gen: u64, tx: &mpsc::Sender<()>
             Message::Close(_) => return Ok(Exit::Reconnect),
             _ => continue, // pings are answered by tungstenite
         };
-        let state = State::parse(load_source(&app.db(), source_id)?.cursor.as_deref());
+        let state = State::parse(app.store().read(|r| crate::sync::source(r, source_id))?.cursor.as_deref());
         let action = handle(&text, &state);
         if let Some(ack) = action.ack {
             ws.send(Message::text(ack)).map_err(|e| anyhow::anyhow!("socket ack: {e}"))?;

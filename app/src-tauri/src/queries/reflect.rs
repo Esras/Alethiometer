@@ -20,6 +20,7 @@
 //! - decisions: items of kind `decision` that day (sample: two Obsidian lines).
 //! - jotted: Notes lines for that day.
 
+use crate::domain::sample::{ItemPatch, SampleData};
 use super::{arg_i64, arg_str, dur_label, minute_of_day, parse_date, parse_ts};
 use crate::api::unknown;
 use crate::error::{msg, Result};
@@ -32,7 +33,7 @@ use jiff::civil::DateTime;
 use jiff::ToSpan;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::settings::Settings;
-use rusqlite::{params, Connection};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -807,18 +808,15 @@ fn nudge_answer(app: &App, answer: &str) -> Result<Value> {
 // ---------------------------------------------------------------- seed
 
 pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
-    let c = ctx.conn;
+    let sample = ctx.sample();
     let today = ctx.today;
     let ds = |d: Date| d.strftime("%Y-%m-%d").to_string();
     let monday = period_start(Scope::Week, today);
 
     // "did" sample: actual join/leave times on two of today's meetings.
     for (title, a, b) in [("Eng leads", "09:00", "10:10"), ("1:1 Marco", "10:30", "10:45"), ("Acme call", "16:15", "16:55")] {
-        c.execute(
-            "UPDATE items SET raw_json = ?1
-              WHERE id = (SELECT item_id FROM events WHERE title = ?2 AND substr(start, 1, 10) = ?3)",
-            params![json!({ "actual_start": ctx.at(0, a), "actual_end": ctx.at(0, b) }).to_string(), title, ds(today)],
-        )?;
+        let raw = json!({ "actual_start": ctx.at(0, a), "actual_end": ctx.at(0, b) }).to_string();
+        sample.patch_item(ctx.meeting_id(0, title), &ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
     }
 
     // Decisions recorded today (Obsidian meeting notes).
@@ -866,13 +864,13 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
             ctx.life_block(off, a, b);
         }
         if let Some((line, more)) = one_liners.get(i) {
-            write_seed_note(c, vault, Scope::Day, d, &format!("{line}\n\n{more}\n"))?;
+            write_seed_note(sample, vault, Scope::Day, d, &format!("{line}\n\n{more}\n"))?;
         }
     }
 
     // Today's note (9b).
     write_seed_note(
-        c,
+        sample,
         vault,
         Scope::Day,
         today,
@@ -882,7 +880,7 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
 
     // The week note (9c).
     write_seed_note(
-        c,
+        sample,
         vault,
         Scope::Week,
         monday,
@@ -903,9 +901,7 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
             ..Default::default()
         })
     };
-    let set_glyph = |id: i64, glyph: &str| {
-        c.execute("UPDATE items SET raw_json = ?1 WHERE id = ?2", params![json!({ "glyph": glyph }).to_string(), id])
-    };
+    let set_glyph = |id: i64, glyph: &str| sample.patch_item(id, &ItemPatch { raw_json: Some(&json!({ "glyph": glyph }).to_string()), ..Default::default() });
     let first = earlier.first().copied().unwrap_or(today);
     let items = [
         (task("Send Marco feedback on the backoff PR", None, 0), "do"),
@@ -919,21 +915,21 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     // The strategy doc and on-call models trailed day to day through the week.
     for d in &earlier {
         for (id, _) in &items[2..] {
-            c.execute("INSERT INTO carry (item_id, period, action) VALUES (?1, ?2, 'tomorrow')", params![id, ds(*d)])?;
+            sample.carry(*id, &ds(*d), Some("tomorrow"))?;
         }
     }
     if let Some(last) = earlier.last() {
         let jordan = task("node-7 owner", Some("Jordan"), (*last - today).get_days() as i64);
         set_glyph(jordan, "delegated")?;
-        c.execute("INSERT INTO carry (item_id, period) VALUES (?1, ?2)", params![jordan, ds(*last)])?;
+        sample.carry(jordan, &ds(*last), None)?;
     }
     for (id, _) in &items {
-        c.execute("INSERT INTO carry (item_id, period) VALUES (?1, ?2)", params![id, ds(today)])?;
+        sample.carry(*id, &ds(today), None)?;
     }
     Ok(())
 }
 
-fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: Date, text: &str) -> anyhow::Result<()> {
+fn write_seed_note(sample: &dyn SampleData, vault: &Path, scope: Scope, s: Date, text: &str) -> anyhow::Result<()> {
     let path = note_path(scope, s, "work");
     let abs = vault.join(&path);
     if !abs.exists() {
@@ -942,15 +938,13 @@ fn write_seed_note(c: &Connection, vault: &Path, scope: Scope, s: Date, text: &s
         }
         std::fs::write(&abs, text)?;
     }
-    c.execute(
-        "INSERT OR REPLACE INTO reflections (scope, period_start, lens, obsidian_path, summary) VALUES (?1, ?2, 'work', ?3, ?4)",
-        params![scope.key(), s.strftime("%Y-%m-%d").to_string(), path, summarize(text)],
-    )?;
+    sample.reflection(scope.key(), &s.strftime("%Y-%m-%d").to_string(), &path, summarize(text).as_deref())?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::params;
     use super::*;
     use crate::settings::Settings;
 
@@ -965,6 +959,19 @@ mod tests {
 
     fn today(app: &App) -> String {
         app.clock.today().to_string()
+    }
+
+    #[test]
+    fn sample_meetings_get_their_join_times_east_of_utc() {
+        // 09:00 in Sydney is the previous day in UTC: the meeting is still today's.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open_in_memory().unwrap();
+        let clock = crate::clock::Clock::fixed(crate::time::Ts::parse("2026-10-02T23:52:00Z").unwrap(), jiff::tz::TimeZone::get("Australia/Sydney").unwrap());
+        crate::seed::seed(&crate::store::over(&conn), &clock, dir.path()).unwrap();
+        let raw: String = conn
+            .query_row("SELECT i.raw_json FROM events e JOIN items i ON i.id = e.item_id WHERE e.title = 'Eng leads' AND e.start = ?1", [clock.from_local(clock.today().at(9, 0, 0, 0))], |r| r.get(0))
+            .unwrap();
+        assert!(raw.contains("actual_start"), "{raw}");
     }
 
     #[test]

@@ -33,7 +33,6 @@ use crate::outbox::request;
 use crate::settings::PeopleSettings;
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
-use rusqlite::params;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1193,10 +1192,7 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     });
     ctx.slack(eng, ctx.at(0, "08:12"), "Marco R.", "Anyone seen the staging deploy hang on migrations?");
     // His Slack profile (users.info), so the strip reads as in 17a.
-    ctx.conn.execute(
-        "INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', ?1, 'Marco Rossi', 'marco.rossi@work.com')",
-        [crate::seed::slack_id("Marco R.")],
-    )?;
+    ctx.sample().profile("slack", &crate::seed::slack_id("Marco R."), "Marco Rossi", "marco.rossi@work.com")?;
     Ok(())
 }
 
@@ -1227,10 +1223,8 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
             seen: false,
             ..Default::default()
         });
-        ctx.conn.execute(
-            "UPDATE items SET raw_json = ?2 WHERE id = ?1",
-            params![root, json!({ "channel": channel, "msgs": keys, "mark_ts": keys.last() }).to_string()],
-        )?;
+        let raw = json!({ "channel": channel, "msgs": keys, "mark_ts": keys.last() }).to_string();
+        ctx.sample().patch_item(root, &crate::domain::sample::ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
         let mut groups: Vec<(G, Vec<i64>)> = vec![];
         for ((t, who, text, g, replies), key) in msgs.iter().zip(&keys) {
             let id = ctx.slack_keyed(root, ctx.at(0, t), who, text, Some(key), None);
@@ -1242,9 +1236,9 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
                 None => groups.push((*g, vec![id])),
             }
         }
-        super::split::recount(ctx.conn, root, 0)?;
+        ctx.uow.splits().recount(root, 0)?;
         for (g, ids) in groups {
-            let item = if g == G::Acme { root } else { super::split::split_off(ctx.conn, root, &ids)? };
+            let item = if g == G::Acme { root } else { ctx.uow.splits().carve(root, &ids, false)? };
             match g {
                 G::Acme => ctx.link(item, "Acme outage", "suggested"),
                 G::Q4 => ctx.link(item, "Q4 headcount", "suggested"),
@@ -1299,6 +1293,7 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::params;
     use super::*;
     use rusqlite::Connection;
 
@@ -1311,7 +1306,7 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let now = crate::sync::test_clock("2026-09-27T10:52:00Z");
-        crate::seed::seed(&conn, &now, dir.path()).unwrap();
+        crate::seed::seed(&crate::store::over(&conn), &now, dir.path()).unwrap();
         (conn, now, dir)
     }
 

@@ -25,7 +25,6 @@ use crate::state::App;
 use crate::time::{Date, Ts};
 use jiff::ToSpan;
 use regex::Regex;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -695,7 +694,6 @@ impl Index {
 // ---------------------------------------------------------------------------
 
 pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
-    let c = ctx.conn;
     // The Jira issue behind "the backoff PR" (9a: → Jira · PLAT-1201).
     let plat = ctx.item(ItemSeed {
         source: "jira",
@@ -709,11 +707,7 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     ctx.link(plat, "Webhook reliability", "confirmed");
 
     let line = |date: Date, pos: i64, kind: &str, text: &str, state: &str, meta: Value| -> anyhow::Result<()> {
-        c.execute(
-            "INSERT INTO notes_lines (page_date, position, kind, text, target_json, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![date.to_string(), pos, kind, text, meta.to_string(), state],
-        )?;
-        Ok(())
+        Ok(ctx.sample().note_line(&date.to_string(), pos, kind, text, &meta.to_string(), state)?)
     };
     let none = json!({});
 

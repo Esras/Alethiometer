@@ -20,6 +20,7 @@ use super::outbox::{Outbox, OutboxViews};
 use super::people::{People, PeopleViews};
 use super::priorities::PriorityViews;
 use super::reflect::{ReflectViews, Reflections};
+use super::sample::SampleData;
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
 use super::splits::Splits;
@@ -64,6 +65,7 @@ pub trait UnitOfWork {
     fn outbox(&self) -> &dyn Outbox;
     fn people(&self) -> &dyn People;
     fn reflections(&self) -> &dyn Reflections;
+    fn sample(&self) -> &dyn SampleData;
     fn search_feedback(&self) -> &dyn SearchFeedback;
     fn sources(&self) -> &dyn Sources;
     fn splits(&self) -> &dyn Splits;

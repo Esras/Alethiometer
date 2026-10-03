@@ -14,7 +14,6 @@ use crate::api::Route;
 use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -158,33 +157,22 @@ fn reasons_json(reasons: &[(&str, &str)]) -> String {
 }
 
 fn prioritize(ctx: &Ctx, item_id: i64, quadrant: &str, score: f64, reasons: &str) {
-    ctx.conn
-        .execute(
-            "INSERT INTO priorities (item_id, quadrant, score, reasons_json) VALUES (?1, ?2, ?3, ?4)",
-            params![item_id, quadrant, score, reasons],
-        )
-        .expect("seed priority");
+    ctx.sample().priority(item_id, quadrant, score, reasons).expect("seed priority");
 }
 
 pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
-    let c = ctx.conn;
-
     // Now-ish #1 is today's 11:00 Q4 headcount meeting (already on the strip). The
     // decision it exists for is the item's title; the strip keeps the event title.
-    let q4: Option<i64> = c
-        .query_row(
-            "SELECT item_id FROM events WHERE title = 'Q4 headcount' AND start >= ?1 AND start < ?2",
-            params![ctx.clock.day_range(ctx.today).0, ctx.clock.day_range(ctx.today).1],
-            |r| r.get(0),
-        )
-        .ok();
-    if let Some(q4) = q4 {
-        c.execute(
-            "UPDATE items SET title = 'Platform vs Data reqs',
-                    body = 'Two open reqs for Q4, one budget line. Priya wants a Data eng hire for the ingest backlog; Jordan wants a second Platform SRE for on-call load. Lee brings attrition numbers. You make the call in the room.',
-                    url = 'https://calendar.google.com/calendar/r/day'
-              WHERE id = ?1",
-            [q4],
+    {
+        let q4 = ctx.meeting_id(0, "Q4 headcount");
+        ctx.sample().patch_item(
+            q4,
+            &crate::domain::sample::ItemPatch {
+                title: Some("Platform vs Data reqs"),
+                body: Some("Two open reqs for Q4, one budget line. Priya wants a Data eng hire for the ingest backlog; Jordan wants a second Platform SRE for on-call load. Lee brings attrition numbers. You make the call in the room."),
+                url: Some("https://calendar.google.com/calendar/r/day"),
+                ..Default::default()
+            },
         )?;
         let reasons = serde_json::to_string(&[
             Reason { label: String::new(), weight: "red".into(), live: Some("meeting".into()) },
@@ -382,7 +370,7 @@ mod tests {
     fn setup() -> (Connection, Date, tempfile::TempDir) {
         let conn = crate::db::open_in_memory().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        crate::seed::seed(&conn, &at(jiff::civil::date(2026, 9, 24), "10:52"), dir.path()).unwrap();
+        crate::seed::seed(&crate::store::over(&conn), &at(jiff::civil::date(2026, 9, 24), "10:52"), dir.path()).unwrap();
         (conn, jiff::civil::date(2026, 9, 24), dir)
     }
 

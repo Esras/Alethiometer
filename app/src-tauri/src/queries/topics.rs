@@ -12,7 +12,6 @@ use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
 use crate::sync::connectors::obsidian::save;
-use rusqlite::params;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -461,7 +460,7 @@ fn is_names(s: &str) -> bool {
 }
 
 pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
-    let c = ctx.conn;
+    let sample = ctx.sample();
     let dd = "Datadog renewal";
     let counter_due = ctx.today + 2.days();
     let pills = serde_json::json!([
@@ -469,26 +468,23 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
         { "label": format!("counter due {}", counter_due.strftime("%a")), "weight": "yellow" },
         { "label": "prep today", "weight": "green" },
     ]);
-    c.execute("UPDATE topics SET score = 5.8, pills_json = ?1 WHERE id = ?2", params![pills.to_string(), ctx.topic(dd)])?;
+    sample.topic_score(ctx.topic(dd), 5.8, &pills.to_string())?;
     for p in ["Kim", "Ravi", "Ana"] {
-        c.execute("INSERT INTO topic_people VALUES (?1, ?2)", params![ctx.topic(dd), ctx.person(p)])?;
+        sample.topic_person(ctx.topic(dd), ctx.person(p))?;
     }
-    c.execute("INSERT INTO topic_repos VALUES (?1, 'platform/observability-config')", [ctx.topic(dd)])?;
+    sample.topic_repo(ctx.topic(dd), "platform/observability-config")?;
 
     // Today's prep meeting (already on the strip as "DD prep"): give it the long title.
-    c.execute(
-        "UPDATE items SET title = 'Prep with Kim before Thursday', summary = 'agree walk-away number'
-          WHERE id = (SELECT item_id FROM events WHERE title = 'DD prep')",
-        [],
-    )?;
+    let patch = |id: i64, title: Option<&str>, summary: &str| {
+        sample.patch_item(id, &crate::domain::sample::ItemPatch { title, summary: Some(summary), ..Default::default() })
+    };
+    patch(ctx.meeting_id(0, "DD prep"), Some("Prep with Kim before Thursday"), "agree walk-away number")?;
 
     let link = |id: i64| ctx.link(id, dd, "confirmed");
     link(ctx.meeting(3, "14:00", "14:45", "Final terms call", "work", "Ravi, Kim", false));
-    link(ctx.meeting(-4, "15:00", "15:45", "Negotiation call", "work", "Ravi, Kim", false));
-    c.execute(
-        "UPDATE items SET summary = 'they offered 12% off for 3 years' WHERE title = 'Negotiation call'",
-        [],
-    )?;
+    let negotiation = ctx.meeting(-4, "15:00", "15:45", "Negotiation call", "work", "Ravi, Kim", false);
+    link(negotiation);
+    patch(negotiation, None, "they offered 12% off for 3 years")?;
     link(ctx.meeting(-16, "10:00", "10:30", "Internal usage review", "work", "Ana, Kim", false));
     link(ctx.meeting(-25, "11:00", "11:30", "Kickoff", "work", "Ravi", false));
 
