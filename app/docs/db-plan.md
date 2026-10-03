@@ -50,11 +50,16 @@ store/          the only module with SQL (a test fails on SQL anywhere else)
   people.rs     SqlPeople<'t> { tx }: impl People (get, update(&Person), …)
   views.rs      read models for screens: IncomingRow, TopicSummary, DayStripBlock…
 triage/, sync/, ai/, …   application logic: models and ports only
-api.rs          each command opens a read or a unit of work and calls one service
+api.rs          the middleware: opens a read or a unit of work per command, calls one service, commits or rolls back
 ```
 
 - **Repositories take and return models.** `uow.people().update(&person)`, `uow.links().confirm(item, topic)`. SQL, row mapping and the storage format stay behind the port, so a backend can be swapped. People is a real case: a person is an Obsidian note mirrored into SQLite, and `People::update` writes both.
-- **The unit of work owns the transaction.** `Db::write(|uow| …)` is `BEGIN IMMEDIATE`, with commit on Ok and rollback on Err. Every repository it hands out is bound to that transaction, so a multi-step action is atomic by construction. Repositories are not process-wide singletons: one shared transaction is what makes an action atomic, and the ~400 tests each run their own in-memory `App` in parallel. `Db` is the one instance per `App`.
+- **A unit of work per request, opened and closed by the edge, never by the application.**
+  - `api.rs` is the middleware: each command runs its service inside `Db::write(|uow| …)` (`BEGIN IMMEDIATE`; commit if the service returns Ok, roll back on an error or a panic).
+  - The other entry points are requests too, and open theirs the same way: each sync batch apply, each outbox send, each agent flush.
+  - Services receive `&dyn UnitOfWork`, an object whose only methods return repositories. They never see `Db`, a connection or SQL.
+  - Repositories never commit. A change within one aggregate is one repository method (a person and their accounts). A business action across aggregates (Confirm: link, item, outbox, held todo, todo) is one service, in one request, so it commits whole or not at all.
+  - `Db` is the one instance per `App`. Repositories aren't process singletons: they're bound to the request's transaction, and the ~400 tests each run their own in-memory `App` in parallel.
 - **`Db::read(|r| …)`** runs on a reader connection inside `BEGIN DEFERRED` (one consistent snapshot) and never waits on the writer (WAL).
 - **Rules for writing models back:**
   - Get and update in the same unit of work; never hold a model across transactions and write it back whole.
