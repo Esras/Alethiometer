@@ -166,6 +166,10 @@ impl Connector for Slack {
         poll::poll(ctx, &Config::from_json(&ctx.source.config))
     }
 
+    fn poll_streams(&self, ctx: &Ctx, streams: &mut crate::sync::Streams) -> anyhow::Result<Batch> {
+        poll::poll_with(ctx, &Config::from_json(&ctx.source.config), Some(streams))
+    }
+
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         send(ctx, &Config::from_json(&ctx.source.config), op, payload)
     }

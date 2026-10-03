@@ -34,6 +34,7 @@ const MIGRATIONS: &[Step] = &[
     Rust(super::utc_migration::run),
     Sql(include_str!("../../migrations/0022_utc_defaults.sql")),
     Rust(super::message_keys::run),
+    Sql(include_str!("../../migrations/0024_sync_streams.sql")),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.

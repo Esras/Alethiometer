@@ -68,12 +68,28 @@ impl Ctx<'_> {
     }
 }
 
-pub use crate::domain::ingest::{Batch, Busy, EventFields, Handle, ItemUpsert, Message, Profile};
+pub use crate::domain::ingest::{Batch, Busy, EventFields, Handle, ItemUpsert, Message, Profile, StreamOutcome};
+
+/// What a connector with many streams (Slack's conversations and threads)
+/// gets for a poll beyond `Ctx`.
+pub struct Streams<'a> {
+    /// Failures in a row per stream, from earlier polls.
+    pub failures: std::collections::BTreeMap<String, i64>,
+    /// Write what's been read so far (with the cursor as it stands) in its own
+    /// unit of work, so a later failure or a quit doesn't lose it.
+    pub commit: &'a mut dyn FnMut(Batch) -> anyhow::Result<()>,
+}
 
 /// A connector for one source kind.
 pub trait Connector: Send + Sync {
     /// Fetch changes since `ctx.source.cursor`.
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch>;
+
+    /// `poll`, committing stream by stream as it goes. The returned batch is
+    /// what's left to write.
+    fn poll_streams(&self, ctx: &Ctx, _streams: &mut Streams) -> anyhow::Result<Batch> {
+        self.poll(ctx)
+    }
 
     /// Perform one outbox write. Return a receipt only once the remote side has
     /// confirmed it; any error leaves the row failed and visible.
@@ -203,6 +219,9 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
     if let Some(busy) = &batch.busy {
         ingest.replace_busy(source.id, busy)?;
     }
+    for s in &batch.streams {
+        ingest.stream_outcome(source.id, &s.key, s.error.as_deref())?;
+    }
     ingest.finish(source.id, batch.cursor.as_deref())?;
     Ok(new_signal)
 }
@@ -248,7 +267,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let lock = worker::poll_lock(app, source_id);
     let _polling = lock.lock().unwrap_or_else(|e| e.into_inner());
     let _running = Running::start(source_id);
-    let mut source = app.store().read(|r| source(r, source_id))?;
+    let (mut source, failing) = app.store().read(|r| Ok((source(r, source_id)?, r.sources().failing_streams(source_id)?)))?;
     if source.kind == "slack" {
         source.cursor = app.store().read(|r| connectors::slack::close_triaged(r, &source))?;
     }
@@ -264,7 +283,15 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
     let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
-    let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| {
+    // Streams read so far, written as the poll goes.
+    let mut committed = 0;
+    let mut commit = |b: Batch| -> anyhow::Result<()> {
+        committed += app.store().write(|uow| apply(uow, &source, &b, ctx.now)).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(())
+    };
+    let mut streams = Streams { failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(), commit: &mut commit };
+    let polled = connector.poll_streams(&ctx, &mut streams);
+    let result = polled.map_err(|e| msg(e.to_string())).and_then(|batch| {
         let n = app.store().write(|uow| {
             let n = apply(uow, &source, &batch, ctx.now)?;
             // Follow-ups in the same unit of work (topic links, closing vanished tasks).
@@ -286,6 +313,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
         }
         Ok(n)
     });
+    let result = result.map(|n| n + committed);
     if let Err(e) = &result {
         app.store().write(|uow| uow.sources().set_error(source_id, &e.to_string()))?;
     }
@@ -404,6 +432,8 @@ pub struct SourceStatus {
     pub syncing: bool,
     /// Slack only: whether the live socket is connected (else it polls).
     pub live: Option<bool>,
+    /// Streams (Slack conversations, threads) whose last read failed.
+    pub failing: Vec<crate::domain::sources::FailingStream>,
 }
 
 pub fn route(name: &str) -> Option<crate::api::Route> {
@@ -415,7 +445,9 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
                 .all()?
                 .into_iter()
                 .filter(|s| s.kind != "scion" && s.kind != "agents")
-                .map(|s| SourceStatus {
+                .map(|s| -> Result<SourceStatus> {
+                    Ok(SourceStatus {
+                    failing: r.sources().failing_streams(s.id)?,
                     syncing: is_running(s.id),
                     live: if s.kind == "slack" { connectors::slack::socket::connected(s.id) } else { None },
                     id: s.id,
@@ -424,8 +456,9 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
                     name: s.name,
                     last_sync_at: s.last_sync_at,
                     last_error: s.last_error,
+                    })
                 })
-                .collect();
+                .collect::<Result<_>>()?;
             Ok(serde_json::json!(rows))
         })),
         _ => None,
@@ -591,6 +624,21 @@ mod tests {
         let rows: Vec<(String, bool)> =
             conn.prepare("SELECT ext_key, read FROM item_messages").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
         assert_eq!(rows, vec![("jira:10001".to_owned(), true)]);
+    }
+
+    #[test]
+    fn a_failing_stream_counts_its_failures_until_it_reads_again() {
+        let (conn, src) = setup("work");
+        let now = crate::time::t("2026-09-28T10:52:00");
+        let outcome = |error: Option<&str>| Batch { streams: vec![StreamOutcome { key: "C1".into(), error: error.map(str::to_owned) }], ..Default::default() };
+        let failing = || Reads::sources(&crate::store::over(&conn)).failing_streams(src.id).unwrap();
+        apply_in(&conn, &src, &outcome(Some("not_in_channel")), now).unwrap();
+        apply_in(&conn, &src, &outcome(Some("not_in_channel")), now).unwrap();
+        assert_eq!(failing(), vec![crate::domain::sources::FailingStream { stream: "C1".into(), error: "not_in_channel".into(), failures: 2 }]);
+        apply_in(&conn, &src, &outcome(None), now).unwrap();
+        assert!(failing().is_empty());
+        let synced: Option<String> = conn.query_row("SELECT synced_at FROM sync_streams", [], |r| r.get(0)).unwrap();
+        assert!(synced.is_some());
     }
 
     #[test]

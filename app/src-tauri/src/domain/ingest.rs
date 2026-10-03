@@ -25,6 +25,15 @@ pub struct Batch {
     /// What the source said about the accounts it saw (Slack profiles):
     /// stored in `account_profiles`, newest wins.
     pub profiles: Vec<Profile>,
+    /// How each stream (a Slack conversation or thread) went this poll; a
+    /// failed one is skipped, recorded, and retried by the next poll.
+    pub streams: Vec<StreamOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamOutcome {
+    pub key: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -143,6 +152,8 @@ pub trait Ingest {
     fn collapse_series(&self, source_id: i64, series: &str, now: Ts) -> Result<()>;
     /// Replace a personal calendar's busy blocks, keeping buffers set on them (by start).
     fn replace_busy(&self, source_id: i64, busy: &[Busy]) -> Result<()>;
+    /// A stream was read (`error` None) or failed: its row in `sync_streams`.
+    fn stream_outcome(&self, source_id: i64, stream: &str, error: Option<&str>) -> Result<()>;
     /// The sync went through: its cursor (if any), the time, no error.
     fn finish(&self, source_id: i64, cursor: Option<&str>) -> Result<()>;
 }

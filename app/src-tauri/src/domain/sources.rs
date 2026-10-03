@@ -26,6 +26,17 @@ pub trait SourceViews {
     fn find(&self, kind: &str, name: &str) -> Result<Option<i64>>;
     /// Per Slack channel of a source: the latest message since `since` and how many.
     fn channel_activity(&self, source_id: i64, since: crate::time::Ts) -> Result<Vec<(String, crate::time::Ts, i64)>>;
+    /// A source's streams that failed last time they were read.
+    fn failing_streams(&self, source_id: i64) -> Result<Vec<FailingStream>>;
+}
+
+/// A stream whose last read failed (`sync_streams`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FailingStream {
+    pub stream: String,
+    pub error: String,
+    /// Failures in a row.
+    pub failures: i64,
 }
 
 pub trait Sources {

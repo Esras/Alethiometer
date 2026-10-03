@@ -46,11 +46,11 @@
 //!
 //! The cursor (`State`) holds timestamps and titles, never message text.
 
-use super::api::{ts_after, ts_secs, Client};
+use super::api::{ts_after, ts_secs, ApiError, Client};
 use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
 use crate::clock::Clock;
-use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile};
+use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile, StreamOutcome, Streams};
 use crate::time::Ts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -63,6 +63,9 @@ const CONTEXT_MSGS: usize = 3;
 /// Pages of 200 read per conversation per poll.
 const HISTORY_PAGES: usize = 10;
 const REPLIES_PAGES: usize = 5;
+/// A conversation or thread Slack says isn't there this many polls in a row
+/// is forgotten (its items stay as they are).
+const DROP_AFTER: i64 = 3;
 /// Live mode: how often open streams are re-read, in case an event was lost.
 const READ_CHECK_SECS: f64 = 120.0;
 /// Without the socket, threads active within a day are checked every poll,
@@ -346,7 +349,7 @@ impl Marker {
     }
 }
 
-pub struct Poller<'a> {
+pub struct Poller<'a, 'r, 's> {
     client: Client<'a>,
     cfg: &'a Config,
     state: State,
@@ -362,9 +365,21 @@ pub struct Poller<'a> {
     items: Vec<ItemUpsert>,
     seen: Vec<String>,
     profiles: Vec<Profile>,
+    /// How each stream went; a stream is recorded once per poll.
+    outcomes: Vec<StreamOutcome>,
+    recorded: BTreeSet<String>,
+    /// Failures in a row per stream before this poll.
+    failures: BTreeMap<String, i64>,
+    /// Writes what's been read so far (`Streams::commit`).
+    streams: Option<&'r mut Streams<'s>>,
 }
 
 pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
+    poll_with(ctx, cfg, None)
+}
+
+/// A poll that commits stream by stream when given `streams`.
+pub fn poll_with<'r, 's>(ctx: &Ctx, cfg: &Config, streams: Option<&'r mut Streams<'s>>) -> anyhow::Result<Batch> {
     let token = ctx.require_secret(&cfg.user_token_secret)?;
     let mut client = Client::new(ctx.http, token);
     client.sleep = cfg.sleep;
@@ -385,14 +400,69 @@ pub fn poll(ctx: &Ctx, cfg: &Config) -> anyhow::Result<Batch> {
         items: vec![],
         seen: vec![],
         profiles: vec![],
+        outcomes: vec![],
+        recorded: BTreeSet::new(),
+        failures: streams.as_ref().map(|s| s.failures.clone()).unwrap_or_default(),
+        streams,
     };
     let result = p.run();
     socket::finish(ctx.source.id, &plan, result.is_ok());
     result?;
-    Ok(Batch { items: p.items, seen: p.seen, profiles: p.profiles, cursor: Some(serde_json::to_string(&p.state)?), ..Default::default() })
+    p.take_batch()
 }
 
-impl Poller<'_> {
+impl Poller<'_, '_, '_> {
+    /// What's been read so far, with the cursor as it stands.
+    fn take_batch(&mut self) -> anyhow::Result<Batch> {
+        Ok(Batch {
+            items: std::mem::take(&mut self.items),
+            seen: std::mem::take(&mut self.seen),
+            profiles: std::mem::take(&mut self.profiles),
+            streams: std::mem::take(&mut self.outcomes),
+            cursor: Some(serde_json::to_string(&self.state)?),
+            ..Default::default()
+        })
+    }
+
+    /// Read one stream. A Slack error about this stream alone (not found,
+    /// not in channel, a missing scope) is recorded and the poll goes on;
+    /// one about the token or account, or the network, ends the poll. What
+    /// the stream produced is committed straight away.
+    fn stream<T>(&mut self, key: &str, f: impl FnOnce(&mut Self) -> anyhow::Result<T>) -> anyhow::Result<Option<T>> {
+        let (value, error) = match f(self) {
+            Ok(v) => (Some(v), None),
+            Err(e) => match e.downcast_ref::<ApiError>() {
+                Some(api) if !api.is_fatal() => {
+                    if api.is_not_found() && self.failures.get(key).copied().unwrap_or(0) + 1 >= DROP_AFTER {
+                        self.state.threads.remove(key);
+                        self.state.convs.remove(key);
+                        self.state.open.remove(key);
+                    }
+                    (None, Some(e.to_string()))
+                }
+                _ => return Err(e),
+            },
+        };
+        if self.recorded.insert(key.to_owned()) || error.is_some() {
+            self.outcomes.retain(|o| o.key != key);
+            self.outcomes.push(StreamOutcome { key: key.to_owned(), error });
+        }
+        if !self.items.is_empty() {
+            if let Some(streams) = self.streams.as_mut() {
+                let b = Batch {
+                    items: std::mem::take(&mut self.items),
+                    seen: std::mem::take(&mut self.seen),
+                    profiles: std::mem::take(&mut self.profiles),
+                    streams: std::mem::take(&mut self.outcomes),
+                    cursor: Some(serde_json::to_string(&self.state)?),
+                    ..Default::default()
+                };
+                (streams.commit)(b)?;
+            }
+        }
+        Ok(value)
+    }
+
     fn run(&mut self) -> anyhow::Result<()> {
         if self.state.me.is_empty() || self.state.team_url.is_empty() || self.state.team_id.is_empty() {
             let v = self.client.get("auth.test", &[])?;
@@ -439,13 +509,13 @@ impl Poller<'_> {
             threads.extend(t);
         }
         for c in convs {
-            self.check_conv(&c)?;
+            self.stream(&c, |p| p.check_conv(&c))?;
         }
         for (c, t) in threads {
-            self.check_thread(&c, &t)?;
+            self.stream(&format!("{c}/{t}"), |p| p.check_thread(&c, &t))?;
         }
         for (c, ts) in mentions {
-            self.fetch_mention(&c, &ts)?;
+            self.stream(&format!("{c}/mention/{ts}"), |p| p.fetch_mention(&c, &ts))?;
         }
         Ok(())
     }
@@ -475,11 +545,11 @@ impl Poller<'_> {
             }
         }
         for c in convs {
-            self.check_conv(&c)?;
+            self.stream(&c, |p| p.check_conv(&c))?;
         }
         if self.cfg.mentions {
-            threads.extend(self.search_mentions()?);
-            threads.extend(self.search_my_replies()?);
+            threads.extend(self.stream("search:mentions", |p| p.search_mentions())?.unwrap_or_default());
+            threads.extend(self.stream("search:replies", |p| p.search_my_replies())?.unwrap_or_default());
         }
         // Tracked threads: all of them on a socket catch-up (it's rare);
         // without the socket, busy ones every poll and quiet ones hourly.
@@ -493,10 +563,10 @@ impl Poller<'_> {
             .collect();
         threads.extend(tracked);
         for (c, t) in threads {
-            self.check_thread(&c, &t)?;
+            self.stream(&format!("{c}/{t}"), |p| p.check_thread(&c, &t))?;
         }
         for (c, ts) in mentions {
-            self.fetch_mention(&c, &ts)?;
+            self.stream(&format!("{c}/mention/{ts}"), |p| p.fetch_mention(&c, &ts))?;
         }
         self.state.read_checked = self.now;
         self.state.caught_up = self.now;
@@ -659,7 +729,7 @@ impl Poller<'_> {
         let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
         self.emit(&conv, None, id, &unread, prev_seen.as_deref(), None)?;
         for t in threads {
-            self.check_thread(id, &t)?;
+            self.stream(&format!("{id}/{t}"), |p| p.check_thread(id, &t))?;
         }
         Ok(())
     }
@@ -674,21 +744,8 @@ impl Poller<'_> {
         let Some(conv) = self.info(channel)? else { return Ok(()) };
         // No `oldest`: the parent (first in the answer) carries the thread's
         // read marker and title, and threads are rarely longer than a page.
-        let raw = match self.client.get_paged(
-            "conversations.replies",
-            &[("channel", channel), ("ts", thread_ts), ("limit", "200")],
-            "messages",
-            REPLIES_PAGES,
-        ) {
-            Ok(r) => r,
-            // Parent deleted: stop tracking, keep the item as it was.
-            Err(e) if e.to_string().ends_with(": thread_not_found") => {
-                self.state.threads.remove(&key);
-                self.state.open.remove(&key);
-                return Ok(());
-            }
-            Err(e) => return Err(e),
-        };
+        // Parent deleted: `stream` stops tracking it after a few tries; the item stays.
+        let raw = self.client.get_paged("conversations.replies", &[("channel", channel), ("ts", thread_ts), ("limit", "200")], "messages", REPLIES_PAGES)?;
         let parent = raw.iter().find(|m| m.get("ts").and_then(Value::as_str) == Some(thread_ts));
         let mut msgs: Vec<Msg> = raw.iter().filter_map(Msg::parse).filter(|m| m.ts != thread_ts).collect();
         msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
@@ -886,7 +943,8 @@ impl Poller<'_> {
             if let Some(tts) = hit.thread_ts.filter(|t| *t != hit.ts) {
                 threads.push((hit.channel, tts));
             } else if hit.dm || self.state.follow.contains(&hit.channel) {
-                self.check_conv(&hit.channel)?;
+                let c = hit.channel.clone();
+                self.stream(&c, |p| p.check_conv(&c))?;
             } else {
                 let msg = Msg { ts: hit.ts, user: Some(hit.user).filter(|u| !u.is_empty()), bot_name: Some(hit.username), bot_id: None, text: hit.text, thread_ts: None, reply_count: 0, latest_reply: None };
                 self.mention_item(&hit.channel, hit.channel_name, &msg, hit.permalink)?;

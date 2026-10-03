@@ -47,6 +47,14 @@ impl SourceViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    fn failing_streams(&self, source_id: i64) -> Result<Vec<crate::domain::sources::FailingStream>> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT stream, error, failures FROM sync_streams WHERE source_id = ?1 AND error IS NOT NULL ORDER BY stream")?
+            .query_map([source_id], |r| Ok(crate::domain::sources::FailingStream { stream: r.get(0)?, error: r.get(1)?, failures: r.get(2)? }))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn all(&self) -> Result<Vec<SourceRow>> {
         Ok(self.conn().prepare_cached(&format!("SELECT {COLS} FROM sources ORDER BY kind, name"))?.query_map([], row)?.collect::<rusqlite::Result<_>>()?)
     }

@@ -217,6 +217,20 @@ impl Ingest for Sql<'_> {
         Ok(())
     }
 
+    fn stream_outcome(&self, source_id: i64, stream: &str, error: Option<&str>) -> Result<()> {
+        self.conn().execute(
+            &format!(
+                "INSERT INTO sync_streams (source_id, stream, error, failures, synced_at)
+                 VALUES (?1, ?2, ?3, ?3 IS NOT NULL, CASE WHEN ?3 IS NULL THEN {SQL_NOW} END)
+                 ON CONFLICT (source_id, stream) DO UPDATE SET error = ?3,
+                    failures = CASE WHEN ?3 IS NULL THEN 0 ELSE failures + 1 END,
+                    synced_at = CASE WHEN ?3 IS NULL THEN {SQL_NOW} ELSE synced_at END"
+            ),
+            params![source_id, stream, error],
+        )?;
+        Ok(())
+    }
+
     fn finish(&self, source_id: i64, cursor: Option<&str>) -> Result<()> {
         self.conn().execute(
             &format!("UPDATE sources SET cursor = coalesce(?2, cursor), last_sync_at = {SQL_NOW}, last_error = NULL WHERE id = ?1"),

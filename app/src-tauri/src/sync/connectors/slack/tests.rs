@@ -4,7 +4,7 @@ use super::socket::{self, Flag, Mode};
 use super::*;
 use crate::settings::SourceConfig;
 use crate::sync::http::{FakeHttp, Http, Response};
-use crate::sync::{apply_now, register_sources, Source};
+use crate::sync::{apply_now, register_sources, Source, StreamOutcome};
 use crate::time::Ts;
 use std::cell::Cell;
 use std::sync::Mutex;
@@ -739,4 +739,62 @@ fn web_permalinks_open_in_the_desktop_app() {
     );
     assert_eq!(link("https://other.slack.com/archives/C0INC/p1789960000000100"), None, "another workspace");
     assert_eq!(link("https://github.com/acme/x/pull/1"), None);
+}
+
+fn run_streams(http: &dyn Http, src: &Source, failures: &[(&str, i64)], committed: &mut Vec<Batch>) -> anyhow::Result<Batch> {
+    let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
+    let ctx = Ctx { source: src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
+    let mut cfg = Config::from_json(&src.config);
+    cfg.sleep = fake_sleep;
+    let mut commit = |b: Batch| -> anyhow::Result<()> {
+        committed.push(b);
+        Ok(())
+    };
+    let mut streams = crate::sync::Streams { failures: failures.iter().map(|(k, n)| (k.to_string(), *n)).collect(), commit: &mut commit };
+    poll::poll_with(&ctx, &cfg, Some(&mut streams))
+}
+
+#[test]
+fn one_failing_conversation_doesnt_stop_the_others() {
+    let http = workspace(HISTORY_INC_1);
+    http.on("GET", "conversations.history?channel=C0INC", 200, r#"{"ok": false, "error": "not_in_channel"}"#);
+    let mut committed = vec![];
+    let last = run_streams(&http, &source(None), &[], &mut committed).unwrap();
+    let all: Vec<&crate::sync::ItemUpsert> = committed.iter().chain(std::iter::once(&last)).flat_map(|b| &b.items).collect();
+    assert!(all.iter().any(|i| i.external_id == "D0PRIYA/1789997000.000800"), "the DM still came in");
+    assert!(!all.iter().any(|i| i.external_id == "C0INC/1789960000.000100"));
+    let outcomes: Vec<&StreamOutcome> = committed.iter().chain(std::iter::once(&last)).flat_map(|b| &b.streams).collect();
+    let inc = outcomes.iter().find(|o| o.key == "C0INC").unwrap();
+    assert_eq!(inc.error.as_deref(), Some("Slack conversations.history: not_in_channel"));
+    assert!(outcomes.iter().any(|o| o.key == "D0PRIYA" && o.error.is_none()));
+}
+
+#[test]
+fn a_bad_token_or_the_network_ends_the_poll_but_keeps_what_was_read() {
+    // The followed channel is read first and committed; then the DM fails at the network.
+    let http = workspace(HISTORY_INC_1);
+    http.on("GET", "conversations.history?channel=D0PRIYA", 503, "upstream down");
+    let mut committed = vec![];
+    assert!(run_streams(&http, &source(None), &[], &mut committed).is_err());
+    let kept: Vec<&str> = committed.iter().flat_map(|b| &b.items).map(|i| i.external_id.as_str()).collect();
+    assert!(kept.contains(&"C0INC/1789960000.000100"), "{kept:?}");
+    assert!(committed.iter().all(|b| b.cursor.is_some()), "each commit carries the cursor so far");
+
+    let http = workspace(HISTORY_INC_1);
+    http.on("GET", "conversations.history?channel=C0INC", 200, r#"{"ok": false, "error": "invalid_auth"}"#);
+    assert!(run_streams(&http, &source(None), &[], &mut vec![]).is_err(), "every call would fail alike");
+}
+
+#[test]
+fn a_missing_thread_is_dropped_after_three_tries() {
+    let first = run_poll(&workspace(HISTORY_INC_1), &source(None)).unwrap();
+    let key = "C0RANDOM/1789000000.000100";
+    assert!(State::parse(first.cursor.as_deref()).threads.contains_key(key));
+    let http = workspace(HISTORY_INC_1);
+    http.on("GET", "conversations.replies?channel=C0RANDOM&ts=1789000000.000100", 200, r#"{"ok": false, "error": "thread_not_found"}"#);
+    let b = run_streams(&http, &source(first.cursor.clone()), &[], &mut vec![]).unwrap();
+    assert!(State::parse(b.cursor.as_deref()).threads.contains_key(key), "one miss: still tracked");
+    assert_eq!(b.streams.iter().find(|o| o.key == key).and_then(|o| o.error.as_deref()), Some("Slack conversations.replies: thread_not_found"));
+    let b = run_streams(&http, &source(first.cursor.clone()), &[(key, 2)], &mut vec![]).unwrap();
+    assert!(!State::parse(b.cursor.as_deref()).threads.contains_key(key), "the third miss in a row: forgotten");
 }

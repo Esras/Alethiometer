@@ -16,6 +16,42 @@ const MAX_RETRIES: u32 = 3;
 /// fails and the next one tries again.
 const MAX_WAIT_SECS: u64 = 120;
 
+/// Slack answered `ok: false`. Shown as "Slack <method>: <code>".
+#[derive(Debug)]
+pub struct ApiError {
+    pub method: String,
+    pub code: String,
+    /// The scope Slack says is missing, if any.
+    pub needed: Option<String>,
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Slack {}: {}", self.method, self.code)?;
+        if let Some(n) = &self.needed {
+            write!(f, " (needs scope {n})")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+impl ApiError {
+    /// The token or account is the problem, so every call will fail alike.
+    pub fn is_fatal(&self) -> bool {
+        matches!(
+            self.code.as_str(),
+            "invalid_auth" | "not_authed" | "account_inactive" | "token_revoked" | "token_expired" | "no_permission" | "org_login_required" | "team_access_not_granted"
+        )
+    }
+
+    /// The conversation or thread is gone (or never was visible to you).
+    pub fn is_not_found(&self) -> bool {
+        matches!(self.code.as_str(), "channel_not_found" | "thread_not_found")
+    }
+}
+
 pub struct Client<'a> {
     pub http: &'a dyn Http,
     pub token: String,
@@ -61,9 +97,12 @@ impl<'a> Client<'a> {
             // Never echo the URL or headers: they may carry the token.
             let v: Value = resp.ok().map_err(|e| anyhow::anyhow!("Slack {method}: {e}"))?.json()?;
             if v.get("ok").and_then(Value::as_bool) != Some(true) {
-                let err = v.get("error").and_then(Value::as_str).unwrap_or("unknown error");
-                let needed = v.get("needed").and_then(Value::as_str).map(|n| format!(" (needs scope {n})")).unwrap_or_default();
-                anyhow::bail!("Slack {method}: {err}{needed}");
+                return Err(ApiError {
+                    method: method.to_owned(),
+                    code: v.get("error").and_then(Value::as_str).unwrap_or("unknown error").to_owned(),
+                    needed: v.get("needed").and_then(Value::as_str).map(str::to_owned),
+                }
+                .into());
             }
             return Ok(v);
         }
