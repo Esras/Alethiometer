@@ -16,7 +16,11 @@
 //! on [`Sql`], a connection in the request's transaction.
 
 pub mod daystrip;
+pub mod incoming;
+pub mod people;
 pub mod schema;
+pub mod sources;
+pub mod todos;
 pub mod utc_migration;
 
 use crate::domain::ports::{Reads, UnitOfWork};
@@ -37,6 +41,12 @@ pub struct Db {
     writer: Mutex<Connection>,
     /// None for an in-memory database (tests): reads go through the writer.
     readers: Option<r2d2::Pool<SqliteConnectionManager>>,
+}
+
+/// Ports over a connection code not moved yet already holds (`app.db()`), so
+/// it can call services that were. Goes with `Db::legacy`.
+pub fn over(conn: &Connection) -> Sql<'_> {
+    Sql(conn)
 }
 
 /// The connection in the request's transaction. Implements every port; what
@@ -165,7 +175,19 @@ impl std::ops::DerefMut for LegacyGuard<'_> {
 }
 
 impl Reads for Sql<'_> {
-    fn day_strip(&self) -> &dyn crate::domain::ports::DayStripViews {
+    fn day_strip(&self) -> &dyn crate::domain::daystrip::DayStripViews {
+        self
+    }
+    fn incoming(&self) -> &dyn crate::domain::incoming::IncomingViews {
+        self
+    }
+    fn people(&self) -> &dyn crate::domain::people::PeopleViews {
+        self
+    }
+    fn sources(&self) -> &dyn crate::domain::sources::SourceViews {
+        self
+    }
+    fn todos(&self) -> &dyn crate::domain::todos::TodoViews {
         self
     }
 }
@@ -174,7 +196,7 @@ impl UnitOfWork for Sql<'_> {
     fn reads(&self) -> &dyn Reads {
         self
     }
-    fn events(&self) -> &dyn crate::domain::ports::Events {
+    fn events(&self) -> &dyn crate::domain::daystrip::Events {
         self
     }
 }

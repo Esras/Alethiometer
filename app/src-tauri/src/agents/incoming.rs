@@ -520,7 +520,7 @@ mod tests {
         let conn = app.db();
         conn.execute("INSERT INTO sources (kind, tag, name, config_json, enabled) VALUES ('jira', 'work', 'Jira', '{}', 1)", []).unwrap();
         let jira = conn.last_insert_rowid();
-        conn.execute("INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (?1, 'ING-31', 'issue', 'Webhooks', '2026-10-03T09:00:00')", [jira]).unwrap();
+        conn.execute("INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (?1, 'ING-31', 'issue', 'Webhooks', '2026-10-03T09:00:00.000Z')", [jira]).unwrap();
         let item = conn.last_insert_rowid();
         conn.execute("INSERT INTO topics (name, category) VALUES ('Jira webhooks', 'work')", []).unwrap();
         let topic = conn.last_insert_rowid();
@@ -535,7 +535,7 @@ mod tests {
             .query_row("SELECT tl.topic_id, tl.state FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE i.external_id = 'req:scion:h:a:7'", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
         assert_eq!(linked, (topic, "suggested".into()));
-        let q = crate::queries::incoming::queue(&app.db(), &app.clock).unwrap();
+        let q = crate::queries::incoming::queue(&crate::store::over(&app.db()), &app.clock).unwrap();
         let t = q.topics.iter().find(|t| t.id == topic).unwrap();
         assert!(t.signals.iter().any(|s| s.source == "agents" && s.agent.as_ref().is_some_and(|a| a["reason"] == "needs approval")));
         assert_eq!(q.agents.len(), 1, "and under Agents waiting");

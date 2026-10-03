@@ -30,6 +30,7 @@ use super::arg_str;
 use crate::api::unknown;
 use crate::error::{msg, Result};
 use crate::settings::PeopleSettings;
+use crate::domain::ports::Reads;
 use crate::state::App;
 use crate::sync::connectors::obsidian::save::{disk_text, save_note, Saved};
 use crate::clock::Clock;
@@ -403,7 +404,7 @@ pub struct Resolver {
 
 /// Your own accounts: settings `people.me`, each Slack source's own user id, and
 /// each Jira source's email (the API token's owner).
-fn my_accounts(conn: &Connection, settings: &PeopleSettings) -> Result<HashSet<(String, String)>> {
+fn my_accounts(r: &dyn Reads, settings: &PeopleSettings) -> Result<HashSet<(String, String)>> {
     let mut me: HashSet<(String, String)> = settings
         .me
         .iter()
@@ -411,18 +412,15 @@ fn my_accounts(conn: &Connection, settings: &PeopleSettings) -> Result<HashSet<(
         .filter(|(k, v)| KINDS.contains(k) && !v.trim().is_empty())
         .map(|(k, v)| (k.to_string(), norm(k, v)))
         .collect();
-    let cursors: Vec<Option<String>> =
-        conn.prepare("SELECT cursor FROM sources WHERE kind = 'slack'")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    for c in cursors.into_iter().flatten() {
+    for c in r.sources().of_kind("slack")?.into_iter().filter_map(|s| s.cursor) {
         if let Some(u) = serde_json::from_str::<Value>(&c).ok().and_then(|v| v.get("me").and_then(Value::as_str).map(str::to_owned)) {
             if !u.is_empty() {
                 me.insert(("slack".into(), u));
             }
         }
     }
-    let jira: Vec<String> = conn.prepare("SELECT config_json FROM sources WHERE kind = 'jira'")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    for c in jira {
-        if let Some(e) = serde_json::from_str::<Value>(&c).ok().and_then(|v| v.get("email").and_then(Value::as_str).map(|e| norm("email", e))) {
+    for s in r.sources().of_kind("jira")? {
+        if let Some(e) = serde_json::from_str::<Value>(&s.config_json).ok().and_then(|v| v.get("email").and_then(Value::as_str).map(|e| norm("email", e))) {
             if !e.is_empty() {
                 me.insert(("email".into(), e));
             }
@@ -432,50 +430,40 @@ fn my_accounts(conn: &Connection, settings: &PeopleSettings) -> Result<HashSet<(
 }
 
 impl Resolver {
-    pub fn load(conn: &Connection, settings: &PeopleSettings) -> Result<Resolver> {
+    pub fn load(r: &dyn Reads, settings: &PeopleSettings) -> Result<Resolver> {
+        let dir = r.people().directory()?;
         let mut people: HashMap<i64, Person> = HashMap::new();
         let mut by_name: HashMap<String, i64> = HashMap::new();
-        let mut stmt = conn.prepare("SELECT id, display_name, note_path, role, color, aliases_json FROM people WHERE note_path IS NOT NULL ORDER BY note_path")?;
-        let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, Option<u8>>(4)?, r.get::<_, String>(5)?))
-        })?;
         let mut colors: HashMap<i64, Option<u8>> = HashMap::new();
-        for row in rows {
-            let (id, name, note_path, role, color, aliases) = row?;
-            let aliases: Vec<String> = serde_json::from_str(&aliases).unwrap_or_default();
-            for n in std::iter::once(&name).chain(&aliases) {
-                by_name.entry(n.to_lowercase()).or_insert(id);
+        for row in dir.people {
+            for n in std::iter::once(&row.name).chain(&row.aliases) {
+                by_name.entry(n.to_lowercase()).or_insert(row.id);
             }
-            colors.insert(id, color);
-            people.insert(id, Person { id, name, note_path, role, color: 0, kinds: vec![] });
+            colors.insert(row.id, row.color);
+            people.insert(row.id, Person { id: row.id, name: row.name, note_path: row.note_path, role: row.role, color: 0, kinds: vec![] });
         }
         let mut by_account = HashMap::new();
         let mut keys: HashMap<i64, (Option<String>, Option<String>)> = HashMap::new();
-        let mut stmt = conn.prepare("SELECT kind, account, person_id FROM person_accounts ORDER BY rowid")?;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))? {
-            let (kind, account, pid) = row?;
-            let Some(p) = people.get_mut(&pid) else { continue };
-            if !p.kinds.contains(&kind) {
-                p.kinds.push(kind.clone());
+        for a in dir.accounts {
+            let Some(p) = people.get_mut(&a.person_id) else { continue };
+            if !p.kinds.contains(&a.kind) {
+                p.kinds.push(a.kind.clone());
             }
-            let k = keys.entry(pid).or_default();
-            if kind == "email" && k.0.is_none() {
-                k.0 = Some(account.clone());
+            let k = keys.entry(a.person_id).or_default();
+            if a.kind == "email" && k.0.is_none() {
+                k.0 = Some(a.account.clone());
             } else if k.1.is_none() {
-                k.1 = Some(account.clone());
+                k.1 = Some(a.account.clone());
             }
-            by_account.insert((kind, account), pid);
+            by_account.insert((a.kind, a.account), a.person_id);
         }
         for p in people.values_mut() {
             p.kinds.sort_by_key(|k| KINDS.iter().position(|x| x == k));
             let key = keys.get(&p.id).and_then(|(e, a)| e.clone().or_else(|| a.clone())).unwrap_or_else(|| p.name.to_lowercase());
             p.color = colors.get(&p.id).copied().flatten().unwrap_or_else(|| hash_color(&key));
         }
-        let profiles = conn
-            .prepare("SELECT kind, account, real_name, email FROM account_profiles")?
-            .query_map([], |r| Ok(((r.get::<_, String>(0)?, r.get::<_, String>(1)?), (r.get(2)?, r.get(3)?))))?
-            .collect::<rusqlite::Result<HashMap<_, _>>>()?;
-        Ok(Resolver { by_account, profiles, by_name, people, me: my_accounts(conn, settings)?, my_color: settings.my_color })
+        let profiles = dir.profiles.into_iter().map(|p| ((p.kind, p.account), (p.real_name, p.email))).collect();
+        Ok(Resolver { by_account, profiles, by_name, people, me: my_accounts(r, settings)?, my_color: settings.my_color })
     }
 
     /// The email a source's profile gives for an account (Slack), if any.
@@ -547,7 +535,8 @@ impl Resolver {
 }
 
 pub fn resolver(app: &App) -> Result<Resolver> {
-    Resolver::load(&app.db(), &app.settings().people)
+    let settings = app.settings();
+    app.store().read(|r| Resolver::load(r, &settings.people))
 }
 
 // ------------------------------------------------------------------ new-person suggestions (17a)
@@ -581,44 +570,24 @@ fn bulk((kind, account): &(String, String)) -> bool {
 
 /// Unknown senders seen in at least `suggest_after` signals within `suggest_days`,
 /// not you and not snoozed, keyed by account.
-pub fn suggestions(conn: &Connection, r: &Resolver, settings: &PeopleSettings, now: Ts) -> Result<HashMap<(String, String), Suggestion>> {
+pub fn suggestions(reads: &dyn Reads, r: &Resolver, settings: &PeopleSettings, now: Ts) -> Result<HashMap<(String, String), Suggestion>> {
     let since = now - jiff::SignedDuration::from_hours(24 * settings.suggest_days);
-    let snoozed: HashSet<(String, String)> = conn
-        .prepare("SELECT kind, account FROM person_snoozes WHERE until > ?1")?
-        .query_map([now], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    let bots: HashSet<(String, String)> = conn
-        .prepare("SELECT kind, account FROM account_profiles WHERE is_bot = 1")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut stmt = conn.prepare(
-        "SELECT s.kind, m.author_id, m.author, coalesce(i.parent_id, i.id), m.at
-           FROM item_messages m JOIN items i ON i.id = m.item_id JOIN sources s ON s.id = i.source_id
-          WHERE m.author_id IS NOT NULL AND m.context = 0 AND m.at >= ?1 AND s.tag = 'work'
-         UNION ALL
-         SELECT s.kind, h.handle, p.display_name, coalesce(i.parent_id, i.id), i.occurred_at
-           FROM items i JOIN sources s ON s.id = i.source_id
-           JOIN person_handles h ON h.person_id = i.author_person_id AND h.source_kind = s.kind
-           JOIN people p ON p.id = i.author_person_id
-          WHERE i.occurred_at >= ?1 AND s.tag = 'work'",
-    )?;
+    let snoozed: HashSet<(String, String)> = reads.people().snoozed(now)?.into_iter().collect();
+    let bots: HashSet<(String, String)> = reads.people().bots()?.into_iter().collect();
     /// Per account: signal roots, latest name, its time, its source.
-    type Seen = (HashSet<i64>, String, String, String);
+    type Seen = (HashSet<i64>, String, Option<Ts>, String);
     let mut seen: HashMap<(String, String), Seen> = HashMap::new();
-    for row in stmt.query_map([since], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
-    })? {
-        let (source, handle, name, root, at) = row?;
-        let Some(acct) = account_of(&source, &handle) else { continue };
+    for a in reads.people().authors_since(since)? {
+        let Some(acct) = account_of(&a.source_kind, &a.handle) else { continue };
         if r.is_me(&acct.0, &acct.1) || r.is_known(&acct.0, &acct.1) || snoozed.contains(&acct) || bots.contains(&acct) || bulk(&acct) {
             continue;
         }
-        let e = seen.entry(acct).or_insert_with(|| (HashSet::new(), String::new(), String::new(), source.clone()));
-        e.0.insert(root);
-        if at >= e.2 {
-            e.1 = name;
-            e.2 = at;
-            e.3 = source;
+        let e = seen.entry(acct).or_insert_with(|| (HashSet::new(), String::new(), None, a.source_kind.clone()));
+        e.0.insert(a.root);
+        if e.2.is_none_or(|t| a.at >= t) {
+            e.1 = a.name;
+            e.2 = Some(a.at);
+            e.3 = a.source_kind;
         }
     }
     Ok(seen
@@ -778,7 +747,7 @@ pub fn for_topic(conn: &Connection, r: &Resolver, topic_id: i64, clock: &Clock, 
 /// each known person's note (gist), the notes that link to it, and which
 /// topics their signals were filed under, how often and how recently.
 pub fn agent_context(conn: &Connection, vault: &Path, topic_id: i64, clock: &Clock) -> Result<String> {
-    let r = Resolver::load(conn, &PeopleSettings::default())?;
+    let r = Resolver::load(&crate::store::over(conn), &PeopleSettings::default())?;
     let mut out = String::new();
     for p in for_topic(conn, &r, topic_id, clock, 9)?.into_iter().filter(|p| p.known) {
         let Some(person) = p.id.and_then(|id| r.person(id)) else { continue };
@@ -1084,7 +1053,7 @@ mod tests {
         write(v, "Kim", "---\ncolor: 212\nrole: Procurement\n---\n");
         assert_eq!(scan(&conn, v).unwrap(), 2);
         let s = PeopleSettings::default();
-        let r = Resolver::load(&conn, &s).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &s).unwrap();
 
         let j = r.who("slack", Some("U0JORDAN"), "jordan");
         assert!(j.known && !j.me);
@@ -1105,7 +1074,7 @@ mod tests {
         write(v, "Jordan Lee", "---\nslack: U0JORDAN2\n---\n");
         std::fs::remove_file(v.join("People/Kim.md")).unwrap();
         scan(&conn, v).unwrap();
-        let r = Resolver::load(&conn, &s).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &s).unwrap();
         assert_eq!(r.who("slack", Some("U0JORDAN2"), "x").person_id, Some(id));
         assert!(!r.who("slack", Some("U0JORDAN"), "x").known);
         assert!(!r.who("gcal", None, "Kim").known);
@@ -1120,13 +1089,13 @@ mod tests {
         write(dir.path(), "Marco Rossi", "---\nemail: [marco@work.com]\n---\n");
         scan(&conn, dir.path()).unwrap();
         let s = PeopleSettings { me: vec!["email:zach@work.com".into()], ..Default::default() };
-        let unknown = Resolver::load(&conn, &s).unwrap().who("slack", Some("U0MARCO"), "Marco R.");
+        let unknown = Resolver::load(&crate::store::over(&conn), &s).unwrap().who("slack", Some("U0MARCO"), "Marco R.");
         assert!(!unknown.known);
         assert_eq!(unknown.color, hash_color("U0MARCO"), "no profile yet: keyed by the user id");
         for (id, email) in [("U0MARCO", "marco@work.com"), ("U0NEW", "new.person@work.com"), ("U0ZACH", "zach@work.com")] {
             conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', ?1, 'X', ?2)", params![id, email]).unwrap();
         }
-        let r = Resolver::load(&conn, &s).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &s).unwrap();
         let marco = r.who("slack", Some("U0MARCO"), "Marco R.");
         assert!(marco.known, "matched through the profile email");
         assert_eq!(marco.color, hash_color("marco@work.com"));
@@ -1142,7 +1111,7 @@ mod tests {
         let conn = db();
         conn.execute("INSERT INTO sources (kind, tag, name, config_json) VALUES ('jira', 'work', 'Jira', '{\"email\": \"Zach@Work.com\"}')", []).unwrap();
         conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('jira', 'acc-me', 'Zach', 'zach@work.com')", []).unwrap();
-        let r = Resolver::load(&conn, &PeopleSettings::default()).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &PeopleSettings::default()).unwrap();
         assert!(r.who("jira", Some("acc-me"), "Zach").me);
         assert!(r.who("gmail", Some("zach@work.com"), "Zach").me, "the Jira email is yours everywhere");
         assert!(!r.who("jira", Some("acc-other"), "Kim").me);
@@ -1162,37 +1131,37 @@ mod tests {
         {
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (1, ?1, 'thread', 't', ?2)",
-                params![format!("x{n}"), format!("2026-09-{day}T09:00:00")],
+                params![format!("x{n}"), format!("2026-09-{day}T09:00:00.000Z")],
             )
             .unwrap();
             let item = conn.last_insert_rowid();
             for _ in 0..3 {
                 conn.execute(
                     "INSERT INTO item_messages (item_id, at, author, text, author_id) VALUES (?1, ?2, ?3, 'hi', ?4)",
-                    params![item, format!("2026-09-{day}T09:00:00"), who, id],
+                    params![item, format!("2026-09-{day}T09:00:00.000Z"), who, id],
                 )
                 .unwrap();
             }
         }
         let mut s = PeopleSettings { suggest_after: 2, ..Default::default() };
-        let r = Resolver::load(&conn, &s).unwrap();
-        let got = suggestions(&conn, &r, &s, now).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &s).unwrap();
+        let got = suggestions(&crate::store::over(&conn), &r, &s, now).unwrap();
         assert_eq!(got.len(), 1, "known people and you are never suggested");
         let m = &got[&("slack".to_string(), "U0MARCO".to_string())];
         assert_eq!((m.signals, m.name.as_str()), (2, "Marco R."), "the one from 10 days ago is out of the window");
         assert_eq!((m.real_name.as_deref(), m.email.as_deref()), (None, None));
         conn.execute("INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('slack', 'U0MARCO', 'Marco Rossi', 'marco@work.com')", []).unwrap();
-        let r2 = Resolver::load(&conn, &s).unwrap();
-        let m = &suggestions(&conn, &r2, &s, now).unwrap()[&("slack".to_string(), "U0MARCO".to_string())];
+        let r2 = Resolver::load(&crate::store::over(&conn), &s).unwrap();
+        let m = &suggestions(&crate::store::over(&conn), &r2, &s, now).unwrap()[&("slack".to_string(), "U0MARCO".to_string())];
         assert_eq!((m.real_name.as_deref(), m.email.as_deref(), m.color), (Some("Marco Rossi"), Some("marco@work.com"), hash_color("marco@work.com")));
         conn.execute("UPDATE account_profiles SET is_bot = 1 WHERE account = 'U0MARCO'", []).unwrap();
-        assert!(suggestions(&conn, &r2, &s, now).unwrap().is_empty(), "bots are never suggested");
+        assert!(suggestions(&crate::store::over(&conn), &r2, &s, now).unwrap().is_empty(), "bots are never suggested");
         s.suggest_after = 3;
-        assert!(suggestions(&conn, &r, &s, now).unwrap().is_empty());
+        assert!(suggestions(&crate::store::over(&conn), &r, &s, now).unwrap().is_empty());
         s.suggest_after = 2;
         snooze(&conn, "slack", "U0MARCO", now).unwrap();
-        assert!(suggestions(&conn, &r, &s, now).unwrap().is_empty(), "Not now hides it for 7 days");
-        assert_eq!(suggestions(&conn, &r, &s, now + jiff::SignedDuration::from_hours(24 * 8)).unwrap().len(), 0, "and the old signals age out meanwhile");
+        assert!(suggestions(&crate::store::over(&conn), &r, &s, now).unwrap().is_empty(), "Not now hides it for 7 days");
+        assert_eq!(suggestions(&crate::store::over(&conn), &r, &s, now + jiff::SignedDuration::from_hours(24 * 8)).unwrap().len(), 0, "and the old signals age out meanwhile");
     }
 
     #[test]
@@ -1204,7 +1173,7 @@ mod tests {
         write(dir.path(), "Dana Ruiz", "---\naliases: [Sammy]\n---\n");
         write(dir.path(), "Priya", "---\n---\n");
         scan(&conn, dir.path()).unwrap();
-        let r = Resolver::load(&conn, &PeopleSettings::default()).unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &PeopleSettings::default()).unwrap();
         let names: Vec<String> = search(&conn, &r, "sam").unwrap().into_iter().map(|h| h.name).collect();
         assert_eq!(names, ["Dana Ruiz", "Sam Kowalski", "Samir Patel"]);
         let hit = search(&conn, &r, "kowal").unwrap().remove(0);

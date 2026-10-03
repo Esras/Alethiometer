@@ -539,7 +539,7 @@ fn get(app: &App, id: i64) -> Result<Value> {
     }
 
     let people = {
-        let r = super::people::Resolver::load(&conn, &app.settings().people)?;
+        let r = super::people::Resolver::load(&crate::store::over(&conn), &app.settings().people)?;
         super::people::for_topic(&conn, &r, id, clock, 9)?
     };
 

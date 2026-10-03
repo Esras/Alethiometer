@@ -1,8 +1,7 @@
 //! Day strip reads and calendar event writes.
 
 use super::Sql;
-use crate::domain::ports::{DayStripViews, Events};
-use crate::domain::views::DayEvent;
+use crate::domain::daystrip::{DayEvent, DayStripViews, Events};
 use crate::error::Result;
 use crate::time::Ts;
 use rusqlite::{params, OptionalExtension};

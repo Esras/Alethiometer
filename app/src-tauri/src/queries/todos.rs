@@ -315,20 +315,7 @@ pub fn discard(conn: &Connection, item_id: i64, on: bool) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct Held {
-    pub target: String,
-    pub text: String,
-    pub due: Option<String>,
-}
-
-pub fn held(conn: &Connection, item_id: i64) -> Result<Option<Held>> {
-    Ok(conn
-        .query_row("SELECT target, text, due FROM held_todos WHERE item_id = ?1 AND state = 'held'", [item_id], |r| {
-            Ok(Held { target: r.get(0)?, text: r.get(1)?, due: r.get(2)? })
-        })
-        .optional()?)
-}
+pub use crate::domain::todos::Held;
 
 pub fn issue_created(conn: &Connection, payload: &Value, receipt: &Value) -> Result<()> {
     let (Some(key), Some(url)) = (receipt.get("key").and_then(Value::as_str), receipt.get("url").and_then(Value::as_str)) else {
@@ -358,6 +345,11 @@ pub fn issue_created(conn: &Connection, payload: &Value, receipt: &Value) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn held(conn: &Connection, item: i64) -> Vec<(i64, Held)> {
+        use crate::domain::ports::Reads;
+        crate::store::over(conn).todos().held(&[item]).unwrap()
+    }
     use crate::settings::Settings;
 
     #[test]
@@ -383,11 +375,11 @@ mod tests {
         assert!(call(&app, "hold", &json!({ "item_id": item, "target": "marvin", "text": "x" })).is_err());
         hold("local", "Reply to Kim");
         crate::queries::incoming::dismiss(&app.db(), item, true).unwrap();
-        assert!(held(&app.db(), item).unwrap().is_none());
+        assert!(held(&app.db(), item).is_empty());
         crate::queries::incoming::dismiss(&app.db(), item, false).unwrap();
         crate::queries::incoming::move_to(&app.db(), item, other, Some(topic)).unwrap();
         let conn = app.db();
-        assert!(held(&conn, item).unwrap().is_none());
+        assert!(held(&conn, item).is_empty());
         let todos = list(&conn, &now).unwrap();
         assert_eq!(todos.len(), before + 1);
         let t = todos.iter().find(|t| t.title == "Reply to Kim").unwrap();

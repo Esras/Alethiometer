@@ -243,16 +243,8 @@ pub fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bo
 /// The root of an item's split family and every part (root first, then
 /// children in the order they were made).
 pub fn family(conn: &Connection, item_id: i64) -> Result<(i64, Vec<i64>)> {
-    let parent: Option<i64> = conn
-        .query_row("SELECT parent_id FROM items WHERE id = ?1", [item_id], |r| r.get(0))
-        .optional()?
-        .ok_or_else(|| msg("no such item"))?;
-    let root = parent.unwrap_or(item_id);
-    let parts = conn
-        .prepare_cached("SELECT id FROM items WHERE id = ?1 OR parent_id = ?1 ORDER BY id = ?1 DESC, id")?
-        .query_map([root], |r| r.get(0))?
-        .collect::<rusqlite::Result<Vec<i64>>>()?;
-    Ok((root, parts))
+    use crate::domain::ports::Reads;
+    crate::store::over(conn).incoming().family(item_id)
 }
 
 /// Move messages (and their thread replies) from one part of a split family to

@@ -1,5 +1,6 @@
-//! Read models: rows as screens list them.
+//! The day strip: calendar events today.
 
+use crate::error::Result;
 use crate::time::Ts;
 
 /// A calendar event on the day strip.
@@ -19,4 +20,17 @@ pub struct DayEvent {
     pub attendees: Option<String>,
     /// Topics its item is linked to (suggested or confirmed).
     pub topic_ids: Vec<i64>,
+}
+
+pub trait DayStripViews {
+    /// Events starting in `[from, to)`, in start order.
+    fn blocks(&self, from: Ts, to: Ts) -> Result<Vec<DayEvent>>;
+    /// When the next event linked to `topic_id` (not marked wrong) starts after `after`.
+    fn next_linked_meeting(&self, topic_id: i64, after: Ts) -> Result<Option<Ts>>;
+}
+
+/// Calendar events.
+pub trait Events {
+    /// Set the buffer kept around a life block. False when `id` isn't one.
+    fn set_buffer(&self, id: i64, minutes: i64) -> Result<bool>;
 }

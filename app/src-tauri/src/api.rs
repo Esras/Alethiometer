@@ -34,6 +34,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
     let route = match area {
         "daystrip" => queries::daystrip::route(name),
+        "incoming" => queries::incoming::route(name),
         _ => None,
     };
     if let Some(route) = route {
