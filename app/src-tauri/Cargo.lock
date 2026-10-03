@@ -35,6 +35,7 @@ dependencies = [
 name = "alethiometer"
 version = "0.1.0"
 dependencies = [
+ "alethiometer-agentd",
  "anyhow",
  "aws-credential-types",
  "aws-sigv4",
@@ -63,6 +64,15 @@ dependencies = [
  "tree-sitter-bash",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "alethiometer-agentd"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.alethiometer.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run agentd && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run agentd:release && npm run build",
     "frontendDist": "../dist"
   },
   "app": {

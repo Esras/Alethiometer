@@ -63,6 +63,8 @@ fontdb = "0.23"
 tract-onnx = { version = "0.23", default-features = false }
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 sqlite-vec = "0.1.6"
+# The agent host's protocol and client (app/agentd): local agents run there and outlive the app.
+alethiometer-agentd = { path = "../agentd" }
 
 [dev-dependencies]
 tempfile = "3"

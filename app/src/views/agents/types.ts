@@ -130,7 +130,16 @@ export interface Request {
   command: string;
   options: { id: string; name: string; kind: string; key: string }[];
   parsed: { verdict: string; steps: Step[]; checks: { ok: boolean; text: string }[] } | null;
-  explained: { state: 'pending' | 'ok' | 'error' | 'off'; text: string; model: string } | null;
+  explained: {
+    state: 'pending' | 'ok' | 'error' | 'off';
+    text: string;
+    model: string;
+    fits: boolean | null;
+    fit_note: string;
+    misuse: string[];
+    worst: string;
+    read: string[];
+  } | null;
   tag: string;
   question: string;
   choices: { key: string; title: string; detail: string }[];
@@ -146,6 +155,8 @@ export interface Tree {
   harnesses: { key: string; label: string; command: string }[];
   hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
+  /** The agent host (app/agentd) local agents run in. */
+  agentd: { state: 'idle' | 'starting' | 'running' | 'missing' | 'error' | 'unsupported' | ''; version: string; pid: number; error: string; stale: boolean; binary: string };
 }
 
 export interface ThreadData {

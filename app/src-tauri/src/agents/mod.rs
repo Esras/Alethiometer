@@ -7,9 +7,11 @@
 //! - Scion agents (`scion`): Alethiometer is a Hub client. Rooms, DMs and
 //!   delivery states all come from the Hub; there's no messaging layer here.
 //!
-//! The UI polls `agents.poll` with the last revision it saw (`store`).
+//! Local agents run in the agent host (`daemon`, `app/agentd`) so they outlive
+//! the app. The UI polls `agents.poll` with the last revision it saw (`store`).
 
 pub mod acp;
+pub mod daemon;
 pub mod explain;
 pub mod facts;
 pub mod guess;
@@ -29,10 +31,12 @@ use std::sync::Arc;
 pub struct Agents {
     pub store: store::Store,
     pub acp: acp::Host,
+    pub daemon: daemon::Daemon,
     pub scion: scion::Hubs,
 }
 
-/// Load local state, then keep it flushed and the Scion Hubs connected.
+/// Load local state, then keep it flushed, follow the agent host, and keep
+/// the Scion Hubs connected.
 pub fn start(app: Arc<App>) {
     if let Err(e) = app.agents.store.load(&app.db()) {
         eprintln!("agents: couldn't load sessions: {e}");
@@ -47,18 +51,14 @@ pub fn start(app: Arc<App>) {
             }
         })
         .ok();
+    daemon::start(app.clone());
     scion::start(app);
 }
 
-/// Stop every local agent process (the app is quitting).
+/// The app is quitting: write what's pending. Local agents keep running in
+/// the agent host; the next start picks them up.
 pub fn shutdown(app: &App) {
     let _ = app.agents.store.flush(&app.db());
-    app.agents.acp.stop_all();
-}
-
-/// Local agents still running: closing the window hides it instead of quitting.
-pub fn any_running(app: &App) -> bool {
-    app.agents.acp.any_alive()
 }
 
 pub fn now(app: &App) -> String {
@@ -87,6 +87,7 @@ fn tree(app: &App) -> Value {
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
         "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
         "hubs": scion::hubs(app),
+        "agentd": daemon::status(app),
         "host": acp::host_label(),
     })
 }
@@ -341,6 +342,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "ok": true }))
         }
         "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
+        // Stop every local agent (Quit no longer does).
+        "stop_all" => Ok(json!({ "stopped": acp::stop_all(app) })),
+        // Restart the agent host on the newest build (stops every local agent).
+        "host_restart" => {
+            daemon::restart(app)?;
+            daemon::kick(app);
+            Ok(json!({ "ok": true }))
+        }
         _ => Err(crate::api::unknown(name)),
     }
 }

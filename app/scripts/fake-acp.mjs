@@ -7,7 +7,10 @@
 //   "agents": { "harnesses": [{ "key": "fake", "label": "Claude Code", "command": "node",
 //               "args": ["<repo>/app/scripts/fake-acp.mjs"] }] }
 //
-// FAKE_ACP_FAST=1 drops the delays (tests).
+// FAKE_ACP_FAST=1 drops the delays (tests). FAKE_ACP_MODE=stream plays a turn
+// of numbered output chunks instead ("t1 t2 … tN ", FAKE_ACP_CHUNKS, every
+// FAKE_ACP_DELAY_MS), with no permission asks: the restart tests check it
+// arrives exactly once.
 
 import readline from 'node:readline';
 
@@ -62,9 +65,20 @@ async function tool(id, name, kind, title, rawInput, result, extra = {}) {
   return true;
 }
 
+async function stream() {
+  const n = Number(process.env.FAKE_ACP_CHUNKS ?? 60);
+  const delay = Number(process.env.FAKE_ACP_DELAY_MS ?? 50);
+  for (let i = 1; i <= n && !cancelled; i++) {
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `t${i} ` } });
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return cancelled ? 'cancelled' : 'end_turn';
+}
+
 async function play(text) {
   turn++;
   cancelled = false;
+  if (process.env.FAKE_ACP_MODE === 'stream') return stream();
   const t = `t${turn}`;
   await chunks('agent_thought_chunk', 'Probably a flex row without min-width. Check Header.tsx before touching the modal, then look for overrides.');
   await tool(`${t}_read`, 'Read', 'read', 'Read src/settings/Header.tsx', { file_path: `${process.cwd()}/src/settings/Header.tsx` }, Array.from({ length: 64 }, (_, i) => `${i + 1}\tline ${i + 1}`).join('\n'));

@@ -15,8 +15,11 @@
 
   // Long pipelines read better one stage per line, as the design shows them.
   const pretty = $derived(req.command.length > 70 && req.command.includes(' | ') ? req.command.replace(/\s+\|\s+/g, ' \\\n  | ') : req.command);
-  const allow = $derived(req.options.filter((o) => o.kind.startsWith('allow')));
-  const deny = $derived(req.options.find((o) => o.kind.startsWith('reject')));
+  type Option = Request['options'][number];
+  const isDeny = (o: Option) => o.kind.startsWith('reject');
+  // The first plain allow is the default; a connector that marks every choice allow_once gets none.
+  const primary = $derived(req.options.filter((o) => o.kind === 'allow_once').length === 1 ? req.options.find((o) => o.kind === 'allow_once') : undefined);
+  let denyOpt = $state<Option>();
   const verdictClass = (v: string) => (v === 'read-only' ? 'green' : v === 'unknown' ? 'yellow' : 'orange');
   const tagClass = (t: string) =>
     ['reads files', 'reads git'].includes(t) ? 'blue' : ['local bin'].includes(t) ? 'green' : ['shell per file', 'runs shell', 'env', 'unknown command'].includes(t) ? 'yellow' : 'orange';
@@ -24,7 +27,8 @@
   export function choose(key: string) {
     const o = req.options.find((o) => o.key === key);
     if (!o) return false;
-    if (o.kind.startsWith('reject')) {
+    if (isDeny(o)) {
+      denyOpt = o;
       denying = true;
       return true;
     }
@@ -33,17 +37,15 @@
   }
 
   function sendDeny() {
-    if (!deny) return;
-    act('respond', { request: req.id, option: deny.id, reason }).catch(() => {});
+    const o = denyOpt ?? req.options.find(isDeny);
+    if (!o) return;
+    act('respond', { request: req.id, option: o.id, reason }).catch(() => {});
     denying = false;
     reason = '';
   }
 
-  const label = (o: Request['options'][number]) => {
-    if (o.kind === 'allow_once') return 'Allow once';
-    if (o.kind === 'allow_always' && o.name.toLowerCase().includes('session')) return 'This session';
-    return `Always: ${o.name}`;
-  };
+  // The agent's own words: a connector that gets the kinds wrong can't make "No" read as "Allow once".
+  const label = (o: Option) => o.name.trim() || (isDeny(o) ? 'Deny' : o.kind === 'allow_once' ? 'Allow once' : 'Always');
 </script>
 
 {#if compact}
@@ -87,10 +89,23 @@
         </div>
         {/if}
         {#if req.explained}
+          {@const x = req.explained}
           <div class="panel">
-            <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub">{req.explained.model}</span></div>
-            {#if req.explained.state === 'pending'}<div class="ex muted">Asking…</div>
-            {:else if req.explained.state === 'ok'}<div class="ex">{req.explained.text}</div>
+            <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model} · read as if planted</span></div>
+            {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
+            {:else if x.state === 'ok'}
+              <div class="ex">{x.text}</div>
+              {#if x.fits === false && x.fit_note}<div class="fit"><i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span></div>{/if}
+              {#if x.misuse.length}
+                <div class="misuse">
+                  <span class="mh">If planted</span>
+                  {#each x.misuse as m (m)}<span class="mi">{m}</span>{/each}
+                  {#if x.worst}<span class="worst">Worst case: {x.worst}</span>{/if}
+                </div>
+              {:else if x.fits !== null}
+                <div class="benign"><i class="ph ph-check"></i>Nothing it could be misused for beyond what it says.</div>
+              {/if}
+              {#if x.read.length}<div class="readf">Read {x.read.join(', ')}</div>{/if}
             {:else}<div class="ex muted">{req.explained.state === 'off' ? 'Off: ' : 'Couldn’t explain: '}{req.explained.text}</div>{/if}
           </div>
         {/if}
@@ -118,10 +133,9 @@
       </div>
     {:else}
       <div class="btns">
-        {#each allow as o (o.id)}
-          <button class="b" class:primary={o.kind === 'allow_once'} title={o.name} onclick={() => choose(o.key)}>{label(o)}{#if o.key}<span class="k">{o.key.toUpperCase()}</span>{/if}</button>
+        {#each req.options as o (o.id)}
+          <button class="b" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<span class="k">{o.key}</span>{/if}</button>
         {/each}
-        {#if deny}<button class="b" title={deny.name} onclick={() => choose(deny.key)}>Deny…{#if deny.key}<span class="k">{deny.key}</span>{/if}</button>{/if}
         <span class="right">Esc later</span>
       </div>
     {/if}
@@ -302,6 +316,57 @@
   }
   .ex.muted {
     color: var(--tx-label);
+  }
+  .fit {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 0.9615rem;
+    line-height: 1.45;
+    color: var(--yellow);
+  }
+  .fit b {
+    font-weight: 500;
+  }
+  .misuse {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-top: 1px solid var(--bg-head);
+    padding-top: 5px;
+    font-size: 0.9615rem;
+    line-height: 1.45;
+    color: var(--tx-muted);
+    text-wrap: pretty;
+  }
+  .mh {
+    font-size: 0.808rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--orange);
+  }
+  .mi::before {
+    content: '· ';
+    color: var(--tx-disabled);
+  }
+  .worst {
+    color: var(--tx-2);
+  }
+  .benign {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    border-top: 1px solid var(--bg-head);
+    padding-top: 5px;
+    font-size: 0.9615rem;
+    color: var(--tx-muted);
+  }
+  .benign i {
+    color: var(--green);
+  }
+  .readf {
+    font: 0.846rem var(--font-mono);
+    color: var(--tx-disabled);
   }
   .btns,
   .deny {

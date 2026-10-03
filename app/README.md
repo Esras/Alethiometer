@@ -33,7 +33,7 @@ No WebKitGTK needed. The dev server exposes the same `call(cmd, args)` API over 
 
 ```sh
 npm ci
-ALETHIOMETER_FAKE_NOW=10:52 npm run devserver   # Rust core on 127.0.0.1:1421, data in ./.alethiometer-dev
+ALETHIOMETER_FAKE_NOW=10:52 npm run devserver   # builds the agent host (agentd), then the Rust core on 127.0.0.1:1421, data in ./.alethiometer-dev
 npm run dev                              # UI on http://localhost:1420
 ```
 
@@ -91,6 +91,7 @@ Everything lives in the app data directory (`~/Library/Application Support/dev.a
 - `src-tauri/src/queries/<area>.rs`: read model, actions and sample data for each view.
 - `src-tauri/src/ai/`: the only path to an LLM. Checks the allow-list before anything leaves the machine; builds prompts from work sources only.
 - `src-tauri/src/platform.rs`: Mac-only integrations behind a trait.
+- `agentd/`: the agent host, a separate small program local agents run in so they outlive the app (`docs/agents.md`, "Agent host").
 - `src/shell/`: title bar, tabs, day strip, search, assistant pane.
 - `src/views/`: one component per tab.
 
