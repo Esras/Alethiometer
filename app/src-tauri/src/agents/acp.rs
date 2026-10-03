@@ -280,6 +280,7 @@ pub struct StartArgs {
     pub name: Option<String>,
     pub group_id: Option<String>,
     pub task: String,
+    pub model: Option<String>,
 }
 
 fn expand_home(p: &str) -> String {
@@ -345,12 +346,16 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         i.push_row(&session_thread(&id), state_row(&ts, &format!("Session started · {} · {} · {}", h.label, host_label(), tilde(&cwd))));
     }
     let task = a.task.trim().to_owned();
+    let model = a.model.clone();
     let Some(arc) = app.arc() else { return Ok(id) };
     let sid = id.clone();
     std::thread::spawn(move || {
         let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true, vec![]));
         match connect(&arc, &sid, None) {
             Ok(conn) => {
+                if let Some(m) = model {
+                    set_model(&arc, &conn, &sid, &m);
+                }
                 if let Some(row) = queued {
                     prompt(&arc, &conn, row, task, vec![]);
                 } else {
@@ -363,6 +368,91 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         super::guess::suggest(&arc, &sid);
     });
     Ok(id)
+}
+
+fn set_model(app: &App, conn: &Conn, id: &str, model: &str) {
+    let sid = conn.sid();
+    let by_model = conn.request("session/set_model", json!({ "sessionId": sid, "modelId": model }), Some(CALL_TIMEOUT));
+    let done = by_model.or_else(|_| conn.request("session/set_config_option", json!({ "sessionId": sid, "configId": "model", "value": model }), Some(CALL_TIMEOUT)));
+    match done {
+        Ok(_) => {
+            app.agents.store.lock().update_session(id, |s| s.model = super::explain::short_model(model));
+        }
+        Err(e) => eprintln!("agents: couldn't switch {id} to model {model}: {e}"),
+    }
+}
+
+/// The models a harness offers: the adapter is started briefly, asked for a session, and stopped. Cached per harness.
+pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(v) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(harness) {
+        return Ok(v.clone());
+    }
+    let settings = app.settings();
+    let h = settings.agents.harnesses.iter().find(|h| h.key == harness).ok_or_else(|| msg(format!("no harness '{harness}'")))?;
+    let path = login_path();
+    let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH", h.command)))?;
+    let cwd = expand_home(cwd.trim());
+    let cwd = if std::path::Path::new(&cwd).is_dir() { cwd } else { dirs::home_dir().map(|d| d.display().to_string()).unwrap_or_else(|| ".".into()) };
+    let mut child = Command::new(exe)
+        .args(&h.args)
+        .envs(&h.env)
+        .env("PATH", path)
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| msg(e.to_string()))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| msg("no stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| msg("no stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stdout).lines().map_while(|l| l.ok()) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                if tx.send(v).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}, "clientInfo": { "name": "alethiometer", "version": env!("CARGO_PKG_VERSION") } } });
+    let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new", "params": { "cwd": cwd, "mcpServers": [] } });
+    let sent = {
+        use std::io::Write;
+        writeln!(stdin, "{init}").and_then(|_| writeln!(stdin, "{new}")).and_then(|_| stdin.flush())
+    };
+    let deadline = std::time::Instant::now() + INIT_TIMEOUT;
+    let mut reply = Err(msg("the agent didn't answer"));
+    if sent.is_ok() {
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            let Ok(v) = rx.recv_timeout(left) else { break };
+            if v.get("id") == Some(&json!(2)) {
+                reply = match v.get("error") {
+                    Some(e) => Err(msg(rpc_error(e))),
+                    None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
+                };
+                break;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let r = reply?;
+    let list = |items: Option<&Vec<Value>>, id: &str| -> Vec<Value> {
+        items.map(|a| a.iter().filter_map(|m| Some(json!({ "id": m.get(id)?.as_str()?, "name": m.get("name").and_then(Value::as_str).unwrap_or_default() }))).collect()).unwrap_or_default()
+    };
+    let option = r.get("configOptions").and_then(Value::as_array).and_then(|o| o.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")));
+    let mut models = list(r.pointer("/models/availableModels").and_then(Value::as_array), "modelId");
+    if models.is_empty() {
+        models = list(option.and_then(|o| o.get("options")).and_then(Value::as_array), "value");
+    }
+    let current = r.pointer("/models/currentModelId").and_then(Value::as_str).or_else(|| option.and_then(|o| o.get("currentValue")).and_then(Value::as_str)).unwrap_or_default();
+    let out = json!({ "models": models, "current": current });
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(harness.to_owned(), out.clone());
+    Ok(out)
 }
 
 fn rand_u32() -> u32 {
@@ -1215,8 +1305,18 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let call = tc.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
     let ts = now(app);
     let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
-    let (name, detail) = tool_label(&tc, &s.cwd);
-    let kind = tc.get("kind").and_then(Value::as_str).unwrap_or("");
+    let known = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).tools.get(&call).cloned();
+    let known = known.and_then(|(k, id, _)| app.agents.store.lock().find_row(&k, |r| r.id == id).and_then(|r| r.tool.clone()));
+    let (name, detail) = match known {
+        Some(t) if tc.get("kind").is_none() => (t.name, t.detail),
+        _ => tool_label(&tc, &s.cwd),
+    };
+    let kind = tc.get("kind").and_then(Value::as_str).unwrap_or(match name.as_str() {
+        "bash" => "execute",
+        "edit" | "write" => "edit",
+        "read" | "delete" | "move" | "fetch" | "search" => name.as_str(),
+        _ => "",
+    });
     let command = tc.pointer("/rawInput/command").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| edit_preview(&tc).unwrap_or_else(|| detail.clone()));
     let req_id = format!("{session}:{}", rpc_id);
     let options: Vec<PermOption> = p
@@ -1798,6 +1898,26 @@ pub(crate) mod tests {
     /// A `Conn` with no real process: enough to make `send` think a turn is in flight.
     fn fake_conn(app: &App, id: &str) -> Arc<Conn> {
         Arc::new(Conn::new(app, id, Turn { prompts: BTreeMap::from([(1, 1)]), ..Default::default() }, true))
+    }
+
+    #[test]
+    fn a_permission_that_only_names_its_tool_call_is_still_parsed_and_explained() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        let key = session_thread(&id);
+        let mut turn = Turn::default();
+        apply(&app, &id, &mut turn, &json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "ls -la", "status": "pending" }), "2026-10-03T10:41:00");
+        conn.turn.lock().unwrap().tools = turn.tools;
+        // pi-acp: the request carries the tool call's id and title, no kind or rawInput.
+        let p = json!({ "options": [{ "kind": "allow_once", "name": "Yes", "optionId": "yes" }], "toolCall": { "toolCallId": "t1", "title": "ls -la", "status": "in_progress" } });
+        permission(&app, &conn, json!(7), &p);
+        let r = app.agents.store.lock().requests.values().next().cloned().unwrap();
+        assert_eq!(r.command, "ls -la");
+        assert!(r.parsed.is_some());
+        assert!(r.explained.is_some());
+        assert_eq!(rows(&app, &key).len(), 1, "the same row, not a second one");
     }
 
     #[test]

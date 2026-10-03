@@ -19,6 +19,9 @@
   let newName = $state('');
   let newGoal = $state('');
   let dirs = $state<string[]>([]);
+  let model = $state('');
+  let models = $state<{ id: string; name: string }[]>([]);
+  let modelsNote = $state('');
   let busy = $state(false);
   let err = $state<string | null>(null);
   let taskEl = $state<HTMLTextAreaElement>();
@@ -33,6 +36,23 @@
   });
   $effect(() => {
     taskEl?.focus();
+  });
+
+  $effect(() => {
+    const k = harness;
+    if (!k) return;
+    model = '';
+    models = [];
+    modelsNote = 'loading…';
+    call<{ models: { id: string; name: string }[]; current: string }>('agents.models', { harness: k, cwd: untrack(() => cwd) })
+      .then((r) => {
+        if (k !== harness) return;
+        models = r.models;
+        modelsNote = r.current ? `default ${r.current}` : 'optional';
+      })
+      .catch(() => {
+        if (k === harness) modelsNote = 'optional';
+      });
   });
 
   const h = $derived(harnesses.find((x) => x.key === harness));
@@ -51,7 +71,7 @@
         const r = await call<{ id: string }>('agents.group_create', { name: newName, goal: newGoal, cwd });
         g = r.id;
       }
-      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task })) as { id: string };
+      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model })) as { id: string };
       ag.sel = `s:${r.id}`;
       openThread(`s:${r.id}`);
       onClose();
@@ -96,6 +116,9 @@
           <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}>{x.label}</button>
         {/each}
       </span>
+      <span class="lab">Model</span>
+      <span class="input"><input bind:value={model} list="agent-models" placeholder="default" /><span class="note">{modelsNote}</span></span>
+      <datalist id="agent-models">{#each models as m (m.id)}<option value={m.id}>{m.name}</option>{/each}</datalist>
       <span class="lab">Name</span>
       <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
       <span class="lab">Directory</span>
