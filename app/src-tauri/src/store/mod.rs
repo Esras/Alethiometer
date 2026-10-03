@@ -61,8 +61,8 @@ pub struct Db {
     readers: Option<r2d2::Pool<SqliteConnectionManager>>,
 }
 
-/// Ports over a connection code not moved yet already holds (`app.db()`), so
-/// it can call services that were. Goes with `Db::legacy`.
+/// Ports over a test's own connection (fixtures).
+#[cfg(test)]
 pub fn over(conn: &Connection) -> Sql<'_> {
     Sql(conn)
 }
@@ -87,7 +87,7 @@ struct Writing;
 
 impl Writing {
     fn enter() -> Writing {
-        assert!(!WRITING.with(Cell::get), "the database writer is already held on this thread (a write inside a write, or app.db() inside one)");
+        assert!(!WRITING.with(Cell::get), "the database writer is already held on this thread (a write inside a write)");
         WRITING.with(|w| w.set(true));
         Writing
     }
@@ -159,9 +159,9 @@ impl Db {
         out
     }
 
-    /// The writer connection itself: the old `app.db()`, for code not moved
-    /// to repositories yet (no transaction; each statement commits alone).
-    /// Goes when nothing calls it.
+    /// The writer connection itself, for tests' fixtures and checks (no
+    /// transaction; each statement commits alone). Not in the app.
+    #[cfg(test)]
     pub fn legacy(&self) -> LegacyGuard<'_> {
         LegacyGuard { _w: Writing::enter(), guard: self.lock() }
     }
@@ -172,13 +172,15 @@ impl Db {
     }
 }
 
-/// `app.db()`: the writer, held until dropped.
+/// `Db::legacy`: the writer, held until dropped.
+#[cfg(test)]
 pub struct LegacyGuard<'a> {
     // Field order: the mutex guard drops first, then the thread is marked free.
     guard: MutexGuard<'a, Connection>,
     _w: Writing,
 }
 
+#[cfg(test)]
 impl std::ops::Deref for LegacyGuard<'_> {
     type Target = Connection;
     fn deref(&self) -> &Connection {
@@ -186,6 +188,7 @@ impl std::ops::Deref for LegacyGuard<'_> {
     }
 }
 
+#[cfg(test)]
 impl std::ops::DerefMut for LegacyGuard<'_> {
     fn deref_mut(&mut self) -> &mut Connection {
         &mut self.guard
@@ -356,14 +359,13 @@ mod tests {
         });
     }
 
-    /// SQL lives in `store/`. Files that still have it outside are listed
-    /// with their count of statements; the list only shrinks.
+    /// SQL lives in `store/` (tests' own fixtures aside).
     #[test]
-    fn no_new_sql_outside_store() {
+    fn no_sql_outside_store() {
         let re = regex::Regex::new(r#"(?i)"\s*(SELECT|INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE|DROP\s+TABLE|WITH\s+\w+\s+AS)\b"#).unwrap();
         let test_mod = regex::Regex::new(r"#\[cfg\(test\)\]\s*(pub(\(crate\))?\s+)?mod\s+\w+").unwrap();
         let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
-        let mut found = std::collections::BTreeMap::new();
+        let mut found = vec![];
         let mut dirs = vec![root.clone()];
         while let Some(dir) = dirs.pop() {
             for e in std::fs::read_dir(dir).unwrap().flatten() {
@@ -378,28 +380,11 @@ mod tests {
                     let code = test_mod.split(&text).next().unwrap();
                     let n = re.find_iter(code).count();
                     if n > 0 {
-                        found.insert(p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"), n);
+                        found.push(format!("{}: {n} SQL statements (move them into a repository in store/)", p.strip_prefix(&root).unwrap().display()));
                     }
                 }
             }
         }
-        let baseline: std::collections::BTreeMap<String, usize> =
-            SQL_OUTSIDE_STORE.lines().filter_map(|l| l.split_once(' ')).map(|(n, f)| (f.to_owned(), n.parse().unwrap())).collect();
-        let mut problems = vec![];
-        for (f, n) in &found {
-            match baseline.get(f) {
-                None => problems.push(format!("{f}: {n} new SQL statements outside store/ (move them into a repository)")),
-                Some(b) if n > b => problems.push(format!("{f}: {n} SQL statements, up from {b} (move the new ones into a repository)")),
-                Some(b) if n < b => problems.push(format!("{f}: {n} SQL statements, down from {b}: lower its line in SQL_OUTSIDE_STORE")),
-                _ => {}
-            }
-        }
-        for f in baseline.keys().filter(|f| !found.contains_key(*f)) {
-            problems.push(format!("{f}: no SQL left: remove its line from SQL_OUTSIDE_STORE"));
-        }
-        assert!(problems.is_empty(), "{}", problems.join("\n"));
+        assert!(found.is_empty(), "{}", found.join("\n"));
     }
-
-    /// `<count> <file>`: SQL statements not yet moved into `store/`.
-    const SQL_OUTSIDE_STORE: &str = include_str!("sql_outside_store.txt");
 }

@@ -9,6 +9,7 @@ use crate::time::Ts;
 use crate::error::{msg, Result};
 use crate::state::App;
 use crate::sync::{connectors, http, Ctx};
+#[cfg(test)]
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -36,15 +37,10 @@ pub fn is_read_only(r: &dyn Reads, source_id: i64) -> Result<bool> {
     Ok(r.sources().get(source_id)?.as_ref().is_some_and(|s| read_only_name(s).is_some()))
 }
 
-/// `request` for code not moved to units of work yet.
+/// `request` over a test's connection.
+#[cfg(test)]
 pub fn enqueue(conn: &Connection, source_id: i64, op: &str, payload: &Value, item_id: Option<i64>) -> Result<i64> {
     request(&crate::store::over(conn), source_id, op, payload, item_id)
-}
-
-/// Name of the source if its config sets `"read_only": true`.
-pub fn read_only(conn: &Connection, source_id: i64) -> Result<Option<String>> {
-    let source = Reads::sources(&crate::store::over(conn)).get(source_id)?.ok_or_else(|| msg("no such source"))?;
-    Ok(read_only_name(&source).map(str::to_owned))
 }
 
 /// Apply the local side of a confirmed write.

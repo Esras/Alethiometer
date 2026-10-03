@@ -37,6 +37,7 @@ use crate::state::App;
 use crate::sync::connectors::obsidian::save::{disk_text, save_note, Saved};
 use crate::clock::Clock;
 use crate::time::Ts;
+#[cfg(test)]
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -283,9 +284,9 @@ pub fn note_name(display: &str) -> String {
 
 // ------------------------------------------------------------------ scan
 
-/// Mirror `People/*.md` into `people` and `person_accounts`. Returns how many
-/// notes were read. A person whose note is gone keeps its row (topics may
-/// point at it) but loses its note path and accounts.
+/// Mirror `People/*.md` into `people` and `person_accounts` over a test's
+/// connection. Returns how many notes were read.
+#[cfg(test)]
 pub fn scan(conn: &Connection, vault: &Path) -> Result<usize> {
     let notes = read_notes(vault);
     let tx = conn.unchecked_transaction()?;
@@ -335,15 +336,6 @@ fn read_notes(vault: &Path) -> Vec<PersonNote> {
     }
     notes.sort();
     notes
-}
-
-/// Scan after a sync batch that touched `People/` (or on its first run).
-pub fn scan_if_touched<'a>(conn: &Connection, vault: &Path, paths: impl IntoIterator<Item = &'a str>, first: bool) -> Result<()> {
-    let prefix = format!("{PEOPLE_DIR}/");
-    if first || paths.into_iter().any(|p| p.starts_with(&prefix)) {
-        scan(conn, vault)?;
-    }
-    Ok(())
 }
 
 // ------------------------------------------------------------------ resolving

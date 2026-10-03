@@ -22,6 +22,7 @@ use crate::time::Ts;
 use crate::settings::SourceConfig;
 use crate::state::App;
 use http::Http;
+#[cfg(test)]
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
@@ -89,7 +90,8 @@ pub fn register(uow: &dyn UnitOfWork, configs: &[SourceConfig]) -> Result<()> {
     Ok(())
 }
 
-/// `register` over a connection (tests and code not moved yet).
+/// `register` over a test's connection.
+#[cfg(test)]
 pub fn register_sources(conn: &Connection, configs: &[SourceConfig]) -> Result<()> {
     register(&crate::store::over(conn), configs)
 }
@@ -100,7 +102,8 @@ pub fn source(r: &dyn Reads, id: i64) -> Result<Source> {
     Ok(Source { id: s.id, kind: s.kind, tag: s.tag, name: s.name, config: serde_json::from_str(&s.config_json).unwrap_or(Value::Null), cursor: s.cursor })
 }
 
-/// `source` over a connection (tests and code not moved yet).
+/// `source` over a test's connection.
+#[cfg(test)]
 pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
     source(&crate::store::over(conn), id)
 }
@@ -203,7 +206,8 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
     Ok(new_signal)
 }
 
-/// `apply` over a connection, in its own transaction (tests and code not moved yet).
+/// `apply` over a test's connection, in its own transaction.
+#[cfg(test)]
 pub fn apply_in(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
     let tx = conn.unchecked_transaction()?;
     let n = apply(&crate::store::over(&tx), source, batch, now)?;

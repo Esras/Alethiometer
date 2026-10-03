@@ -20,51 +20,64 @@
 //!
 //! Nothing is deleted: a split only re-parents message rows.
 
+#[cfg(test)]
 use crate::domain::ports::UnitOfWork;
+#[cfg(test)]
 use crate::error::Result;
+#[cfg(test)]
 use rusqlite::Connection;
+#[cfg(test)]
 use std::collections::HashSet;
 
 pub use crate::domain::splits::{content_key, keys};
 
-// Over a connection code not moved to units of work yet holds (`store::over`).
+// Over a test's connection (`store::over`).
 
+#[cfg(test)]
 pub fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Result<HashSet<String>> {
     crate::store::over(conn).splits().owned_keys(source_id, external_id)
 }
 
+#[cfg(test)]
 pub fn holder(conn: &Connection, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {
     crate::domain::ports::Reads::items(&crate::store::over(conn)).holder(source_id, channel, key)
 }
 
 /// Message ids of an item, oldest first.
+#[cfg(test)]
 pub fn message_ids(conn: &Connection, item_id: i64) -> Result<Vec<i64>> {
     crate::store::over(conn).splits().message_ids(item_id)
 }
 
+#[cfg(test)]
 pub fn recount(conn: &Connection, item_id: i64, removed: usize) -> Result<()> {
     crate::store::over(conn).splits().recount(item_id, removed)
 }
 
 /// Move `message_ids` (a subset of the item's messages) to a new child item.
 /// Returns the child's id; the caller links it. Run inside a transaction.
+#[cfg(test)]
 pub fn split_off(conn: &Connection, item_id: i64, message_ids: &[i64]) -> Result<i64> {
     crate::store::over(conn).splits().carve(item_id, message_ids, false)
 }
 
+#[cfg(test)]
 pub fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) -> Result<i64> {
     crate::store::over(conn).splits().carve(item_id, message_ids, allow_all)
 }
 
+#[cfg(test)]
 pub fn family(conn: &Connection, item_id: i64) -> Result<(i64, Vec<i64>)> {
     use crate::domain::ports::Reads;
     crate::store::over(conn).incoming().family(item_id)
 }
 
+#[cfg(test)]
 pub fn move_messages(conn: &Connection, from: i64, message_ids: &[i64], to: i64) -> Result<usize> {
     crate::store::over(conn).splits().move_messages(from, message_ids, to)
 }
 
+#[cfg(test)]
 pub fn prune(conn: &Connection, item_id: i64) -> Result<bool> {
     crate::store::over(conn).splits().prune(item_id)
 }

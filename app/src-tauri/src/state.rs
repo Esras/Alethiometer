@@ -148,8 +148,9 @@ impl App {
         &self.db
     }
 
-    /// The writer connection without a transaction: the old access, for
-    /// code not moved to repositories yet (`store::Db::legacy`).
+    /// The writer connection without a transaction, for tests' fixtures
+    /// (`store::Db::legacy`).
+    #[cfg(test)]
     pub fn db(&self) -> crate::store::LegacyGuard<'_> {
         self.db.legacy()
     }
