@@ -14,6 +14,7 @@ pub mod seed;
 pub mod settings;
 pub mod state;
 pub mod sync;
+pub mod time;
 
 #[cfg(feature = "desktop")]
 mod desktop {

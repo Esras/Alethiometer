@@ -186,9 +186,6 @@ pub fn slack_id(name: &str) -> String {
 /// Your Slack user id in the sample data (the Slack source's `me`).
 pub const ME: &str = "Zach";
 
-pub fn fmt(t: NaiveDateTime) -> String {
-    t.format("%Y-%m-%dT%H:%M:%S").to_string()
-}
 
 pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     // Sample People, Topics and daily notes are files: never in a real vault.

@@ -49,6 +49,7 @@ base64 = "0.23"
 # Proton ICS: recurrence expansion (RRULE/EXDATE/RDATE) and IANA time zones.
 rrule = "0.14"
 chrono-tz = "0.10"
+iana-time-zone = "0.1"
 # Obsidian: file watcher so vault edits sync right away (the poll still runs).
 notify = "8.2"
 # SigV4 signing for Bedrock (AWS-maintained; avoids the full AWS SDK + tokio).

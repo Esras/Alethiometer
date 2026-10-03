@@ -44,6 +44,7 @@ dependencies = [
  "chrono-tz",
  "dirs",
  "fontdb",
+ "iana-time-zone",
  "notify",
  "regex",
  "ring",

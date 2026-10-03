@@ -16,7 +16,8 @@ pub const PERSONAL_RULES: &str = "Personal sources only store untitled busy bloc
 pub mod http;
 
 use crate::error::{msg, Result};
-use crate::seed::fmt;
+use crate::clock::Clock;
+use crate::time::{Due, Ts};
 use crate::settings::SourceConfig;
 use crate::state::App;
 use http::Http;
@@ -41,8 +42,10 @@ pub struct Ctx<'a> {
     pub http: &'a dyn Http,
     /// Secrets by name (Keychain on the Mac, 0600 file on Linux).
     pub secret: &'a dyn Fn(&str) -> Option<String>,
-    /// Local wall clock (respects fake_now).
-    pub now: chrono::NaiveDateTime,
+    /// Now (respects fake_now).
+    pub now: Ts,
+    /// For calendar days (all-day events, day-only dues) and local windows.
+    pub clock: Clock,
 }
 
 impl Ctx<'_> {
@@ -104,10 +107,9 @@ pub struct ItemUpsert {
     pub url: Option<String>,
     /// Author handle in the source (Slack user id, Jira accountId, GitHub login…).
     pub author: Option<Handle>,
-    /// Local time "YYYY-MM-DDTHH:MM:SS".
-    pub occurred_at: String,
-    pub ended_at: Option<String>,
-    pub due_at: Option<String>,
+    pub occurred_at: Ts,
+    pub ended_at: Option<Ts>,
+    pub due: Option<Due>,
     /// open | done
     pub status: String,
     pub msg_count: Option<i64>,
@@ -140,7 +142,7 @@ pub struct Handle {
 
 #[derive(Debug, Clone, Default)]
 pub struct Message {
-    pub at: String,
+    pub at: Ts,
     pub author: String,
     pub text: String,
     pub author_id: Option<String>,
@@ -149,8 +151,8 @@ pub struct Message {
 
 #[derive(Debug, Clone)]
 pub struct EventFields {
-    pub start: String,
-    pub end: String,
+    pub start: Ts,
+    pub end: Ts,
     /// Category key from settings (e.g. work, self).
     pub category: String,
     pub tentative: bool,
@@ -159,8 +161,8 @@ pub struct EventFields {
 
 #[derive(Debug, Clone)]
 pub struct Busy {
-    pub start: String,
-    pub end: String,
+    pub start: Ts,
+    pub end: Ts,
 }
 
 /// A connector for one source kind.
@@ -213,7 +215,7 @@ pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
 }
 
 /// Write a batch. Returns the number of items that became new signal.
-pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize> {
+pub fn apply(conn: &Connection, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
     if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty() || !batch.profiles.is_empty()) {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
@@ -231,7 +233,8 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
         // Split children own some messages of this item (queries::split): those
         // are never re-added here, and a run made only of them isn't new signal.
         let owned = crate::queries::split::owned_keys(&tx, source.id, &it.external_id)?;
-        let tuples: Vec<(&str, &str, &str)> = it.messages.iter().map(|m| (m.at.as_str(), m.author.as_str(), m.text.as_str())).collect();
+        let ats: Vec<String> = it.messages.iter().map(|m| m.at.to_db()).collect();
+        let tuples: Vec<(&str, &str, &str)> = it.messages.iter().zip(&ats).map(|(m, at)| (at.as_str(), m.author.as_str(), m.text.as_str())).collect();
         let keys = crate::queries::split::keys(&it.raw_json, &tuples);
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
@@ -265,6 +268,8 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                 continue;
             }
         }
+        debug_assert!(it.occurred_at != Ts::default(), "{}: occurred_at not set", it.external_id);
+        let (due_at, due_day) = Due::columns(it.due);
         let existing: Option<i64> = tx
             .query_row(
                 "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
@@ -276,11 +281,11 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
             None => {
                 tx.execute(
                     "INSERT INTO items (source_id, external_id, kind, title, body, summary, url, author_person_id,
-                       occurred_at, ended_at, due_at, status, msg_count, owner, seen, raw_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15)",
+                       occurred_at, ended_at, due_at, due_day, status, msg_count, owner, seen, raw_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?16, ?12, ?13, ?14, 0, ?15)",
                     params![
                         source.id, it.external_id, it.kind, it.title, it.body, it.summary, it.url, author,
-                        it.occurred_at, it.ended_at, it.due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string()
+                        it.occurred_at, it.ended_at, due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), due_day
                     ],
                 )?;
                 let id = tx.last_insert_rowid();
@@ -299,12 +304,12 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
                 }
                 tx.execute(
                     "UPDATE items SET kind = ?2, title = ?3, body = ?4, summary = ?5, url = ?6, author_person_id = ?7,
-                       occurred_at = ?8, ended_at = ?9, due_at = ?10, status = ?11, msg_count = ?12, owner = ?13,
+                       occurred_at = ?8, ended_at = ?9, due_at = ?10, due_day = ?16, status = ?11, msg_count = ?12, owner = ?13,
                        raw_json = ?14, seen = CASE WHEN ?15 THEN 0 ELSE seen END
                      WHERE id = ?1",
                     params![
                         id, it.kind, it.title, it.body, it.summary, it.url, author, it.occurred_at, it.ended_at,
-                        it.due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump
+                        due_at, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump, due_day
                     ],
                 )?;
                 if bump {
@@ -358,7 +363,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
     for p in &batch.profiles {
         tx.execute(
             "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
-             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = datetime('now')",
+             ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
             params![p.kind, p.account, p.real_name, p.email, p.is_bot],
         )?;
     }
@@ -366,7 +371,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
         tx.execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source.id, ext])?;
     }
     for k in &touched {
-        collapse_series(&tx, source.id, k)?;
+        collapse_series(&tx, source.id, k, now)?;
     }
     if let Some(busy) = &batch.busy {
         // Keep per-block buffer overrides across refreshes, keyed by start time.
@@ -387,7 +392,7 @@ pub fn apply(conn: &Connection, source: &Source, batch: &Batch) -> Result<usize>
         }
     }
     tx.execute(
-        "UPDATE sources SET cursor = COALESCE(?2, cursor), last_sync_at = datetime('now', 'localtime'), last_error = NULL WHERE id = ?1",
+        "UPDATE sources SET cursor = COALESCE(?2, cursor), last_sync_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), last_error = NULL WHERE id = ?1",
         params![source.id, batch.cursor],
     )?;
     tx.commit()?;
@@ -427,8 +432,8 @@ fn inherit_series(tx: &Connection, source_id: i64, item_id: i64, key: &str) -> R
 }
 
 /// One unseen instance per series: the next upcoming, else the latest past.
-fn collapse_series(tx: &Connection, source_id: i64, key: &str) -> Result<()> {
-    let now = "strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')";
+fn collapse_series(tx: &Connection, source_id: i64, key: &str, now: Ts) -> Result<()> {
+    let now = "?3";
     tx.execute(
         &format!(
             "UPDATE items SET seen = 1 WHERE source_id = ?1 AND seen = 0 AND {SERIES} = ?2 AND id != (
@@ -438,7 +443,7 @@ fn collapse_series(tx: &Connection, source_id: i64, key: &str) -> Result<()> {
                          occurred_at DESC
                 LIMIT 1)"
         ),
-        params![source_id, key],
+        params![source_id, key, now],
     )?;
     Ok(())
 }
@@ -502,11 +507,11 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let connector = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
-    let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now() };
+    let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock };
     // Poll without holding the DB lock; network calls can be slow.
     let result = connector.poll(&ctx).map_err(|e| msg(e.to_string())).and_then(|batch| {
         let conn = app.db();
-        let n = apply(&conn, &source, &batch)?;
+        let n = apply(&conn, &source, &batch, ctx.now)?;
         // Follow-ups that need the database (topic links, closing vanished tasks).
         if source.kind == "obsidian" {
             return Ok(n.saturating_sub(connectors::obsidian::after_apply(&conn, &source, &batch)?));
@@ -534,7 +539,7 @@ pub fn suggest_after_sync(app: &App, source_id: i64) {
     if let Err(e) = crate::ai::call(app, "estimate_todos", &serde_json::json!({ "limit": 10 })) {
         eprintln!("estimate_todos: {e}");
     }
-    let _ = app.db().execute("UPDATE sources SET last_sync_at = datetime('now', 'localtime') WHERE id = ?1", [source_id]);
+    let _ = app.db().execute("UPDATE sources SET last_sync_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1", [source_id]);
 }
 
 /// Each source's loops carry the generation they were started with and stop
@@ -679,16 +684,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         _ => Err(crate::api::unknown(name)),
     }
-}
-
-/// `YYYY-MM-DDTHH:MM:SS` in local time from an RFC 3339 timestamp.
-pub fn local_ts(rfc3339: &str) -> Option<String> {
-    chrono::DateTime::parse_from_rfc3339(rfc3339).ok().map(|t| fmt(t.with_timezone(&chrono::Local).naive_local()))
-}
-
-/// `YYYY-MM-DDTHH:MM:SS` in local time from Unix seconds (Slack's "ts" format works too).
-pub fn local_from_unix(secs: f64) -> Option<String> {
-    chrono::DateTime::from_timestamp(secs as i64, 0).map(|t| fmt(t.with_timezone(&chrono::Local).naive_local()))
 }
 
 #[cfg(test)]
