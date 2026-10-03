@@ -114,6 +114,8 @@ api.rs          the middleware: opens a read or a unit of work per command, call
 
 ## Phase 2: one worker per source; message upserts
 
+Phases 2–4 below are the plan; what was built is under "Phases 2–4 as built".
+
 - **A thread per enabled source** owns its sync. "Sync now", socket nudges and settings changes are messages to it. A restart joins the old worker first, so two polls of one source can't overlap.
 - **`sync_streams(source_id, stream, state, error, failures, synced_at)`** replaces the cursor blob.
   - A poll commits stream by stream.
@@ -163,6 +165,69 @@ The triggers run inside the writing transaction, so the application makes one ed
 - `incoming.list` gets paging, and messages and context load only for expanded rows.
 
 rusqlite 0.40 exposes the authorizer and the update, commit and rollback hooks (feature `hooks`); the bundled SQLite is 3.53.
+
+## Phases 2–4 as built (2026-10-03)
+
+**Phase 2: sync.**
+
+- **One worker per source** (`sync/worker.rs`, held in `App.workers`). Sync now, the Slack socket's nudges and the vault watcher send it messages, and requests queued during a poll share the next one. A restart joins the old worker, and every poll holds the source's poll lock.
+- **`sync_streams`** records each stream's error and failure count. A Slack poll commits stream by stream. An error about one stream (not found, not in channel, a scope) is recorded and the poll goes on; one about the token or account, or the network, ends it. A thread Slack can't find three polls in a row is dropped.
+- **`items.remote_rev`:** Jira `updated`, GitHub `updated_at` + comment count, a Slack mention's `ts`. Applying the same revision again changes nothing, which makes the overlap windows safe: GitHub's searches read an hour before the cursor and Slack's an hour before the newest hit. Jira and GitHub judge new against the item's stored revision, not the cursor.
+- **Open Jira and GitHub items are read again by id**, ten per poll and each at most every six hours. Each is a stream `item:<id>`.
+- **Messages upsert on `(item_id, ext_key)`** (migration 23). Jira and GitHub comments are keyed by comment id; messages without an id by a hash, replaced when the source's version changes, and a keyed row inherits the read state of the hashed one it replaces. The Slack connector no longer caps a run; views show an item's latest 50 top-level messages.
+
+**Phase 3: triage and outbox.**
+
+- **`items.rev`** is kept by triggers. `incoming.list` returns it with the keys of the messages it shows, and Confirm, Move, Dismiss and Trash send both back. The messages you saw are marked read; if the rev moved, the item is filed but stays in Incoming with only the newer messages new.
+- **Guards:** Slack is marked read up to the newest message you saw. Gmail files, archives and trashes only when the thread has no unread mail you didn't see.
+- **Outbox:** a row isn't claimed while an earlier row for the same item is pending, in flight or failed. A claim leases it for ten minutes (`lease_until`). The sender loop returns an expired lease to `pending` when the op is safe to send twice, else fails it with "unknown whether it went through". This runs on every loop, not only at startup, so it also covers another app sharing the data dir.
+- **Notes autosave** merges into a `pending` or `failed` row, never one in flight.
+
+**Phase 4: derived data and live queries.**
+
+- **Derived data:**
+  - `topic_links.item_at` (the linked item's time, kept by triggers) with the index `topic_links(topic, state, item_at)`: a topic's latest signal is one seek.
+  - Views `topic_new_counts` and `topic_open_counts` over partial indexes.
+  - `topics.corpus_rev`, bumped when a topic's links or a linked item's text really change.
+  - The `embed_dirty(item_id, gen)` queue, filled by triggers. The embedder removes a row only at the generation it read.
+  - `store::tests::maintained_values_match_their_from_scratch_queries` checks all of them against from-scratch queries.
+- **The Notes index** (`queries::notes::IndexCache`) keeps each topic's words keyed by `corpus_rev` and the note file's mtime. Only topics whose revision or note moved are read again.
+- **Incoming** starts from unseen items and recent messages (`CROSS JOIN` fixes the join order; indexes on `items(occurred_at)` and `person_handles(person_id, source_kind)`).
+- **Live queries** (`src/live.rs`, `store/changes.rs`, `lib/live.ts`):
+  - Any routed read command can be subscribed (`live.subscribe`). It runs with an authorizer collecting the tables it reads.
+  - The writer's update hook collects the tables each transaction writes. `Db::write` publishes them after the commit and drops them on a rollback.
+  - A thread re-runs the subscriptions whose tables intersect, and once a minute all of them. Settings changes re-run all of them.
+  - A changed result goes to the client's `live.wait` long poll. That is used on the desktop too (a Tauri command runs on the blocking pool), so the desktop and the browser share one path. The devserver now answers each call on its own thread.
+  - The writer's authorizer answers `IGNORE` to deletes. SQLite documents that this turns off the truncate optimization, whose whole-table `DELETE` the update hook would not see.
+  - Converted: Incoming, the Topics index (and its categories), Todos, the day strip and the countdown pill. Incoming's 2 s `agents.incoming_rev` poll is gone.
+
+**Measured** on the 200k-item scratch database (release devserver; output identical to the previous build):
+
+| Query | Before | After |
+|---|---|---|
+| `topics.list` | 0.71 s | 7 ms |
+| `notes.page` | 2.0 s | 1.9 s first load after start, 4 ms after |
+| `incoming.list` | 0.50 s | 0.12–0.16 s |
+
+**Proofs:**
+
+- **Phase 2:** `sync_now_nudges_restarts_and_direct_calls_never_overlap`, `one_failing_conversation_doesnt_stop_the_others`, `a_long_run_keeps_every_message_and_their_ids`, `the_same_revision_again_changes_nothing`.
+- **Phase 3:** `a_message_arriving_mid_render_stays_new`, `a_send_cut_off_mid_way_is_resent_only_if_doing_it_twice_is_harmless`, `an_items_writes_go_out_in_order_even_after_a_retry`.
+- **Phase 4:** `maintained_values_match_their_from_scratch_queries`, `a_write_reruns_only_what_read_the_tables_it_changed`, `a_rolled_back_write_announces_nothing`, `deleting_every_row_is_announced`.
+
+**Different from the plan, or not done:**
+
+- **The cursor stays one document per source.** The worker makes each source single-writer, which is what the blob lacked; `sync_streams` holds errors and failure counts.
+- **No `idem_key`.** The ops safe to resend already find what an earlier send made (a hold by its event id, a Jira issue by its summary). The rest (replies, comments, appends) have no API hook for one without changing what you wrote.
+- **No gcal etag revision.** Skipping unchanged events would also skip re-applying category colours.
+- **The last signal is kept on `topic_links.item_at`, not `topics.last_signal_at`.** One edge differs from before: an item still under way counts as a topic's latest signal once it ends, not before.
+- **`notes.page` misses the < 50 ms target on its first load after start** (1.9 s). That load reads every topic's text once; later loads are warm.
+- **Not built:**
+  - `incoming.list` paging and lazy messages.
+  - Row-level live-query filters.
+  - Converting the other views (Priorities, Topics detail, Reflect, Search, Nudge, Category manager) off `ui.rev`.
+  - The settings and sync-status polls stay; they read in-memory state, not the database.
+- **The FTS triggers rewrite an item's index entry on updates that don't change its text.** Not fixed.
 
 ## Order and checks
 

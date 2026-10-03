@@ -55,3 +55,15 @@ Unseen items with a `confirmed` link now show under their topic in Incoming as u
 ### Changing `obsidian_vault` strands notes saved in the stand-in vault
 
 With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. Setting `obsidian_vault` later switches every read to the real vault and nothing moves the stand-in's files, so earlier reflections silently disappear from Reflect. Hit when connecting Obsidian on the work Mac: `Reflections/Daily/2026-09-28.md` was copied over by hand (the original is still in the stand-in). Fix direction: on startup, if `obsidian_vault` is set and `<data dir>/vault` has files, offer to copy them over (never overwrite), or at least warn.
+
+### Database Phases 2–4: unverified on real data
+
+Migrations 23–31 (message keys, `sync_streams`, `remote_rev`, `items.rev`, outbox lease, derived topic values, corpus revisions, the embedding queue, Incoming indexes) were tested on fixtures and a 200k-item scratch database built from sample data, not on the user's database. Check the first start's time and that Incoming, Topics and Notes look the same afterwards. Message keys were checked on the sample data only: real rows without an id get a hashed key, and a GitHub or Jira comment re-read later moves to its id key, keeping its read state.
+
+### Live queries re-run per table, not per row
+
+Any write to `items` re-runs every subscription that read `items`, Incoming's included (0.12–0.16 s on 200k items). That's fine at today's write rate. If a busy sync makes it show, filter by row (the plan's next step) or page `incoming.list`. Also, the FTS triggers rewrite an item's index entry on updates that don't change its text; that wastes writes but doesn't affect results.
+
+### `notes.page`: first load after start is slow
+
+1.9 s on the 200k-item scratch database, then 4 ms: the cache of each topic's words starts empty. Fix direction if it matters: warm it in the background at startup, or persist it.
