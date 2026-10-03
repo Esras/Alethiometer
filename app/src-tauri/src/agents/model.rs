@@ -178,6 +178,9 @@ pub struct Row {
     /// Right of the header, before the time: "subagent · haiku".
     pub note: String,
     pub tool: Option<Tool>,
+    /// Pasted into the composer; sent as ACP `image` content blocks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<RowImage>,
     pub delivery: Option<Delivery>,
     /// Rows inside this row's box (a subagent's task, its folded tool calls, its result).
     pub children: Vec<Row>,
@@ -230,6 +233,13 @@ pub struct Tool {
     pub removed: Option<u64>,
     /// Folded summary for a subagent's calls: "5 tool calls · read ×3, grep ×2 · 4.8s".
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct RowImage {
+    /// Base64-encoded, no data: URI prefix.
+    pub data: String,
+    pub mime: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

@@ -157,7 +157,7 @@
     // Needs you keys, whenever a request is pinned.
     const req = pinned(ag.open);
     if (req && !denying) {
-      if (req.kind === 'approval' && ['o', 's', 'a', 'd'].includes(k) && approval?.choose(k)) return true;
+      if (req.kind === 'approval' && /^[1-9]$/.test(k) && approval?.choose(k)) return true;
       if (req.kind === 'ask' && ['1', '2', '3'].includes(k) && ask?.choose(k)) return true;
       if (req.kind === 'ask' && k === 'r') {
         ag.replying = req.id;

@@ -41,7 +41,7 @@
 
   const label = (o: Request['options'][number]) => {
     if (o.kind === 'allow_once') return 'Allow once';
-    if (o.key === 's') return 'This session';
+    if (o.kind === 'allow_always' && o.name.toLowerCase().includes('session')) return 'This session';
     return `Always: ${o.name}`;
   };
 </script>
@@ -62,8 +62,9 @@
       <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
     </div>
     {#if req.command}<div class="command">{pretty}</div>{/if}
-    {#if req.parsed}
-      <div class="panels" class:solo={!req.explained}>
+    {#if req.parsed || req.explained}
+      <div class="panels" class:solo={!req.parsed || !req.explained}>
+        {#if req.parsed}
         <div class="panel">
           <div class="ph-head">
             <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub">shell parser · same answer every time</span>
@@ -84,6 +85,7 @@
             </div>
           {/if}
         </div>
+        {/if}
         {#if req.explained}
           <div class="panel">
             <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub">{req.explained.model}</span></div>
@@ -119,7 +121,7 @@
         {#each allow as o (o.id)}
           <button class="b" class:primary={o.kind === 'allow_once'} title={o.name} onclick={() => choose(o.key)}>{label(o)}{#if o.key}<span class="k">{o.key.toUpperCase()}</span>{/if}</button>
         {/each}
-        {#if deny}<button class="b" title={deny.name} onclick={() => choose(deny.key)}>Deny…<span class="k">D</span></button>{/if}
+        {#if deny}<button class="b" title={deny.name} onclick={() => choose(deny.key)}>Deny…{#if deny.key}<span class="k">{deny.key}</span>{/if}</button>{/if}
         <span class="right">Esc later</span>
       </div>
     {/if}

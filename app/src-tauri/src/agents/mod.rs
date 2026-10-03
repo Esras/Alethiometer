@@ -21,7 +21,7 @@ pub mod store;
 use crate::error::{msg, Result};
 use crate::queries::arg_str;
 use crate::state::App;
-use model::{Group, Request, Row, Session, Status};
+use model::{Group, Request, Row, RowImage, Session, Status};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -165,12 +165,22 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "send" => {
             let key = arg_str(args, "thread")?;
             let text = arg_str(args, "text")?;
-            if text.trim().is_empty() {
+            let images: Vec<RowImage> = args
+                .get("images")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+                .unwrap_or_default();
+            if text.trim().is_empty() && images.is_empty() {
                 return Err(msg("Write a message first"));
             }
             match key.strip_prefix("s:") {
-                Some(id) if id.starts_with("acp-") => acp::send(app, id, &text)?,
-                _ => scion::send(app, &key, &text, opt(args, "to"))?,
+                Some(id) if id.starts_with("acp-") => acp::send(app, id, &text, images)?,
+                _ => {
+                    if !images.is_empty() {
+                        return Err(msg("Images aren't supported on Scion yet"));
+                    }
+                    scion::send(app, &key, &text, opt(args, "to"))?
+                }
             }
             Ok(json!({ "ok": true }))
         }

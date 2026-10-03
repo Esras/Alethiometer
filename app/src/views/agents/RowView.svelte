@@ -18,6 +18,7 @@
     nested = false,
     waiting = false,
     onDelivery,
+    onToggle,
     nameColor,
   }: {
     row: Row;
@@ -28,6 +29,7 @@
     nested?: boolean;
     waiting?: boolean;
     onDelivery?: (action: string) => void;
+    onToggle?: () => void;
     /** Settings preview: colours from the page being edited. */
     nameColor?: (w: Who | null | undefined) => string;
   } = $props();
@@ -144,7 +146,7 @@
         {#snippet m()}<span class="own">thinking{row.tokens ? ` · ${row.tokens} tok` : ''}</span>{/snippet}
         {#snippet r()}<span class="k">E</span>{/snippet}
         {@render header(m, r)}
-        <div class="think" class:open>{row.text}</div>
+        <div class="think" class:open role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>{row.text}</div>
       </div>
     </div>
   {:else if row.kind === 'tool' || row.kind === 'approval'}
@@ -171,7 +173,7 @@
       <div class="g">
         <i class="ph ph-arrow-elbow-down-right ic" style:color="var(--tx-label)"></i>
         <div class="mid">
-          <div class="result" class:open class:failed={t?.status === 'failed'}>
+          <div class="result" class:open class:failed={t?.status === 'failed'} role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>
             {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{(open ? t.result : clip(t.result)).slice(1)}{:else}{open ? t?.result : clip(t?.result ?? '')}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <span class="k">E</span></span>{/if}
           </div>
         </div>
@@ -188,6 +190,11 @@
         {/snippet}
         {@render header(whoTo, r)}
         {#if row.text}<Body text={row.text} tone={row.kind === 'you' || row.kind === 'ask' ? 'you' : row.kind === 'message' && !nested ? 'boxed' : row.kind === 'message' ? 'boxed' : 'agent'} />{/if}
+        {#if row.images?.length}
+          <div class="imgs">
+            {#each row.images as img, i (i)}<img src="data:{img.mime};base64,{img.data}" alt="pasted" />{/each}
+          </div>
+        {/if}
         {#if d && loud}
           <div class="grid">
             <span class="gk">why</span><span>{d.reason || (loud === 'unreach' ? 'the agent isn’t running' : 'the Hub refused it')}</span>
@@ -394,6 +401,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: pointer;
   }
   .think.open {
     white-space: pre-wrap;
@@ -434,12 +442,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .imgs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 5px;
+  }
+  .imgs img {
+    height: 96px;
+    width: auto;
+    max-width: 160px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+  }
   .result {
     font: 0.885rem/20px var(--font-mono);
     color: var(--tx-label);
     white-space: pre;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: pointer;
   }
   .result.open {
     white-space: pre-wrap;

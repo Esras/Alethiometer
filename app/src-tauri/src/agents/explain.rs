@@ -60,7 +60,7 @@ pub fn request(app: &App, id: &str) {
             .as_ref()
             .map(|p| p.steps.iter().map(|s| format!("{} {} [{}]", s.n, s.text, s.tags.join(", "))).collect::<Vec<_>>().join("\n"))
             .unwrap_or_default();
-        let user = format!("<command>\ncwd: {}\ntool: {}\n\n{}\n\nparse:\n{}\n</command>", req.cwd, req.tool, ai::context::clip(&req.command, 4000), parsed);
+        let user = format!("<command>\ncwd: {}\ntool: {}\n\n{}\n\nparse:\n{}\n</command>", req.cwd, req.tool, req.command, parsed);
         let out = ai::with_live(&app, |deps| ai::complete(&app, deps, Tier::Small, SYSTEM, &user, 600));
         let e = match out {
             Ok(text) => {

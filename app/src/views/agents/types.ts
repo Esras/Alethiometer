@@ -100,6 +100,7 @@ export interface Row {
   text: string;
   note: string;
   tool: Tool | null;
+  images?: { data: string; mime: string }[];
   delivery: Delivery | null;
   children: Row[];
   request: string | null;

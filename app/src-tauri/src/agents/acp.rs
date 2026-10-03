@@ -12,7 +12,7 @@
 //! session from an earlier run starts the adapter again and resumes it
 //! (`session/resume`, else `session/load` with the replay dropped).
 
-use super::model::{Delivery, Kind, PermOption, Request, Row, Session, Status, Tool, Who};
+use super::model::{Delivery, Kind, PermOption, Request, Row, RowImage, Session, Status, Tool, Who};
 use super::{now, session_thread};
 use crate::error::{msg, Result};
 use crate::state::App;
@@ -286,11 +286,11 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     let Some(arc) = app.arc() else { return Ok(id) };
     let sid = id.clone();
     std::thread::spawn(move || {
-        let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true));
+        let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true, vec![]));
         match connect(&arc, &sid, None) {
             Ok(conn) => {
                 if let Some(row) = queued {
-                    prompt(&arc, &conn, row, task);
+                    prompt(&arc, &conn, row, task, vec![]);
                 } else {
                     set_status(&arc, &sid, Status::Idle);
                 }
@@ -1016,24 +1016,12 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         .get("options")
         .and_then(Value::as_array)
         .map(|opts| {
-            let mut used = vec![];
             opts.iter()
-                .map(|o| {
+                .enumerate()
+                .map(|(i, o)| {
                     let kind = o.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
                     let name = o.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-                    let mut key = match kind.as_str() {
-                        "allow_once" => "o",
-                        "allow_always" if name.to_lowercase().contains("session") => "s",
-                        "allow_always" => "a",
-                        _ => "d",
-                    }
-                    .to_owned();
-                    if used.contains(&key) {
-                        key.clear();
-                    } else {
-                        used.push(key.clone());
-                    }
-                    PermOption { id: o.get("optionId").and_then(Value::as_str).unwrap_or("").into(), name, kind, key }
+                    PermOption { id: o.get("optionId").and_then(Value::as_str).unwrap_or("").into(), name, kind, key: (i + 1).to_string() }
                 })
                 .collect()
         })
@@ -1190,12 +1178,12 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
         i.update_session(&req.session_id, |s| s.status = if still_waiting { Status::Waiting } else { Status::Running });
     }
     if let Some(r) = reason.filter(|r| !r.trim().is_empty()) {
-        send(app, &req.session_id, r)?;
+        send(app, &req.session_id, r, vec![])?;
     }
     Ok(())
 }
 
-fn push_you(app: &App, id: &str, text: &str, mid_turn: bool) -> u64 {
+fn push_you(app: &App, id: &str, text: &str, mid_turn: bool, images: Vec<RowImage>) -> u64 {
     let ts = now(app);
     let mut i = app.agents.store.lock();
     let first = i.find_row(&session_thread(id), |r| r.kind == Kind::You).is_none();
@@ -1205,12 +1193,12 @@ fn push_you(app: &App, id: &str, text: &str, mid_turn: bool) -> u64 {
     } else {
         Delivery { state: "pending".into(), at: ts.clone(), ..Default::default() }
     };
-    let row = Row { at: ts, kind: Kind::You, who: Some(Who::you()), label: if first { "prompt".into() } else { "message".into() }, text: text.into(), delivery: Some(delivery), ..Default::default() };
+    let row = Row { at: ts, kind: Kind::You, who: Some(Who::you()), label: if first { "prompt".into() } else { "message".into() }, text: text.into(), images, delivery: Some(delivery), ..Default::default() };
     i.push_row(&session_thread(id), row)
 }
 
 /// Send `session/prompt` and wait for the turn to end on its own thread.
-fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
+fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<RowImage>) {
     let a = app.clone();
     let c = conn.clone();
     std::thread::spawn(move || {
@@ -1241,7 +1229,9 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
             });
         }
         let sid = c.sid();
-        let res = c.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), None);
+        let mut blocks = vec![json!({ "type": "text", "text": text })];
+        blocks.extend(images.iter().map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })));
+        let res = c.request("session/prompt", json!({ "sessionId": sid, "prompt": blocks }), None);
         let ts = now(&a);
         let mut t = c.turn.lock().unwrap_or_else(|e| e.into_inner());
         t.in_flight = t.in_flight.saturating_sub(1);
@@ -1310,22 +1300,22 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String) {
 }
 
 /// Message a local session. One from an earlier run is started again first.
-pub fn send(app: &App, id: &str, text: &str) -> Result<()> {
+pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()> {
     if id.contains('~') {
         return Err(msg("Subagents take messages through their parent"));
     }
     let arc = app.arc().ok_or_else(|| msg("not ready"))?;
     if let Some(conn) = app.agents.acp.get(id) {
         let mid = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).in_flight > 0;
-        let row = push_you(app, id, text, mid);
-        prompt(&arc, &conn, row, text.to_owned());
+        let row = push_you(app, id, text, mid, images.clone());
+        prompt(&arc, &conn, row, text.to_owned(), images);
         return Ok(());
     }
     let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
     if !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned()) {
         return Err(msg("Still starting; send again in a moment"));
     }
-    let row = push_you(app, id, text, true);
+    let row = push_you(app, id, text, true, images.clone());
     let ts = now(app);
     {
         let mut i = app.agents.store.lock();
@@ -1341,7 +1331,7 @@ pub fn send(app: &App, id: &str, text: &str) -> Result<()> {
         let r = connect(&arc, &id, resume);
         arc.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         match r {
-            Ok(conn) => prompt(&arc, &conn, row, text),
+            Ok(conn) => prompt(&arc, &conn, row, text, images),
             Err(e) => {
                 fail(&arc, &id, &e.to_string());
                 let key = session_thread(&id);

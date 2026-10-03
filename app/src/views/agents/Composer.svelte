@@ -28,6 +28,7 @@
   const replyingTo = $derived(ag.replying ? ag.tree?.requests.find((r) => r.id === ag.replying) : undefined);
   // Keyed by thread in Pane, so the draft is read once.
   let text = $state(untrack(() => ag.drafts[thread] ?? ''));
+  let images = $state<{ data: string; mime: string }[]>([]);
   let busy = $state(false);
   let pick = $state(0);
   $effect(() => {
@@ -54,7 +55,7 @@
 
   async function send() {
     const t = text.trim();
-    if (!t || busy) return;
+    if ((!t && !images.length) || busy) return;
     busy = true;
     try {
       if (replyingTo) {
@@ -64,13 +65,32 @@
         // One @member at the start addresses that member (a mention); otherwise the whole room.
         const m = /^@([\w.-]+)\s/.exec(t);
         const to = room && m && members.some((s) => s.name === m[1]) ? m[1] : '';
-        await act('send', { thread, text: t, to });
+        await act('send', { thread, text: t, to, images });
       }
       text = '';
+      images = [];
     } catch {
       /* shown in the error line */
     } finally {
       busy = false;
+    }
+  }
+
+  // Local sessions only: ACP's image prompt capability isn't wired for Scion.
+  function onPaste(e: ClipboardEvent) {
+    if (!isLocal) return;
+    const files = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile());
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) {
+      if (!f) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result ?? '');
+        const data = url.slice(url.indexOf(',') + 1);
+        if (data) images = [...images, { data, mime: f.type }];
+      };
+      reader.readAsDataURL(f);
     }
   }
 
@@ -130,16 +150,29 @@
 <div class="row">
   <label class="box" class:focus={ag.zone === 'composer'} class:reply={!!replyingTo}>
     <i class="ph {replyingTo ? 'ph-arrow-bend-up-left' : 'ph-chat-circle'}"></i>
-    <textarea
-      bind:this={el}
-      bind:value={text}
-      rows="1"
-      {placeholder}
-      onfocus={() => (ag.zone = 'composer')}
-      onkeydown={onKey}
-      onkeyup={() => (caret = el?.selectionStart ?? 0)}
-      onclick={() => (caret = el?.selectionStart ?? 0)}
-    ></textarea>
+    <div class="input-col">
+      {#if images.length}
+        <div class="thumbs">
+          {#each images as img, i (i)}
+            <div class="thumb">
+              <img src="data:{img.mime};base64,{img.data}" alt="pasted" />
+              <button class="rm" title="Remove" onclick={() => (images = images.filter((_, j) => j !== i))}><i class="ph ph-x"></i></button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <textarea
+        bind:this={el}
+        bind:value={text}
+        rows="1"
+        {placeholder}
+        onfocus={() => (ag.zone = 'composer')}
+        onkeydown={onKey}
+        onkeyup={() => (caret = el?.selectionStart ?? 0)}
+        onclick={() => (caret = el?.selectionStart ?? 0)}
+        onpaste={onPaste}
+      ></textarea>
+    </div>
     {#if room && !text}<span class="hint-at">@ to address one member</span>{/if}
     {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
     <span class="kbd">⌘⏎</span>
@@ -176,7 +209,7 @@
     flex: 1;
     display: flex;
     gap: 8px;
-    align-items: center;
+    align-items: flex-end;
     min-height: 36px;
     padding: 6px 12px;
     border-radius: 7px;
@@ -193,8 +226,51 @@
   .box i {
     font-size: 1.077rem;
   }
-  textarea {
+  .input-col {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .thumbs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 6px;
+  }
+  .thumb {
+    position: relative;
+  }
+  .thumb img {
+    display: block;
+    height: 48px;
+    width: 48px;
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid var(--border-strong);
+  }
+  .thumb .rm {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bg-head);
+    border: 1px solid var(--border-strong);
+    color: var(--tx-2);
+    font-size: 0.7rem;
+  }
+  .thumb .rm:hover {
+    color: var(--tx-title);
+  }
+  textarea {
+    flex: none;
+    width: 100%;
     min-width: 0;
     resize: none;
     background: none;
