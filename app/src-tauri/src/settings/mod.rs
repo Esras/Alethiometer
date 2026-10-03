@@ -406,6 +406,9 @@ impl Settings {
                 anyhow::bail!("agents.harnesses: each needs a unique key and a command");
             }
         }
+        if let Categories::List(rows) = &self.categories {
+            crate::queries::categories::check(rows).map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
         let mut seen = std::collections::BTreeSet::new();
         for (i, s) in self.sources.iter().enumerate() {
             if s.tag != "work" && s.tag != "personal" {

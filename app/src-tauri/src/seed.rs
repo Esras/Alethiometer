@@ -191,6 +191,10 @@ pub fn fmt(t: NaiveDateTime) -> String {
 }
 
 pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
+    // Sample People, Topics and daily notes are files: never in a real vault.
+    if !app.settings().obsidian_vault.is_empty() {
+        return Ok(());
+    }
     let mut conn = app.db();
     let n: i64 = conn.query_row("SELECT count(*) FROM sources", [], |r| r.get(0))?;
     if n > 0 {
@@ -265,7 +269,9 @@ pub fn seed(conn: &Connection, today: NaiveDate, vault: &std::path::Path) -> any
         ("protoncal", "personal", "Proton Calendar"),
         ("marvin", "personal", "Marvin"),
     ] {
-        conn.execute("INSERT INTO sources (kind, tag, name) VALUES (?1, ?2, ?3)", params![kind, tag, name])?;
+        // Named apart from what Settings › Add source calls a new source, so a
+        // real source never takes over the sample rows (sources match on kind and name).
+        conn.execute("INSERT INTO sources (kind, tag, name) VALUES (?1, ?2, ?3)", params![kind, tag, format!("{name} (sample)")])?;
         sources.insert(kind, conn.last_insert_rowid());
     }
 
@@ -340,4 +346,35 @@ pub fn seed(conn: &Connection, today: NaiveDate, vault: &std::path::Path) -> any
     crate::queries::notes::seed(&ctx)?;
     crate::queries::reflect::seed(&ctx, vault)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::settings::Settings;
+    use crate::state::App;
+
+    #[test]
+    fn sample_data_never_goes_into_a_real_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = tempfile::tempdir().unwrap();
+        let s = Settings { demo_data: true, obsidian_vault: vault.path().display().to_string(), ..Default::default() };
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), s, dir.path()).unwrap();
+        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 0, "nothing written to the vault");
+        let n: i64 = app.db().query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn a_real_source_added_later_gets_its_own_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings { demo_data: true, ..Default::default() }, dir.path()).unwrap();
+        let cfg = serde_json::from_value::<crate::settings::SourceConfig>(serde_json::json!({ "kind": "slack", "tag": "work", "name": "Slack" })).unwrap();
+        crate::sync::register_sources(&app.db(), &[cfg]).unwrap();
+        let conn = app.db();
+        let real: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack' AND name = 'Slack'", [], |r| r.get(0)).unwrap();
+        let items: i64 = conn.query_row("SELECT count(*) FROM items WHERE source_id = ?1", [real], |r| r.get(0)).unwrap();
+        assert_eq!(items, 0, "none of the sample Slack items");
+        let cursor: Option<String> = conn.query_row("SELECT cursor FROM sources WHERE id = ?1", [real], |r| r.get(0)).unwrap();
+        assert_eq!(cursor, None, "nor the sample cursor");
+    }
 }

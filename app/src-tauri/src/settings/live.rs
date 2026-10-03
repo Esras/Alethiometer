@@ -189,10 +189,54 @@ pub fn migrate_file(path: &Path) -> Result<()> {
 
 /// Startup: record a validation problem with the file the app opened with
 /// (it still runs on it; Settings shows the error).
-pub fn startup(app: &App) {
-    if let Err(e) = app.settings().validate() {
-        eprintln!("settings.json: {e}");
-        app.settings_state().error = Some(e.to_string());
+/// Where the last settings that parsed and validated are kept.
+fn last_good_path(path: &Path) -> std::path::PathBuf {
+    path.with_file_name("settings.last-good.json")
+}
+
+fn keep_last_good(path: &Path, s: &Settings) {
+    if let Ok(text) = serde_json::to_string_pretty(s) {
+        if let Err(e) = crate::fsx::write_atomic(&last_good_path(path), text.as_bytes(), None) {
+            eprintln!("settings: couldn't keep a last good copy: {e}");
+        }
+    }
+}
+
+/// The settings to open the app with, and why settings.json isn't them.
+///
+/// A bad hand edit (doesn't parse, wrong type, fails `validate`) mustn't stop
+/// the app opening, nor be overwritten: the app runs on the last settings
+/// that were good (`settings.last-good.json`), or on defaults without sample
+/// data when there are none, and Settings shows the problem until the file
+/// is fixed (the watcher picks the fix up).
+pub fn load_at_startup(path: &Path) -> anyhow::Result<(Settings, Option<String>)> {
+    let read = Settings::load_or_init(path).and_then(|s| {
+        s.validate()?;
+        Ok(s)
+    });
+    match read {
+        Ok(s) => {
+            keep_last_good(path, &s);
+            Ok((s, None))
+        }
+        Err(e) => {
+            let last = std::fs::read_to_string(last_good_path(path))
+                .ok()
+                .and_then(|t| serde_json::from_str::<Settings>(&t).ok())
+                .filter(|s| s.validate().is_ok());
+            let why = match &last {
+                Some(_) => format!("settings.json: {e}. Running on the last good settings until it's fixed."),
+                None => format!("settings.json: {e}. Running on defaults until it's fixed."),
+            };
+            eprintln!("{why}");
+            Ok((last.unwrap_or_else(|| Settings { demo_data: false, ..Default::default() }), Some(why)))
+        }
+    }
+}
+
+pub fn startup(app: &App, problem: Option<String>) {
+    if problem.is_some() {
+        app.settings_state().error = problem;
     }
 }
 
@@ -273,6 +317,7 @@ fn apply(app: &App, new: Settings) -> State {
         return st.clone();
     }
     app.set_settings(new.clone());
+    keep_last_good(&app.settings_path(), &new);
     let mut notes: Vec<String> = vec![];
     let mut restart = false;
 
@@ -448,6 +493,37 @@ mod tests {
 
     fn set(path: Value, value: Value) -> Edit {
         Edit::parse(&json!({ "path": path, "value": value })).unwrap()
+    }
+
+    #[test]
+    fn a_broken_settings_file_opens_on_the_last_good_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // A good start, with a source and the vault left default.
+        let mut good = Settings { demo_data: false, quiet_days: 9, ..Default::default() };
+        good.sources.push(serde_json::from_value(serde_json::json!({ "kind": "jira", "tag": "work", "name": "Jira" })).unwrap());
+        std::fs::write(&path, serde_json::to_string_pretty(&good).unwrap()).unwrap();
+        drop(App::open(dir.path()).unwrap());
+        for broken in [
+            "{ \"quiet_days\": ",                                                    // doesn't parse
+            "{ \"quiet_days\": \"7\" }",                                             // wrong type
+            "{ \"sources\": [{ \"kind\": \"jira\", \"tag\": \"Work\", \"name\": \"J\" }] }", // bad tag
+            "{ \"categories\": [{ \"key\": \"work\", \"label\": \"Work\", \"color\": \"yellow\" }] }", // bad colour
+        ] {
+            std::fs::write(&path, broken).unwrap();
+            let app = App::open(dir.path()).unwrap_or_else(|e| panic!("didn't open with {broken}: {e}"));
+            assert_eq!(app.settings().quiet_days, 9, "last good settings with {broken}");
+            assert!(app.settings_state().error.as_deref().is_some_and(|e| e.contains("last good")), "{broken}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "the file is left for the user to fix");
+        }
+    }
+
+    #[test]
+    fn a_bad_category_list_is_refused_before_it_applies() {
+        let (app, _dir) = arc();
+        let bad = set(json!(["categories"]), json!([{ "key": "work", "label": "Work", "color": "yellow" }]));
+        assert!(patch(&app, &[bad]).is_err());
+        assert!(app.settings().validate().is_ok());
     }
 
     #[test]

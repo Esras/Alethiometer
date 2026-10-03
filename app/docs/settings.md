@@ -10,7 +10,7 @@ Every change writes `settings.json` right away (temp file + rename). There's no 
 - **Saved · Slack reconnected**: a source's settings changed, so only that connector restarted. Each source's loops carry a generation number and stop when it moves on. A search-only source (Glean) says "updated".
 - **Saved · restarting**: the vault path (`obsidian_vault`) and `fake_now` can't apply live, so the app restarts itself. The dev server can't, and says "restart Alethiometer to apply".
 
-Hand edits are picked up the same way: a file watcher on the data dir reloads `settings.json`. A file that doesn't parse or validate is refused. The app keeps the last good settings and Settings shows the error in its header. Opening the app with an invalid file still works (it runs on what parsed) and shows the error.
+Hand edits are picked up the same way: a file watcher on the data dir reloads `settings.json`. A file that doesn't parse or validate is refused. The app keeps the last good settings and Settings shows the error in its header. Opening the app with an invalid file still works: it runs on the last settings that were good (`settings.last-good.json`, kept on every successful load and change), or on defaults without sample data if there are none, shows the error, and never writes over the broken file. Categories are part of validation, so a bad colour or repeated key is refused before it applies.
 
 `ai.allowed_providers` can't be changed from Settings. It's the safety gate for work data, so it stays a hand edit.
 

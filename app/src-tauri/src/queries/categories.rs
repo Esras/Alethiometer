@@ -15,6 +15,20 @@ use std::path::Path;
 const BUILT_IN: [&str; 2] = ["work", "life"];
 pub const UNCATEGORIZED: &str = "";
 
+/// The categories in settings.json, cleaned up, or why they can't be used.
+/// Part of `Settings::validate`, so a bad list never gets as far as `load`.
+pub fn check(rows: &[Category]) -> Result<Vec<Category>> {
+    let mut keep: Vec<Category> = vec![];
+    for c in rows {
+        let key = c.key.trim();
+        if key.is_empty() || keep.iter().any(|k| k.key == key) {
+            return Err(msg(format!("settings.json categories: key '{key}' is empty or repeated")));
+        }
+        keep.push(Category { key: key.into(), label: label(&c.label)?, color: color(&c.color)? });
+    }
+    Ok(keep)
+}
+
 pub fn load(conn: &Connection, from: &Categories) -> Result<bool> {
     let rows = match from {
         Categories::Legacy(m) => {
@@ -26,14 +40,7 @@ pub fn load(conn: &Connection, from: &Categories) -> Result<bool> {
         }
         Categories::List(rows) => rows,
     };
-    let mut keep: Vec<Category> = vec![];
-    for c in rows {
-        let key = c.key.trim();
-        if key.is_empty() || keep.iter().any(|k| k.key == key) {
-            return Err(msg(format!("settings.json categories: key '{key}' is empty or repeated")));
-        }
-        keep.push(Category { key: key.into(), label: label(&c.label)?, color: color(&c.color)? });
-    }
+    let mut keep = check(rows)?;
     let n = keep.len();
     let defaults = match Settings::default().categories {
         Categories::List(d) => d,

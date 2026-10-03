@@ -45,12 +45,19 @@ impl App {
 
     pub fn open(data_dir: &Path) -> anyhow::Result<App> {
         std::fs::create_dir_all(data_dir)?;
-        let settings = Settings::load_or_init(&data_dir.join("settings.json"))?;
+        let (settings, problem) = crate::settings::live::load_at_startup(&data_dir.join("settings.json"))?;
         let conn = crate::db::open(&data_dir.join("alethiometer.sqlite"))?;
-        Self::from_parts(conn, settings, data_dir)
+        Self::open_with(conn, settings, data_dir, problem)
     }
 
-    pub fn from_parts(conn: Connection, mut settings: Settings, data_dir: &Path) -> anyhow::Result<App> {
+    pub fn from_parts(conn: Connection, settings: Settings, data_dir: &Path) -> anyhow::Result<App> {
+        let problem = settings.validate().err().map(|e| format!("settings.json: {e}"));
+        Self::open_with(conn, settings, data_dir, problem)
+    }
+
+    /// `problem`: settings.json on disk isn't `settings` (it doesn't parse or
+    /// validate). Nothing is written back to it then.
+    fn open_with(conn: Connection, mut settings: Settings, data_dir: &Path, problem: Option<String>) -> anyhow::Result<App> {
         let vault = if settings.obsidian_vault.is_empty() {
             data_dir.join("vault")
         } else {
@@ -75,14 +82,22 @@ impl App {
             settings_state: Mutex::new(Default::default()),
             this: OnceLock::new(),
         };
-        if crate::queries::categories::load(&app.db(), &app.settings().categories)? {
-            crate::queries::categories::save(&app.db(), &data_dir.join("settings.json"))?;
+        let mut problem = problem;
+        match crate::queries::categories::load(&app.db(), &app.settings().categories) {
+            // Migrated from the old form: written back, unless the file is the broken one.
+            Ok(true) if problem.is_none() => {
+                if let Err(e) = crate::queries::categories::save(&app.db(), &data_dir.join("settings.json")) {
+                    eprintln!("settings.json: couldn't write the migrated categories: {e}");
+                }
+            }
+            Ok(_) => {}
+            Err(e) => problem = Some(problem.map_or(format!("categories: {e}"), |p| format!("{p} · categories: {e}"))),
         }
         crate::sync::register_sources(&app.db(), &app.settings().sources)?;
         if app.settings().demo_data {
             crate::seed::seed_if_empty(&app)?;
         }
-        crate::settings::live::startup(&app);
+        crate::settings::live::startup(&app, problem);
         // People notes may have changed while the app was closed.
         crate::queries::people::scan(&app.db(), &app.vault)?;
         Ok(app)
