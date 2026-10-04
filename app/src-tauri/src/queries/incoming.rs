@@ -762,6 +762,7 @@ pub fn trash_seen(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Resu
         return Err(msg("only Gmail threads can be trashed"));
     }
     uow.items().set_seen(item_id, true)?;
+    uow.todos().set_discarded(item_id, true)?;
     gmail_op(uow, item_id, "gmail.trash", saw)?;
     settle_saw(uow, item_id, saw)
 }
@@ -1584,6 +1585,22 @@ mod tests {
         assert_eq!(unseen(&conn) as usize, shown(&q2));
         dismiss(&crate::store::over(&conn), item, false).unwrap();
         assert!(queue(&crate::store::over(&conn), &now).unwrap().unsorted.iter().any(|s| s.item_id == item));
+    }
+
+    #[test]
+    fn trash_sets_a_held_todo_aside_like_dismiss_and_undo_holds_it_again() {
+        let (conn, _now, _d) = setup();
+        let item: i64 = conn
+            .query_row("SELECT i.id FROM items i JOIN sources s ON s.id = i.source_id WHERE s.kind = 'gmail' LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        let sql = crate::store::over(&conn);
+        let uow: &dyn UnitOfWork = &sql;
+        let todo = crate::domain::todos::Held { target: "local".into(), text: "Reply to Legal".into(), due: None };
+        uow.todos().hold(item, &todo).unwrap();
+        trash(uow, item).unwrap();
+        assert!(uow.todos().held(item).unwrap().is_none(), "a trashed thread's held todo is set aside");
+        dismiss(uow, item, false).unwrap();
+        assert_eq!(uow.todos().held(item).unwrap().map(|h| h.text).as_deref(), Some("Reply to Legal"));
     }
 
     #[test]
