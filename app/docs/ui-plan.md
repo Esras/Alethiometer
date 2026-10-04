@@ -292,56 +292,60 @@ These already match:
 
 **13 · Done and dismissed, partly.**
 - **Done todos fade out** and show a filled checkbox. Today `Todos:221–223, 396, 408` show an outline `ph-check-square` in aqua and strike the title in `tx-label`. Assumed: the fade replaces the strikethrough.
+- **Dismissed, archived and trashed signals look the same.** For Gmail, Dismiss archives the thread, so it reads "Archived"; Trash (`#`) is Gmail-only and moves the thread to Gmail's Trash. Their row style (`Incoming:1057 .sig.gone`) stays one style.
+- **Dismissed things are hatched, faded and struck through, everywhere.** That covers dismissed signals and dismissed messages in the split review. `SplitReview:515–520 .msg.gone` strikes and fades today but has no hatching.
 - **A merged topic keeps its strikethrough and hatching** (`TopicsIndex:468`, `Topics:395`).
 - **Hatching means one thing:** "this is being moved, or is about to be irrelevant here".
+- **The day strip's hatched gaps go** (`DayStrip:33–44, 163–165, 386–392`). They do render: in the sample data, the faint diagonal stripes between events. The user hasn't noticed them in real use.
 - **The design system's split-review card is wrong.** There's no crossed-out "moved to another topic" message.
   - **What the app actually has:**
-    - `.msg.gone` (`SplitReview:515–520`) is a *dismissed* message, struck through;
+    - `.msg.gone` is a *dismissed* message;
     - `.msg.moved` (`:494`, "moved from X · u undo") is a message moved *into* this group, tinted in the group's colour with an aqua edge.
   - **`.msg.moved` belongs with decision 3.** It's a selection edge, so it loses the edge.
+- **Trash discards a held todo, like Dismiss.** Fixed in `queries/incoming.rs` `trash_seen`, with a test.
+
+**15 · Dividers, for now.** The `--border` lines between rows (Settings, the Glean panels, the group rules) are row markers and stay. Revisit lines and outlines after the first passes.
+
+**19 · Move to topic is plain.** In Unsorted, the main button on every signal row is "Move to topic" (`Incoming:671`, `btn primary` today); `t` does the same on any signal. Like Confirm, it becomes a plain `.btn`.
+
+**A toggled-on button takes the selected look:** the `aqua-tint` fill with an `aqua` border, the same as `.chip.on`. That means a new `.btn.on` class.
+- **Topics index "Categories"** (`TopicsIndex:218, 381`) is aqua text and border today.
+- **Assistant "Sources"** (`AssistantPane:161, 320`) is an orange border today, and orange means "needs you".
+
+**14 · Row density, partly.** Comfortable and compact are as listed below. Message rows inside an expanded signal take compact padding but keep their reading line height. They're multi-line reading text, so their height follows the text.
 
 **Deferred**
-- **The day strip's hatching is to be redone.**
-  - Gaps (`DayStrip:33–44, 163, 386`) are drawn on every day strip wherever there are 15 minutes or more between events.
-  - Life blocks (`:211, 393`) come only from Proton ICS busy times (`store/ingest.rs:217`) or the sample data. Proton ICS has never run against a real account.
+- **Life blocks in the day strip** (`:211, 393`, hatched in the Life colour) are to be redone. They come only from Proton ICS busy times (`store/ingest.rs:217`) or the sample data, and Proton ICS has never run against a real account.
 - **Notes line states** (confirmed, sent, failed, Life, `Notes:528, 583`) need a follow-up. Life lines also use a hatching.
 
 ## Open: needs the user
 
-- **14 · Row density.** Today's vertical padding is in brackets. Rows set no `line-height`, so heights follow content; target heights assume one 20px line, and a two-line row (Incoming signals) stays taller.
-  - **Comfortable, 9px (38px):**
+- **14 · Cozy lists.** The user wants to see each one before deciding; screenshots were taken at 1760×1175 on the sample data. Today's vertical padding is in brackets. Rows set no `line-height`, so heights follow content; target heights assume one 20px line, and a two-line row stays taller.
+  - **Comfortable, 9px (38px), agreed:**
     - Incoming signals `Incoming:980` (9, no change) and its topic list `:871` (8);
     - Settings `Settings:968` / `Row:202` (9, but min-height 48/52 today);
     - Todos `Todos:357` (7);
     - the Topics index `TopicsIndex:353` (9, no change).
-  - **Cozy, 5px (30px):**
-    - Priorities `Priorities:386` (9);
-    - the Topics Upcoming and People panels `Topics:453/521` (9);
-    - Reflect Rollup `:67` (10) and the carry list `:101` (8);
-    - the Chronology `:195` (7);
+  - **Cozy, 5px (30px), to look at:**
+    - Priorities `Priorities:386` (9), the rows inside the four quadrants, each two lines (title, then reason pills);
+    - the Topics page panels: Upcoming and People `Topics:453/521` (9), and the Chronology `:195` (7);
+    - Reflect's Days/Weeks rollup `:67` (10) and the carry list `:101` (8);
     - Search results `Search:272` (10);
-    - the Glean sources `SourcesPanel:233` (8);
-    - Slack review `SlackReview:154` (6);
+    - the Glean sources `SourcesPanel:233` (8) and Slack review `SlackReview:154` (6). Neither shows with the sample data: Glean isn't set up, and Slack review needs a Slack source.
     - Notes lines `Notes:516` (5, no change).
-  - **Compact, 2px (24px):**
+  - **Compact, 2px (24px), agreed:**
     - the Agents tree `Tree:394/450` (4);
     - the pickers: TopicPicker `:147` (6), PersonPicker `:178` (6), CategoryPicker `:74` (5), notes/Picker `:121` (5), FontPick `:127` (5);
     - ⌘K results `SearchPalette:354` (8);
-    - AskCard options `:250` (4).
-  - **No density fits:** message rows in Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2).
-- **15 · Dividers.** The user leans toward outlined rows rather than lines; not decided. Row-to-row lines today:
+    - AskCard options `:250` (4);
+    - message rows in Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2).
+- **15 · Lines vs outlined rows,** after the first passes. Where lines between rows are today:
   - **`--border` lines:**
     - Settings rows `Settings:975`, `Row:208`, plus the table rows `:1073`, `:1100` and `:1142`;
     - Glean sources `SourcesPanel:240` and the Assistant's people rows `GleanAnswer:152`;
     - group rules in Incoming `:962`, the split review `:471` and Topics `:451`.
   - **`--bg-head` lines (fainter):** Priorities rows `:392`, Reflect Rollup `:74` and the carry list `:107`, and the Agents status lines `StatusLine:97`.
-  - **Everything else has no line between rows.**
-  - **Already outlined:** AskCard choices `:173/257`, the Agents transcript boxes (RowView), and the Priorities quadrants `:349` (a panel, not rows).
-  - **Lines that aren't between rows:** about 50 more 1px lines split headers, footers and fields from content.
-- **Move to topic** (`Incoming:671`). In Unsorted, every signal row's main button is "Move to topic", where a filed signal's is Confirm. Both are `btn primary` today. Decision 19 makes Confirm plain because it repeats on every row; the same rule would make Move to topic plain.
-- **A toggled-on button.** The design system has no style for an outlined button that stays on. There are two:
-  - **Topics index "Categories"** (`TopicsIndex:218, 381`). It opens the category manager and turns aqua while open.
-  - **Assistant "Sources / Hide sources"** (`AssistantPane:161, 320`). It opens the Sources panel and turns orange while open; orange means "needs you" in the status ladder.
+  - **Already outlined:** AskCard choices `:173/257`, the Agents transcript boxes (RowView).
 
 ## Problems in the design system itself
 
