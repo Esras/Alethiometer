@@ -104,6 +104,22 @@ pub struct Session {
     /// Row id of the active "N queued" marker, if any; cleared once the queue drains.
     #[serde(default)]
     pub queue_marker: Option<u64>,
+    /// The agent's thinking option (ACP config option of category `thought_level`), if it offers one.
+    #[serde(default)]
+    pub thinking: Option<ConfigChoice>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ConfigChoice {
+    pub id: String,
+    pub current: String,
+    pub options: Vec<ChoiceOption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ChoiceOption {
+    pub value: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

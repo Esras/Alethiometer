@@ -30,6 +30,11 @@ let used = 18000;
 let mode = 'default';
 let elicits = false;
 const MODELS = { currentModelId: 'claude-sonnet-4-6', availableModels: [{ modelId: 'claude-sonnet-4-6', name: 'Sonnet' }, { modelId: 'claude-opus-4-6', name: 'Opus' }, { modelId: 'claude-haiku-4-5', name: 'Haiku' }] };
+let effort = 'default';
+const configOptions = () => [
+  { id: 'model', currentValue: MODELS.currentModelId, options: [] },
+  { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: effort, options: ['default', 'low', 'medium', 'high'].map((v) => ({ value: v, name: v })) },
+];
 const MODES = { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'acceptEdits', name: 'Accept Edits' }, { id: 'plan', name: 'Plan' }] };
 
 function request(method, params) {
@@ -218,14 +223,19 @@ rl.on('line', async (line) => {
       return reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } }, authMethods: [] });
     case 'session/new':
       session = `fake-${Date.now().toString(36)}`;
-      return reply({ sessionId: session, modes: MODES, models: MODELS, configOptions: [{ id: 'model', currentValue: MODELS.currentModelId, options: [] }] });
+      return reply({ sessionId: session, modes: MODES, models: MODELS, configOptions: configOptions() });
     case 'session/resume':
     case 'session/load':
       session = m.params.sessionId;
-      return reply({ modes: MODES, models: MODELS, configOptions: [{ id: 'model', currentValue: MODELS.currentModelId, options: [] }] });
+      return reply({ modes: MODES, models: MODELS, configOptions: configOptions() });
     case 'session/set_model':
       MODELS.currentModelId = m.params.modelId;
       return reply({});
+    case 'session/set_config_option':
+      if (m.params.configId !== 'effort') return send({ id: m.id, error: { code: -32602, message: `unknown config ${m.params.configId}` } });
+      effort = m.params.value;
+      update({ sessionUpdate: 'config_option_update', configOptions: configOptions() });
+      return reply({ configOptions: configOptions() });
     case 'session/set_mode':
       mode = m.params.modeId;
       update({ sessionUpdate: 'current_mode_update', currentModeId: mode });

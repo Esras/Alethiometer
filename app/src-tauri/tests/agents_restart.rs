@@ -329,3 +329,28 @@ fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
     assert_eq!(you, vec![("count".to_owned(), "delivered".to_owned()), ("and again".to_owned(), "delivered".to_owned())]);
     stop_host(dir, host);
 }
+
+#[test]
+fn thinking_is_set_at_start_and_changed_mid_session() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_FAST", "1")]);
+    let app = open(dir);
+    let thinking = |id: &str| app.agents.store.lock().sessions.get(id).and_then(|s| s.thinking.clone()).map(|t| t.current);
+
+    let models = alethiometer_lib::agents::call(&app, "models", &json!({ "harness": "fake", "cwd": project.path() })).unwrap();
+    assert_eq!(models["thinking"]["id"], "effort", "the new-agent form gets the levels: {models}");
+    let started = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "thinking": "high" })).unwrap();
+    let id = started["id"].as_str().unwrap().to_owned();
+    wait("thinking set at start", 20, || (thinking(&id).as_deref() == Some("high")).then_some(()));
+
+    alethiometer_lib::agents::call(&app, "set_thinking", &json!({ "session": id, "value": "low" })).unwrap();
+    assert_eq!(thinking(&id).as_deref(), Some("low"));
+    assert!(alethiometer_lib::agents::call(&app, "set_thinking", &json!({ "session": id, "value": "max" })).is_err(), "only the agent's own levels");
+
+    stop_host(dir, host);
+}

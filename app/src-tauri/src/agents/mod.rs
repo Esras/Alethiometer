@@ -227,9 +227,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     group_id: opt(args, "group").map(str::to_owned),
                     task: opt(args, "task").unwrap_or("").to_owned(),
                     model: opt(args, "model").map(str::to_owned),
+                    thinking: opt(args, "thinking").map(str::to_owned),
                 },
             )?;
             Ok(json!({ "id": id }))
+        }
+        "set_thinking" => {
+            acp::set_thinking(app, &arg_str(args, "session")?, &arg_str(args, "value")?)?;
+            Ok(json!({ "ok": true }))
         }
         "start_scion" => Ok(json!({ "id": scion::start_agent(app, args)? })),
         "catalog" => scion::catalog(app, &arg_str(args, "group")?),

@@ -1,7 +1,7 @@
 <script lang="ts">
   // Sessions: harness, model, host · cwd; then context, cache, turns, elapsed,
   // cost. Rooms: Hub, thread id, mode; then loop cap, messages, live, ? keys.
-  import { ag } from './state.svelte';
+  import { act, ag } from './state.svelte';
   import type { Group, Session } from './types';
 
   let { session, group, room = false }: { session?: Session; group?: Group; room?: boolean } = $props();
@@ -51,6 +51,14 @@
   {:else if s}
     <span>{s.harness}</span>
     {#if s.model}<span>{s.model}</span>{/if}
+    {#if s.thinking}
+      <select class="think" title="Thinking" value={s.thinking.current} disabled={!s.live} onchange={(e) => {
+          const el = e.currentTarget;
+          act('set_thinking', { session: s.id, value: el.value }).catch(() => (el.value = s.thinking?.current ?? ''));
+        }}>
+        {#each s.thinking.options as o (o.value)}<option value={o.value}>thinking {o.name.toLowerCase()}</option>{/each}
+      </select>
+    {/if}
     <span>{s.source === 'acp' ? `${s.host} · ${tilde(s.cwd)}` : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
     <span class="right">
@@ -68,6 +76,17 @@
 </div>
 
 <style>
+  .think {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .think:disabled {
+    opacity: 0.6;
+  }
   .line {
     display: flex;
     gap: 6px 14px;

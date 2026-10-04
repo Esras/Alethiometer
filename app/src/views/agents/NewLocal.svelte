@@ -6,6 +6,7 @@
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import Joins from './Joins.svelte';
+  import type { ConfigChoice } from './types';
   import NewModal from './NewModal.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
 
@@ -24,6 +25,8 @@
   let model = $state('');
   let models = $state<{ id: string; name: string }[]>([]);
   let current = $state('');
+  let thinking = $state('');
+  let levels = $state<ConfigChoice | null>(null);
   let loading = $state(false);
   let busy = $state(false);
   let err = $state<string | null>(null);
@@ -47,12 +50,15 @@
     model = '';
     models = [];
     current = '';
+    thinking = '';
+    levels = null;
     loading = true;
-    call<{ models: { id: string; name: string }[]; current: string }>('agents.models', { harness: k, cwd: untrack(() => cwd) })
+    call<{ models: { id: string; name: string }[]; current: string; thinking: ConfigChoice | null }>('agents.models', { harness: k, cwd: untrack(() => cwd) })
       .then((r) => {
         if (k !== harness) return;
         models = r.models;
         current = r.current;
+        levels = r.thinking;
       })
       .catch(() => {})
       .finally(() => {
@@ -79,7 +85,7 @@
         const r = await call<{ id: string }>('agents.group_create', { name: newName, goal: newGoal, cwd });
         g = r.id;
       }
-      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model })) as { id: string };
+      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model, thinking })) as { id: string };
       ag.sel = `s:${r.id}`;
       openThread(`s:${r.id}`);
       onClose();
@@ -127,6 +133,16 @@
       {/if}
       <span class="note">{loading ? 'from the harness' : models.length ? `${models.length} from ${h?.label ?? 'the harness'}` : 'none listed; type one or leave the default'}</span>
     </span>
+    {#if levels}
+      <span class="lab">Thinking</span>
+      <span class="input">
+        <select bind:value={thinking}>
+          <option value="">default · {levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current}</option>
+          {#each levels.options.filter((o) => o.value !== levels?.current) as o (o.value)}<option value={o.value}>{o.name}</option>{/each}
+        </select>
+        <span class="note">{model ? 'levels of the default model' : 'from the harness'}</span>
+      </span>
+    {/if}
     <span class="lab">Name</span>
     <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
     <span class="lab">Directory</span>

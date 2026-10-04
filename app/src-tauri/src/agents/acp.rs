@@ -285,6 +285,7 @@ pub struct StartArgs {
     pub group_id: Option<String>,
     pub task: String,
     pub model: Option<String>,
+    pub thinking: Option<String>,
 }
 
 fn expand_home(p: &str) -> String {
@@ -351,6 +352,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     }
     let task = a.task.trim().to_owned();
     let model = a.model.clone();
+    let thinking = a.thinking.clone();
     let Some(arc) = app.arc() else { return Ok(id) };
     let sid = id.clone();
     std::thread::spawn(move || {
@@ -359,6 +361,11 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
             Ok(conn) => {
                 if let Some(m) = model {
                     set_model(&arc, &conn, &sid, &m);
+                }
+                if let Some(t) = thinking {
+                    if let Err(e) = set_thinking_on(&arc, &conn, &sid, &t) {
+                        eprintln!("agents: couldn't set {sid}'s thinking to {t}: {e}");
+                    }
                 }
                 if let Some(row) = queued {
                     prompt(&arc, &conn, row, task, vec![]);
@@ -454,7 +461,7 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
         models = list(option.and_then(|o| o.get("options")).and_then(Value::as_array), "value");
     }
     let current = r.pointer("/models/currentModelId").and_then(Value::as_str).or_else(|| option.and_then(|o| o.get("currentValue")).and_then(Value::as_str)).unwrap_or_default();
-    let out = json!({ "models": models, "current": current });
+    let out = json!({ "models": models, "current": current, "thinking": thinking_of(&r) });
     cache.lock().unwrap_or_else(|e| e.into_inner()).insert(harness.to_owned(), out.clone());
     Ok(out)
 }
@@ -583,7 +590,9 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         }
     }
     let model = model_of(&opened);
+    let thinking = thinking_of(&opened);
     app.agents.store.lock().update_session(id, |s| {
+        s.thinking = thinking;
         s.ext = sid;
         s.live = true;
         s.problem.clear();
@@ -808,7 +817,7 @@ pub fn accept_edits_mode(v: &Value) -> Option<String> {
     let modes = v.pointer("/modes/availableModes")?.as_array()?;
     let current = v.pointer("/modes/currentModeId").and_then(Value::as_str);
     let m = modes.iter().filter_map(|m| m.get("id").and_then(Value::as_str)).find(|id| *id == "acceptEdits" || *id == "accept_edits")?;
-    (current != Some(m)).then(|| m.to_owned())
+    matches!(current, None | Some("default")).then(|| m.to_owned())
 }
 
 /// The current model's short name from a session/new (or resume) answer.
@@ -819,6 +828,38 @@ pub fn model_of(v: &Value) -> Option<String> {
     });
     let from_models = v.pointer("/models/currentModelId").and_then(Value::as_str).map(str::to_owned);
     from_config.or(from_models).filter(|m| !m.is_empty()).map(|m| super::explain::short_model(&m))
+}
+
+/// The agent's thinking option from a session/new, set_config_option or config_option_update.
+pub fn thinking_of(v: &Value) -> Option<super::model::ConfigChoice> {
+    let o = v.get("configOptions")?.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some("thought_level"))?;
+    let str_of = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let options: Vec<super::model::ChoiceOption> = o
+        .get("options")?
+        .as_array()?
+        .iter()
+        .map(|x| super::model::ChoiceOption { value: str_of(x, "value"), name: str_of(x, "name") })
+        .filter(|x| !x.value.is_empty())
+        .collect();
+    let id = str_of(o, "id");
+    (!id.is_empty() && !options.is_empty()).then(|| super::model::ConfigChoice { id, current: str_of(o, "currentValue"), options })
+}
+
+fn set_thinking_on(app: &App, conn: &Conn, id: &str, value: &str) -> Result<()> {
+    let opt = app.agents.store.lock().sessions.get(id).and_then(|s| s.thinking.clone()).ok_or_else(|| msg("This agent has no thinking setting"))?;
+    if !opt.options.iter().any(|o| o.value == value) {
+        return Err(msg(format!("'{value}' isn't one of this agent's thinking levels")));
+    }
+    let r = conn.request("session/set_config_option", json!({ "sessionId": conn.sid(), "configId": opt.id, "value": value }), Some(CALL_TIMEOUT))?;
+    let next = thinking_of(&r).unwrap_or(super::model::ConfigChoice { current: value.to_owned(), ..opt });
+    app.agents.store.lock().update_session(id, |s| s.thinking = Some(next));
+    Ok(())
+}
+
+/// Change a running session's thinking level.
+pub fn set_thinking(app: &App, id: &str, value: &str) -> Result<()> {
+    let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running; send it a message first"))?;
+    set_thinking_on(app, &conn, id, value)
 }
 
 fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) -> Option<After> {
@@ -940,6 +981,10 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                     i.push_row(&key, Row { at: ts.into(), kind: Kind::State, text, ext: "plan".into(), ..Default::default() });
                 }
             }
+        }
+        "config_option_update" => {
+            let thinking = thinking_of(u);
+            store.lock().update_session(session, |s| s.thinking = thinking);
         }
         "usage_update" => {
             let used = u.get("used").and_then(Value::as_u64);
@@ -2140,6 +2185,10 @@ pub(crate) mod tests {
         assert_eq!(accept_edits_mode(&already), None);
         let pi = json!({ "modes": { "currentModeId": "medium", "availableModes": [{ "id": "low" }, { "id": "medium" }] } });
         assert_eq!(accept_edits_mode(&pi), None, "pi's modes are thinking levels");
+        for looser in ["auto", "bypassPermissions", "dontAsk", "plan"] {
+            let started = json!({ "modes": { "currentModeId": looser, "availableModes": [{ "id": "default" }, { "id": "acceptEdits" }, { "id": looser }] } });
+            assert_eq!(accept_edits_mode(&started), None, "a session that starts in {looser} stays there");
+        }
     }
 
     #[test]

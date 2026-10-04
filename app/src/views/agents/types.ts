@@ -35,6 +35,12 @@ export interface Fact {
   url: string;
 }
 
+export interface ConfigChoice {
+  id: string;
+  current: string;
+  options: { value: string; name: string }[];
+}
+
 export interface Session {
   id: string;
   source: 'acp' | 'scion';
@@ -44,6 +50,7 @@ export interface Session {
   template: string;
   harness: string;
   model: string;
+  thinking?: ConfigChoice | null;
   host: string;
   cwd: string;
   status: Status;
