@@ -74,6 +74,7 @@ export interface Page {
   kinds: Kind[];
   sources: SourceRow[];
   usage: { model: string; calls: number; tokens: number }[];
+  ai_secrets: (Secret & { provider: string; group: string })[];
   state: State;
   dev: boolean;
   path: string;
@@ -115,7 +116,7 @@ export const SECTIONS = [
 export type Section = (typeof SECTIONS)[number]['id'];
 
 /** Group order per page (anything unlisted keeps its schema order, after these). */
-export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Bedrock', 'Models', 'Prices', 'Approvals', 'Message colors', 'Agent names', 'Boxes', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
+export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Models', 'Bedrock', 'DigitalOcean', 'Prices', 'Approvals', 'Message colors', 'Agent names', 'Boxes', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
 
 export const GROUP_LABELS: Record<string, string> = {
   identity: 'Identity',

@@ -32,7 +32,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 return Err(msg("a secret can't be empty"));
             }
             if !known_secret(app, &name) {
-                return Err(msg(format!("no source uses a secret named '{name}'")));
+                return Err(msg(format!("no source or allowed AI provider uses a secret named '{name}'")));
             }
             app.platform.secret_set(&name, value).map_err(|e| msg(format!("couldn't store {name}: {e}")))?;
             let names = live::restart_sources_using(app, &name);
@@ -54,7 +54,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 }
 
 fn known_secret(app: &App, name: &str) -> bool {
-    app.settings().sources.iter().any(|s| sources::secrets(&s.kind, &s.config).iter().any(|k| k.name == name))
+    let settings = app.settings();
+    settings.sources.iter().any(|s| sources::secrets(&s.kind, &s.config).iter().any(|k| k.name == name))
+        || ai_secrets(&settings.ai).any(|(_, _, k, _)| *k == name)
+}
+
+fn ai_secrets(ai: &crate::settings::AiSettings) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)> + '_ {
+    crate::ai::PROVIDER_SECRETS.iter().filter(|(p, ..)| ai.allowed_providers.iter().any(|a| a == p))
 }
 
 fn get(app: &App) -> Result<Value> {
@@ -105,6 +111,12 @@ fn get(app: &App) -> Result<Value> {
         .iter()
         .map(|(k, label)| json!({ "kind": k, "label": label, "fields": schema::source_fields(k), "defaults": sources::defaults(k) }))
         .collect();
+    let ai_secrets: Vec<Value> = ai_secrets(&settings.ai)
+        .map(|(provider, group, name, note)| {
+            json!({ "provider": provider, "group": group, "name": name, "label": name, "note": note, "optional": false, "oauth": false,
+                    "set": app.platform.secret_get(name).is_some(), "set_at": app.platform.secret_set_at(name) })
+        })
+        .collect();
     let tag_rules = crate::sync::PERSONAL_RULES;
     Ok(json!({
         "values": values,
@@ -112,6 +124,7 @@ fn get(app: &App) -> Result<Value> {
         "kinds": kinds,
         "sources": srcs,
         "usage": usage,
+        "ai_secrets": ai_secrets,
         "state": *app.settings_state(),
         "dev": cfg!(debug_assertions),
         "path": app.settings_path(),
@@ -164,6 +177,17 @@ fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::ai::context::tests::app;
+
+    #[test]
+    fn ai_provider_keys_are_settable_only_for_allowed_providers() {
+        let (app, _dir) = app();
+        assert!(call(&app, "secret_set", &json!({ "name": "digitalocean_api_key", "value": "k" })).is_err());
+        app.update_settings(|s| s.ai.allowed_providers.push("digitalocean".into()));
+        call(&app, "secret_set", &json!({ "name": "digitalocean_api_key", "value": "k" })).unwrap();
+        let page = call(&app, "get", &json!({})).unwrap();
+        let keys: Vec<_> = page["ai_secrets"].as_array().unwrap().iter().map(|k| (k["name"].as_str().unwrap(), k["set"].as_bool().unwrap())).collect();
+        assert_eq!(keys, [("bedrock_api_key", false), ("digitalocean_api_key", true)]);
+    }
 
     #[test]
     fn the_page_lists_sources_with_their_secrets_never_values() {

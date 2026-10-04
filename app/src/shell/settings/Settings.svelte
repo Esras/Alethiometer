@@ -99,7 +99,7 @@
   type Item =
     | { t: 'field'; group: string; field: Field; path: Seg[]; value: unknown; pair?: unknown; extra?: string }
     | { t: 'enabled'; group: string; source: SourceRow }
-    | { t: 'secret'; group: string; secret: Secret; source: SourceRow }
+    | { t: 'secret'; group: string; secret: Secret; source?: SourceRow }
     | { t: 'tier'; group: string; tier: 'small' | 'large' }
     | { t: 'price'; group: string; model: string }
     | { t: 'kind'; group: string; kind: string; label: string };
@@ -154,7 +154,10 @@
       return out;
     }
     const fields = p.fields.filter((f) => f.section === section && (!f.opts?.dev || p.dev));
+    const inUse = new Set(['small', 'large'].map((t) => String(get(p.values, ['ai', t, 'provider']) ?? '')));
+    const providerGroups = new Set(p.ai_secrets.map((k) => k.group));
     for (const f of fields) {
+      if (providerGroups.has(f.group) && !p.ai_secrets.some((k) => k.group === f.group && inUse.has(k.provider))) continue;
       if (f.widget === 'tier') {
         out.push({ t: 'tier', group: 'Models', tier: f.path[1] as 'small' | 'large' });
         continue;
@@ -170,6 +173,7 @@
       const pair = f.opts?.pair ? get(p.values, [f.opts.pair]) : undefined;
       out.push({ t: 'field', group: f.group, field: f, path: f.path, value, pair });
     }
+    if (section === 'ai') for (const k of p.ai_secrets.filter((k) => inUse.has(k.provider))) out.push({ t: 'secret', group: k.group, secret: k });
     return out;
   }
 
@@ -408,9 +412,9 @@
     else if (e.key === '+' || e.key === '=') step(1);
     else if (e.key === '/') {
       findInput?.focus();
-    } else if (e.key === 'r' && source) {
+    } else if (e.key === 'r' && (source || items[focus]?.t === 'secret')) {
       const it = items[focus];
-      const s = it?.t === 'secret' ? it.secret : source.secrets.find((k) => !k.oauth);
+      const s = it?.t === 'secret' ? it.secret : source?.secrets.find((k) => !k.oauth);
       if (s) startReplace(s);
     } else if (e.key === 'a') goSource('add');
     else if (e.key === 'X' && source) removeSource(source.index);
@@ -529,7 +533,7 @@
           {/if}
           <div class="card" class:table={g.name === 'Models' || g.name === 'Prices'}>
             {#if g.name === 'Models'}
-              <div class="thead"><span>Tier</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
+              <div class="thead"><span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
             {/if}
             {#each g.items as { item, i } (i)}
               {#if item.t === 'field'}
@@ -590,11 +594,16 @@
                 {@const model = String(get(page.values, ['ai', tier, 'model']) ?? '')}
                 {@const effort = String(get(page.values, ['ai', tier, 'effort']) ?? '')}
                 {@const on = get(page.values, ['ai', tier, 'enabled']) !== false}
+                {@const provider = String(get(page.values, ['ai', tier, 'provider']) ?? '')}
+                {@const allowed = (get(page.values, ['ai', 'allowed_providers']) ?? []) as string[]}
                 <div class="trow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
                   <span class="lbl tier">
                     <button class="switch" class:on onclick={() => activate(item)} aria-label="{tier === 'small' ? 'Small' : 'Large'} tier" aria-pressed={on}><span></span></button>
                     {tier === 'small' ? 'Small' : 'Large'}
                   </span>
+                  <select class="text-input mono" value={provider} onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}>
+                    {#each allowed.includes(provider) ? allowed : [provider, ...allowed] as p}<option value={p}>{p}</option>{/each}
+                  </select>
                   <input
                     class="text-input mono"
                     value={model}
@@ -1048,7 +1057,7 @@
   .thead,
   .trow {
     display: grid;
-    grid-template-columns: 110px minmax(0, 1fr) auto 160px;
+    grid-template-columns: 110px 130px minmax(0, 1fr) auto 160px;
     gap: 16px;
     align-items: center;
     padding: 10px 18px;

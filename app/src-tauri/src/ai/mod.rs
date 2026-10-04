@@ -11,7 +11,7 @@
 //! Also fail closed: a Bedrock tier must use a commercial `us-*` region and a
 //! `us.` inference profile (`bedrock::check_route`); the BAA covers US regions only.
 //!
-//! Providers: `bedrock` (Converse API on bedrock-runtime, SigV4). Tiers:
+//! Providers: `bedrock` (Converse API on bedrock-runtime, SigV4), `digitalocean` (Responses API). Tiers:
 //! `small` for topic suggestions (default `us.openai.gpt-6-luna`), `large` for
 //! questions (default `us.anthropic.claude-opus-5-5`).
 
@@ -19,6 +19,7 @@ pub mod bedrock;
 pub mod context;
 pub mod creds;
 pub mod estimate;
+pub mod responses;
 pub mod suggest;
 
 use crate::error::{msg, Result};
@@ -29,6 +30,11 @@ use crate::sync::http::{Http, UreqHttp};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::time::SystemTime;
+
+pub const PROVIDER_SECRETS: &[(&str, &str, &str, &str)] = &[
+    ("bedrock", "Bedrock", "bedrock_api_key", "or AWS keys / profile, see docs/ai.md"),
+    ("digitalocean", "DigitalOcean", "digitalocean_api_key", "model access key"),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
@@ -100,16 +106,32 @@ pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
 pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, max_tokens: u32) -> Result<String> {
     let ai = &app.settings().ai;
     let t = check(ai, tier)?;
-    match t.provider.as_str() {
+    let reply = match t.provider.as_str() {
         "bedrock" => {
             let creds = (deps.creds)().map_err(|e| msg(e.to_string()))?;
             let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens, effort: tier_effort(t) };
-            let reply = bedrock::converse(deps.http, &creds, &req, deps.time).map_err(|e| msg(e.to_string()))?;
-            app.store().write(|uow| uow.usage().record_ai(tier_name(tier), &t.model, reply.input_tokens as i64, reply.output_tokens as i64))?;
-            reply.answer().map_err(|e| msg(e.to_string()))
+            bedrock::converse(deps.http, &creds, &req, deps.time)
         }
-        other => Err(msg(format!("No client for provider '{other}'"))),
+        "digitalocean" => {
+            let key = app.platform.secret_get("digitalocean_api_key").filter(|k| !k.is_empty()).ok_or_else(|| {
+                msg("No DigitalOcean key: set the digitalocean_api_key secret (a model access key)")
+            })?;
+            let req = responses::Request {
+                provider: "DigitalOcean",
+                url: "https://inference.do-ai.run/v1/responses",
+                model: &t.model,
+                system,
+                user,
+                max_tokens,
+                effort: tier_effort(t),
+            };
+            responses::create(deps.http, &key, &req)
+        }
+        other => return Err(msg(format!("No client for provider '{other}'"))),
     }
+    .map_err(|e| msg(e.to_string()))?;
+    app.store().write(|uow| uow.usage().record_ai(tier_name(tier), &t.model, reply.input_tokens as i64, reply.output_tokens as i64))?;
+    reply.answer().map_err(|e| msg(e.to_string()))
 }
 
 fn tier_name(tier: Tier) -> &'static str {
@@ -395,6 +417,39 @@ pub mod tests {
         let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
         assert!(err.contains("No client for provider 'ollama'"), "{err}");
         assert!(http.requests().is_empty());
+    }
+
+    #[test]
+    fn digitalocean_tier_uses_responses_api_and_records_usage() {
+        let (app, _dir) = app();
+        app.update_settings(|s| {
+            s.ai.allowed_providers.push("digitalocean".into());
+            s.ai.small = AiTier { provider: "digitalocean".into(), enabled: true, model: "openai-gpt-oss-20b".into(), effort: "low".into() };
+        });
+        let http = FakeHttp::default();
+        http.on(
+            "POST",
+            "/v1/responses",
+            200,
+            r#"{"status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"hmm"}]},{"type":"message","content":[{"type":"output_text","text":"{\"topic_id\":null}"}]}],"usage":{"input_tokens":72,"output_tokens":35}}"#,
+        );
+        let err = complete(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap_err().to_string();
+        assert!(err.contains("digitalocean_api_key"), "{err}");
+        assert!(http.requests().is_empty());
+
+        app.platform.secret_set("digitalocean_api_key", "do-key").unwrap();
+        let out = complete(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
+        assert_eq!(out, r#"{"topic_id":null}"#);
+        let reqs = http.requests();
+        assert_eq!(reqs[0].1, "https://inference.do-ai.run/v1/responses");
+        let v: Value = serde_json::from_str(reqs[0].2.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            v,
+            json!({ "model": "openai-gpt-oss-20b", "instructions": "S", "input": "U", "max_output_tokens": 1024, "store": false, "reasoning": { "effort": "low" } })
+        );
+        let usage = call(&app, "usage", &json!({})).unwrap();
+        assert_eq!(usage[0]["today"]["input"], 72);
+        assert_eq!(usage[0]["today"]["output"], 35);
     }
 
     #[test]

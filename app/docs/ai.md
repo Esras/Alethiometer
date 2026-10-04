@@ -137,6 +137,10 @@ Attach this to the IAM user. Converse needs only `bedrock:InvokeModel`. It appli
 
 Restart Alethiometer. The assistant pane header shows `bedrock · us.anthropic.claude-opus-5-5`. `ai.status` reports each tier's config check, including the US-routing check, without calling AWS.
 
+## DigitalOcean (Responses API, personal machines)
+
+Provider `digitalocean` calls `POST https://inference.do-ai.run/v1/responses` (OpenAI's Responses shape: `instructions`, `input`, `max_output_tokens`, `reasoning.effort` when set, `store: false`) with the secret `digitalocean_api_key` (a model access key) as a bearer token. Code: `ai/responses.rs`, generic over Responses hosts; each host is its own provider name with a fixed URL so `allowed_providers` still names who gets the data. Only `output_text` parts are the answer. For a machine with no work data, e.g. an agents-only laptop: add `"digitalocean"` to `allowed_providers` by hand then pick it in Settings › AI › Models and set the key in the DigitalOcean group that appears. Settings › AI shows a provider's group (its settings and key) only while a tier uses it. Never on the work Mac.
+
 ## How the two model families are called
 
 Both families use the same Converse body:
