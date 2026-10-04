@@ -17,10 +17,16 @@
   --tx-label: #928374;
   --tx-disabled: #665c54;
 
-  /* interface state */
+  /* interface state: aqua and its five named tints (app/docs/ui-plan.md) */
   --aqua: #8ec07c;
   --aqua-tint: rgba(142, 192, 124, 0.1);
   --aqua-tint-soft: rgba(142, 192, 124, 0.06);
+  --aqua-fill: rgba(142, 192, 124, 0.14);
+  --aqua-badge: rgba(142, 192, 124, 0.2);
+  --aqua-line: rgba(142, 192, 124, 0.45);
+  --hover-tint: rgba(235, 219, 178, 0.05);
+  --row-hover: rgba(235, 219, 178, 0.03);
+  --scrim: rgba(15, 16, 18, 0.68);
 
   /* kitty palette (for glyphs, pills, countdown) */
   --red: #fb4934;
@@ -29,6 +35,47 @@
   --blue: #83a598;
   --purple: #d3869b;
   --orange: #fe8019;
+  --pill-red-fill: rgba(251, 73, 52, 0.16);
+  --pill-yellow-fill: rgba(250, 189, 47, 0.16);
+  --pill-green-fill: rgba(184, 187, 38, 0.16);
+
+  /* roles: status is a ladder, time pressure has three steps; use these names,
+     not the palette, so the meaning is in the code */
+  --status-broken: var(--red);
+  --status-attention: var(--orange);
+  --status-headsup: var(--yellow);
+  --status-done: var(--green);
+  --time-far: var(--green);
+  --time-near: var(--yellow);
+  --time-now: var(--red);
+  --link-out: var(--blue);
+
+  /* categorisations with fixed colours */
+  --route-glean: #9a9df5;
+  --query-1: #83a598;
+  --query-2: #fe8019;
+  --query-3: #b8bb26;
+  --query-4: #d3869b;
+  --query-5: #fabd2f;
+  --query-6: #fb4934;
+  --query-local: var(--tx-muted-2);
+  --thinking: #7c6f64;
+  --result-failed: #d97a6c;
+
+  /* shadows only float things */
+  --popover: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --modal: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --tab-underline: inset 0 -2px 0 var(--aqua);
+  --panel-accent: inset 3px 0 0 var(--aqua);
+
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-14: 14px;
+  --space-16: 16px;
 
   --r-block: 4px;
   --r-input: 6px;
@@ -130,7 +177,7 @@ pre,
   transition: background 120ms;
 }
 .btn:hover {
-  background: rgba(235, 219, 178, 0.05);
+  background: var(--hover-tint);
 }
 .btn.primary {
   border-color: var(--aqua);
@@ -148,15 +195,15 @@ pre,
   white-space: nowrap;
 }
 .pill.red {
-  background: rgba(251, 73, 52, 0.16);
+  background: var(--pill-red-fill);
   color: var(--red);
 }
 .pill.yellow {
-  background: rgba(250, 189, 47, 0.16);
+  background: var(--pill-yellow-fill);
   color: var(--yellow);
 }
 .pill.green {
-  background: rgba(184, 187, 38, 0.16);
+  background: var(--pill-green-fill);
   color: var(--green);
 }
 

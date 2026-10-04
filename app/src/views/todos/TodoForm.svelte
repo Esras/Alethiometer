@@ -108,6 +108,8 @@
 
 <style>
   .form {
+    display: flex;
+    flex-direction: column;
     margin: 6px 0 8px;
     padding: 10px 12px;
     border: 1px solid var(--border-strong);
@@ -182,8 +184,10 @@
   .foot {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     margin-top: 10px;
+    padding: 10px 12px;
+    min-width: 0;
   }
   .fx {
     flex: 1;
@@ -194,7 +198,11 @@
     color: var(--tx-muted-2);
   }
   .k {
-    font-size: 0.8462rem;
+    font: 0.808rem var(--font-mono);
     color: var(--tx-label);
+  }
+  .primary .k {
+    color: var(--aqua);
+    opacity: 0.75;
   }
 </style>

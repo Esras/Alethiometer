@@ -156,7 +156,7 @@
 </NewModal>
 
 <style>
-  :global(.form .note.taken) {
+  :global(.agent-form .note.taken) {
     color: var(--orange);
   }
 </style>

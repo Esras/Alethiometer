@@ -29,7 +29,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="scrim" onkeydown={onKey} onmousedown={(e) => e.target === e.currentTarget && onClose()}>
-  <div class="modal form" bind:this={box} role="dialog" aria-modal="true" aria-label="New agent">
+  <div class="modal agent-form" bind:this={box} role="dialog" aria-modal="true" aria-label="New agent">
     <div class="top">
       <i class="ph ph-user-plus"></i><span class="t">New agent</span><span class="sub">{sub}</span><span class="esc">Esc</span>
     </div>
