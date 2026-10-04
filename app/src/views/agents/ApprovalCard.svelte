@@ -102,6 +102,7 @@
     border: 1px solid var(--need-soft-border);
     display: flex;
     flex-direction: column;
+    max-height: 55vh;
   }
   .top {
     display: flex;
@@ -137,6 +138,7 @@
     color: var(--tx-2);
   }
   .command {
+    flex: none;
     margin: 0 12px;
     border-radius: 5px;
     background: var(--bg-app);
@@ -167,6 +169,11 @@
   }
   .pw {
     margin: 8px 12px 0;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .btns {
+    flex-wrap: wrap;
   }
   .btns,
   .deny {
@@ -183,10 +190,9 @@
     border-radius: var(--r-input);
     border: 1px solid var(--border-strong);
     color: var(--tx-2);
-    white-space: nowrap;
-    max-width: 320px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 420px;
+    text-align: left;
+    overflow-wrap: anywhere;
   }
   .b:hover {
     border-color: var(--tx-disabled);
@@ -198,6 +204,7 @@
     font-weight: 500;
   }
   .k {
+    flex: none;
     font: 0.808rem var(--font-mono);
     color: var(--tx-label);
   }

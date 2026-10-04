@@ -1,6 +1,7 @@
 <script lang="ts">
   // An approval's Parsed and Explained panels, side by side: the pinned card
   // in Agents and an open approval in Incoming show the same two.
+  import Markdown from '../../lib/ui/Markdown.svelte';
   import type { Request } from './types';
 
   let { req }: { req: Request } = $props();
@@ -36,16 +37,16 @@
   {#if req.explained}
     {@const x = req.explained}
     <div class="panel">
-      <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model} · read as if planted</span></div>
+      <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model}</span></div>
       {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
       {:else if x.state === 'ok'}
-        <div class="ex">{x.text}</div>
+        <div class="ex"><Markdown text={x.text} /></div>
         {#if x.fits === false && x.fit_note}<div class="fit"><i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span></div>{/if}
         {#if x.misuse.length}
           <div class="misuse">
             <span class="mh">If planted</span>
-            {#each x.misuse as m (m)}<span class="mi">{m}</span>{/each}
-            {#if x.worst}<span class="worst">Worst case: {x.worst}</span>{/if}
+            <div class="ex"><Markdown text={x.misuse.map((m) => `- ${m}`).join('\n')} /></div>
+            {#if x.worst}<div class="worst"><Markdown text={`**Worst case:** ${x.worst}`} /></div>{/if}
           </div>
         {:else if x.fits !== null}
           <div class="benign"><i class="ph ph-check"></i>Nothing it could be misused for beyond what it says.</div>
@@ -59,6 +60,7 @@
 <style>
   .panels {
     display: grid;
+    align-items: start;
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
     gap: 10px;
   }
@@ -204,10 +206,6 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--orange);
-  }
-  .mi::before {
-    content: '· ';
-    color: var(--tx-disabled);
   }
   .worst {
     color: var(--tx-2);

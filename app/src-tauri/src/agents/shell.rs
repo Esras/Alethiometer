@@ -1043,6 +1043,8 @@ impl Run<'_> {
         let rest: Vec<&str> = w[i + 1..].iter().map(|x| x.val.as_str()).collect();
         let ops: Vec<&str> = rest.iter().copied().filter(|x| !x.starts_with('-')).collect();
         let has = |o: &[&str]| rest.iter().any(|x| o.iter().any(|y| opt_is(x, y)));
+        let dry = has(&["--dry-run"]);
+        let dry_n = dry || rest.iter().any(|x| x.starts_with('-') && !x.starts_with("--") && x.contains('n'));
         for (k, x) in w.iter().enumerate().skip(i + 1) {
             if x.val == "-m" || x.val == "--message" {
                 if let Some(m) = w.get(k + 1) {
@@ -1060,8 +1062,10 @@ impl Run<'_> {
             "status" | "diff" | "log" | "show" | "blame" | "rev-parse" | "ls-files" | "grep" | "shortlog" | "describe" | "cat-file"
             | "ls-tree" | "whatchanged" | "rev-list" | "name-rev" | "merge-base" | "show-ref" | "for-each-ref" | "check-ignore"
             | "var" | "help" | "version" | "count-objects" | "fsck" | "show-branch" | "cherry" | "range-diff" | "annotate" => RGIT,
+            "add" | "mv" | "prune" if dry_n => RGIT,
+            "commit" if dry => RGIT,
             "reflog" => match ops.first() {
-                Some(&"expire") | Some(&"delete") => WGIT,
+                Some(&"expire") | Some(&"delete") if !dry_n => WGIT,
                 _ => RGIT,
             },
             "branch" => {
@@ -1104,6 +1108,10 @@ impl Run<'_> {
             }
             "remote" => match ops.first() {
                 None | Some(&"show") | Some(&"get-url") => RGIT,
+                Some(&"prune") if dry_n => {
+                    c.net("git remote");
+                    RGIT
+                }
                 Some(&"update") | Some(&"prune") => {
                     c.net("git remote");
                     WGIT
@@ -1112,6 +1120,7 @@ impl Run<'_> {
             },
             "worktree" | "notes" => match ops.first() {
                 None | Some(&"list") | Some(&"show") => RGIT,
+                Some(&"prune") if dry_n => RGIT,
                 _ => WGIT,
             },
             "submodule" => match ops.first() {
@@ -1127,14 +1136,16 @@ impl Run<'_> {
             | "sparse-checkout" | "commit-tree" | "write-tree" | "read-tree" | "replace" | "filter-branch" | "repack"
             | "maintenance" => WGIT,
             "rm" => {
-                if has(&["--cached"]) {
+                if dry_n {
+                    RGIT
+                } else if has(&["--cached"]) {
                     WGIT
                 } else {
                     WGIT | DELETES
                 }
             }
             "clean" => {
-                if has(&["--dry-run"]) || rest.iter().any(|x| x.starts_with('-') && !x.starts_with("--") && x.contains('n')) {
+                if dry_n {
                     RGIT
                 } else {
                     DELETES
@@ -1143,6 +1154,10 @@ impl Run<'_> {
             "push" | "ls-remote" => {
                 c.net(format!("git {sub}"));
                 0
+            }
+            "fetch" if dry => {
+                c.net("git fetch");
+                RGIT
             }
             "fetch" | "pull" | "clone" | "lfs" => {
                 c.net(format!("git {sub}"));
@@ -1538,6 +1553,17 @@ mod tests {
         assert_eq!(read.steps[0].tags, vec!["reads files"]);
         assert_eq!(read.verdict, "read-only");
         assert!(has_check(&read, true, "Paths inside repo"), "the sed script isn't a path");
+    }
+
+    #[test]
+    fn git_dry_runs_only_read() {
+        for cmd in ["git add -n .", "git add --dry-run src", "git rm -rn build", "git mv -n a b", "git clean -nd", "git commit --dry-run", "git prune -n", "git reflog expire --dry-run --all", "git worktree prune -n"] {
+            assert_eq!(p(cmd).verdict, "read-only", "{cmd}");
+        }
+        assert_eq!(p("git fetch --dry-run").steps[0].tags, vec!["reads git", "network"]);
+        assert_eq!(p("git commit -n -m x").steps[0].tags, vec!["writes git"], "commit's -n is --no-verify");
+        assert_eq!(p("git fetch -n").steps[0].tags, vec!["writes git", "network"], "fetch's -n is --no-tags");
+        assert_eq!(p("git add .").steps[0].tags, vec!["writes git"]);
     }
 
     #[test]
