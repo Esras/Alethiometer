@@ -120,7 +120,13 @@ These already match:
 - `agents/Pane:301` (19px);
 - `Topics:363` `.name` and `:380` `.name-input` (24px). `.name-input` must keep the page-title size.
 
-**2 · People.** `.person` is `tx-body`, with the colour on the avatar. **This recolours every name** PersonName renders (Incoming, SplitReview, SignalDetail); only names in meta lines keep the colour (`.person-tertiary`).
+**2 · People.** Decision 2 ("B with the exception") keeps every person colour on screen. A name in a meta line stays coloured (`.person-tertiary`). A name in a thread gets an initials avatar in the person's colour, and the name beside it goes plain (`.person`, `tx-body`).
+- **Meta line, unchanged:** `Incoming:583` (`who-meta`).
+- **Thread names**, which gain an avatar (there are none today) and turn plain:
+  - Incoming's expanded messages and replies: `Incoming:720/743/757`;
+  - the split review: `SplitReview:328/345`;
+  - SignalDetail, which Todos, Search and the Chronology use: `SignalDetail:31/38/46`.
+- **Never drop the colour without adding the avatar.** The two must land in the same change.
 
 **3 · Selection** → `.row.cursor` (aqua-tint, no edge), `.check` and `.open` (bg-head). Every edge goes. There is no `border-left` anywhere; all of them are `box-shadow: inset`.
 - **Right edge:**
@@ -282,26 +288,60 @@ These already match:
 - **Query colours:** `MARK_COLORS` (`shell/assistant/types.ts:53`) → `query-1…6`.
 - **Do this before changing the local query's mark to a grey ◆.** The front end finds the local query by `mark === '◇'` (`SourcesPanel:36/37/95`, `types.ts:55`). `◆` is already Glean's mark 4 (`src-tauri/src/glean/ask.rs:139`), and `ask.rs:229` pushes `◇`, so switching the mark alone would mistake Glean query 4 for the local one. Add an explicit `local` field on `QueryRun` first.
 
+## Decided by the user (2026-10-04)
+
+**13 · Done and dismissed, partly.**
+- **Done todos fade out** and show a filled checkbox. Today `Todos:221–223, 396, 408` show an outline `ph-check-square` in aqua and strike the title in `tx-label`. Assumed: the fade replaces the strikethrough.
+- **A merged topic keeps its strikethrough and hatching** (`TopicsIndex:468`, `Topics:395`).
+- **Hatching means one thing:** "this is being moved, or is about to be irrelevant here".
+- **The design system's split-review card is wrong.** There's no crossed-out "moved to another topic" message.
+  - **What the app actually has:**
+    - `.msg.gone` (`SplitReview:515–520`) is a *dismissed* message, struck through;
+    - `.msg.moved` (`:494`, "moved from X · u undo") is a message moved *into* this group, tinted in the group's colour with an aqua edge.
+  - **`.msg.moved` belongs with decision 3.** It's a selection edge, so it loses the edge.
+
+**Deferred**
+- **The day strip's hatching is to be redone.**
+  - Gaps (`DayStrip:33–44, 163, 386`) are drawn on every day strip wherever there are 15 minutes or more between events.
+  - Life blocks (`:211, 393`) come only from Proton ICS busy times (`store/ingest.rs:217`) or the sample data. Proton ICS has never run against a real account.
+- **Notes line states** (confirmed, sent, failed, Life, `Notes:528, 583`) need a follow-up. Life lines also use a hatching.
+
 ## Open: needs the user
 
-- **14 · Row density.** The three densities are settled, but which list gets which isn't. The README and decisions say so; `tokens.json` quietly proposes an assignment. No row sets `line-height` today, so heights follow content. A suggested assignment from the current padding:
-  - **Comfortable:** Incoming signals and topics, Settings, Todos, the Topics index.
-  - **Cozy:** Priorities, the Topics panels, Reflect panels, Chronology, Search, the Glean panels, SlackReview, Notes.
-  - **Compact:** the Agents tree, the five pickers, the ⌘K palette, AskCard options.
-  - **No density fits:** message rows (Incoming `.msg` :1071, SplitReview :476, SignalDetail :68, at 2–4px).
-- **13 · Done, dismissed and moved.** There's no target. It's catalogued in the design system.
-  - **Hatching:** `Incoming:1057 .sig.gone` and `TopicsIndex:468 .row.merged`.
-  - **The same hatching means Life time:** `DayStrip:386/393` and `Notes:528`.
-  - **Strikethrough:** `Todos:408`, `Notes:583`, `Topics:395`, `SplitReview:518`.
-  - **Opacity 0.35–0.6** on read, done, sent and dimmed items.
-- **15 · Dividers.** Today it's a mix:
-  - `--border` lines in Settings, the Glean panels, and the Incoming, SplitReview and Topics group rules;
-  - `--bg-head` lines in Priorities, Rollup, CarryList and StatusLine;
-  - nothing elsewhere.
-
-  It needs trying in the app.
-- **Move to topic** (`Incoming:671`) by the same rule as Confirm (decision 19)?
-- **`.cats-btn.on` / `.srcbtn.on`:** a toggled-on button has no style in the system.
+- **14 · Row density.** Today's vertical padding is in brackets. Rows set no `line-height`, so heights follow content; target heights assume one 20px line, and a two-line row (Incoming signals) stays taller.
+  - **Comfortable, 9px (38px):**
+    - Incoming signals `Incoming:980` (9, no change) and its topic list `:871` (8);
+    - Settings `Settings:968` / `Row:202` (9, but min-height 48/52 today);
+    - Todos `Todos:357` (7);
+    - the Topics index `TopicsIndex:353` (9, no change).
+  - **Cozy, 5px (30px):**
+    - Priorities `Priorities:386` (9);
+    - the Topics Upcoming and People panels `Topics:453/521` (9);
+    - Reflect Rollup `:67` (10) and the carry list `:101` (8);
+    - the Chronology `:195` (7);
+    - Search results `Search:272` (10);
+    - the Glean sources `SourcesPanel:233` (8);
+    - Slack review `SlackReview:154` (6);
+    - Notes lines `Notes:516` (5, no change).
+  - **Compact, 2px (24px):**
+    - the Agents tree `Tree:394/450` (4);
+    - the pickers: TopicPicker `:147` (6), PersonPicker `:178` (6), CategoryPicker `:74` (5), notes/Picker `:121` (5), FontPick `:127` (5);
+    - ⌘K results `SearchPalette:354` (8);
+    - AskCard options `:250` (4).
+  - **No density fits:** message rows in Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2).
+- **15 · Dividers.** The user leans toward outlined rows rather than lines; not decided. Row-to-row lines today:
+  - **`--border` lines:**
+    - Settings rows `Settings:975`, `Row:208`, plus the table rows `:1073`, `:1100` and `:1142`;
+    - Glean sources `SourcesPanel:240` and the Assistant's people rows `GleanAnswer:152`;
+    - group rules in Incoming `:962`, the split review `:471` and Topics `:451`.
+  - **`--bg-head` lines (fainter):** Priorities rows `:392`, Reflect Rollup `:74` and the carry list `:107`, and the Agents status lines `StatusLine:97`.
+  - **Everything else has no line between rows.**
+  - **Already outlined:** AskCard choices `:173/257`, the Agents transcript boxes (RowView), and the Priorities quadrants `:349` (a panel, not rows).
+  - **Lines that aren't between rows:** about 50 more 1px lines split headers, footers and fields from content.
+- **Move to topic** (`Incoming:671`). In Unsorted, every signal row's main button is "Move to topic", where a filed signal's is Confirm. Both are `btn primary` today. Decision 19 makes Confirm plain because it repeats on every row; the same rule would make Move to topic plain.
+- **A toggled-on button.** The design system has no style for an outlined button that stays on. There are two:
+  - **Topics index "Categories"** (`TopicsIndex:218, 381`). It opens the category manager and turns aqua while open.
+  - **Assistant "Sources / Hide sources"** (`AssistantPane:161, 320`). It opens the Sources panel and turns orange while open; orange means "needs you" in the status ladder.
 
 ## Problems in the design system itself
 

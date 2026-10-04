@@ -4,6 +4,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Incoming: trashing a Gmail signal leaves its held todo held (found 2026-10-04, not verified in the app)
+
+`queries/incoming.rs` `dismiss_seen` marks a held todo `discarded`; `trash_seen` doesn't call `todos().set_discarded`, so a todo held with `n` on a Gmail signal that is then trashed with `#` stays `held` with nothing left to confirm it. Fix with a test that fails without it.
+
 ### Agents: local runtimes (sandbox, OpenShell, ssh) (user, 2026-10-03: deferred)
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.
