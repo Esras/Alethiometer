@@ -6,7 +6,7 @@ default-run = "alethiometer"
 
 [lib]
 name = "alethiometer_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "alethiometer"
