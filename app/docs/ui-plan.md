@@ -99,7 +99,7 @@ Paths are under `app/src/`. "→" is the target class or component.
 6. **`lib/ui/FilterField.svelte`**, with `{value = $bindable, placeholder, icon, el = $bindable}`: an icon plus a bare input in an `.input` box.
    - **Takes nine copies:** `Todos:298`, `agents/Tree:222`, `topics/TopicsIndex:309`, `settings/Settings:771 .find`, `shell/TabBar:105`, `PersonPicker:154`, `SearchPalette:297`, `SlackReview:147` and `TopicPicker:134`.
    - **Needs `.input:focus-within`**, which bundle.css lacks; nearly every field is a wrapper.
-7. **People** (decision 2): `lib/ui/Avatar.svelte` with `{name, color, size: 'lg' | 'sm'}`, a `PersonName` `variant: 'plain' | 'tertiary'`, and later a `PersonRow`.
+7. **People** (decision 2): `lib/ui/Avatar.svelte` with `{name, color, size: 'lg' | 'sm'}`, for person rows only (never in threads), a `PersonName` `variant: 'thread' | 'tertiary'` (both coloured), and later a `PersonRow`.
    - **Avatars:** `Topics:530` (26px, markup :233), `PersonPicker:191` (22px → 18) and `assistant/GleanAnswer:119` (15px → 18).
    - **Names:** `Topics:236/543` rebuilds the unknown style, `Incoming:771/1211 .np-name` colours by hand, `Incoming:1144` makes the tertiary marker through `:global`, and `GleanAnswer:39–62` is a person chip.
 8. **CountdownPill split.** The look (`shell/CountdownPill:27`, 14px radius) goes to `lib/ui`; the `live('daystrip.get')` wrapper stays in `shell/`.
@@ -120,13 +120,13 @@ These already match:
 - `agents/Pane:301` (19px);
 - `Topics:363` `.name` and `:380` `.name-input` (24px). `.name-input` must keep the page-title size.
 
-**2 · People.** Decision 2 ("B with the exception") keeps every person colour on screen. A name in a meta line stays coloured (`.person-tertiary`). A name in a thread gets an initials avatar in the person's colour, and the name beside it goes plain (`.person`, `tx-body`).
-- **Meta line, unchanged:** `Incoming:583` (`who-meta`).
-- **Thread names**, which gain an avatar (there are none today) and turn plain:
+**2 · People** (corrected by the user, 2026-10-04). A name is always in the person's colour. The design system first said thread names go plain with an added avatar; the user rejected that, and the design system now matches.
+- **Thread names don't change:** they keep their colour, at weight 500, with no avatar.
   - Incoming's expanded messages and replies: `Incoming:720/743/757`;
   - the split review: `SplitReview:328/345`;
   - SignalDetail, which Todos, Search and the Chronology use: `SignalDetail:31/38/46`.
-- **Never drop the colour without adding the avatar.** The two must land in the same change.
+- **Meta-line names** stay coloured, at regular weight (`.person-tertiary`). Today that's built through `:global` at `Incoming:583/1144`; it becomes a PersonName `variant="tertiary"`.
+- **Avatars only lead a row about a person:** the Topics People panel, the person picker and Glean's people.
 
 **3 · Selection** → `.row.cursor` (aqua-tint, no edge), `.check` and `.open` (bg-head). Every edge goes. There is no `border-left` anywhere; all of them are `box-shadow: inset`.
 - **Right edge:**
