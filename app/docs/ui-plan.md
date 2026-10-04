@@ -296,7 +296,7 @@ These already match:
 - **Dismissed things are hatched, faded and struck through, everywhere.** That covers dismissed signals and dismissed messages in the split review. `SplitReview:515–520 .msg.gone` strikes and fades today but has no hatching.
 - **A merged topic keeps its strikethrough and hatching** (`TopicsIndex:468`, `Topics:395`).
 - **Hatching means one thing:** "this is being moved, or is about to be irrelevant here".
-- **The day strip's hatched gaps go** (`DayStrip:33–44, 163–165, 386–392`). They do render: in the sample data, the faint diagonal stripes between events. The user hasn't noticed them in real use.
+- **The day strip's hatched gaps go** (`DayStrip:33–44, 163–165, 386–392`). They render as faint diagonal stripes between events and add no information (user, 2026-10-04).
 - **The design system's split-review card is wrong.** There's no crossed-out "moved to another topic" message.
   - **What the app actually has:**
     - `.msg.gone` is a *dismissed* message;
@@ -312,7 +312,30 @@ These already match:
 - **Topics index "Categories"** (`TopicsIndex:218, 381`) is aqua text and border today.
 - **Assistant "Sources"** (`AssistantPane:161, 320`) is an orange border today, and orange means "needs you".
 
-**14 · Row density, partly.** Comfortable and compact are as listed below. Message rows inside an expanded signal take compact padding but keep their reading line height. They're multi-line reading text, so their height follows the text.
+**14 · Row density, assigned.** Today's vertical padding is in brackets. Rows that wrap or hold two lines (a title over a meta or description line) keep the same padding and grow with their content. Line wrapping is fine everywhere.
+- **Comfortable, 9px (38px one-line):**
+  - Incoming signals `Incoming:980` (9) and its topic list `:871` (8);
+  - Settings `Settings:968` / `Row:202` (9, min-height 48/52 today);
+  - Todos `Todos:357` (7);
+  - the Topics index `TopicsIndex:353` (9);
+  - Priorities quadrant rows `Priorities:386` (9, two lines);
+  - a topic page's Upcoming `Topics:453` (9) and People `:521` (9);
+  - Search results `Search:272` (10, two lines). This is a suggestion, as the closest match to today, like Priorities; the user said Comfortable or Cozy.
+- **Cozy, 5px (30px):**
+  - a topic page's Chronology `Chronology:195` (7);
+  - Reflect's Days/Weeks/Months rollup `Rollup:67` (10);
+  - Glean sources `SourcesPanel:233` (8);
+  - Notes lines `Notes:516` (5).
+- **Compact, 2px (24px):**
+  - a topic page's Open `Topics:480` (8);
+  - Reflect's carry list, which is "Carry forward" on a day and "Still open from the week" on a week (`CarryList:101`, 8). It wraps;
+  - Glean queries `SourcesPanel:174` (4);
+  - the Agents tree `Tree:394/450` (4);
+  - the pickers: TopicPicker `:147` (6), PersonPicker `:178` (6), CategoryPicker `:74` (5), notes/Picker `:121` (5), FontPick `:127` (5);
+  - ⌘K results `SearchPalette:354` (8);
+  - AskCard options `:250` (4);
+  - message rows, which keep their reading line height: Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2);
+  - Settings › Slack › Review…, the channel table (`SlackReview:154`, 6). Assumed compact as a picker; the user had taken it for Incoming's message list.
 
 **Deferred**
 - **Life blocks in the day strip** (`:211, 393`, hatched in the Life colour) are to be redone. They come only from Proton ICS busy times (`store/ingest.rs:217`) or the sample data, and Proton ICS has never run against a real account.
@@ -320,25 +343,6 @@ These already match:
 
 ## Open: needs the user
 
-- **14 · Cozy lists.** The user wants to see each one before deciding; screenshots were taken at 1760×1175 on the sample data. Today's vertical padding is in brackets. Rows set no `line-height`, so heights follow content; target heights assume one 20px line, and a two-line row stays taller.
-  - **Comfortable, 9px (38px), agreed:**
-    - Incoming signals `Incoming:980` (9, no change) and its topic list `:871` (8);
-    - Settings `Settings:968` / `Row:202` (9, but min-height 48/52 today);
-    - Todos `Todos:357` (7);
-    - the Topics index `TopicsIndex:353` (9, no change).
-  - **Cozy, 5px (30px), to look at:**
-    - Priorities `Priorities:386` (9), the rows inside the four quadrants, each two lines (title, then reason pills);
-    - the Topics page panels: Upcoming and People `Topics:453/521` (9), and the Chronology `:195` (7);
-    - Reflect's Days/Weeks rollup `:67` (10) and the carry list `:101` (8);
-    - Search results `Search:272` (10);
-    - the Glean sources `SourcesPanel:233` (8) and Slack review `SlackReview:154` (6). Neither shows with the sample data: Glean isn't set up, and Slack review needs a Slack source.
-    - Notes lines `Notes:516` (5, no change).
-  - **Compact, 2px (24px), agreed:**
-    - the Agents tree `Tree:394/450` (4);
-    - the pickers: TopicPicker `:147` (6), PersonPicker `:178` (6), CategoryPicker `:74` (5), notes/Picker `:121` (5), FontPick `:127` (5);
-    - ⌘K results `SearchPalette:354` (8);
-    - AskCard options `:250` (4);
-    - message rows in Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2).
 - **15 · Lines vs outlined rows,** after the first passes. Where lines between rows are today:
   - **`--border` lines:**
     - Settings rows `Settings:975`, `Row:208`, plus the table rows `:1073`, `:1100` and `:1142`;
