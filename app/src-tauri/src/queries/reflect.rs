@@ -421,7 +421,7 @@ fn get(app: &App, args: &Value) -> Result<Value> {
         Ok((brief, children, carry))
     })?;
     // The vault after the snapshot: the notes, and each child period's own note.
-    let children = children.map(|cs| cs.into_iter().map(|c| c.with_note(&app.vault, &lens)).collect::<Vec<_>>());
+    let children = children.map(|cs| cs.into_iter().filter_map(|c| c.with_note(&app.vault, &lens)).collect::<Vec<_>>());
     let path = note_path(scope, s, &lens);
     let abs = app.vault.join(&path);
     let disk = std::fs::read_to_string(&abs).ok();
@@ -1104,6 +1104,8 @@ mod tests {
         let got = get(&app, &json!({ "scope": "week", "lens": "work" })).unwrap();
         let kids = got["children"].as_array().unwrap();
         assert!(kids.len() >= 5);
+        // The seed fills today and the weekdays around it, so the week has a quiet weekend day.
+        assert!(kids.iter().all(Value::is_object), "a quiet weekend day is left out, not sent as null: {kids:?}");
         let today_row = kids.iter().find(|k| k["period"] == today(&app)).unwrap();
         assert_eq!(today_row["summary"], "Headcount call went 1 Platform + 1 Data.");
         assert_eq!(got["note"]["path"].as_str().unwrap().starts_with("Reflections/Weekly/"), true);
