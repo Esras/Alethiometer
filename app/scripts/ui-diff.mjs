@@ -1,8 +1,8 @@
-// Pixel-diff each scene between the ref's UI (:1430) and this checkout's
-// (:1420), both started by scripts/ui-diff.sh. Each scene is a fresh page with
+// Pixel-diff each scene between the ref's UI and this checkout's, both started
+// by scripts/ui-diff.sh (same UI_DIFF_SLOT). Each scene is a fresh page with
 // the same clock and the same key presses; any differing pixel is a DIFF, and
 // the diff image is left next to the two shots.
-// usage: node scripts/ui-diff.mjs [scene…]   (shots in $UI_DIFF_DIR/out)
+// usage: [UI_DIFF_SLOT=n] node scripts/ui-diff.mjs [scene…]   (shots in <work>/<slot>/out)
 // Needs Playwright (global is fine) and ImageMagick's `compare`.
 import { createRequire } from 'node:module';
 import { execSync, execFileSync } from 'node:child_process';
@@ -17,7 +17,10 @@ try {
 } catch {
   pw = require(execSync('npm root -g').toString().trim() + '/playwright');
 }
-const WORK = process.env.UI_DIFF_DIR ?? path.join(process.env.TMPDIR ?? os.tmpdir(), 'alethiometer-ui-diff');
+// Same slot as scripts/ui-diff.sh: its ports and folder.
+const SLOT = Number(process.env.UI_DIFF_SLOT ?? 0);
+const [PB, PA] = SLOT === 0 ? [1420, 1430] : [1600 + 10 * SLOT, 1601 + 10 * SLOT];
+const WORK = path.join(process.env.UI_DIFF_DIR ?? path.join(process.env.TMPDIR ?? os.tmpdir(), 'alethiometer-ui-diff'), String(SLOT));
 const OUT = path.join(WORK, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -126,8 +129,8 @@ for (const name of names) {
   let errs = [];
   // One retry: a scene that crosses a minute boundary between the two shots differs.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const ea = await shoot('http://localhost:1430/', scenes[name], a);
-    const eb = await shoot('http://localhost:1420/', scenes[name], b);
+    const ea = await shoot(`http://localhost:${PA}/`, scenes[name], a);
+    const eb = await shoot(`http://localhost:${PB}/`, scenes[name], b);
     errs = [...new Set([...ea.map((x) => 'ref: ' + x), ...eb.map((x) => 'this: ' + x)])];
     px = differing(a, b, d);
     if (px === 0) break;
