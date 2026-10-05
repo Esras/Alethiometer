@@ -506,9 +506,31 @@ kbd {
   white-space: nowrap;
 }
 
-/* Icons are yellow unless a rule says otherwise. This used to come from a bare
-   `:global(i)` in NoteText that leaked to every <i> once it loaded (and made them
-   italic); :where() keeps it below any rule that colours an icon on purpose. */
+/* Icon colour by role (user, 2026-10-05). All :where(), so they sit below any
+   rule that colours an icon on purpose (status, errors, agent kinds, buttons'
+   own states); among themselves the later one wins.
+   - Yellow is the icons' accent: an icon that names a thing or an action.
+     (It used to come from a bare `:global(i)` in NoteText that leaked to
+     every <i>; this is that look, kept on purpose.)
+   - Inside a field (search, filter, a picker's arrow): grey, like the
+     placeholder. A bare close (×, e.g. Settings' Esc): grey; an × that's an
+     action's icon in a button ("let go") stays yellow.
+   - Add or create (+): aqua, the interface colour.
+   - An icon inside a red failure count takes its red. */
+:root {
+  --icon: var(--yellow);
+}
 :where(i) {
-  color: var(--yellow);
+  color: var(--icon);
+}
+:where(.input i, :not(.btn) > i.ph-x) {
+  color: var(--tx-label);
+}
+:where(i.ph-plus, i.ph-user-plus) {
+  color: var(--aqua);
+}
+:where(.red) i,
+.btn:disabled i,
+.btn.is-disabled i {
+  color: inherit;
 }

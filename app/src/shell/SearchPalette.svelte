@@ -284,6 +284,9 @@
     padding: 10px 14px 4px;
     color: var(--tx-label);
   }
+  .field > i {
+    color: var(--tx-label);
+  }
   .field input {
     flex: 1;
     background: none;
