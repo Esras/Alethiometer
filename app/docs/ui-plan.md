@@ -345,6 +345,7 @@ These already match:
   - `:183 .query.on` is orange.
 - **Query colours:** `MARK_COLORS` (`shell/assistant/types.ts:53`) → `query-1…6`.
 - **Do this before changing the local query's mark to a grey ◆.** The front end finds the local query by `mark === '◇'` (`SourcesPanel:36/37/95`, `types.ts:55`). `◆` is already Glean's mark 4 (`src-tauri/src/glean/ask.rs:139`), and `ask.rs:229` pushes `◇`, so switching the mark alone would mistake Glean query 4 for the local one. Add an explicit `local` field on `QueryRun` first.
+- **Done (step one, 2026-10-05):** `QueryRun` has `local: bool` (Rust, serialised as `local`; set only where the local query is pushed; the type is serialise-only, so nothing stored lacks it) and `local: boolean` in `types.ts`. `markColor`, `SourcesPanel`'s Glean/local counts and its `L`/`Q` label test `q.local`, not the mark. No mark or colour changed; the mark change (grey `◆`) and the rest of 20 are still to do. `AssistantPane`'s "N queries" count still assumes the local run is last (`length - 1`).
 
 ## Decided by the user (2026-10-04)
 

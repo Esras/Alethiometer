@@ -8,6 +8,8 @@ export interface Chip {
 
 export interface QueryRun {
   mark: string;
+  /** The local-index query; Glean's are false. Test this, never the mark. */
+  local: boolean;
   text: string;
   returned: number;
   kept: number;
@@ -52,7 +54,7 @@ export interface Reply {
 /** Query marks use the Gruvbox blue, orange and green; the local route is aqua. */
 export const MARK_COLORS = ['#83a598', '#fe8019', '#b8bb26', '#d3869b', '#fabd2f', '#fb4934'];
 export function markColor(i: number, q: QueryRun): string {
-  return q.mark === '◇' ? 'var(--aqua)' : MARK_COLORS[i % MARK_COLORS.length];
+  return q.local ? 'var(--aqua)' : MARK_COLORS[i % MARK_COLORS.length];
 }
 
 /** An answer cut into sentences, each with its text runs, citation numbers and @{Person} chips. */
