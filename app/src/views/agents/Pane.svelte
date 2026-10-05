@@ -126,7 +126,7 @@
           {#if isRoom}<i class="ph ph-hash hash"></i>{g?.room?.name}{:else if s}<StatusMark status={s.status} /><span style:color={agentColor(lk, s)}>{s.name}</span>{/if}
           <span class="c">{isRoom ? `${g?.room?.hub ?? 'Scion Hub'} · project ${g?.project} · group thread` : s?.context}</span>
         </div>
-        <div class="title">{title}</div>
+        <div class="pane-title title">{title}</div>
         {#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
       </div>
       <div class="facts inset">
@@ -280,10 +280,7 @@
     color: var(--msg);
   }
   .title {
-    font-size: 1.4615rem;
-    font-weight: 500;
     line-height: 1.3;
-    color: var(--tx-title);
     text-wrap: pretty;
   }
   .subtitle {

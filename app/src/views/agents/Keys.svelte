@@ -69,7 +69,7 @@
 <Modal label="Keys" onclose={close} {onkeys} position="absolute">
   <div class="sheet modal">
     <div class="head">
-      <span class="title">Keys</span>
+      <span class="pane-title">Keys</span>
       <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> moves between the tree, the thread and the composer.</span>
       <span class="close"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span>
     </div>
@@ -102,11 +102,6 @@
     display: flex;
     gap: 14px;
     align-items: baseline;
-  }
-  .title {
-    font-size: 1.308rem;
-    font-weight: 500;
-    color: var(--tx-title);
   }
   .lede {
     font-size: 1rem;

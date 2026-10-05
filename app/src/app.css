@@ -168,6 +168,23 @@ pre,
   font-variant-numeric: tabular-nums;
 }
 
+/* Headings, two sizes. A page subject (the topic's name, Priorities) is 24px;
+   a pane or modal title (Settings' section, Keys, an agent's title) is 19px.
+   A site that needs another line height or tracking sets only that locally. */
+.page-title {
+  font-size: 1.8462rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--tx-title);
+}
+
+.pane-title {
+  font-size: 1.4615rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--tx-title);
+}
+
 /* 10.5px uppercase section label: one tracking, one colour. A state's colour
    (an orange "needs you") is set locally on top of it. */
 .label {

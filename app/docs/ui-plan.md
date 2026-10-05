@@ -163,6 +163,11 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
 These already match:
 - `agents/Pane:301` (19px);
 - `Topics:363` `.name` and `:380` `.name-input` (24px). `.name-input` must keep the page-title size.
+- **Done (2026-10-05):** `.page-title` (24px, weight 500, `tx-title`, line height 1.2) and `.pane-title` (19px, 1.25) are in `app.css`, in rem like the rest (24px is `1.8462rem`, 19px `1.4615rem`, off the 13px root).
+  - **`.page-title`:** Topics' `.name` and `.name-input` (same size as before; local `line-height: normal` and the `-0.015em` tracking, since they had `font: inherit` and the class would make the line 1.2), and Priorities' heading (20 → 24px).
+  - **`.pane-title`:** Settings' three `h2`s (the section's name, a source's name and "Add source"; 18 → 19px), the Keys sheet's "Keys" (17 → 19px) and the agent pane's title (already 19px; keeps its local `line-height: 1.3` and `text-wrap: pretty`).
+  - **Left alone, because they aren't page or pane titles:** the one-line header bars of modals and boxes at body size (New agent's `.t`, Settings' "Settings" `.title` at 14px, Slack review's `.title`), Reflect's period at 15px, and the big numbers (Topics' `.score`, DayBrief's `.v`, the Assistant's and the day strip's 17px glyphs). Note headings in `NoteText`/`Markdown` (`.h1`–`.h3`) are body content and keep their own sizes.
+  - **Visible:** the Priorities heading, Settings' section heading and the Keys title grow (1.2 and 1.25 line heights are the design system's, where they had `normal`), so what sits below them moves down by the height change. Nothing else changes.
 
 **2 · People** (corrected by the user, 2026-10-04). A name is always in the person's colour. The design system first said thread names go plain with an added avatar; the user rejected that, and the design system now matches.
 - **Thread names don't change:** they keep their colour, at weight 500, with no avatar.

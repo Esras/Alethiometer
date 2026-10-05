@@ -496,16 +496,16 @@
           <div class="crumb">Sources</div>
           <div class="src-head">
             <AppIcon source={source.kind} size={22} />
-            <h2>{source.name}</h2>
+            <h2 class="pane-title">{source.name}</h2>
             <span class="state {st.tone}"><span class="d"></span>{st.label}</span>
             <span class="grow"></span>
             {#if removeArmed === source.index}<span class="armed"><kbd>⇧X</kbd> again removes {source.name} (its items stay)</span>{/if}
           </div>
         {:else if section === 'sources'}
-          <h2>Add source</h2>
+          <h2 class="pane-title">Add source</h2>
           <p class="blurb">Pick a kind. It starts enabled with defaults; fill in its page next.</p>
         {:else}
-          <h2>{sectionInfo.label}</h2>
+          <h2 class="pane-title">{sectionInfo.label}</h2>
           {#if sectionInfo.blurb}<p class="blurb">{sectionInfo.blurb}</p>{/if}
         {/if}
 
@@ -847,9 +847,6 @@
   }
   h2 {
     margin: 0;
-    font-size: 1.3846rem;
-    font-weight: 500;
-    color: var(--tx-title);
   }
   .blurb {
     margin: 6px 0 0;

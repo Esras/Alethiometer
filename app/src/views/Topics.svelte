@@ -161,9 +161,9 @@
           <div class="titles">
             <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} placement={{ top: 'calc(100% + 4px)', left: '0' }} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
             {#if renaming !== null}
-              <input class="name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
+              <input class="page-title name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
             {:else}
-              <button class="name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
+              <button class="page-title name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
             {/if}
             {#if pendingMerge(d.topic.id)}
               <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo</div>
@@ -362,12 +362,9 @@
     text-align: left;
     background: none;
     border: none;
-    font: inherit;
-    font-size: 1.8462rem;
-    font-weight: 500;
+    line-height: normal;
     letter-spacing: -0.015em;
     margin-top: 3px;
-    color: var(--tx-title);
   }
   .name:hover {
     text-decoration: underline;
@@ -382,11 +379,8 @@
     border-bottom: 1px solid var(--aqua);
     outline: none;
     background: none;
-    font: inherit;
-    font-size: 1.8462rem;
-    font-weight: 500;
+    line-height: normal;
     letter-spacing: -0.015em;
-    color: var(--tx-title);
   }
   .name.merged {
     color: var(--tx-label);
