@@ -65,7 +65,7 @@
   }
 </script>
 
-<div class="picker" use:p.frame>
+<div class="picker popover flush" use:p.frame>
   <div class="field">
     <FilterField field={p.field} icon="arrow-bend-down-right" bind:value={p.q} {placeholder}>
       <span class="hint"><kbd>↵</kbd> pick · <kbd>Esc</kbd></span>
@@ -97,8 +97,6 @@
   .picker {
     width: 320px;
     border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
     overflow: hidden;
   }
   .field {

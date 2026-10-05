@@ -27,7 +27,7 @@
   <div class="inner">
     <div class="tiles">
       {#each brief.tiles as t}
-        <div class="tile">
+        <div class="tile inset">
           <div class="v tnum">{t.value}</div>
           <div class="l ellipsis">{t.label}</div>
         </div>
@@ -109,10 +109,6 @@
     gap: 8px;
   }
   .tile {
-    padding: 10px 12px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--bg-head);
-    background: var(--bg-app);
     min-width: 0;
   }
   .v {

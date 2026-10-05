@@ -222,7 +222,7 @@
     {/if}
 
     {#if popover}
-      <div class="popover" use:popoverBehaviour={{ onclose: () => (popover = null), trigger: popTrigger }} style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
+      <div class="popover day-pop" use:popoverBehaviour={{ onclose: () => (popover = null), trigger: popTrigger }} style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
         <div class="pop-head">
           <i class="ph ph-house-simple"></i>
           <span class="pop-title">Life · {hm(popover.start_min)}–{hm(popover.end_min)}</span>
@@ -434,7 +434,7 @@
     font-size: 1.1538rem;
     color: var(--aqua);
   }
-  .popover {
+  .day-pop {
     position: absolute;
     z-index: 10;
     top: calc(var(--bh) + 12px);
@@ -442,11 +442,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 11px 13px;
     border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--popover);
     font-size: 0.9615rem;
   }
   .pop-head {

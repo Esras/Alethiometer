@@ -1,20 +1,19 @@
 <script lang="ts">
-  // A modal's behaviour; the look stays with each site (its box is the
-  // children, with its own CSS). Renders the scrim and an unstyled dialog
-  // wrapper.
+  // A modal's behaviour and its one scrim (the global `.scrim`, `--scrim`, at
+  // one z-index). The box is the children: each site gives it `.modal` (the
+  // global surface and shadow) and its own size, position and radius. Renders
+  // the scrim and an unstyled dialog wrapper.
   //   Keys:   one modal entry on the key stack, so keys never fall through to
   //           the view underneath. `onkeys` runs first (the site's own keys);
   //           what it leaves, Escape closes and Tab stays inside the dialog.
   //   Mouse:  a mousedown on the scrim itself closes.
   //   Focus:  returns to what had it before the modal opened.
   //
-  // Props that exist only because the sites look different today. To settle
-  // in the visible pass, when the design system's one scrim replaces them:
-  //   scrim     Settings .45, SlackReview .3, palette .35, NewModal var(--scrim),
-  //             Keys rgba(12,13,14,.66)
-  //   z         50 (palette, NewModal), 60 (Settings), 70 (SlackReview), 20 (Keys)
-  //   position  Keys is absolute inside the Agents pane; the rest are fixed
-  //   inset     NewModal starts below the 32px title bar; the rest cover the window
+  // Props that stay, because they are not look:
+  //   position  Keys is absolute inside the Agents pane, so its scrim covers
+  //             the pane and not the tab bar; the rest are fixed
+  //   inset     NewModal starts below the 32px title bar, which is the window's
+  //             drag region; the rest cover the window
   //   isolate   NewModal never let a key reach the window handler (⌘K, ⌘1–7,
   //             g i); the rest do
   import type { Snippet } from 'svelte';
@@ -24,8 +23,6 @@
     onclose,
     label,
     onkeys,
-    scrim = 'rgba(0, 0, 0, 0.45)',
-    z = 50,
     position = 'fixed',
     inset = '0',
     isolate = false,
@@ -34,8 +31,6 @@
     onclose: () => void;
     label: string;
     onkeys?: KeyHandler;
-    scrim?: string;
-    z?: number;
     position?: 'fixed' | 'absolute';
     inset?: string;
     isolate?: boolean;
@@ -102,8 +97,6 @@
   bind:this={backdrop}
   style:position
   style:inset
-  style:z-index={z}
-  style:background={scrim}
   {onkeydown}
   onmousedown={(e) => e.target === e.currentTarget && onclose()}>
   <div class="dialog" bind:this={dialog} role="dialog" aria-modal="true" aria-label={label}>
@@ -113,6 +106,7 @@
 
 <style>
   .scrim {
+    z-index: 60;
     display: flex;
     align-items: center;
     justify-content: center;

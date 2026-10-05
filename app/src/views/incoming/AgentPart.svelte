@@ -154,7 +154,7 @@
   {#if a.why}<div class="why">{a.why}</div>{/if}
   {#if a.kind === 'approval'}
     {#if req}
-      {#if req.command}<div class="command-block">{req.command}</div>{/if}
+      {#if req.command}<div class="inset command-block">{req.command}</div>{/if}
       {#if req.message}<div class="said"><i class="ph ph-chat-text"></i>{req.message}</div>{/if}
       {#if req.parsed || req.explained}<Panels {req} />{/if}
     {:else}

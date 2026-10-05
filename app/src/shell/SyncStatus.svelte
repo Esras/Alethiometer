@@ -142,7 +142,7 @@
     {#if suggestFailed}<span class="n bad">· suggestions failed</span>{/if}
   </button>
   {#if open}
-    <div class="pop" use:popover={{ onclose: () => (open = false), trigger: chip }}>
+    <div class="pop popover" use:popover={{ onclose: () => (open = false), trigger: chip }}>
       <div class="label">Sources</div>
       {#each live as s (s.id)}
         <div class="row">
@@ -233,11 +233,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 10px 12px 12px;
     border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--popover);
     font-size: 0.9615rem;
   }
   .label {

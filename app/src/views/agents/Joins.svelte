@@ -18,7 +18,7 @@
   }: { project: string; name: string; goal?: string; host?: string; room?: string | null; members?: Session[]; newName: string } = $props();
 </script>
 
-<div class="joins">
+<div class="joins inset">
   <div class="lab label">Joins{#if project}<span class="proj">{project}</span>{/if}</div>
   <div class="group">
     <i class="ph ph-caret-down"></i>
@@ -36,10 +36,6 @@
 
 <style>
   .joins {
-    border-radius: 7px;
-    background: var(--bg-app);
-    border: 1px solid var(--border);
-    padding: 8px 12px 9px;
     display: flex;
     flex-direction: column;
     gap: 5px;

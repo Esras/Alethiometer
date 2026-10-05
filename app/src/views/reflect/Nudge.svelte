@@ -59,7 +59,7 @@
 </script>
 
 {#if data?.show}
-  <div class="nudge" role="alertdialog" aria-labelledby="nudge-title">
+  <div class="nudge popover" role="alertdialog" aria-labelledby="nudge-title">
     <div class="top">
       <i class="ph ph-compass app"></i>Alethiometer
       <span class="pin"><i class="ph-fill ph-push-pin"></i>stays until answered</span>
@@ -85,16 +85,12 @@
     right: 16px;
     z-index: 50;
     width: 420px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
     border-radius: var(--r-panel);
     color: var(--tx-body);
     font-size: 1rem;
-    padding: 14px 16px;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
   .top {
     display: flex;

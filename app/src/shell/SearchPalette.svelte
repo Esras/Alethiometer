@@ -183,8 +183,8 @@
   });
 </script>
 
-<Modal label="Search" onclose={() => (ui.searchOpen = false)} {onkeys} z={50} scrim="rgba(0, 0, 0, 0.35)">
-<div class="palette">
+<Modal label="Search" onclose={() => (ui.searchOpen = false)} {onkeys}>
+<div class="palette modal">
   <div class="field">
     <i class="ph ph-magnifying-glass"></i>
     <input bind:this={input} bind:value={q} placeholder="Search everything" />
@@ -273,9 +273,8 @@
     width: 740px;
     max-width: calc(100vw - 80px);
     border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    /* Its search line, rows and footer carry their own padding. */
+    padding: 0;
     overflow: hidden;
   }
   .field {

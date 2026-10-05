@@ -126,6 +126,19 @@ const scenes = {
   // meetings today). Not covered: SlackReview's column header (the sample data has no
   // Slack source) and the approval's "If planted" label (Explained needs a Bedrock answer).
   'topic-page-now': ['Control+3', 'j', 'Enter'],
+  // Surfaces
+  // Popovers, modals and insets (decision 5) that no scene above reaches: the topic
+  // picker where it isn't docked (the palette's ⌘T, a new todo's Topic field), the
+  // Topics index's docked picker and the topic page's category picker, the New agent
+  // modal for a Scion room (it has the instructions inset), and an approval's command
+  // block in Incoming. Not covered: the Nudge toast (it shows near the end of the
+  // day, the clock is at 10:52) and Slack review (it needs a Slack source).
+  'palette-link-topic': ['Control+k', { type: 'acme' }, 'ArrowDown', 'Alt+a', 'Control+t'],
+  'todos-new-topic-picker': ['Control+4', 'n', { exact: 'No topic' }],
+  'topics-index-merge-picker': ['Control+3', 'm'],
+  'topic-page-catpicker': ['Control+3', 'Enter', 'c'],
+  'incoming-agents-command': [{ exact: 'Agents waiting' }, { clickText: 'needs approval' }],
+  'agents-new-scion': ['Control+7', { exact: 'migration', nth: 1 }, 'n'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

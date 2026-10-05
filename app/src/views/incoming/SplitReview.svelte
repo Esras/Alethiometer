@@ -367,7 +367,7 @@
     </Dock>
   {/if}
 
-  <div class="legend">
+  <div class="legend inset">
     {#each legend as g (g.group)}
       <span class="lg">
         <span class="sw" style:background={barOf(g.group)}></span>
@@ -547,10 +547,6 @@
   }
   .legend {
     margin: 10px 16px 12px 38px;
-    padding: 9px 12px;
-    border-radius: 6px;
-    background: var(--bg-app);
-    border: 1px solid var(--border);
     display: flex;
     gap: 10px 20px;
     align-items: center;

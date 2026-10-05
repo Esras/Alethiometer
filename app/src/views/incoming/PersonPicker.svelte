@@ -70,7 +70,7 @@
   }
 </script>
 
-<div class="card" role="dialog" aria-label="Link to person" use:p.frame>
+<div class="card popover" role="dialog" aria-label="Link to person" use:p.frame>
   <div class="head">
     <span class="label">Link to person</span>
     <span class="acct ellipsis">{account.kind === 'email' || account.kind === 'github' ? account.id : name} · {source}</span>
@@ -108,11 +108,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 10px;
     border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--popover);
     font-size: 0.9615rem;
     color: var(--tx-body);
   }

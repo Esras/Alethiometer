@@ -30,6 +30,5 @@
   .dock {
     position: fixed;
     z-index: 30;
-    filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.45));
   }
 </style>

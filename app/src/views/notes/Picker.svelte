@@ -35,7 +35,7 @@
   });
 </script>
 
-<div class="picker" role="dialog" aria-label="Where it goes" use:p.frame>
+<div class="picker popover flush" role="dialog" aria-label="Where it goes" use:p.frame>
   <div class="search">
     <FilterField field={p.field} bind:value={p.q} placeholder="Topic, person or PLAT-…" spellcheck="false" />
   </div>
@@ -64,10 +64,7 @@
     top: -6px;
     left: -1px;
     width: 270px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
     border-radius: var(--r-panel);
-    box-shadow: var(--popover);
     overflow: hidden;
     font-size: 0.9615rem;
   }

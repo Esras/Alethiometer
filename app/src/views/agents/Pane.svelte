@@ -129,7 +129,7 @@
         <div class="title">{title}</div>
         {#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
       </div>
-      <div class="facts">
+      <div class="facts inset">
         {#each roomFacts as [icon, label, f, none] (label)}
           <i class="ph {icon}"></i>
           <span class="fl">{label}</span>
@@ -300,10 +300,6 @@
     gap: 3px 8px;
     align-items: baseline;
     font: 0.885rem/1.55 var(--font-mono);
-    padding: 6px 11px;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: var(--bg-app);
   }
   .facts i {
     font-size: 0.923rem;

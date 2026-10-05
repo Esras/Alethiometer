@@ -28,7 +28,7 @@
   const nameColor = (w: Who | null | undefined) => (!w ? agentColor(look, { color: 1, template: 'builder' }) : w.kind === 'you' ? YOU : agentColor(look, { color: colors[w.session ?? ''] ?? 2, template: w.name }));
 </script>
 
-<div class="preview" style={lookVars(look)}>
+<div class="preview inset" style={lookVars(look)}>
   <div class="label cap">Live preview</div>
   <div class="rows">
     {#each rows as r (r.id)}<RowView row={r} own="h" {nameColor} />{/each}
@@ -38,9 +38,7 @@
 <style>
   .preview {
     margin-top: 6px;
-    border-radius: var(--r-panel);
-    background: var(--bg-app);
-    border: 1px solid var(--border);
+    /* It mirrors the tree's own indents, so it keeps its padding. */
     padding: 8px 22px 12px;
   }
   .cap {

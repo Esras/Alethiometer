@@ -16,8 +16,8 @@
   }
 </script>
 
-<Modal label="New agent" onclose={onClose} {onkeys} z={50} scrim="var(--scrim)" inset="32px 0 0 0" isolate>
-  <div class="modal agent-form">
+<Modal label="New agent" onclose={onClose} {onkeys} inset="32px 0 0 0" isolate>
+  <div class="new modal agent-form">
     <div class="top">
       <i class="ph ph-user-plus"></i><span class="t">New agent</span><span class="sub">{sub}</span><kbd>Esc</kbd>
     </div>
@@ -31,15 +31,14 @@
 </Modal>
 
 <style>
-  .modal {
+  .new {
     width: min(740px, calc(100vw - 48px));
     max-height: calc(100vh - 80px);
     border-radius: 10px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--modal);
+    /* Its header, body and footer run edge to edge and carry their own padding. */
+    padding: 0;
   }
-  .modal .top {
+  .new .top {
     padding: 12px 16px;
   }
   .body {
@@ -50,7 +49,7 @@
     overflow-y: auto;
     min-height: 0;
   }
-  .modal .foot {
+  .new .foot {
     padding: 12px 16px;
     border-top: 1px solid var(--border);
   }

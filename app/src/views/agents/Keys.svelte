@@ -66,8 +66,8 @@
   }
 </script>
 
-<Modal label="Keys" onclose={close} {onkeys} z={20} scrim="rgba(12, 13, 14, 0.66)" position="absolute">
-  <div class="sheet">
+<Modal label="Keys" onclose={close} {onkeys} position="absolute">
+  <div class="sheet modal">
     <div class="head">
       <span class="title">Keys</span>
       <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> moves between the tree, the thread and the composer.</span>
@@ -94,10 +94,6 @@
   .sheet {
     width: min(1080px, calc(100% - 48px));
     border-radius: 12px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-    padding: 18px 24px 20px;
     display: flex;
     flex-direction: column;
     gap: 16px;

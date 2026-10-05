@@ -60,7 +60,7 @@
   <!-- Open, a press here keeps the focus in the field, so the click closes (not blur, then reopen). -->
   <button class="current" style:font-family={face(value)} onmousedown={(e) => shown && e.preventDefault()} onclick={() => (shown ? close() : show())}>{label(value)}<i class="ph ph-caret-down"></i></button>
   {#if shown}
-    <div class="pop" role="listbox" use:p.frame>
+    <div class="pop popover flush" role="listbox" use:p.frame>
       <div class="search"><input class="input" use:p.field bind:value={p.q} placeholder="Filter fonts…" /></div>
       <div class="opts scroll">
         {#each list as f, i (f.name)}
@@ -97,9 +97,6 @@
     width: 360px;
     z-index: 5;
     border-radius: var(--r-panel);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-panel);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
     overflow: hidden;
   }
   .search {

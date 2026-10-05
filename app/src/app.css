@@ -311,6 +311,37 @@ pre,
   flex-direction: column;
 }
 
+/* Floating surfaces (ui-plan decision 5). Each casts one shadow: .popover for
+   anything that opens from a control (menus, pickers, peeks, toasts), .modal
+   for a dialog over the one .scrim. .popover.flush is for a list or menu that
+   runs edge to edge. .inset is a recessed block inside a panel. The radius is
+   each site's own for now (decision 12); an inset's is 6px. Position, size and
+   z-index stay with the site. */
+.popover {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--popover);
+  padding: 10px 12px;
+}
+.popover.flush {
+  padding: 4px 0;
+}
+.scrim {
+  background: var(--scrim);
+}
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--modal);
+  padding: 14px 16px;
+}
+.inset {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
 /* A pane's footer of key hints. */
 .hint-bar {
   flex: none;
@@ -324,12 +355,8 @@ pre,
   overflow: hidden;
 }
 
-/* A shell command an agent wants to run, in mono on the app ground. */
+/* A shell command an agent wants to run: an .inset in mono. */
 .command-block {
-  border-radius: 5px;
-  background: var(--bg-app);
-  border: 1px solid var(--border);
-  padding: 5px 10px;
   font: 0.923rem/1.55 var(--font-mono);
   color: var(--tx-body);
   white-space: pre-wrap;

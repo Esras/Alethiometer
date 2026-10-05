@@ -435,8 +435,8 @@
   const sectionInfo = $derived(SECTIONS.find((s) => s.id === section)!);
 </script>
 
-<Modal label="Settings" onclose={close} {onkeys} z={60} scrim="rgba(0, 0, 0, 0.45)">
-<div class="modal">
+<Modal label="Settings" onclose={close} {onkeys}>
+<div class="settings modal">
   <header>
     <i class="ph ph-gear-six cog"></i><span class="title">Settings</span>
     {#if err}
@@ -698,7 +698,7 @@
 {/if}
 
 <style>
-  .modal {
+  .settings {
     position: fixed;
     top: 56px;
     left: 50%;
@@ -708,9 +708,8 @@
     display: flex;
     flex-direction: column;
     border-radius: 10px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+    /* Its header, nav and footer run edge to edge and carry their own padding. */
+    padding: 0;
     overflow: hidden;
   }
   header {

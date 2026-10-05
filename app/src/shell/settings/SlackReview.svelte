@@ -66,8 +66,8 @@
   }
 </script>
 
-<Modal label="Slack channels" {onclose} {onkeys} z={70} scrim="rgba(0, 0, 0, 0.3)">
-<div class="review">
+<Modal label="Slack channels" {onclose} {onkeys}>
+<div class="review modal">
   <header>
     <span class="title">Channels in {source.name}</span>
     <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
@@ -112,9 +112,8 @@
     display: flex;
     flex-direction: column;
     border-radius: var(--r-panel);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-panel);
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    /* Its header, rows and footer run edge to edge and carry their own padding. */
+    padding: 0;
     overflow: hidden;
   }
   header {

@@ -1,9 +1,6 @@
 /* The new-agent forms (05): replaces the composer while open. Plain CSS, so
    global: everything is under .agent-form (TodoForm's .form used to pick it up). */
 .agent-form {
-  border-radius: var(--r-panel);
-  background: var(--bg-panel);
-  border: 1px solid rgba(142, 192, 124, 0.5);
   display: flex;
   flex-direction: column;
 }
@@ -134,10 +131,6 @@
   text-overflow: ellipsis;
 }
 .agent-form .ro {
-  padding: 6px 10px;
-  border-radius: var(--r-input);
-  background: var(--bg-app);
-  border: 1px solid var(--border);
   font-size: 1rem;
   line-height: 1.5;
   color: var(--tx-muted);

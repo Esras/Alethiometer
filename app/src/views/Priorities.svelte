@@ -269,7 +269,7 @@
     </div>
 
     {#if peek && selRow && peekPos}
-      <div class="peek" use:popover={{ onclose: () => (peek = false), trigger: () => rowEls[`r${selRow.item_id}`] }} style:top="{peekPos.top}px" style:left="{peekPos.left}px" role="dialog" aria-label="Peek">
+      <div class="peek popover" use:popover={{ onclose: () => (peek = false), trigger: () => rowEls[`r${selRow.item_id}`] }} style:top="{peekPos.top}px" style:left="{peekPos.left}px" role="dialog" aria-label="Peek">
         <div class="peek-head">
           <AppIcon source={selRow.source} size={14} />{sourceLabel(selRow.source)}
           {#if selRow.when}<span class="tnum">· {selRow.when}</span>{/if}
@@ -498,11 +498,7 @@
     position: absolute;
     z-index: 10;
     width: 380px;
-    padding: 10px 12px 12px;
     border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--popover);
     animation: fade 120ms ease-out;
   }
   @keyframes fade {

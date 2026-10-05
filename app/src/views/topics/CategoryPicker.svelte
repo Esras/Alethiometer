@@ -35,7 +35,7 @@
   }
 </script>
 
-<div class="picker" role="listbox" use:p.frame style:position={placement.position} style:top={placement.top} style:left={placement.left}>
+<div class="picker popover flush" role="listbox" use:p.frame style:position={placement.position} style:top={placement.top} style:left={placement.left}>
   <input class="input" use:p.field bind:value={p.q} placeholder="Category…" />
   {#each matches as c, i (c.key)}
     <button class="opt" class:on={i === p.sel} {...p.row(i)}>
@@ -53,17 +53,14 @@
     position: absolute;
     z-index: 30;
     min-width: 200px;
-    padding: 4px;
     border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
-    box-shadow: var(--popover);
   }
   input {
-    margin-bottom: 4px;
+    width: calc(100% - 16px);
+    margin: 4px 8px;
   }
   .none {
-    padding: 5px 8px;
+    padding: 5px 12px;
     color: var(--tx-label);
   }
   .opt {
@@ -71,8 +68,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    padding: 5px 8px;
-    border-radius: 4px;
+    padding: 5px 12px;
     text-align: left;
     color: var(--tx-2);
   }

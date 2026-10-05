@@ -200,6 +200,7 @@ These already match:
 - `SplitReview:558 .legend`;
 - `reflect/DayBrief:132 .tile` (bg-head border);
 - `settings/AgentsPreview:39` (8px).
+- **Done (2026-10-05):** `.popover`, `.popover.flush`, `.scrim`, `.modal` and `.inset` are in `app.css` (each keeps its own radius, `.inset` is 6px); every popover, picker, menu and modal box takes one, and `Modal` lost its `scrim` and `z` props (one `--scrim`, one z-index of 60), keeping `position`, `inset` (what the scrim covers: Keys the Agents pane, New agent below the title bar) and `isolate` (behaviour). Insets are the five above plus `.command-block` (approval cards, Incoming) and New agent's Scion instructions block; left alone: the Agents thread `.panel`, TodoForm's `.form`, and the Assistant Sources side sheet (a docked panel, not a popover). The Nudge toast now has the class's 10px 12px padding (14px 16px before).
 
 **6, 17, 19 · Buttons** → `.btn` (3px 10px), `.btn.md` (5px 12px), `.btn.primary` (now **filled** `aqua-fill`) and `.quiet`.
 - **Done (2026-10-05):** `.btn`, `.btn.md`, filled `.btn.primary`, `.btn.on` and the disabled look are in `app.css`; the sites below use them. Confirm and Move to topic are plain `.btn` (neither had a key hint). Opacity-disabled is gone from `form.css`, AskCard, Notes and StatusLine. Left alone: AskCard `.opt` and `.choice` (choice cards), Joins `.new` (a span, not a button), FontPick `.current` (a field), and `.quiet`, not added because four views already use that name locally. Assistant Sources takes `.btn.on` but no scene reaches it (it needs a Glean answer).

@@ -141,7 +141,7 @@
   </div>
   <div class="right">
     <span class="row-lab"><span class="lab label">Instructions</span><span class="note">agent_instructions from {template} {version} · edit the template on Hub</span></span>
-    <div class="ro">{t?.instructions || '—'}</div>
+    <div class="inset ro">{t?.instructions || '—'}</div>
     {#if t?.skills.length}
       <span class="skills"><span class="lab label">Skills</span>{#each t.skills as s (s)}<span class="skill">{s}</span>{/each}</span>
     {/if}

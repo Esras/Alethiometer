@@ -193,7 +193,7 @@
     {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
     <kbd class="send-key">{chord('⌘⏎', 'Ctrl+⏎')}</kbd>
     {#if options.length}
-      <div class="pop" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
+      <div class="pop popover flush" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
         {#each options as s, i (s.id)}
           <button class:on={i === pick} onmousedown={(e) => (e.preventDefault(), complete(s))}>@{s.name}<span>{s.harness} · {s.model}</span></button>
         {/each}
@@ -327,11 +327,7 @@
     left: 30px;
     bottom: calc(100% + 4px);
     min-width: 220px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-strong);
     border-radius: var(--r-input);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-    padding: 4px;
     display: flex;
     flex-direction: column;
     z-index: 5;
@@ -340,8 +336,7 @@
     display: flex;
     gap: 10px;
     justify-content: space-between;
-    padding: 4px 8px;
-    border-radius: var(--r-block);
+    padding: 4px 12px;
     font: 0.923rem var(--font-mono);
     color: var(--tx-body);
     text-align: left;
