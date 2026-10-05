@@ -19,6 +19,7 @@
   import { call } from '../../lib/api';
   import { useKeys, plain } from '../../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../../lib/range';
+  import Cycler from '../../lib/ui/Cycler.svelte';
   import Dock from '../../lib/ui/Dock.svelte';
   import Markdown from '../../lib/ui/Markdown.svelte';
   import PersonName from '../../lib/ui/PersonName.svelte';
@@ -291,11 +292,8 @@
       <span class="count split"><i class="ph ph-git-fork"></i>split</span>
     </div>
     <span class="modes">
-      <span class="seg">
-        <button class:on={mode === 'topic'} onclick={() => (mode = 'topic')}>By topic</button>
-        <button class:on={mode === 'order'} onclick={() => (mode = 'order')}>In order</button>
-      </span>
-      <span class="key">g</span>
+      <!-- g is the review's own key (its handler swallows every other letter), so the hint only shows it. -->
+      <Cycler options={[{ value: 'topic', label: 'By topic' }, { value: 'order', label: 'In order' }]} bind:value={mode} hint="g" label="Order" />
       <button class="key" onclick={() => onclose(changed)}>· esc back</button>
     </span>
   </div>
@@ -426,23 +424,6 @@
     display: flex;
     gap: 10px;
     align-items: center;
-  }
-  .seg {
-    display: flex;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.8846rem;
-    background: var(--bg-app);
-  }
-  .seg button {
-    padding: 2px 9px;
-    color: var(--tx-muted);
-    border-radius: 5px;
-    white-space: nowrap;
-  }
-  .seg button.on {
-    color: var(--bg-app);
-    background: var(--aqua);
   }
   .key {
     font-size: 0.8846rem;

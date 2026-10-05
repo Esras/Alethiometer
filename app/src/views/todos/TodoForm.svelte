@@ -3,6 +3,7 @@
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
   import { mod } from '../../lib/keys.svelte';
+  import Cycler from '../../lib/ui/Cycler.svelte';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import type { TopicRef, TopicRow } from '../../lib/types';
   import type { Draft, JiraTarget } from './types';
@@ -67,10 +68,14 @@
 
 <div class="form" {onkeydown} onclick={(e) => e.stopPropagation()} role="presentation">
   <div class="switch">
-    <button class:on={target === 'local'} onclick={() => (target = 'local')}>Todo <span class="k">⌘1</span></button>
-    <button class:on={target === 'jira'} disabled={!jira} title={jira ? '' : 'Set create_project on the Jira source to create issues'} onclick={() => (target = 'jira')}>
-      Jira issue <span class="k">⌘2</span>
-    </button>
+    <!-- ⌘1/⌘2 are the form's own keys (onkeydown above), so the hint only shows them. -->
+    <Cycler
+      options={jira ? [{ value: 'local', label: 'Todo' }, { value: 'jira', label: 'Jira issue' }] : [{ value: 'local', label: 'Todo' }]}
+      bind:value={target}
+      hint={jira ? '⌘1 ⌘2' : undefined}
+      label="Create as"
+      title={jira ? 'Create as' : 'Set create_project on the Jira source to create issues'}
+      disabled={!jira} />
   </div>
   <div class="grid">
     <span class="lbl">{target === 'jira' ? 'Summary' : 'Todo'}</span>
@@ -119,20 +124,7 @@
   }
   .switch {
     display: flex;
-    gap: 4px;
     margin-bottom: 10px;
-  }
-  .switch button {
-    padding: 3px 10px;
-    border-radius: var(--r-input);
-    color: var(--tx-muted-2);
-  }
-  .switch button.on {
-    background: var(--aqua-tint);
-    color: var(--aqua);
-  }
-  .switch button:disabled {
-    color: var(--tx-disabled);
   }
   .grid {
     display: grid;

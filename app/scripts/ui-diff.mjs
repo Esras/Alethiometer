@@ -115,6 +115,15 @@ const scenes = {
   'daystrip-buffer': [{ exact: 'Life' }, 'b'],
   'settings-edit-number': ['Control+,', 'Enter'],
   'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e'],
+  // Cycler
+  // Each steps one: a click on the cycler (its aria-label is "<what>: <value>"), or the
+  // review's own g. Settings' Agents page shows a three-way one; clicking it changes a
+  // setting on whichever server it runs against, as does anything below. The Jira
+  // choice in the todo form and the Assistant's Kept/Dropped need data the sample lacks.
+  'topics-archived': ['Control+3', { button: 'Topics: Active' }],
+  'reflect-cycled': ['Control+6', { button: 'Scope: Day' }],
+  'incoming-split-order': ['j', 's', 'g'],
+  'settings-agents-cycled': ['Control+,', '6', { button: 'Color names by' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

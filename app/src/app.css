@@ -383,24 +383,6 @@ pre,
   color: var(--tx-title);
 }
 
-/* Segmented control (Day/Week…, Both/Work/Life) */
-.seg {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-input);
-  font-size: 0.9231rem;
-  background: var(--bg-panel);
-}
-.seg button {
-  padding: 4px 12px;
-  color: var(--tx-muted);
-  border-radius: 5px;
-}
-.seg button.on {
-  color: var(--bg-app);
-  background: var(--aqua);
-}
-
 /* The keyboard cursor: a light aqua fill and no edge (ui-plan decision 3).
    Rows picked for an action show a check instead; the open row of a list
    without the keyboard is --bg-head. */

@@ -10,6 +10,7 @@
   import { feedback } from '../../lib/hydrated';
   import { isTyping, useKeys } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import Cycler from '../../lib/ui/Cycler.svelte';
   import { markColor, type Reply, type Source } from './types';
 
   let {
@@ -51,8 +52,7 @@
 
   useKeys((e) => {
     if (isTyping(e) || e.metaKey || e.ctrlKey) return false;
-    if (e.key === 'Tab') tab = tab === 'kept' ? 'dropped' : 'kept';
-    else if (e.key === 'j') sel = Math.min(sel + 1, list.length - 1);
+    if (e.key === 'j') sel = Math.min(sel + 1, list.length - 1);
     else if (e.key === 'k') sel = Math.max(sel - 1, 0);
     else if (e.key === 'Enter') open(list[sel]);
     else if (e.key === 'p') verdict(list[sel], 'pin');
@@ -99,9 +99,7 @@
     {/each}
   </div>
   <div class="tabs">
-    <button class:on={tab === 'kept'} onclick={() => (tab = 'kept')}>Kept <span class="n">{kept.length}</span></button>
-    <button class:on={tab === 'dropped'} onclick={() => (tab = 'dropped')}>Dropped <span class="n warn">{dropped.length}</span></button>
-    <span class="k">⇥</span>
+    <Cycler options={[{ value: 'kept', label: `Kept ${kept.length}` }, { value: 'dropped', label: `Dropped ${dropped.length}` }]} bind:value={tab} key="Tab" label="Sources shown" />
   </div>
   <div class="rows scroll">
     {#each list as s, i (s.key)}
@@ -202,25 +200,6 @@
     padding: 6px 14px;
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
-  }
-  .tabs button {
-    color: var(--tx-muted-2);
-    padding-bottom: 2px;
-    border-bottom: 1.5px solid transparent;
-  }
-  .tabs button.on {
-    color: var(--tx-title);
-    border-color: var(--aqua);
-  }
-  .n {
-    color: var(--tx-label);
-  }
-  .n.warn {
-    color: var(--orange);
-  }
-  .k {
-    margin-left: auto;
-    color: var(--tx-label);
   }
   .rows {
     flex: 1;
