@@ -10,65 +10,48 @@ Paths are under `app/src/`. "→" is the target class or component.
 - **A `lib/ui` component** when it carries behaviour: Modal, Popover, Picker, Cycler, Switch, FilterField, NeedCard, Avatar, PersonName variants, StatusMark, CountdownPill. Each one today is written several times with different Escape, outside-click, focus and key handling.
 - **Size of the problem:** 7,918 lines inside `<style>` blocks (44% of all `.svelte` lines). Top files: Settings 486, Incoming 413, agents/Tree 402, agents/Pane 296, Priorities 287, Topics 282, agents/RowView 271, TopicsIndex 258, DayStrip 238, Notes 218. Today `lib/ui/Panel` has one user and `lib/ui/Pill` two.
 
-## Phase 0 · Foundation (no visible change)
+## Checking that a change doesn't change the look
 
-1. **Tokens into `app.css :root`.** Missing today: `aqua-fill`, `aqua-badge`, `aqua-line`, `hover-tint`, `row-hover`, `scrim`, `status-broken/attention/headsup/done`, `time-far/near/now`, `link-out`, `pill-red/yellow/green-fill`, `route-glean`, `thinking`, `result-failed`, `query-1`…`query-6`, `query-local`, `agent-*`, `space-2`…`space-16`, the shadows `popover`, `modal`, `tab-underline` and `panel-accent`, `row-comfortable/cozy/compact`, `avatar-lg/sm`, `btn-pad-sm/md` and `input-pad-sm/md`. The Agents box colours (`look.ts:40–57`) and `--cat-*` stay injected at runtime.
-2. **Radius tokens.** Add `--radius-sm/md/full` alongside `--r-block/--r-input/--r-panel` at the old values first. The value change is decision 12 (Phase 3).
-3. **Clear name collisions before adding the global classes.** Svelte's scoped rules would mix with a new global rule of the same name:
-   - **Plain-number `.count`:** `Priorities:367`, `reflect/Rollup:62`, `reflect/CarryList:96`, `topics/TopicsIndex:329`, `Search:260`, `shell/AssistantPane:301` and `lib/ui/Panel:95`. Rename them (e.g. `.n`, as bundle.css does).
-   - **Local `.modal` / `.popover`:** `settings/Settings:700`, `agents/NewModal:55` and `shell/DayStrip:461`.
-   - **The `agents/form.css` leak.** It's imported as plain CSS by `NewLocal`/`NewScion`, so it's global. Its `.form`, `.form .foot`, `.form .k` and `.form .primary .k` already style `todos/TodoForm.svelte:68` (`class="form"`) by accident. Its `.input`, `.chip`, `.check` and `.b` clash with the targets. Scope it under `.agent-form` or fold it into the shared classes in Phase 1.
-   - **Global `kbd`** (`app.css:187`, unboxed). Changing it boxes all 32 `<kbd>` uses at once, many inside `.btn.primary`. Treat it as decision 9 (Phase 3), not as a rename.
-4. **A screenshot check.** `scripts/shot.mjs` already drives Playwright.
-   - Run `ALETHIOMETER_FAKE_NOW=10:52 ALETHIOMETER_DATA_DIR=<tmp> npm run devserver` with `npm run dev`.
-   - Shoot each tab plus the key sequences that open pickers, Settings and the agent forms, on `main` and on the branch.
-   - Diff with ImageMagick `compare -metric AE`. Phase 1 should give a zero diff; mask StatusMark's running dot.
-   - There are no component tests and no lint/stylelint today. `npm run check` (svelte-check) runs after each extraction.
+`scripts/ui-diff.sh [ref]` starts the UI at `ref` on :1430 and this checkout's on :1420, each on its own dev server.
+- **What both sides get:** fresh sample data, the clock at 10:52, and two scripted agents (one waiting on an approval, one on a question).
+- **The comparison:** `node scripts/ui-diff.mjs [scene…]` shoots about 40 scenes on both and pixel-diffs them. The scenes cover every tab, the pickers, Settings' sections, the palette, Search, the Assistant, the agent cards and the New agent modal.
+- **Diffs are exact,** with Chromium's deterministic raster and transitions off. A 0.01 alpha change to one token shows up as thousands of pixels.
+- **Not covered:**
+  - Settings › Developer, which shows each server's data directory;
+  - anything the sample data can't produce: Scion rooms, a Glean answer, Slack review, todos.
 
-## Phase 1 · Merges that shouldn't change the look
+## Phase 0 and Phase 1 · done (2026-10-05)
 
-1. **Panel.** Reflect rebuilds it three times: `reflect/CarryList:75/82` (markup :39), `reflect/DayBrief:100/107` (:25) and `reflect/Rollup:41/48` (:18) → `<Panel collapsible={false}>`, which needs no new prop. Panel's own scoped surface becomes the global `.panel` so others can share it.
-2. **Column panel surface** → `.panel` plus a `.panel.col` modifier (flex column, `flex: 1`, `min-height: 0`). Sites: `Todos:343`, `topics/NotePane:233`, `Incoming:935`, `Search:226`, `topics/TopicsIndex:290`, `Notes:451 .sheet`, `reflect/NoteEditor:258` (also a Panel-style header at :268), `settings/Settings:1128 .results` and `:939 .card`, and `Reflect:284 .ask`.
-3. **NeedCard** → `lib/ui/NeedCard.svelte`, with `{icon, title, via?, link?, compact?}` and snippets `body`, `actions`, `right`; class `.c-need` / `.c-need-one`.
-   - **AskCard sites:** `agents/AskCard` `.card` 119, `.one` 276, `.btns` 199, `.b.primary` 217 and `.link` 145.
-   - **ApprovalCard sites:** `agents/ApprovalCard` `.card` 99, `.copy` 129, `.btns` 175, `.b.primary` 200 and `.one` 230.
-   - **Not quite identical:** `.top` padding is 8/12/4 in Ask and 8/12/6 in Approval, and Approval adds `max-height: 55vh`. Pick one.
-   - **`.said`** is also copied at `incoming/AgentPart:227`.
-4. **Command block** → `.inset.command`. Sites: `agents/ApprovalCard:140` and `incoming/AgentPart:215`.
-5. **Mono tag** → a new global `.tag`, which isn't in bundle.css yet. Sites: `agents/Panels:130` and `agents/Tree:354`.
-6. **Footer hint bar** → a new global `.hints`, also missing from bundle.css.
-   - Same rule: `Incoming:1257`, `Search:355` and `Todos:482`.
-   - Same idea under other names: `Notes:626 .foot`, `shell/assistant/SourcesPanel:278`, `incoming/PersonPicker:229`, `notes/Picker:155`, `shared/SignalDetail:105` and `DayStrip:508 .pop-foot`.
-7. **StatusMark** moves to `lib/ui/StatusMark.svelte`. It's already imported by Pane, Joins, Tree and Incoming. It needs an `offline`/`problem` status to absorb the copies:
-   - `shell/SyncStatus:231` (plus `.dot.bad` :237);
-   - `agents/StatusLine:148` (plus `.dot.off` :154);
-   - `settings/Settings:837 .dot` and `:895 .state .d`.
-8. **Colours written out by hand.**
-   - `reflect/Nudge:88–89`: `#282828` → `--bg-panel`, `#504945` → `--border-strong`.
-   - `rgba(142,192,124,.14)` ×7 → `--aqua-fill`: `agents/ApprovalCard:201`, `AskCard:218`, `Composer:325`, `RowView:512`, `incoming/AgentPart:269` and `agents/form.css:113, 222`.
-   - Glean's `#9a9df5` → `--route-glean`: `shell/AssistantPane:220` and `lib/hydrated.ts:47` `ROUTE_COLOR`, which FacetBar, Search and SearchPalette use.
-   - Exact token matches:
-     - `DayStrip:366` `#fe8019` → `--orange` and `:372` `#fb4934` → `--red`;
-     - `agents/RowView:146` `#7c6f64` → `--thinking` and `:476` `#d97a6c` → `--result-failed`;
-     - `agents/Tree:349` `#8a9a5b` → `--tool`;
-     - `agents/StatusLine:66/69` → `--tx-muted-2`, `--border`, `--aqua`.
-   - Redundant `var(--msg, #9a9fd6)` fallbacks: `agents/Tree:352, 492, 521` and `agents/Body:53`.
-   - **Not a pure swap:** `agents/Tree:448 .host.other` `#9a9fd6` → `--msg` would make that host colour follow the user's Agents setting.
-   - No token yet: `incoming/SplitReview:35` BARS and `topics/CategoryManager:11`.
-9. **Label copies** → global `.label`. They're byte-identical, so just delete them:
-   - `assistant/GleanAnswer:140` and `assistant/SourcesPanel:164`;
-   - `incoming/PersonPicker:143`;
-   - `AssistantPane:334 .slabel` and `settings/AgentsPreview:46 .cap`;
-   - `settings/Settings:913 .glabel` and `:1065 .thead`.
-10. **Key-cap copies** → `.kbd`. These are full copies: `agents/AskCard:182 .key`, `agents/Keys:159`, `agents/Pane:259` (base :254) and `agents/StatusLine:163`. `shell/SearchPalette:321` isn't one (no border, 4px), so it's a visible change.
-11. **Settings duplicates itself.** The `.seg` (`settings/Row:266` vs `Settings:1078–1092`) and the on/off `.switch` (`Row:242–265` vs `Settings:1018–1040`) are each written twice. Keep one of each; see Cycler and Switch below.
-12. **`:global` reach-ins.** Six of the 12 `:global(` uses style a child's internals, which shows a missing prop:
-    - `Settings:955/960` → CategoryManager;
-    - `Incoming:1144` and `SplitReview:515` → PersonName `.name`;
-    - `TopicsIndex:371` and `Topics:348` → CategoryPicker positioning;
-    - `NewScion:159`.
+Pixel-identical to `eb633f4` on every scene. Commits `6501866`…`5920b59`.
+- **Tokens:** `app.css` has the design system's tokens that aren't injected at runtime, at the system's values.
+- **Agent form CSS:** `agents/form.css` is scoped under `.agent-form`. TodoForm keeps what it used to pick up from it.
+- **Colours written out by hand** that equal a token now name it (43).
+- **Reflect's three panels** use `<Panel collapsible={false}>`.
+- **New global classes:**
+  - `.panel` / `.panel.col`, the surface of Panel and of ten main columns and cards;
+  - `.hint-bar`, for Incoming, Search and the Topics index;
+  - `.mono-tag`;
+  - `.command-block`;
+  - `.kbd`.
+- **Section-label copies** use `.label`.
+- **Components:**
+  - `lib/ui/StatusMark` (moved, plus `problem` and `offline` dots), now drawing the sync chip's and the room line's dots;
+  - `views/agents/NeedCard`, the frame of AskCard and ApprovalCard;
+  - `lib/ui/Switch` and `lib/ui/Segmented`, Settings' controls, written once.
 
-    Replace each with a prop as the component it reaches into is touched.
+**Left from Phase 0/1 on purpose:**
+- **Radius tokens** (`--radius-sm/md/full`) come with decision 12. The old `--r-input` 6px and `--r-panel` 8px both become 6px, so there's no single old value to alias.
+- **Todos' footer** differs from `.hint-bar` (7px padding, wraps, shrinks). It joins in the visible pass.
+- **NeedCard props, to settle in the visible pass:**
+  - `headBottom` (asks 4px, approvals 6px);
+  - `maxHeight` (approvals 55vh).
+- **Settings' 6px attention dot** is a notification mark, not a StatusMark.
+- **Agents tree colours.** `#9a9fd6` and `#8a9a5b` in the tree stay as literals: `--msg` and `--tool` follow the user's settings.
+- **`:global` reach-ins** into child components (`Settings:955/960` → CategoryManager, `Incoming:1144` and `SplitReview:515` → PersonName, `TopicsIndex:371` and `Topics:348` → CategoryPicker, `NewScion:159`) get props when those components are next touched.
+- **Collisions to clear before decisions 4 and 5 add `.count`, `.modal` and `.popover` globally:**
+  - plain-number `.count` in `Priorities`, `reflect/Rollup`, `reflect/CarryList`, `topics/TopicsIndex`, `Search`, `shell/AssistantPane` and `lib/ui/Panel`;
+  - local `.modal` (`settings/Settings`, `agents/NewModal`);
+  - local `.popover` (`shell/DayStrip`).
 
 ## Phase 2 · New shared components (behaviour plus look)
 
@@ -359,4 +342,4 @@ These already match:
 
 ## What this doesn't do
 
-It changes no code. Phases 0 and 1 can land without decisions from the user. Phase 2 changes behaviour (Escape, focus, outside click) and needs the screenshot check plus manual key testing. Phase 3 changes the look and should go decision by decision.
+Phases 0 and 1 landed without decisions from the user and without visible change. Phase 2 changes behaviour (Escape, focus, outside click) and needs `scripts/ui-diff` plus manual key testing. Phase 3 changes the look and should go decision by decision.

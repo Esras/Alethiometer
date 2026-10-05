@@ -42,6 +42,7 @@ The UI reaches the dev server through Vite's `/call` proxy. The dev server answe
 `ALETHIOMETER_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.alethiometer-dev/` to re-seed.
 
 Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses).
+To check a UI refactor changes nothing: `scripts/ui-diff.sh <ref>`, then `node scripts/ui-diff.mjs` (pixel diff of ~40 scenes against `<ref>`).
 
 ### Desktop
 
