@@ -244,7 +244,7 @@
   .ctx {
     margin: 0 14px;
     padding: 6px 8px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     font-size: 0.9231rem;
     color: var(--tx-muted);
@@ -283,7 +283,7 @@
     align-self: flex-end;
     max-width: 85%;
     padding: 7px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--bg-head);
   }
   .a {
@@ -334,7 +334,7 @@
     align-items: center;
     gap: 6px;
     padding: 2px 8px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-head);
     color: var(--tx-2);
     font-size: 0.9231rem;
@@ -352,7 +352,7 @@
     padding: 10px 12px 12px;
   }
   .ask input {
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
   }
   .rail {
     width: 40px;

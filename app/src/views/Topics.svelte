@@ -308,13 +308,13 @@
     flex: none;
     display: flex;
     align-items: stretch;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
   }
   .catbar {
     width: 5px;
     flex: none;
-    border-radius: var(--r-panel) 0 0 var(--r-panel);
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
   }
   .head-row {
     flex: 1;
@@ -331,7 +331,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: var(--bg-app);
     color: var(--tx-muted);

@@ -34,7 +34,7 @@
   .new {
     width: min(740px, calc(100vw - 48px));
     max-height: calc(100vh - 80px);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     /* Its header, body and footer run edge to edge and carry their own padding. */
     padding: 0;
   }

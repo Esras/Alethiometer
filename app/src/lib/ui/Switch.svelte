@@ -9,7 +9,7 @@
   .switch {
     width: 34px;
     height: 20px;
-    border-radius: 10px;
+    border-radius: var(--radius-full);
     background: var(--border-strong);
     position: relative;
     transition: background 120ms;

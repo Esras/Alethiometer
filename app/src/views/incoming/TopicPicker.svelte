@@ -96,7 +96,7 @@
 <style>
   .picker {
     width: 320px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .field {
@@ -125,7 +125,7 @@
   }
   .bar {
     align-self: stretch;
-    border-radius: 0 2px 2px 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
   .bar.dashed {
     background: repeating-linear-gradient(180deg, var(--tx-label) 0 3px, transparent 3px 6px);

@@ -236,7 +236,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     font-size: 0.9615rem;
   }
   .label {

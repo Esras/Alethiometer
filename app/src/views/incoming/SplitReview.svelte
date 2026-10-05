@@ -430,14 +430,14 @@
   .seg {
     display: flex;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 0.8846rem;
     background: var(--bg-app);
   }
   .seg button {
     padding: 2px 9px;
     color: var(--tx-muted);
-    border-radius: 5px;
+    border-radius: var(--radius-md);
     white-space: nowrap;
   }
   .seg button.on {
@@ -477,7 +477,7 @@
     padding: var(--row-pad-compact) 8px;
     min-height: var(--row-min-compact);
     margin: 0 -8px 0 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .msg:hover:not(.focus):not(.chosen) {

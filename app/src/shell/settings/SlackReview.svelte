@@ -111,7 +111,7 @@
     max-height: calc(100vh - 180px);
     display: flex;
     flex-direction: column;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     /* Its header, rows and footer run edge to edge and carry their own padding. */
     padding: 0;
     overflow: hidden;

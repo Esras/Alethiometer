@@ -143,7 +143,7 @@
   .choice {
     text-align: left;
     padding: 7px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     display: grid;
@@ -195,7 +195,7 @@
     align-items: center;
     padding: var(--row-pad-compact) 9px;
     min-height: var(--row-min-compact);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     color: var(--tx-body);

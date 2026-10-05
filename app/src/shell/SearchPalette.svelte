@@ -272,7 +272,7 @@
     transform: translateX(-50%);
     width: 740px;
     max-width: calc(100vw - 80px);
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     /* Its search line, rows and footer carry their own padding. */
     padding: 0;
     overflow: hidden;

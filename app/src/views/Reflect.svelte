@@ -239,7 +239,7 @@
     color: var(--tx-muted-2);
     display: flex;
     padding: 2px;
-    border-radius: var(--r-block);
+    border-radius: var(--radius-md);
   }
   .car:hover {
     color: var(--tx-title);
@@ -286,7 +286,7 @@
   .ask {
     flex: none;
     padding: 0;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
   }
   .askrow {
     display: flex;
@@ -342,7 +342,7 @@
     gap: 10px;
     align-items: flex-start;
     padding: 10px 12px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     border: 1px dashed var(--border);
     color: var(--tx-label);
     font-size: 0.9231rem;

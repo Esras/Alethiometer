@@ -328,7 +328,7 @@
   }
   .bar {
     align-self: stretch;
-    border-radius: 0 2px 2px 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     cursor: pointer;
   }
   .row {

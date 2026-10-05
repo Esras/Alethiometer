@@ -20,12 +20,12 @@
     display: inline-flex;
     padding: 2px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     gap: 2px;
   }
   .seg button {
     padding: 2px 9px;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     color: var(--tx-muted-2);
   }
   .seg button.on {

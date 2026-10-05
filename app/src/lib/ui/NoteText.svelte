@@ -166,7 +166,7 @@
   .inline-code {
     background: var(--border);
     color: var(--blue);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 0 4px;
     font-size: 0.95em;
   }
@@ -187,7 +187,7 @@
     margin: 6px 0;
     padding: 8px 10px;
     background: var(--border);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-md);
     color: var(--blue);
     font-size: 0.95em;
     overflow-x: auto;

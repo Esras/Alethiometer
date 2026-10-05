@@ -73,7 +73,7 @@
     height: 22px;
     padding: 0;
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     background: none;
   }
   .cat kbd {

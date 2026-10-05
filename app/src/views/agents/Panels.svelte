@@ -69,7 +69,7 @@
   }
   .facts-box {
     padding: 7px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     display: flex;

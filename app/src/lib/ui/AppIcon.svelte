@@ -16,13 +16,13 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-head);
     color: var(--tx-2);
   }
   img {
     display: block;
     flex: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
 </style>

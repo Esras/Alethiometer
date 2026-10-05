@@ -276,7 +276,7 @@
     flex-direction: column;
     gap: 3px;
     padding: 5px 10px 6px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: var(--bg-panel);
   }
@@ -321,7 +321,7 @@
     position: absolute;
     top: 0;
     height: var(--bh);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-sm);
     font-size: 0.8077rem;
     padding: calc(var(--bh) / 2 - 6px) 5px 0;
     overflow: hidden;
@@ -357,7 +357,7 @@
   .more {
     position: absolute;
     padding: 0 5px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     font-size: 0.7692rem;
     color: var(--tx-body);
     background: var(--bg-head);
@@ -421,7 +421,7 @@
     gap: 6px;
     align-items: center;
     padding: 4px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px dashed var(--border-strong);
     font-size: 0.8462rem;
     line-height: 1.25;
@@ -442,7 +442,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     font-size: 0.9615rem;
   }
   .pop-head {
@@ -474,7 +474,7 @@
   .buf {
     display: inline-block;
     width: 44px;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     padding: 0 4px;
     font: inherit;
   }

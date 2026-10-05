@@ -173,7 +173,7 @@
     gap: 8px;
     padding: var(--row-pad-compact) 6px;
     min-height: var(--row-min-compact);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid transparent;
     font-size: 0.9231rem;
   }

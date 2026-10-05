@@ -344,7 +344,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     overflow: hidden;
@@ -365,7 +365,7 @@
     display: flex;
     color: var(--tx-muted-2);
     font-size: 1.0769rem;
-    border-radius: var(--r-block);
+    border-radius: var(--radius-md);
     transition: color 120ms;
   }
   .eye:hover {
@@ -466,7 +466,7 @@
     align-items: center;
     gap: 12px;
     padding: 9px 14px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     background: rgba(142, 192, 124, 0.08);
     border: 1px solid var(--aqua-line);
     min-width: 0;
@@ -499,7 +499,7 @@
     position: absolute;
     z-index: 10;
     width: 380px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     animation: fade 120ms ease-out;
   }
   @keyframes fade {

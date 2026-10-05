@@ -243,7 +243,7 @@
     margin: 0;
   }
   .btn {
-    border-radius: 7px;
+    border-radius: var(--radius-md);
   }
   .head {
     flex: none;
@@ -336,7 +336,7 @@
     display: flex;
     flex-direction: column;
     margin: 12px 16px 14px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     background: var(--bg-app);
     border: 1px solid var(--border);
     box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.25);
@@ -410,7 +410,7 @@
     gap: 6px;
     align-items: center;
     padding: 3px 10px;
-    border-radius: 5px;
+    border-radius: var(--radius-md);
     color: var(--tx-muted-2);
   }
   .tab.on {
@@ -454,7 +454,7 @@
   .runbox {
     margin: 0 -10px;
     padding: 6px 10px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     background: var(--msg-fill);
     border: 1px solid var(--msg-border);
     display: flex;

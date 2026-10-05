@@ -881,7 +881,7 @@
     align-items: center;
     padding: var(--row-pad-comfortable) 12px var(--row-pad-comfortable) 0;
     min-height: var(--row-min-comfortable);
-    border-radius: 0 6px 6px 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
     text-align: left;
     transition: background 120ms;
   }
@@ -894,7 +894,7 @@
   }
   .bar {
     align-self: stretch;
-    border-radius: 0 2px 2px 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
   .unsorted .bar {
     background: repeating-linear-gradient(180deg, var(--tx-label) 0 3px, transparent 3px 6px);
@@ -1053,7 +1053,7 @@
     padding: var(--row-pad-compact) 8px;
     min-height: var(--row-min-compact);
     margin: 0 -8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     transition: background 120ms;
   }
   .msg.context {
@@ -1159,7 +1159,7 @@
     flex-wrap: wrap;
     margin: 8px 0 4px;
     padding: 8px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px dashed var(--border-strong);
     font-size: 0.9231rem;

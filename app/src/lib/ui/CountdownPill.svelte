@@ -15,7 +15,7 @@
     gap: 8px;
     align-items: center;
     padding: 4px 12px;
-    border-radius: 14px;
+    border-radius: var(--radius-full);
     border: 1px solid var(--border);
     background: var(--bg-panel);
     font-size: 0.9231rem;

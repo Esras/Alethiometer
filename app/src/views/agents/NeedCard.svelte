@@ -48,7 +48,7 @@
 
 <style>
   .card {
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     background: var(--need-soft);
     border: 1px solid var(--need-soft-border);
     display: flex;
@@ -74,7 +74,7 @@
     gap: 10px;
     align-items: center;
     padding: 6px 12px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     background: var(--need-soft);
     border: 1px solid var(--need-soft-border);
     min-width: 0;

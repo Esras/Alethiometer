@@ -254,7 +254,7 @@
   .plus {
     width: 26px;
     height: 26px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -270,7 +270,7 @@
   .needs {
     flex: none;
     margin: 0 10px 6px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     background: var(--need-soft, rgba(254, 128, 25, 0.08));
     border: 1px solid var(--need-soft-border, rgba(254, 128, 25, 0.35));
     padding: 7px 0 6px;
@@ -393,7 +393,7 @@
   }
   .host {
     background: var(--bg-head);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
     font: 0.846rem var(--font-mono);
     color: var(--tx-muted-2);
@@ -517,7 +517,7 @@
     flex: none;
     margin: 0 10px 6px;
     padding: 5px 10px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--status-broken) 45%, transparent);
     background: color-mix(in srgb, var(--status-broken) 7%, transparent);
     color: var(--tx-2);

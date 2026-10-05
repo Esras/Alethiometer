@@ -60,7 +60,7 @@
     width: 28px;
     height: 26px;
     align-self: center;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     color: var(--tx-muted-2);
     font-size: 1.1538rem;
   }
@@ -99,7 +99,7 @@
     width: 220px;
     /* 3px, not 4: the boxed key is 17px tall, so the button stays 25px. */
     padding: 3px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     /* An .input's look (decision 7), without .input itself: this is a button that
        opens the palette, and it gets the focus back when the palette closes, so
        an aqua border on :focus would show at rest. */

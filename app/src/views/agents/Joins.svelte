@@ -76,7 +76,7 @@
     font: 0.846rem var(--font-mono);
     color: var(--blue);
     background: var(--bg-head);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
     white-space: nowrap;
   }
@@ -103,7 +103,7 @@
   }
   .new {
     padding: 1px 8px;
-    border-radius: 5px;
+    border-radius: var(--radius-md);
     border: 1px dashed var(--aqua);
     color: var(--aqua);
   }

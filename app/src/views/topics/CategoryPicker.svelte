@@ -53,7 +53,7 @@
     position: absolute;
     z-index: 30;
     min-width: 200px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
   }
   input {
     width: calc(100% - 16px);
