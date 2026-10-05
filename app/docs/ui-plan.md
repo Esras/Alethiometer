@@ -4,6 +4,15 @@ The target is the **Alethiometer** design system artifact (https://claude.ai/art
 
 Paths are under `app/src/`. "→" is the target class or component.
 
+## Status (2026-10-05, branch `claude/jolly-albattani-m5qe3k`)
+
+- **Done:** Phases 0–2, and Phase 3 decisions 3, 4, 5, 6/17/19, 7, 8, 9, 11, 13 and 14. Each has a "Done (2026-10-05)" note below, and a "User, 2026-10-05" note where the user changed or settled something on review; those notes win over the design system artifact.
+- **Next, in this order:** 12 radii; NeedCard's head spacing to 6px for both Ask and Approval (`headBottom`; the user's call, the 6px is the app's usual spacing); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
+- **Deferred:** the Cycler (10; built in ac11400 and reverted: one button showing only the current value hides the options), the Life-block hatching (DayStrip, Notes: the feature needs rethinking), Notes line states.
+- **Open for the user:** icons are yellow by default (`:where(i)` in `app.css`; it used to come from a NoteText style that leaked to every `<i>`). Keep, or let icons take their text's colour?
+- **The design system artifact is behind** these notes: decision 10 is deferred, there is no `.quiet` (text actions are buttons), rows have min-heights 24/30/38, the ⌘K field keeps its bare line, ❗ red / ⚠ orange for errors.
+- **How each decision was run:** a Sonnet subagent in a worktree with its own `UI_DIFF_SLOT`, from the current head; it commits one decision with a Done note and reports before/after crop regions. The lead cherry-picks, re-runs `scripts/ui-diff.sh <previous head>` + `node scripts/ui-diff.mjs` on the scenes it touched, `node scripts/ui-keys.mjs` and `npm run check`, then sends the user the crops (before above after). Two agents at a time; resolve `ui-diff.mjs` conflicts by keeping both scene blocks above `// Done and dismissed`.
+
 ## The rule for what becomes what
 
 - **A global class in `app.css`** when the thing is only a look: `.btn`, `.kbd`, `.count`, `.chip`, `.label`, `.panel-head`, `.input`, `.inset`, `.scrim`, `.row`, `.empty-pane`/`.empty-row`, `.hints`, `.tag`, `.err`, `.avatar`, `.page-title`/`.pane-title`. Most of these sit inline inside buttons and rows, where a wrapper component adds prop plumbing and makes `.btn.primary .kbd` harder to style.
@@ -14,7 +23,7 @@ Paths are under `app/src/`. "→" is the target class or component.
 
 `scripts/ui-diff.sh [ref]` starts the UI at `ref` on :1430 and this checkout's on :1420, each on its own dev server.
 - **What both sides get:** fresh sample data, the clock at 10:52, and two scripted agents (one waiting on an approval, one on a question).
-- **The comparison:** `node scripts/ui-diff.mjs [scene…]` shoots about 40 scenes on both and pixel-diffs them. The scenes cover every tab, the pickers, Settings' sections, the palette, Search, the Assistant, the agent cards and the New agent modal.
+- **The comparison:** `node scripts/ui-diff.mjs [scene…]` shoots about 85 scenes on both and pixel-diffs them. The scenes cover every tab, the pickers, Settings' sections, the palette, Search, the Assistant, the agent cards and the New agent modal.
 - **Diffs are exact,** with Chromium's deterministic raster and transitions off. A 0.01 alpha change to one token shows up as thousands of pixels.
 - **Not covered:**
   - Settings › Developer, which shows each server's data directory;
