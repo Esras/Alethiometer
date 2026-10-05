@@ -4,7 +4,7 @@ The target is the **Alethiometer** design system artifact (https://claude.ai/art
 
 Paths are under `app/src/`. "→" is the target class or component.
 
-## Status (2026-10-05, branch `claude/jolly-albattani-m5qe3k`)
+## Status (2026-10-05, on `main`)
 
 - **Done:** Phases 0–2, and Phase 3 decisions 3, 4, 5, 6/17/19, 7, 8, 9, 11, 13 and 14. Each has a "Done (2026-10-05)" note below, and a "User, 2026-10-05" note where the user changed or settled something on review; those notes win over the design system artifact.
 - **Next, in this order:** 12 radii; NeedCard's head spacing to 6px for both Ask and Approval (`headBottom`; the user's call, the 6px is the app's usual spacing); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
