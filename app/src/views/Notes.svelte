@@ -435,7 +435,7 @@
         {#if counts.waiting}<span style:color="var(--orange)">{counts.waiting} waiting</span>{/if}
         {#if counts.life}<span class="lifec">{counts.life} life · Phase 2</span>{/if}
       </span>
-      <button class="btn primary" class:off={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming ⌃↵</button>
+      <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming ⌃↵</button>
     </div>
   </div>
 </div>
@@ -646,11 +646,5 @@
   }
   .lifec {
     color: var(--tx-label);
-  }
-  .btn.primary {
-    padding: 3px 11px;
-  }
-  .btn.off {
-    opacity: 0.45;
   }
 </style>

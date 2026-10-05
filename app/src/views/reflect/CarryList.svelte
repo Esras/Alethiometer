@@ -48,18 +48,18 @@
       </span>
       <span class="acts">
         {#if r.action === null}
-          <button class="b" title="Tomorrow (>)" aria-label="Tomorrow" onclick={() => act(r, 'tomorrow')}>
+          <button class="btn" title="Tomorrow (>)" aria-label="Tomorrow" onclick={() => act(r, 'tomorrow')}>
             <i class="ph ph-caret-right"></i>{#if textButtons}tomorrow{/if}
           </button>
-          <button class="b" title="Schedule (<)" aria-label="Schedule" onclick={() => act(r, 'schedule')}>
+          <button class="btn" title="Schedule (<)" aria-label="Schedule" onclick={() => act(r, 'schedule')}>
             <i class="ph ph-caret-left"></i>{#if textButtons}schedule{/if}
           </button>
-          <button class="b" title="Let go (x)" aria-label="Let go" onclick={() => act(r, 'let_go')}>
+          <button class="btn" title="Let go (x)" aria-label="Let go" onclick={() => act(r, 'let_go')}>
             <i class="ph ph-x"></i>{#if textButtons}let go{/if}
           </button>
         {:else}
           <span class="state nowrap" class:fail={r.outbox === 'failed'}><i class="ph ph-{doneIcon(r)}"></i>{doneLabel(r)}</span>
-          <button class="b" title="Undo (u)" aria-label="Undo" onclick={() => act(r, 'undo')}><i class="ph ph-arrow-u-up-left"></i></button>
+          <button class="btn" title="Undo (u)" aria-label="Undo" onclick={() => act(r, 'undo')}><i class="ph ph-arrow-u-up-left"></i></button>
         {/if}
       </span>
     </div>
@@ -98,22 +98,6 @@
     display: flex;
     gap: 4px;
     align-items: center;
-  }
-  .b {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    font-size: 0.8846rem;
-    padding: 2px 8px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border);
-    color: var(--tx-muted);
-    white-space: nowrap;
-    transition: background 120ms;
-  }
-  .b:hover {
-    background: var(--hover-tint);
-    border-color: var(--border-strong);
   }
   .state {
     display: flex;

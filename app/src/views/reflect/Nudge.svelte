@@ -140,7 +140,4 @@
     display: flex;
     gap: 6px;
   }
-  .btns .btn {
-    padding: 3px 11px;
-  }
 </style>

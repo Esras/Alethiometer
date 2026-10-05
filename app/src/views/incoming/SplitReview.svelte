@@ -589,11 +589,6 @@
     gap: 6px;
     align-items: center;
   }
-  .btns .btn {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
   .err {
     flex-basis: 100%;
     color: var(--orange);

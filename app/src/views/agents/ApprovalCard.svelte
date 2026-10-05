@@ -77,13 +77,13 @@
             e.stopPropagation();
           }}
         />
-        <button class="b" onclick={sendDeny}>Deny<span class="k">⏎</span></button>
-        <button class="b" onclick={() => (denying = false)}>Back<span class="k">Esc</span></button>
+        <button class="btn md" onclick={sendDeny}>Deny<span class="k">⏎</span></button>
+        <button class="btn md" onclick={() => (denying = false)}>Back<span class="k">Esc</span></button>
       </div>
     {:else}
       <div class="btns">
         {#each req.options as o (o.id)}
-          <button class="b" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<span class="k">{o.key}</span>{/if}</button>
+          <button class="btn md" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<span class="k">{o.key}</span>{/if}</button>
         {/each}
         <span class="right">Esc later</span>
       </div>
@@ -144,26 +144,11 @@
     align-items: center;
     padding: 9px 12px;
   }
-  .b {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 5px 12px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    color: var(--tx-2);
+  .btns .btn {
     max-width: 420px;
     text-align: left;
+    white-space: normal;
     overflow-wrap: anywhere;
-  }
-  .b:hover {
-    border-color: var(--tx-disabled);
-  }
-  .b.primary {
-    background: var(--aqua-fill);
-    border-color: var(--aqua);
-    color: var(--aqua);
-    font-weight: 500;
   }
   .k {
     flex: none;

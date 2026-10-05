@@ -216,8 +216,8 @@
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
         <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
       </div>
-      <button class="btn cats-btn" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"><i class="ph ph-palette"></i>Categories</button>
-      <button class="btn primary new" onclick={() => create()}><i class="ph ph-plus"></i>New topic</button>
+      <button class="btn md" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"><i class="ph ph-palette"></i>Categories</button>
+      <button class="btn md primary" onclick={() => create()}><i class="ph ph-plus"></i>New topic</button>
     </div>
     {#if managing}<CategoryManager />{/if}
     <div class="chips">
@@ -363,17 +363,6 @@
     left: 10px;
     top: calc(100% - 6px);
   }
-  .cats-btn,
-  .new {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 5px 12px;
-  }
-  .cats-btn.on {
-    border-color: var(--aqua);
-    color: var(--aqua);
-  }
   .naming {
     display: flex;
     gap: 10px;
@@ -487,8 +476,6 @@
   }
   .archive {
     display: none;
-    gap: 6px;
-    align-items: center;
     margin-left: auto;
   }
   .row:hover .archive {

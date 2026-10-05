@@ -313,12 +313,6 @@
   }
   .srcbtn {
     margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .srcbtn.on {
-    border-color: var(--orange);
   }
   .k {
     color: var(--tx-label);

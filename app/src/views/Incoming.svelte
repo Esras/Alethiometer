@@ -669,12 +669,12 @@
                       {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                     </span>
                     {#if unsorted || (selKey === 'agents' && s.topic_id == null)}
-                      <button class="btn primary" onclick={() => pick(s)}>
+                      <button class="btn" onclick={() => pick(s)}>
                         {sel && chosen.size ? `Move ${chosen.size} of ${s.n_messages}` : 'Move to topic'}
                       </button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {:else}
-                      <button class="btn primary" onclick={() => confirm(s)}>Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button>
+                      <button class="btn" onclick={() => confirm(s)}>Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button>
                       <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
                       <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {/if}
@@ -1036,11 +1036,6 @@
     padding-right: 10px;
     margin-right: 4px;
     border-right: 1px solid var(--border);
-  }
-  .src-actions .btn {
-    display: flex;
-    gap: 5px;
-    align-items: center;
   }
   .ghost {
     display: flex;

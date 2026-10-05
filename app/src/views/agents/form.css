@@ -209,25 +209,6 @@
   padding: 10px 12px;
   min-width: 0;
 }
-.agent-form .b {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 5px 12px;
-  border-radius: var(--r-input);
-  border: 1px solid var(--border-strong);
-  color: var(--tx-2);
-  white-space: nowrap;
-}
-.agent-form .b.primary {
-  background: var(--aqua-fill);
-  border-color: var(--aqua);
-  color: var(--aqua);
-  font-weight: 500;
-}
-.agent-form .b:disabled {
-  opacity: 0.6;
-}
 .agent-form .k {
   font: 0.808rem var(--font-mono);
   color: var(--tx-label);
@@ -235,6 +216,10 @@
 .agent-form .primary .k {
   color: var(--aqua);
   opacity: 0.75;
+}
+.agent-form .btn:disabled .k {
+  color: var(--tx-disabled);
+  opacity: 1;
 }
 .agent-form .cmd {
   margin-left: auto;

@@ -92,6 +92,10 @@ const scenes = {
   'incoming-topicpicker-typed': ['t', { type: 'acme' }, 'ArrowDown'],
   'incoming-personpicker-typed': ['Enter', { exact: 'Marco R.' }, 'ArrowDown'],
   'topics-catpicker-moved': ['Control+3', 'c', 'ArrowDown', 'ArrowDown'],
+  // Buttons
+  // The reply toggle is .btn.on. The Assistant's Sources button (.btn.on too) only
+  // shows after a Glean answer, which the sample data can't give.
+  'agents-ask-reply': ['Control+7', { exact: 'fakeask-agent' }, 'r'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

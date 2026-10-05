@@ -169,8 +169,8 @@
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="b primary" disabled={busy} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
-    <button class="b" onclick={onClose}>Cancel<span class="k">Esc</span></button>
+    <button class="btn md primary" disabled={busy} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
+    <button class="btn md" onclick={onClose}>Cancel<span class="k">Esc</span></button>
     <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
   {/snippet}
 </NewModal>

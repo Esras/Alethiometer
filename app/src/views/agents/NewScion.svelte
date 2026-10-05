@@ -149,8 +149,8 @@
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="b primary" disabled={busy || !cat} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
-    <button class="b" onclick={onClose}>Cancel<span class="k">Esc</span></button>
+    <button class="btn md primary" disabled={busy || !cat} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
+    <button class="btn md" onclick={onClose}>Cancel<span class="k">Esc</span></button>
     <span class="cmd"><i class="ph ph-terminal"></i><span>{command}</span><button title="Copy" onclick={() => navigator.clipboard?.writeText(command)}><i class="ph ph-copy"></i></button></span>
   {/snippet}
 </NewModal>

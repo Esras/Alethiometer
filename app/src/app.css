@@ -171,25 +171,69 @@ pre,
   text-overflow: ellipsis;
 }
 
-/* Outlined buttons, never filled */
+/* Buttons (ui-plan decisions 6, 17, 19). .btn is the small one (rows,
+   toolbars); .btn.md is for cards, forms and modals. .primary is filled and is
+   the one main action of a card, form or modal: an action repeated on every
+   row is a plain .btn with no key hint. A button that creates something is the
+   primary and is disabled while there is nothing to act on. Disabled is
+   --tx-disabled text and border with no fill, never opacity. .on is a toggled-on
+   button (same look as .chip.on). The radius is each button's own for now. */
 .btn {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  /* A button stretched by a grid or flex parent keeps its label centred, as a
+     native button does. */
+  justify-content: center;
   font-size: 0.9231rem;
   padding: 3px 10px;
   border-radius: var(--r-input);
   border: 1px solid var(--border-strong);
-  color: var(--tx-muted);
+  color: var(--tx-2);
   white-space: nowrap;
   transition: background 120ms;
+}
+.btn.md {
+  padding: 5px 12px;
+  font-size: 1rem;
 }
 .btn:hover {
   background: var(--hover-tint);
 }
 .btn.primary {
+  background: var(--aqua-fill);
   border-color: var(--aqua);
   color: var(--aqua);
+  font-weight: 500;
 }
-.btn.primary:hover {
+.btn.primary:hover:not(:disabled, .is-disabled) {
+  background: var(--aqua-badge);
+}
+.btn.primary .kbd {
+  color: var(--aqua);
+  background: transparent;
+  border-color: var(--aqua-line);
+}
+.btn.on {
   background: var(--aqua-tint);
+  border-color: var(--aqua);
+  color: var(--tx-title);
+}
+.btn:disabled,
+.btn.is-disabled {
+  background: none;
+  border-color: var(--border);
+  color: var(--tx-disabled);
+  font-weight: 400;
+  cursor: default;
+}
+.btn:disabled kbd,
+.btn.is-disabled kbd,
+.btn:disabled .kbd,
+.btn.is-disabled .kbd {
+  color: var(--tx-disabled);
+  background: transparent;
+  border-color: var(--border);
 }
 
 /* A raised panel's surface (Panel.svelte and a page's main column); .col

@@ -190,11 +190,11 @@
   {:else if answers.length || canReply}
     <div class="answers">
       {#each answers as x (x.key)}
-        <button class="ans" class:primary={x.primary} class:card={!!x.detail} onclick={(e) => (e.stopPropagation(), x.run())}>
+        <button class="btn" class:primary={x.primary} class:card={!!x.detail} onclick={(e) => (e.stopPropagation(), x.run())}>
           <span class="lab">{x.label}{#if x.detail}<span class="det">{x.detail}</span>{/if}</span><kbd>{x.key}</kbd>
         </button>
       {/each}
-      {#if canReply}<button class="ans" onclick={(e) => (e.stopPropagation(), reply())}><span class="lab">Reply…</span><kbd>r</kbd></button>{/if}
+      {#if canReply}<button class="btn" onclick={(e) => (e.stopPropagation(), reply())}><span class="lab">Reply…</span><kbd>r</kbd></button>{/if}
       <span class="note">{answers.length ? 'Number keys answer while it’s open' : ''}{a.kind === 'approval' ? ' · the agent keeps any Always rule' : ''}</span>
     </div>
   {/if}
@@ -240,25 +240,10 @@
     gap: 8px;
     align-items: stretch;
   }
-  .ans {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    color: var(--tx-2);
+  .btn {
     text-align: left;
   }
-  .ans:hover {
-    border-color: var(--tx-label);
-  }
-  .ans.primary {
-    background: var(--aqua-fill);
-    border-color: var(--aqua);
-    color: var(--aqua);
-  }
-  .ans.card {
+  .btn.card {
     flex: 1 1 220px;
     align-items: flex-start;
     justify-content: space-between;

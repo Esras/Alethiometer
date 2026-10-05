@@ -86,7 +86,7 @@
     padding: 0 4px;
   }
   .think:disabled {
-    opacity: 0.6;
+    color: var(--tx-disabled);
   }
   .line {
     display: flex;

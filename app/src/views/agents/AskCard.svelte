@@ -104,9 +104,9 @@
       </div>
     {/if}
     <div class="btns">
-      {#if formNeeded}<button class="b primary" disabled={!ready} onclick={submit}>Send answer</button>{/if}
-      <button class="b" class:on={ag.replying === req.id} onclick={onReply}><span class="k">R</span>Write a reply…</button>
-      <button class="b" onclick={() => ag.later.add(req.id)}><span class="k">Esc</span>Later</button>
+      {#if formNeeded}<button class="btn md primary" disabled={!ready} onclick={submit}>Send answer</button>{/if}
+      <button class="btn md" class:on={ag.replying === req.id} onclick={onReply}><span class="k">R</span>Write a reply…</button>
+      <button class="btn md" onclick={() => ag.later.add(req.id)}><span class="k">Esc</span>Later</button>
       {#if req.form}<span class="right">Asked by {s?.name ?? 'the agent'}</span>
       {:else if req.choices.length}<span class="right">Choices read from {s?.name ?? 'the agent'}’s message</span>{/if}
     </div>
@@ -168,27 +168,6 @@
     gap: 8px;
     align-items: center;
     padding: 9px 12px;
-  }
-  .b {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 5px 12px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    color: var(--tx-2);
-  }
-  .b.on {
-    border-color: var(--aqua);
-  }
-  .b.primary {
-    background: var(--aqua-fill);
-    border-color: var(--aqua);
-    color: var(--aqua);
-    font-weight: 500;
-  }
-  .b:disabled {
-    opacity: 0.5;
   }
   .k {
     font: 0.808rem var(--font-mono);

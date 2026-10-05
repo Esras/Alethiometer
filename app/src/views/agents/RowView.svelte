@@ -205,13 +205,13 @@
           </div>
           <div class="acts">
             {#if loud === 'unreach'}
-              <button class="primary" onclick={() => onDelivery?.('start_and_send')}><span class="k">⏎</span>Start it again and send</button>
-              <button onclick={() => onDelivery?.('forward')}><span class="k">F</span>Send to another agent</button>
-              <button onclick={() => onDelivery?.('discard')}><span class="k">Esc</span>Discard</button>
+              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}><span class="k">⏎</span>Start it again and send</button>
+              <button class="btn" onclick={() => onDelivery?.('forward')}><span class="k">F</span>Send to another agent</button>
+              <button class="btn" onclick={() => onDelivery?.('discard')}><span class="k">Esc</span>Discard</button>
             {:else}
-              <button class="primary" onclick={() => onDelivery?.('retry')}><span class="k">⏎</span>Retry now</button>
-              <button onclick={() => onDelivery?.('edit')}><span class="k">E</span>Edit</button>
-              <button onclick={() => onDelivery?.('cancel')}><span class="k">Esc</span>Cancel</button>
+              <button class="btn primary" onclick={() => onDelivery?.('retry')}><span class="k">⏎</span>Retry now</button>
+              <button class="btn" onclick={() => onDelivery?.('edit')}><span class="k">E</span>Edit</button>
+              <button class="btn" onclick={() => onDelivery?.('cancel')}><span class="k">Esc</span>Cancel</button>
             {/if}
           </div>
         {:else if sel && d && (d.state === 'deferred' || d.seen_by.length)}
@@ -494,23 +494,8 @@
     flex-wrap: wrap;
     margin-top: 8px;
   }
-  .acts button {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 4px 11px;
-    border-radius: var(--r-input);
-    font-size: 0.9615rem;
-    border: 1px solid var(--border-strong);
-    color: var(--tx-2);
-  }
-  .acts button .k {
+  .acts .k {
     font: 0.808rem var(--font-mono);
-  }
-  .acts .primary {
-    background: var(--aqua-fill);
-    border-color: var(--aqua);
-    color: var(--aqua);
   }
   .acts .primary .k {
     color: var(--aqua);

@@ -319,25 +319,7 @@
     color: var(--tx-disabled);
   }
   .btn {
-    display: flex;
-    gap: 7px;
-    align-items: center;
-    padding: 7px 12px;
     border-radius: 7px;
-    border: 1px solid var(--border-strong);
-    color: var(--tx-2);
-    white-space: nowrap;
-  }
-  .btn:hover {
-    border-color: var(--tx-disabled);
-  }
-  .btn.primary {
-    background: var(--aqua-fill);
-    border-color: var(--aqua);
-    color: var(--aqua);
-  }
-  .btn.icon {
-    padding: 7px 10px;
   }
   .btn i {
     font-size: 1.077rem;

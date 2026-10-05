@@ -205,4 +205,8 @@
     color: var(--aqua);
     opacity: 0.75;
   }
+  .btn:disabled .k {
+    color: var(--tx-disabled);
+    opacity: 1;
+  }
 </style>
