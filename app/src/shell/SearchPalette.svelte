@@ -198,7 +198,7 @@
         {:else}
           <i class="ph ph-anchor-simple"></i>No anchor
         {/if}
-        <span class="kbd">{k('⌥A', 'Alt+A')}</span>
+        <span class="glean-key">{k('⌥A', 'Alt+A')}</span>
       </button>
     {/if}
   </div>
@@ -318,7 +318,7 @@
     color: var(--yellow);
     background: color-mix(in srgb, var(--yellow) 8%, transparent);
   }
-  .kbd {
+  .glean-key {
     padding: 0 5px;
     border-radius: 4px;
     background: var(--bg-head);

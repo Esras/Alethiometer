@@ -251,17 +251,12 @@
     border: 1px solid var(--border-strong);
     color: var(--tx-2);
   }
-  .k,
-  .kbd {
+  .k {
     font: 0.808rem var(--font-mono);
     color: var(--tx-label);
   }
   .kbd {
-    color: var(--tx-body);
-    background: var(--bg-head);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-block);
-    padding: 0 5px;
+    font-size: 0.808rem;
   }
   .head {
     flex: none;

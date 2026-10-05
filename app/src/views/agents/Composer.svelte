@@ -181,7 +181,7 @@
     </div>
     {#if room && !text}<span class="hint-at">@ to address one member</span>{/if}
     {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
-    <span class="kbd">⌘⏎</span>
+    <span class="send-key">⌘⏎</span>
     {#if options.length}
       <div class="pop">
         {#each options as s, i (s.id)}
@@ -302,7 +302,7 @@
     font-size: 0.923rem;
     white-space: nowrap;
   }
-  .kbd {
+  .send-key {
     margin-left: auto;
     margin-bottom: 4px;
     font: 0.846rem var(--font-mono);

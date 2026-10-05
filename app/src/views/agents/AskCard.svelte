@@ -97,7 +97,7 @@
       <div class="choices" style:grid-template-columns="repeat({Math.min(req.choices.length, 3)}, minmax(0, 1fr))">
         {#each req.choices as c (c.key)}
           <button class="choice" onclick={() => choose(c.key)}>
-            <span class="key">{c.key}</span>
+            <span class="kbd">{c.key}</span>
             <span class="ct">{c.title}</span>
             <span></span>
             {#if c.detail}<span class="cd">{c.detail}</span>{/if}
@@ -178,14 +178,6 @@
   }
   .choice:hover {
     border-color: var(--border-strong);
-  }
-  .key {
-    font: 0.846rem var(--font-mono);
-    color: var(--tx-body);
-    background: var(--bg-head);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-block);
-    padding: 0 5px;
   }
   .ct {
     color: var(--tx-body);
