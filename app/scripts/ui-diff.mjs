@@ -76,6 +76,11 @@ const scenes = {
   'settings-agents': ['Control+,', '6'],
   // Not Developer (7): it shows each dev server's own data directory.
   'settings-find': ['Control+,', '/', { type: 'font' }],
+  // Popover
+  // The Composer's menu is the @ completion in a Scion room, so this scene needs
+  // the fake hub (docs/agents.md) as a scion source on both dev servers.
+  'daystrip-popover': [{ exact: 'Life' }],
+  'composer-menu': ['Control+7', { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
 };
 
 async function shoot(base, steps, file) {

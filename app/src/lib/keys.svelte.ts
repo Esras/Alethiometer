@@ -24,6 +24,19 @@ export function useKeys(handler: KeyHandler, opts: { modal?: boolean } = {}) {
   });
 }
 
+/**
+ * The same push and pop without a component's init, for a Svelte action
+ * (lib/ui/popover.ts). Returns the function that pops it.
+ */
+export function pushKeys(handler: KeyHandler, opts: { modal?: boolean } = {}): () => void {
+  const entry: Entry = { handler, modal: !!opts.modal };
+  stack.push(entry);
+  return () => {
+    const i = stack.lastIndexOf(entry);
+    if (i >= 0) stack.splice(i, 1);
+  };
+}
+
 export function dispatchKey(e: KeyboardEvent): boolean {
   for (let i = stack.length - 1; i >= 0; i--) {
     if (stack[i].handler(e)) {

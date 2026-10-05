@@ -5,6 +5,7 @@
   import { refresh, ui } from '../lib/app.svelte';
   import { useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import { popover } from '../lib/ui/popover';
   import StatusMark from '../lib/ui/StatusMark.svelte';
 
   type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null };
@@ -19,11 +20,7 @@
   let writes = $state<Write[]>([]);
   let suggest = $state<{ run: Run | null; waiting: number; running?: boolean }>({ run: null, waiting: 0 });
   let open = $state(false);
-  let wrap: HTMLElement;
-
-  function onWindowClick(e: MouseEvent) {
-    if (open && e.target instanceof Node && !wrap.contains(e.target)) open = false;
-  }
+  let chip = $state<HTMLElement>();
 
   let synced = '';
   async function load() {
@@ -133,17 +130,11 @@
       retryAll();
       return true;
     }
-    if (open && e.key === 'Escape') {
-      open = false;
-      return true;
-    }
   });
 </script>
 
-<svelte:window onclick={onWindowClick} />
-
-<span class="wrap" bind:this={wrap}>
-  <button class="chip" onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
+<span class="wrap">
+  <button class="chip" bind:this={chip} onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
     <StatusMark status={problem ? 'problem' : 'running'} />
     {#if live.length}synced {ago(newest)}{:else}sample data{/if}
     {#if pending.length}<span class="n">· {pending.length} sending</span>{/if}
@@ -151,7 +142,7 @@
     {#if suggestFailed}<span class="n bad">· suggestions failed</span>{/if}
   </button>
   {#if open}
-    <div class="pop">
+    <div class="pop" use:popover={{ onclose: () => (open = false), trigger: chip }}>
       <div class="label">Sources</div>
       {#each live as s (s.id)}
         <div class="row">

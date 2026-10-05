@@ -6,10 +6,12 @@
   import { live } from '../lib/live';
   import { catColor, hm, nowMinute, ui, urgencyColor } from '../lib/app.svelte';
   import { useKeys } from '../lib/keys.svelte';
+  import { popover as popoverBehaviour } from '../lib/ui/popover';
   import type { Block, DayStripData } from '../lib/types';
 
   let data = $state<DayStripData | null>(null);
   let popover = $state<Block | null>(null);
+  let popTrigger = $state<Element | null>(null);
   let editingBuffer = $state(false);
   let bufferInput = $state('');
 
@@ -118,8 +120,9 @@
 
   const focus = (el: HTMLInputElement) => el.focus();
 
-  function openLife(b: Block) {
+  function openLife(b: Block, trigger: Element) {
     popover = popover?.id === b.id ? null : b;
+    popTrigger = trigger;
     editingBuffer = false;
   }
 
@@ -133,10 +136,6 @@
 
   useKeys((e) => {
     if (!popover) return;
-    if (e.key === 'Escape') {
-      popover = null;
-      return true;
-    }
     if (e.key === 'b' && !editingBuffer) {
       editingBuffer = true;
       bufferInput = String(popover.buffer_min ?? '');
@@ -218,7 +217,7 @@
             class:open={popover?.id === b.id}
             style:left="{pct(b.start_min)}%"
             style:width="{pct(b.end_min) - pct(b.start_min)}%"
-            onclick={() => openLife(b)}
+            onclick={(e) => openLife(b, e.currentTarget)}
             aria-label="Life, busy {hm(b.start_min)}–{hm(b.end_min)}"
           >
             {#if label(b)}<i class="ph ph-house-simple"></i>Life{/if}
@@ -239,7 +238,7 @@
     {/if}
 
     {#if popover}
-      <div class="popover" style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
+      <div class="popover" use:popoverBehaviour={{ onclose: () => (popover = null), trigger: popTrigger }} style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
         <div class="pop-head">
           <i class="ph ph-house-simple"></i>
           <span class="pop-title">Life · {hm(popover.start_min)}–{hm(popover.end_min)}</span>

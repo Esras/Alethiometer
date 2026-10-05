@@ -3,6 +3,7 @@
   // an empty composer brings back your last message. While an ask is being
   // answered (R), the text goes back as the answer.
   import { untrack } from 'svelte';
+  import { popover } from '../../lib/ui/popover';
   import { act, ag, sessionById } from './state.svelte';
   import type { Group, Session } from './types';
 
@@ -42,7 +43,13 @@
     const m = /(^|\s)@([\w.-]*)$/.exec(text.slice(0, caret));
     return m ? m[2].toLowerCase() : null;
   });
-  const options = $derived(at === null ? [] : members.filter((s) => s.name.toLowerCase().startsWith(at)).slice(0, 6));
+  // Escape or a click elsewhere closes the menu until the word being typed changes.
+  let dismissed = $state(false);
+  $effect(() => {
+    void at;
+    dismissed = false;
+  });
+  const options = $derived(at === null || dismissed ? [] : members.filter((s) => s.name.toLowerCase().startsWith(at)).slice(0, 6));
 
   function complete(s: Session) {
     const before = text.slice(0, caret).replace(/@([\w.-]*)$/, `@${s.name} `);
@@ -118,6 +125,8 @@
     } else if (e.key === 'ArrowUp' && !text) {
       text = lastMine();
       e.preventDefault();
+    } else if (e.key === 'Escape' && options.length) {
+      return; // the menu's own Escape, through the key stack
     } else if (e.key === 'Escape') {
       if (ag.replying) ag.replying = null;
       el?.blur();
@@ -183,7 +192,7 @@
     {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
     <span class="send-key">⌘⏎</span>
     {#if options.length}
-      <div class="pop">
+      <div class="pop" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
         {#each options as s, i (s.id)}
           <button class:on={i === pick} onmousedown={(e) => (e.preventDefault(), complete(s))}>@{s.name}<span>{s.harness} · {s.model}</span></button>
         {/each}

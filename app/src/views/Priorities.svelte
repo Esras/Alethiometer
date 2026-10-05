@@ -10,6 +10,7 @@
   import { live } from '../lib/live';
   import { sourceLabel } from '../lib/sources';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import { popover } from '../lib/ui/popover';
   import Pill from '../lib/ui/Pill.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import type { PrioritiesData, PriorityQuadrant, PriorityRow, QuadrantKey, TopicChip } from './priorities/types';
@@ -144,7 +145,6 @@
   }
 
   useKeys((e) => {
-    if (e.key === 'Escape' && peek) return (peek = false), true;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return move('down'), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return move('up'), true;
     if (plain(e, 'h') || plain(e, 'ArrowLeft')) return move('left'), true;
@@ -269,7 +269,7 @@
     </div>
 
     {#if peek && selRow && peekPos}
-      <div class="peek" style:top="{peekPos.top}px" style:left="{peekPos.left}px" role="dialog" aria-label="Peek">
+      <div class="peek" use:popover={{ onclose: () => (peek = false), trigger: () => rowEls[`r${selRow.item_id}`] }} style:top="{peekPos.top}px" style:left="{peekPos.left}px" role="dialog" aria-label="Peek">
         <div class="peek-head">
           <AppIcon source={selRow.source} size={14} />{sourceLabel(selRow.source)}
           {#if selRow.when}<span class="tnum">· {selRow.when}</span>{/if}
