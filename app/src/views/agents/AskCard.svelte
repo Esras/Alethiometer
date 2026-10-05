@@ -61,7 +61,7 @@
   <span class="c">{req.question}</span>
 {/snippet}
 
-<NeedCard icon="question" {compact} {title} {meta} {summary} headBottom={4}>
+<NeedCard icon="question" {compact} {title} {meta} {summary}>
     <div class="q">{req.question}</div>
     {#if formNeeded}
       <div class="fields">

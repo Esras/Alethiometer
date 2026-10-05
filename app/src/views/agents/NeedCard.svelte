@@ -11,7 +11,6 @@
     meta,
     summary,
     children,
-    headBottom = 6,
     maxHeight,
   }: {
     icon: string;
@@ -22,8 +21,6 @@
     /** The compact line's text after the title. */
     summary?: Snippet;
     children?: Snippet;
-    /** Header row bottom padding in px. Asks use 4, approvals 6; to settle in the visible pass. */
-    headBottom?: number;
     maxHeight?: string;
   } = $props();
 </script>
@@ -37,7 +34,7 @@
   </div>
 {:else}
   <div class="card" style:max-height={maxHeight}>
-    <div class="top" style:padding-bottom="{headBottom}px">
+    <div class="top">
       <i class="ph ph-{icon} big"></i>
       <span class="t">{@render title()}</span>
       {@render meta?.()}

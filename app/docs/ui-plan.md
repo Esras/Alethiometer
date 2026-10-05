@@ -7,7 +7,7 @@ Paths are under `app/src/`. "→" is the target class or component.
 ## Status (2026-10-05, on `main`)
 
 - **Done:** Phases 0–2, and Phase 3 decisions 3, 4, 5, 6/17/19, 7, 8, 9, 11, 12, 13 and 14. Each has a "Done (2026-10-05)" note below, and a "User, 2026-10-05" note where the user changed or settled something on review; those notes win over the design system artifact.
-- **Next, in this order:** the icon colour list (below); NeedCard's head spacing to 6px for both Ask and Approval (`headBottom`; the user's call, the 6px is the app's usual spacing); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
+- **Next, in this order:** the icon colour list (below); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
 - **User, 2026-10-05:** pickers that act on a row float under that row (`Dock under`), replacing the 2026-10-01 fixed dock; lines between rows stay, at least in a topic's Open panel (15 leans to lines; Priorities isn't live, so it can't be compared).
 - **Deferred:** the Cycler (10; built in ac11400 and reverted: one button showing only the current value hides the options), the Life-block hatching (DayStrip, Notes: the feature needs rethinking), Notes line states.
 - **Icon colours (user, 2026-10-05):** yellow is the icons' accent (`--icon`) for an icon that names a thing or an action, carets included; a field's icon (search, filter, a picker's arrow) and a bare close × are grey; add/create (+) is aqua, the "Confirm green"; an icon in a red failure count takes the red; a disabled button's icon greys with its text. All in `app.css` as `:where()` rules, so anything that colours an icon on purpose wins. Per-icon exceptions come from the list at https://claude.ai/artifact/LjJifUHdovU3Wa3UAygkVn (the user decides as they go).
@@ -53,7 +53,7 @@ Pixel-identical to `eb633f4` on every scene. Commits `6501866`…`5920b59`.
 - **Radius tokens** (`--radius-sm/md/full`) come with decision 12. The old `--r-input` 6px and `--r-panel` 8px both become 6px, so there's no single old value to alias.
 - **Todos' footer** differs from `.hint-bar` (7px padding, wraps, shrinks). It joins in the visible pass.
 - **NeedCard props, to settle in the visible pass:**
-  - `headBottom` (asks 4px, approvals 6px);
+  - `headBottom` (asks 4px, approvals 6px). **Done (2026-10-05):** the prop is gone; the head's bottom padding is 6px for both (the user's call; 6px is the app's usual spacing). Only the ask card's head changes (+2px);
   - `maxHeight` (approvals 55vh).
 - **Settings' 6px attention dot** is a notification mark, not a StatusMark.
 - **Agents tree colours.** `#9a9fd6` and `#8a9a5b` in the tree stay as literals: `--msg` and `--tool` follow the user's settings.
