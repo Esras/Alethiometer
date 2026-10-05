@@ -477,7 +477,7 @@
 
     <section class="main scroll">
       {#if !page}
-        <div class="empty">Loading…</div>
+        <div class="loading">Loading…</div>
       {:else if findQ.trim()}
         <div class="results panel col">
           {#each results as r, i}
@@ -487,7 +487,7 @@
               <span class="rw">{r.where}</span>
             </button>
           {:else}
-            <div class="empty">Nothing matches “{findQ}”. Find looks at labels, descriptions and keys.</div>
+            <div class="empty-row">Nothing matches “{findQ}”. Find looks at labels, descriptions and keys.</div>
           {/each}
         </div>
       {:else}
@@ -1060,8 +1060,14 @@
   .rw {
     color: var(--tx-muted-2);
   }
-  .empty {
+  .empty-row,
+  .loading {
     padding: 14px 18px;
+  }
+  .empty-row {
+    font: inherit;
+  }
+  .loading {
     color: var(--tx-label);
   }
   footer {

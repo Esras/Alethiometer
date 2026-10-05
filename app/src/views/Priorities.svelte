@@ -213,7 +213,7 @@
               <span class="score tnum">{r.score.toFixed(1)}</span>
             </div>
           {:else}
-            <div class="empty">Nothing here.</div>
+            <div class="empty-row">Nothing here.</div>
           {/each}
         </div>
       {/if}
@@ -431,9 +431,9 @@
     font-size: 0.8846rem;
     color: var(--tx-2);
   }
-  .empty {
+  .empty-row {
     padding: 10px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
   .chips {
     display: flex;

@@ -44,7 +44,7 @@
       {#if c.key === current}<i class="ph ph-check"></i>{/if}
     </button>
   {:else}
-    <div class="none">No category matches.</div>
+    <div class="empty-row">No category matches.</div>
   {/each}
 </div>
 
@@ -59,9 +59,9 @@
     width: calc(100% - 16px);
     margin: 4px 8px;
   }
-  .none {
+  .empty-row {
     padding: 5px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
   .opt {
     width: 100%;

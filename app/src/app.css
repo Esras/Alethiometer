@@ -370,6 +370,34 @@ pre,
   overflow: hidden;
 }
 
+/* Empty states (ui-plan decision 18). .empty-pane is a whole pane or list with
+   nothing in it: a centred hint (icon, sentence, and the button that fixes it
+   if there is one). .empty-row is one line in an empty panel, popover or list.
+   Views whose hint was left-aligned, or sized by what it inherits, keep that as
+   a local override (padding, `display: block`, `font: inherit`); the ui-plan
+   lists them. */
+.empty-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--tx-label);
+  font-size: 0.9231rem;
+  padding: 16px;
+}
+.empty-pane > .ph {
+  font-size: 26px;
+  color: var(--tx-disabled);
+}
+.empty-row {
+  padding: 2px 12px;
+  line-height: 20px;
+  color: var(--tx-label);
+  font-size: 0.9231rem;
+}
+
 /* A shell command an agent wants to run: an .inset in mono. */
 .command-block {
   font: 0.923rem/1.55 var(--font-mono);

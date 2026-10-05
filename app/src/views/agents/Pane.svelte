@@ -112,7 +112,7 @@
 
 {#if !key || (!s && !g)}
   <div class="empty">
-    <div class="hello">
+    <div class="empty-pane hello">
       <i class="ph ph-robot"></i>
       <p>Open a session or room from the tree, or start a local session.</p>
       <button class="btn md primary" onclick={() => (ag.form ={ kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button>
@@ -229,12 +229,11 @@
   }
   .hello {
     margin: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     gap: 10px;
-    color: var(--tx-label);
+    padding: 0;
+    font: inherit;
   }
+  /* Reaches the + in the button too (it was 2rem and grey before): kept. */
   .hello i {
     font-size: 2rem;
     color: var(--tx-disabled);

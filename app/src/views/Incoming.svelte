@@ -800,7 +800,7 @@
           {/each}
         {:else}
           {#if queue}
-            <div class="empty">{unsorted ? 'Nothing unsorted.' : `Nothing new on ${topicName}.`}</div>
+            <div class="empty-pane">{unsorted ? 'Nothing unsorted.' : `Nothing new on ${topicName}.`}</div>
           {/if}
         {/each}
       </div>
@@ -1212,8 +1212,10 @@
     gap: 6px;
     align-items: center;
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 16px;
-    color: var(--tx-label);
+    font: inherit;
+    text-align: left;
   }
 </style>

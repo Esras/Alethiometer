@@ -165,7 +165,7 @@
         </div>
         {#if s.last_error}<div class="err broken">{s.last_error}</div>{/if}
       {:else}
-        <div class="muted">No live sources yet. Add them under "sources" in settings.json.</div>
+        <div class="empty-row">No live sources yet. Add them under "sources" in settings.json.</div>
       {/each}
       {#if connectMsg}<div class="muted connect">{connectMsg}</div>{/if}
       <div class="label">AI · Bedrock</div>
@@ -271,6 +271,10 @@
   }
   .muted {
     color: var(--tx-label);
+  }
+  .empty-row {
+    padding: 0;
+    font: inherit;
   }
   .spark {
     font-size: 1.0769rem;

@@ -175,7 +175,7 @@
         {/if}
       {/if}
     {:else}
-      <div class="empty">
+      <div class="empty-pane">
         {#if ag.filter}Nothing matches "{ag.filter}".{:else}No sessions yet. <button class="link" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
       </div>
     {/each}
@@ -504,11 +504,12 @@
   .guess button:hover {
     text-decoration: underline;
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 18px 14px;
-    color: var(--tx-label);
     font-size: 0.923rem;
     line-height: 1.5;
+    text-align: left;
   }
   .link {
     color: var(--aqua);

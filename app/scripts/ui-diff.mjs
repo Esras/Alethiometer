@@ -148,6 +148,21 @@ const scenes = {
   // none) and Notes' margin states.
   'assistant-ask-failed': ['Control+i', { placeholder: 'Ask, or @ to reference…' }, { type: 'What is blocking Acme?' }, 'Enter'],
   'todos-estimate-bad': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e', { type: 'zzz' }, 'Enter'],
+  // Empty states (decision 18): a filter nobody matches, the Archived topics, a topic with
+  // nothing open and no note (the sixth has both), a day with no calendar, decisions or
+  // carry rows. The existing agents scene has the Agents hello, todos the empty list and
+  // sync the "No live sources" line. Not covered: Incoming's and Priorities' empty lists
+  // (the sample data fills them), the topic picker's "No topic matches" (typing offers
+  // Create instead), Slack review and the Assistant's Sources panel.
+  'empty-search': ['Control+k', { type: 'zzqx' }, 'Control+Enter'],
+  'empty-palette': ['Control+k', { type: 'zzqx' }],
+  'empty-agents-tree': ['Control+7', '/', { type: 'zzqx' }],
+  'empty-settings-find': ['Control+,', '/', { type: 'zzqx' }],
+  'empty-catpicker': ['Control+3', 'c', { type: 'zzqx' }],
+  'empty-fontpick': ['Control+,', { exact: 'System', nth: 0 }, { type: 'zzqx' }],
+  'empty-topics-index': ['Control+3', { exact: 'Archived' }, '/', { type: 'zz' }],
+  'empty-topic-page': ['Control+3', 'j', 'j', 'j', 'j', 'j', 'j', 'Enter'],
+  'empty-reflect-day': ['Control+6', '[', 'T', 'D'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

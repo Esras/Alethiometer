@@ -82,9 +82,9 @@
   </div>
   <div class="rows scroll">
     {#if loading}
-      <div class="empty">Asking Slack…</div>
+      <div class="loading">Asking Slack…</div>
     {:else if err}
-      <div class="empty warn">{err}</div>
+      <div class="warn">{err}</div>
     {/if}
     {#each shown as c, i (c.id)}
       <button class="row" class:sel={i === sel} onclick={() => toggle(c)}>
@@ -186,7 +186,8 @@
   .r {
     text-align: right;
   }
-  .empty {
+  .loading,
+  .warn {
     padding: 12px 16px;
     color: var(--tx-label);
   }

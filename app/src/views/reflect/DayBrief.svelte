@@ -76,7 +76,7 @@
             <span class="tnum dur">{w.dur}</span>
           </div>
         {:else}
-          <div class="muted">Nothing on the calendar.</div>
+          <div class="empty-row">Nothing on the calendar.</div>
         {/each}
       </div>
     {/if}
@@ -89,7 +89,7 @@
             {#if d.topic}<span class="topic nowrap">{d.topic}</span>{/if}
           </div>
         {:else}
-          <div class="muted">Nothing recorded as decided.</div>
+          <div class="empty-row">Nothing recorded as decided.</div>
         {/each}
       </div>
     {/if}
@@ -218,7 +218,8 @@
     color: var(--tx-label);
     font-size: 0.8846rem;
   }
-  .muted {
-    color: var(--tx-label);
+  .empty-row {
+    padding: 0;
+    font: inherit;
   }
 </style>

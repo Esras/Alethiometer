@@ -195,7 +195,7 @@
           </div>
         {/if}
       {:else}
-        {#if res}<div class="empty">Nothing matches “{ui.searchQuery}”.</div>{/if}
+        {#if res}<div class="empty-pane">Nothing matches “{ui.searchQuery}”.</div>{/if}
       {/each}
     </div>
     {#if picking && current}
@@ -339,9 +339,11 @@
     background: var(--aqua-tint-soft);
     box-shadow: inset 3px 0 0 var(--aqua);
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 16px 18px;
-    color: var(--tx-label);
+    font: inherit;
+    text-align: left;
   }
   .hint-bar .key {
     color: var(--tx-2);

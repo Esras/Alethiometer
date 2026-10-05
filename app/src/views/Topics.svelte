@@ -209,7 +209,7 @@
                 </span>
               </div>
             {:else}
-              <div class="empty">Nothing open.</div>
+              <div class="empty-row">Nothing open.</div>
             {/each}
           </Panel>
 
@@ -484,9 +484,9 @@
     font-size: 0.8462rem;
     color: var(--tx-muted);
   }
-  .empty {
+  .empty-row {
     padding: 8px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
   .filters {
     display: flex;

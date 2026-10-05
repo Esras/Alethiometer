@@ -267,7 +267,7 @@
             </div>
           {/if}
         {:else}
-          <div class="empty">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
+          <div class="empty-pane">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
         {/each}
       </div>
       <div class="hints">
@@ -432,9 +432,12 @@
   .overdue {
     color: var(--time-now);
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 24px 16px;
     color: var(--tx-muted-2);
+    font: inherit;
+    text-align: left;
   }
   .hints {
     display: flex;

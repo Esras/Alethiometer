@@ -224,7 +224,7 @@
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="note-body scroll" ondblclick={edit}>
-      {#if shown}<NoteText text={shown} />{:else}<span class="empty">Empty note.</span>{/if}
+      {#if shown}<NoteText text={shown} />{:else}<span class="empty-row">Empty note.</span>{/if}
     </div>
   {/if}
 </div>
@@ -313,7 +313,8 @@
   textarea.note-body::selection {
     background: rgba(142, 192, 124, 0.25);
   }
-  .empty {
-    color: var(--tx-label);
+  .empty-row {
+    padding: 0;
+    font: inherit;
   }
 </style>
