@@ -175,7 +175,7 @@
 </div>
 
 {#if picking && expanded !== null}
-  <Dock>
+  <Dock under=".entry.open">
     <TopicPicker exclude={topicId} placeholder="Move this signal to…" onpick={moveTo} onclose={() => (picking = false)} />
   </Dock>
 {/if}

@@ -357,7 +357,7 @@
   </div>
 
   {#if picking}
-    <Dock>
+    <Dock under=".msg.focus">
       <TopicPicker
         placeholder={chosen.size > 1 ? `Move ${chosen.size} messages to…` : 'Move to topic…'}
         onpick={moveTo}

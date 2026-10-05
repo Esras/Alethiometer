@@ -805,7 +805,7 @@
         {/each}
       </div>
       {#if linking && current?.item_id === linking.item}
-        <Dock>
+        <Dock under=".sig.sel">
           <PersonPicker
             account={linking.account}
             name={linking.name}
@@ -816,7 +816,7 @@
         </Dock>
       {/if}
       {#if picking && current}
-        <Dock>
+        <Dock under=".sig.sel">
           <TopicPicker
             exclude={typeof selKey === 'number' ? selKey : null}
             placeholder={unsorted && chosen.size ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…` : 'Move to topic…'}

@@ -257,7 +257,7 @@
       {/if}
     </div>
     {#if merging}
-      <Dock>
+      <Dock under=".row.sel">
         <TopicPicker
           exclude={merging.id}
           excludeIds={mergingAway()}
