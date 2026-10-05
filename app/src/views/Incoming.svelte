@@ -353,6 +353,13 @@
     refresh();
   }
 
+  // A review ends with its signal: when the signal leaves the list (every message
+  // dismissed, filed elsewhere) SplitReview unmounts with its keys, and a
+  // `reviewing` left behind would keep Incoming's own keys off for good.
+  $effect(() => {
+    if (reviewing !== null && !flat.some((s) => s.item_id === reviewing)) untrack(endReview);
+  });
+
 
   function link(s: Signal, account: Account, name: string) {
     selItem = s.item_id;
