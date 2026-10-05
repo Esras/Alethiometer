@@ -269,6 +269,7 @@
     gap: 14px;
     align-items: start;
     padding: var(--row-pad-comfortable) 18px;
+    min-height: var(--row-min-comfortable);
     border-radius: 0 6px 6px 0;
     cursor: pointer;
   }

@@ -200,6 +200,7 @@
     gap: 8px;
     align-items: start;
     padding: var(--row-pad-cozy) 8px var(--row-pad-cozy) 0;
+    min-height: var(--row-min-cozy);
     margin-right: -4px;
     border-radius: 6px;
     position: relative;

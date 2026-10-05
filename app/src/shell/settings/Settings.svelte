@@ -942,6 +942,7 @@
     gap: 16px;
     width: 100%;
     padding: var(--row-pad-comfortable) 18px;
+    min-height: var(--row-min-comfortable);
     border-top: 1px solid var(--border);
     text-align: left;
   }

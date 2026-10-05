@@ -89,6 +89,11 @@
   --row-pad-comfortable: 9px;
   --row-pad-cozy: 5px;
   --row-pad-compact: 2px;
+  /* …and its least height, so a one-line row is the design's 38 / 30 / 24px whatever
+     its font size (the app's text line is about 16px, the design's 20px). */
+  --row-min-comfortable: 38px;
+  --row-min-cozy: 30px;
+  --row-min-compact: 24px;
 
   --radius-full: 999px;
   --r-block: 4px;

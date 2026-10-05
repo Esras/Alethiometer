@@ -111,6 +111,7 @@
     width: 100%;
     text-align: left;
     padding: var(--row-pad-compact) 10px;
+    min-height: var(--row-min-compact);
     font-size: 1.0769rem;
   }
   .opt.sel {

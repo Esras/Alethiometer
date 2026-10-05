@@ -114,6 +114,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-compact) 10px var(--row-pad-compact) 0;
+    min-height: var(--row-min-compact);
     text-align: left;
     font-size: 0.9615rem;
     color: var(--tx-2);
@@ -139,6 +140,7 @@
   .opt.create {
     grid-template-columns: 16px minmax(0, 1fr);
     padding: var(--row-pad-compact) 10px;
+    min-height: var(--row-min-compact);
     color: var(--tx-label);
   }
   .opt.create:hover {

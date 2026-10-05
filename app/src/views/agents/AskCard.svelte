@@ -194,6 +194,7 @@
     gap: 6px;
     align-items: center;
     padding: var(--row-pad-compact) 9px;
+    min-height: var(--row-min-compact);
     border-radius: var(--r-input);
     background: var(--bg-panel);
     border: 1px solid var(--border);

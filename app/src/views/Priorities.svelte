@@ -381,6 +381,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-comfortable) 12px var(--row-pad-comfortable) 0;
+    min-height: var(--row-min-comfortable);
     border-top: 1px solid var(--bg-head);
     cursor: pointer;
     outline: none;

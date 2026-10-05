@@ -510,6 +510,7 @@
   .row {
     align-items: start;
     padding: var(--row-pad-cozy) 0;
+    min-height: var(--row-min-cozy);
     border-radius: var(--r-block);
     transition: opacity 120ms;
   }

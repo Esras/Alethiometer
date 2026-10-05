@@ -323,6 +323,7 @@
   }
   .row {
     padding: var(--row-pad-comfortable) 18px var(--row-pad-comfortable) 0;
+    min-height: var(--row-min-comfortable);
     cursor: pointer;
   }
   .bar {

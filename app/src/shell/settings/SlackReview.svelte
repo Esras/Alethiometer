@@ -165,6 +165,7 @@
   }
   .row {
     padding-top: var(--row-pad-compact);
+    min-height: var(--row-min-compact);
     padding-bottom: var(--row-pad-compact);
   }
   .row.sel {

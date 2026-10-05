@@ -449,6 +449,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-comfortable) 12px;
+    min-height: var(--row-min-comfortable);
   }
   .up-row.today {
     background: var(--aqua-tint-soft);
@@ -471,6 +472,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-compact) 12px;
+    min-height: var(--row-min-compact);
   }
   .open-row.rule {
     border-top-color: var(--bg-head);
@@ -502,6 +504,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-comfortable) 12px;
+    min-height: var(--row-min-comfortable);
   }
   .person + .person {
     border-left: 1px solid var(--bg-head);

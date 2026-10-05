@@ -137,6 +137,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-compact) 10px;
+    min-height: var(--row-min-compact);
     border-radius: 5px;
     text-align: left;
   }

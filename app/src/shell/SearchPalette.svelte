@@ -332,6 +332,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-compact) 14px;
+    min-height: var(--row-min-compact);
     text-align: left;
     color: var(--tx-2);
     box-shadow: inset 2px 0 0 transparent;

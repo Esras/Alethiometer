@@ -42,6 +42,7 @@
     gap: 12px;
     align-items: center;
     padding: var(--row-pad-cozy) 12px;
+    min-height: var(--row-min-cozy);
     border-top: 1px solid var(--bg-head);
     text-align: left;
     transition: background 120ms;

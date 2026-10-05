@@ -172,6 +172,7 @@
     align-items: center;
     gap: 8px;
     padding: var(--row-pad-compact) 6px;
+    min-height: var(--row-min-compact);
     border-radius: var(--r-input);
     border: 1px solid transparent;
     font-size: 0.9231rem;
@@ -231,6 +232,7 @@
     align-items: center;
     gap: 10px;
     padding: var(--row-pad-cozy) 14px;
+    min-height: var(--row-min-cozy);
     text-align: left;
     border-bottom: 1px solid var(--border);
     transition: opacity 120ms;

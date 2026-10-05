@@ -196,6 +196,7 @@
     align-items: center;
     gap: 16px;
     padding: var(--row-pad-comfortable) 18px;
+    min-height: var(--row-min-comfortable);
     border-top: 1px solid var(--border);
   }
   .row:first-child {

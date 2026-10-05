@@ -73,6 +73,7 @@
     gap: 10px;
     align-items: baseline;
     padding: var(--row-pad-compact) 0;
+    min-height: var(--row-min-compact);
     font-size: calc(var(--fs-read) * 12.5 / 14);
   }
   .msg.faded {

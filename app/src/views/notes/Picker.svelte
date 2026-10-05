@@ -85,6 +85,7 @@
     gap: 8px;
     align-items: center;
     padding: var(--row-pad-compact) 8px;
+    min-height: var(--row-min-compact);
     border-radius: var(--r-block);
     color: var(--tx-2);
     text-align: left;

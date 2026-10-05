@@ -475,6 +475,7 @@
     gap: 10px;
     align-items: baseline;
     padding: var(--row-pad-compact) 8px;
+    min-height: var(--row-min-compact);
     margin: 0 -8px 0 0;
     border-radius: 4px;
     cursor: pointer;

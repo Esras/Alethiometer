@@ -75,6 +75,7 @@
     gap: 10px;
     align-items: center;
     padding: var(--row-pad-compact) 12px;
+    min-height: var(--row-min-compact);
     border-top: 1px solid var(--bg-head);
   }
   .row:not(.sel):hover {

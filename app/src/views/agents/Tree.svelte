@@ -356,6 +356,7 @@
     gap: 6px;
     align-items: center;
     padding: var(--row-pad-compact) 14px;
+    min-height: var(--row-min-compact);
   }
   .caret {
     font-size: 0.846rem;
@@ -412,12 +413,14 @@
     gap: 6px;
     align-items: center;
     padding: var(--row-pad-compact) 14px;
+    min-height: var(--row-min-compact);
   }
   .row.sub {
     grid-template-columns: calc(30px + var(--indent)) minmax(0, 1fr) 90px 52px 30px;
   }
   .row.loose {
     padding: var(--row-pad-compact) 14px;
+    min-height: var(--row-min-compact);
   }
   .group:hover,
   .row:hover {
