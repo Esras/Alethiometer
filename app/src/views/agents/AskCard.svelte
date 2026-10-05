@@ -81,7 +81,7 @@
               <button class="opt" class:on={values[f.name] === true} onclick={() => (values[f.name] = values[f.name] !== true)}><i class="ph {values[f.name] === true ? 'ph-check-square' : 'ph-square'}"></i>Yes</button>
             {:else}
               <input
-                class="in"
+                class="input sm"
                 type={f.kind === 'number' ? 'number' : 'text'}
                 placeholder={f.required ? '' : 'Optional'}
                 oninput={(e) => (values[f.name] = f.kind === 'number' ? (e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)) : e.currentTarget.value)}
@@ -205,14 +205,6 @@
   }
   .opt.on {
     border-color: var(--need);
-  }
-  .in {
-    width: 100%;
-    padding: 4px 8px;
-    border-radius: var(--r-input);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    color: var(--tx-body);
   }
   .right {
     margin-left: auto;

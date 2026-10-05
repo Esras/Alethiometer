@@ -45,6 +45,7 @@
   {/each}
   {#if editing}
     <input
+      class="input sm"
       bind:this={input}
       placeholder="add…"
       onblur={(e) => add(e.currentTarget.value)}
@@ -101,10 +102,5 @@
   }
   input {
     width: 160px;
-    padding: 2px 8px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--aqua);
-    background: var(--bg-app);
-    outline: none;
   }
 </style>

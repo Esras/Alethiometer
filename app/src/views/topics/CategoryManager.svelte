@@ -35,7 +35,7 @@
     <div class="cat">
       <input type="color" value={c.color} onchange={(e) => run('categories.update', { key: c.key, color: e.currentTarget.value })} title="Color" />
       <input
-        class="name"
+        class="input sm"
         value={c.label}
         onchange={(e) => run('categories.update', { key: c.key, label: e.currentTarget.value })}
         onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
@@ -46,7 +46,7 @@
   {/each}
   <form class="cat" onsubmit={add}>
     <input type="color" bind:value={color} title="Color" />
-    <input class="name" bind:value={name} placeholder="New category…" />
+    <input class="input sm" bind:value={name} placeholder="New category…" />
     <span class="key"></span>
     <button class="btn primary" type="submit" disabled={!name.trim()} title="Add category"><i class="ph ph-plus"></i></button>
   </form>
@@ -75,14 +75,6 @@
     border: 1px solid var(--border-strong);
     border-radius: 4px;
     background: none;
-  }
-  .name {
-    padding: 4px 8px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border);
-    background: var(--bg-app);
-    color: var(--tx-body);
-    font: inherit;
   }
   .key {
     font-size: 0.8846rem;

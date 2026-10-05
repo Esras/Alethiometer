@@ -13,6 +13,7 @@
   import { moveSignal } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FacetBar from '../lib/ui/FacetBar.svelte';
+  import FilterField from '../lib/ui/FilterField.svelte';
   import { listNav, moveSel } from '../lib/ui/listNav';
   import Modal from '../lib/ui/Modal.svelte';
   import TopicPicker from '../views/incoming/TopicPicker.svelte';
@@ -38,7 +39,7 @@
   let exclude = $state<Lens | null>(null);
   let picking = $state(false);
   let note = $state<string | null>(null);
-  let input: HTMLInputElement;
+  let input = $state<HTMLInputElement | null>(null);
 
   let seq = 0;
   async function run() {
@@ -186,18 +187,18 @@
 <Modal label="Search" onclose={() => (ui.searchOpen = false)} {onkeys} z={50} scrim="rgba(0, 0, 0, 0.35)">
 <div class="palette">
   <div class="field">
-    <i class="ph ph-magnifying-glass"></i>
-    <input bind:this={input} bind:value={q} placeholder="Search everything" />
-    {#if context !== null}
-      <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({k('⌥A', 'Alt+A')})">
-        {#if anchored}
-          <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}></span>{anchorName ?? 'This topic'}
-        {:else}
-          <i class="ph ph-anchor-simple"></i>No anchor
-        {/if}
-        <span class="glean-key">{k('⌥A', 'Alt+A')}</span>
-      </button>
-    {/if}
+    <FilterField class="big" bind:value={q} bind:el={input} placeholder="Search everything">
+      {#if context !== null}
+        <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({k('⌥A', 'Alt+A')})">
+          {#if anchored}
+            <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}></span>{anchorName ?? 'This topic'}
+          {:else}
+            <i class="ph ph-anchor-simple"></i>No anchor
+          {/if}
+          <span class="glean-key">{k('⌥A', 'Alt+A')}</span>
+        </button>
+      {/if}
+    </FilterField>
   </div>
   <div class="helper">
     {#if anchored && res && res.hidden}
@@ -279,18 +280,13 @@
     overflow: hidden;
   }
   .field {
-    display: flex;
-    gap: 10px;
-    align-items: center;
     padding: 10px 14px 4px;
-    color: var(--tx-label);
   }
-  .field input {
-    flex: 1;
-    background: none;
-    border: 0;
-    outline: none;
+  /* The palette's field is the big one: same box, larger text. */
+  .field :global(.big) {
     font-size: 1.1538rem;
+  }
+  .field :global(.big input) {
     color: var(--tx-title);
   }
   .anchor {

@@ -92,7 +92,7 @@
         <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))} value={value ?? ''} disabled={readonly} onpick={(opt) => onset(opt)} />
       {:else}
         <span class="dropdown">
-          <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
+          <select class="input" value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
             {#each o.enum ?? [] as opt}<option value={opt}>{opt || 'default'}</option>{/each}
           </select><i class="ph ph-caret-down"></i>
         </span>
@@ -108,7 +108,7 @@
       <MapEdit map={(value as Record<string, string>) ?? {}} categories={field.widget === 'category_map'} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'category'}
       <span class="dropdown">
-        <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
+        <select class="input" value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
           {#each Object.entries(ui.info?.categories ?? {}) as [k, c]}<option value={k}>{c.label}</option>{/each}
         </select><i class="ph ph-caret-down"></i>
       </span>
@@ -135,7 +135,7 @@
       <Stepper value={Number(value ?? 0)} step={o.step ?? 50} min={o.min} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'code'}
       <textarea
-        class="mono code"
+        class="input mono code"
         bind:this={input}
         value={String(value ?? '')}
         rows="3"
@@ -168,7 +168,7 @@
       <Stepper value={Number(value ?? 0)} step={1} min={0} max={255} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else}
       <input
-        class="text-input"
+        class="input text-input"
         class:mono={field.widget === 'folder' || field.key.includes('profile') || field.key.endsWith('url') || field.key.includes('model')}
         bind:this={input}
         value={String(value ?? '')}
@@ -234,21 +234,11 @@
   .code {
     width: 360px;
     max-width: 100%;
-    padding: 5px 10px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
-    outline: none;
   }
   .code {
     width: 420px;
     resize: vertical;
     font-size: 0.9231rem;
-  }
-  .text-input:focus,
-  .code:focus,
-  select:focus {
-    border-color: var(--aqua);
   }
   .dropdown {
     position: relative;

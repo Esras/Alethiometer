@@ -98,11 +98,18 @@
     width: 220px;
     padding: 4px 10px;
     border-radius: var(--r-input);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    color: var(--tx-label);
+    /* An .input's look (decision 7), without .input itself: this is a button that
+       opens the palette, and it gets the focus back when the palette closes, so
+       an aqua border on :focus would show at rest. */
+    background: var(--bg-app);
+    border: 1px solid var(--border-strong);
+    color: var(--tx-disabled);
     font-size: 0.9231rem;
     white-space: nowrap;
+  }
+  .search i,
+  .hint {
+    color: var(--tx-label);
   }
   .q {
     min-width: 0;

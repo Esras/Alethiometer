@@ -51,9 +51,9 @@
   {/each}
   {#if editing}
     <span class="pair new">
-      <input bind:this={first} bind:value={k} placeholder="key" onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Escape') onedit(false); }} />
+      <input class="input sm" bind:this={first} bind:value={k} placeholder="key" onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Escape') onedit(false); }} />
       <i class="ph ph-arrow-right"></i>
-      <input bind:value={v} placeholder="value" onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') add(); if (e.key === 'Escape') onedit(false); }} />
+      <input class="input sm" bind:value={v} placeholder="value" onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') add(); if (e.key === 'Escape') onedit(false); }} />
       <button onclick={add} aria-label="Add"><i class="ph ph-check"></i></button>
     </span>
   {:else}
@@ -96,13 +96,6 @@
   }
   input {
     width: 110px;
-    padding: 1px 6px;
     border-radius: 4px;
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
-    outline: none;
-  }
-  input:focus {
-    border-color: var(--aqua);
   }
 </style>

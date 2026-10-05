@@ -175,15 +175,15 @@
   {#if writing}
     <div class="write">
       {#if writing === 'forward'}
-        <select bind:this={box} bind:value={to} onkeydown={onKey}>
+        <select class="input" bind:this={box} bind:value={to} onkeydown={onKey}>
           <option value="">Send to…</option>
           {#each others as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
         </select>
         {#if !others.length}<span class="note">No other running agent in this group.</span>{/if}
       {:else if writing === 'deny'}
-        <input bind:this={box} bind:value={text} placeholder="Why not? Sent as your next message (optional)" onkeydown={onKey} />
+        <input class="input" bind:this={box} bind:value={text} placeholder="Why not? Sent as your next message (optional)" onkeydown={onKey} />
       {:else}
-        <textarea bind:this={box} bind:value={text} rows="2" placeholder={a.kind === 'turn' ? 'Your next prompt…' : 'Reply…'} onkeydown={onKey}></textarea>
+        <textarea class="input" bind:this={box} bind:value={text} rows="2" placeholder={a.kind === 'turn' ? 'Your next prompt…' : 'Reply…'} onkeydown={onKey}></textarea>
       {/if}
       <span class="note">{writing === 'reply' ? '⌘⏎ send' : '⏎ send'} · esc</span>
     </div>
@@ -277,13 +277,8 @@
   .write select {
     flex: 1;
     min-width: 0;
-    padding: 5px 10px;
-    border-radius: var(--r-input);
-    background: var(--bg-app);
-    border: 1px solid var(--aqua);
-    color: var(--tx-body);
+    width: auto;
     font: inherit;
-    outline: none;
     resize: vertical;
   }
   .err {

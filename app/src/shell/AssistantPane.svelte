@@ -178,7 +178,7 @@
       {/if}
     {/if}
     <form class="ask" onsubmit={ask}>
-      <input bind:value={question} placeholder="Ask, or @ to reference…" disabled={c.busy} />
+      <input class="input" bind:value={question} placeholder="Ask, or @ to reference…" disabled={c.busy} />
     </form>
   </aside>
 {:else}
@@ -356,16 +356,7 @@
     padding: 10px 12px 12px;
   }
   .ask input {
-    width: 100%;
-    padding: 9px 11px;
     border-radius: var(--r-panel);
-    border: 1px solid var(--border);
-    background: var(--bg-app);
-    font-size: 1rem;
-    outline: none;
-  }
-  .ask input:focus {
-    border-color: var(--aqua);
   }
   .rail {
     width: 40px;

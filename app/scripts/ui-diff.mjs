@@ -101,6 +101,20 @@ const scenes = {
   // the anchor chip. The Todos Jira status chip needs a Jira todo the sample data lacks.
   'priorities-compact': ['Control+2', 'v'],
   'palette-in-topic': ['Control+3', 'Enter', 'Control+k'],
+  // Inputs
+  // A focused field is the only aqua one: these scenes focus the filters, the new-name
+  // field, Reflect's ask box and the agents' reply and deny fields. The todo ones make
+  // todos first (the sample data has none), so they come last of this group.
+  'todos-filter-focus': ['Control+4', '/'],
+  'topics-filter-focus': ['Control+3', '/'],
+  'topics-naming': ['Control+3', 'n'],
+  'agents-filter-focus': ['Control+7', '/'],
+  'reflect-ask-focus': ['Control+6', 'a'],
+  'agents-deny': ['Control+7', { exact: 'fake-agent' }, '3'],
+  'incoming-agents-reply': [{ exact: 'Agents waiting' }, 'j', 'Enter', 'r'],
+  'daystrip-buffer': [{ exact: 'Life' }, 'b'],
+  'settings-edit-number': ['Control+,', 'Enter'],
+  'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

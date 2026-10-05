@@ -4,6 +4,7 @@
   // switches to Only these with everything else still checked.
   import { call } from '../../lib/api';
   import { ui } from '../../lib/app.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import { listNav, moveSel } from '../../lib/ui/listNav';
   import Modal from '../../lib/ui/Modal.svelte';
   import { ago, type SourceRow } from './model';
@@ -18,7 +19,7 @@
   let q = $state('');
   let sort = $state<'name' | 'last' | 'per_day'>('per_day');
   let sel = $state(0);
-  let input: HTMLInputElement;
+  let input = $state<HTMLInputElement | null>(null);
 
   $effect(() => {
     call<Chan[]>('settings.slack_channels', { source: source.status?.id })
@@ -72,7 +73,7 @@
     <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
     <button class="esc" onclick={onclose}>esc <i class="ph ph-x"></i></button>
   </header>
-  <div class="field"><i class="ph ph-magnifying-glass"></i><input bind:this={input} bind:value={q} placeholder="Filter channels" oninput={() => (sel = 0)} /></div>
+  <div class="field"><FilterField bind:value={q} bind:el={input} placeholder="Filter channels" oninput={() => (sel = 0)} /></div>
   <div class="thead">
     <span></span>
     <button class:on={sort === 'name'} onclick={() => (sort = 'name')}>Channel</button>
@@ -132,18 +133,8 @@
     color: var(--tx-label);
   }
   .field {
-    display: flex;
-    gap: 8px;
-    align-items: center;
     padding: 8px 16px;
     border-bottom: 1px solid var(--border);
-    color: var(--tx-label);
-  }
-  .field input {
-    flex: 1;
-    background: none;
-    border: 0;
-    outline: none;
   }
   .thead,
   .row {

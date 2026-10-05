@@ -97,7 +97,7 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
 
 `scripts/ui-keys.mjs` leaves marks on the sample data (a notes line's target, Settings' "Saved"). Restart `scripts/ui-diff.sh` before running `ui-diff.mjs` after it.
 
-**Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass.
+**Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass. (FilterField is done: see decision 7.)
 
 ## Phase 2 · New shared components (behaviour plus look)
 
@@ -125,7 +125,7 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
    - **Replaces:** global `.seg` (`app.css:164`, used at `Reflect:145`), `topics/TopicsIndex:214`, `incoming/SplitReview:294` (CSS :435), `settings/Settings:613` and `Row:81/93/128/161`, `todos/TodoForm:69` (`.switch`, keys ⌘1/⌘2), and `assistant/SourcesPanel:202 .tabs` (Kept/Dropped, missed by the list).
    - **`key` must be optional:** Settings' controls sit under the modal key floor, and Reflect gives each option its own key today.
 5. **`lib/ui/Switch.svelte`**: the on/off toggle written twice in Settings. It isn't a cycler.
-6. **`lib/ui/FilterField.svelte`**, with `{value = $bindable, placeholder, icon, el = $bindable}`: an icon plus a bare input in an `.input` box.
+6. **`lib/ui/FilterField.svelte`**, with `{value = $bindable, placeholder, icon, el = $bindable}`: an icon plus a bare input in an `.input` box. **Done (2026-10-05):** props are `value`, `el`, `placeholder`, `icon` (a Phosphor name), `sm`, `field` (an action, the pickers' `p.field`), `class` and a trailing `children` snippet, and any `<input>` attribute (`onkeydown`, `oninput`, `onblur`…) passes through.
    - **Takes nine copies:** `Todos:298`, `agents/Tree:222`, `topics/TopicsIndex:309`, `settings/Settings:771 .find`, `shell/TabBar:105`, `PersonPicker:154`, `SearchPalette:297`, `SlackReview:147` and `TopicPicker:134`.
    - **Needs `.input:focus-within`**, which bundle.css lacks; nearly every field is a wrapper.
 7. **People** (decision 2): `lib/ui/Avatar.svelte` with `{name, color, size: 'lg' | 'sm'}`, for person rows only (never in threads), a `PersonName` `variant: 'thread' | 'tertiary'` (both coloured), and later a `PersonRow`.
@@ -239,6 +239,7 @@ These already match:
   - `settings/Stepper:102/107`;
   - `StatusLine:79` (a select).
 - **Probably exempt:** the borderless editors in `Composer:283`, `Notes:563`, `reflect/NoteEditor:316` and `topics/NotePane:308`.
+- **Done (2026-10-05):** `.input` / `.input.sm` are in `app.css` (`:focus-within` for wrappers) and `lib/ui/FilterField` replaces the filter boxes (Todos, Topics index and its new-topic name, Settings' find, the agents tree, ⌘K, Slack review, the topic and person pickers); the other fields take the class or lose their own copy of it. No field is aqua at rest. Left alone: the borderless editors (Composer, Notes, NoteEditor, NotePane), Topics' heading rename, `FontPick .current` (a button that already looks like a field), the tab bar's Search (a button that opens ⌘K: the look, not the class, or it would be aqua when the palette hands back the focus), and Reflect's ask box (`.input` on the whole box, its two-part placeholder isn't a FilterField's). Heights changed (px, before → after): Topics' filter 34 → 28 (it lines up with `.btn.md` now) and its new-name field 34 → 28, Settings' find 32 → 28, the agent forms' fields 25–27 → 27–29, `TodoForm` 29 → 24 and its date 31 → 26, `CategoryManager`'s names 26 → 21, the assistant's ask box 40 → 32, the ⌘K field 35 → 33, Todos' filter 31 → 32. The tree's filter keeps its 25px (it sits by the 26px `+`).
 
 **8 · Labels.**
 - **Odd tracking** → `.label`:

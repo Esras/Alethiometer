@@ -74,14 +74,14 @@
   </div>
   <div class="grid">
     <span class="lbl">{target === 'jira' ? 'Summary' : 'Todo'}</span>
-    <input bind:this={input} bind:value={text} placeholder={target === 'jira' ? 'Issue summary' : 'What to do'} />
+    <input class="input sm" bind:this={input} bind:value={text} placeholder={target === 'jira' ? 'Issue summary' : 'What to do'} />
     {#if target === 'jira' && jira}
       <span class="lbl">Issue</span>
       <span class="val">{jira.project} · {jira.issue_type} · you</span>
     {/if}
     <span class="lbl">Due</span>
     <span class="due">
-      <input class="date" class:empty={!due} type="date" bind:value={due} />
+      <input class="input sm date" class:empty={!due} type="date" bind:value={due} />
       {#if due}<button class="btn" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
     </span>
     <span class="lbl">Topic</span>
@@ -143,18 +143,8 @@
   .lbl {
     color: var(--tx-label);
   }
-  input {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: var(--r-input);
-    padding: 4px 8px;
-    color: var(--tx-body);
-    outline: none;
-  }
-  input:focus {
-    border-color: var(--aqua);
-  }
   .date {
+    width: auto;
     color-scheme: dark;
   }
   .date.empty {

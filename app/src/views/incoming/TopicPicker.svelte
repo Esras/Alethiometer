@@ -5,6 +5,7 @@
   // row moves there. The create row isn't a cursor row: ↵ with no match creates.
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import { Picker } from '../../lib/ui/picker.svelte';
   import type { TopicRow } from '../../lib/types';
 
@@ -66,9 +67,9 @@
 
 <div class="picker" use:p.frame>
   <div class="field">
-    <i class="ph ph-arrow-bend-down-right"></i>
-    <input use:p.field bind:value={p.q} {placeholder} />
-    <span class="hint">↵ pick · esc</span>
+    <FilterField field={p.field} icon="arrow-bend-down-right" bind:value={p.q} {placeholder}>
+      <span class="hint">↵ pick · esc</span>
+    </FilterField>
   </div>
   {#if showUnsorted}
     <button class="opt unsorted" class:on={p.sel === 0} {...p.row(0)}>
@@ -101,21 +102,8 @@
     overflow: hidden;
   }
   .field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+    padding: 6px;
     border-bottom: 1px solid var(--border);
-    color: var(--tx-label);
-  }
-  .field input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    font-size: 0.9615rem;
-    color: var(--tx-body);
   }
   .hint {
     font-size: 0.8462rem;

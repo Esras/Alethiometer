@@ -232,7 +232,7 @@
           That's all this laptop knows. Travel buffer
           {#if editingBuffer}
             <input
-              class="buf tnum"
+              class="input sm buf tnum"
               bind:value={bufferInput}
               onkeydown={(e) => {
                 if (e.key === 'Enter') saveBuffer();
@@ -474,12 +474,13 @@
   .em {
     color: var(--tx-body);
   }
+  /* In running text: it keeps the line's size and height. */
   .buf {
+    display: inline-block;
     width: 44px;
-    background: var(--bg-app);
-    border: 1px solid var(--aqua);
     border-radius: 4px;
     padding: 0 4px;
+    font: inherit;
   }
   .pop-foot {
     display: flex;

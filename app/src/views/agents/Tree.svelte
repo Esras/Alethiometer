@@ -2,6 +2,7 @@
   import { ui } from '../../lib/app.svelte';
   import { agentColor } from './look';
   import { act, ag, age, look, nodes, openThread, sessionById, type Node } from './state.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Group, Request, Session, Status } from './types';
 
@@ -79,23 +80,23 @@
 
 <div class="tree" class:focus={ag.zone === 'tree'}>
   <div class="filter-row">
-    <label class="filter">
-      <i class="ph ph-magnifying-glass"></i>
-      <input
-        bind:this={filterEl}
-        bind:value={ag.filter}
-        placeholder="Filter sessions"
-        onkeydown={(e) => {
-          if (e.key === 'Escape' || e.key === 'Enter') {
-            (e.currentTarget as HTMLInputElement).blur();
-            if (e.key === 'Escape') ag.filter = '';
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        }}
-      />
+    <FilterField
+      class="tree-filter"
+      sm
+      bind:value={ag.filter}
+      bind:el={filterEl}
+      placeholder="Filter sessions"
+      onkeydown={(e) => {
+        if (e.key === 'Escape' || e.key === 'Enter') {
+          (e.currentTarget as HTMLInputElement).blur();
+          if (e.key === 'Escape') ag.filter = '';
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+    >
       <span class="hint">/</span>
-    </label>
+    </FilterField>
     <span class="counts">
       <span title="running"><StatusMark status="running" />{counts.running}</span>
       <span title="waiting"><StatusMark status="waiting" />{counts.waiting}</span>
@@ -219,33 +220,11 @@
     align-items: center;
     padding: 12px 14px 10px;
   }
-  .filter {
+  .filter-row :global(.tree-filter) {
     flex: 1;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: var(--r-input);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    color: var(--tx-label);
-    font-size: 0.923rem;
-  }
-  .filter:focus-within {
-    border-color: var(--aqua);
-  }
-  .filter input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    color: var(--tx-body);
-    font-size: 0.923rem;
-    padding: 0;
-  }
-  .filter input::placeholder {
-    color: var(--tx-label);
+    width: auto;
+    /* 25px tall, as before: it lines up with the 26px + button beside it. */
+    padding-block: 4px;
   }
   .hint {
     margin-left: auto;

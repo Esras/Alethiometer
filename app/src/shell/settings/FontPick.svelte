@@ -61,7 +61,7 @@
   <button class="current" style:font-family={face(value)} onmousedown={(e) => shown && e.preventDefault()} onclick={() => (shown ? close() : show())}>{label(value)}<i class="ph ph-caret-down"></i></button>
   {#if shown}
     <div class="pop" role="listbox" use:p.frame>
-      <input use:p.field bind:value={p.q} placeholder="Filter fonts…" />
+      <div class="search"><input class="input" use:p.field bind:value={p.q} placeholder="Filter fonts…" /></div>
       <div class="opts scroll">
         {#each list as f, i (f.name)}
           <button class="opt" class:sel={i === p.sel} style:font-family={face(f.name)} {...p.row(i)}>{label(f.name)}</button>
@@ -102,13 +102,9 @@
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
     overflow: hidden;
   }
-  input {
-    width: 100%;
-    padding: 7px 10px;
-    border: 0;
+  .search {
+    padding: 6px;
     border-bottom: 1px solid var(--border);
-    background: none;
-    outline: none;
   }
   .opts {
     max-height: 260px;

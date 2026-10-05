@@ -183,7 +183,7 @@
         {:else}
           <CarryList rows={d.carry} label={OPEN_LABEL[d.scope]} bind:selected textButtons={d.scope !== 'day'} {act} />
           {#if d.scope === 'day'}
-            <div class="ask panel">
+            <div class="ask input">
               <label class="askrow">
                 <i class="ph ph-magnifying-glass"></i>
                 <span class="field">
@@ -193,7 +193,7 @@
                     onkeydown={(e) => e.key === 'Enter' && ask()}
                     aria-label="Ask about today"
                   />
-                  {#if !question}<span class="hint ellipsis">Ask about today… <span class="eg">e.g. "what did Jordan say about the fix ETA?"</span></span>{/if}
+                  {#if !question}<span class="hint ellipsis">Ask about today… <span>e.g. "what did Jordan say about the fix ETA?"</span></span>{/if}
                 </span>
                 {#if asking}<span class="asking nowrap">asking…</span>{/if}
               </label>
@@ -281,9 +281,12 @@
     flex-direction: column;
     gap: 14px;
   }
+  /* The whole box is the field (focus-within turns it aqua), the answer inside it.
+     Not a FilterField: its placeholder is two styled spans. */
   .ask {
     flex: none;
-    overflow: visible;
+    padding: 0;
+    border-radius: var(--r-panel);
   }
   .askrow {
     display: flex;
@@ -315,17 +318,10 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    color: var(--tx-label);
+    color: var(--tx-disabled);
   }
   .asking {
     font-size: 0.9231rem;
-  }
-  .askrow:focus-within {
-    box-shadow: inset 0 0 0 1px var(--aqua);
-    border-radius: var(--r-panel);
-  }
-  .eg {
-    color: var(--tx-disabled);
   }
   .answer {
     display: flex;

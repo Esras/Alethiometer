@@ -6,6 +6,7 @@
   import { refresh, ui } from '../../lib/app.svelte';
   import { isTyping, mod, pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import { listNav, moveSel } from '../../lib/ui/listNav';
   import Modal from '../../lib/ui/Modal.svelte';
   import CategoryManager from '../../views/topics/CategoryManager.svelte';
@@ -458,11 +459,9 @@
   </header>
   <div class="body">
     <nav>
-      <label class="find">
-        <i class="ph ph-magnifying-glass"></i>
-        <input bind:this={findInput} bind:value={findQ} placeholder="Find a setting" oninput={() => (findSel = 0)} />
+      <FilterField class="find" bind:value={findQ} bind:el={findInput} placeholder="Find a setting" oninput={() => (findSel = 0)}>
         <span class="k">/</span>
-      </label>
+      </FilterField>
       {#each SECTIONS as s, i}
         <button class="sec" class:on={section === s.id && !findQ} onclick={() => goSection(s.id)}>
           <i class="ph ph-{s.icon}"></i><span>{s.label}</span>
@@ -576,7 +575,7 @@
                   {#if replacing === item.secret.name}
                     <!-- svelte-ignore a11y_autofocus -->
                     <input
-                      class="secret-input mono"
+                      class="input secret-input mono"
                       type="password"
                       autocomplete="off"
                       autofocus
@@ -606,11 +605,11 @@
                     <Switch {on} label="{tier === 'small' ? 'Small' : 'Large'} tier" onclick={() => activate(item)} />
                     {tier === 'small' ? 'Small' : 'Large'}
                   </span>
-                  <select class="text-input mono" value={provider} onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}>
+                  <select class="input text-input mono" value={provider} onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}>
                     {#each allowed.includes(provider) ? allowed : [provider, ...allowed] as p}<option value={p}>{p}</option>{/each}
                   </select>
                   <input
-                    class="text-input mono"
+                    class="input text-input mono"
                     value={model}
                     list="ai-models"
                     onblur={(e) => e.currentTarget.value !== model && apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
@@ -628,7 +627,7 @@
                   <span class="mono model">{item.model}</span>
                   {#if !pr}<span class="muted">not set</span>{/if}
                   <label class="money">$<input
-                      class="tnum"
+                      class="input sm tnum"
                       value={pr?.input ?? ''}
                       placeholder="—"
                       onblur={(e) => {
@@ -639,7 +638,7 @@
                       }}
                       onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} /> in</label>
                   <label class="money">$<input
-                      class="tnum"
+                      class="input sm tnum"
                       value={pr?.output ?? ''}
                       placeholder="—"
                       onblur={(e) => {
@@ -767,24 +766,8 @@
     border-right: 1px solid var(--border);
     overflow-y: auto;
   }
-  .find {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+  nav :global(.find) {
     margin-bottom: 10px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
-    color: var(--tx-label);
-    background: var(--bg-app);
-  }
-  .find input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    color: var(--tx-body);
   }
   .k {
     color: var(--tx-label);
@@ -1006,21 +989,11 @@
   .muted {
     color: var(--tx-label);
   }
-  .secret-input,
-  .text-input {
+  .secret-input {
     width: 360px;
-    padding: 5px 10px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--aqua);
-    background: var(--bg-app);
-    outline: none;
   }
   .text-input {
     width: auto;
-    border-color: var(--border-strong);
-  }
-  .text-input:focus {
-    border-color: var(--aqua);
   }
   .thead,
   .trow {
@@ -1064,13 +1037,6 @@
     padding: 2px 6px;
     text-align: right;
     border-radius: 4px;
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
-    color: var(--tx-title);
-    outline: none;
-  }
-  .money input:focus {
-    border-color: var(--aqua);
   }
   .result {
     display: grid;

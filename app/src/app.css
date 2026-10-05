@@ -237,6 +237,37 @@ pre,
   border-color: var(--border);
 }
 
+/* Inputs (ui-plan decision 7): bg-app, border-strong at rest, aqua only on
+   focus (a field that opens ready to type is not aqua either), placeholder in
+   --tx-disabled. .sm is the one in a row or toolbar. For a single-line field or
+   a select; a wrapper holding an icon and a bare input (FilterField, the agent
+   forms' .input span) gets the focus border through :focus-within. The radius
+   is each site's own until decision 12. */
+.input {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border-radius: var(--r-input);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  color: var(--tx-body);
+  font-size: 1rem;
+  outline: none;
+}
+.input.sm {
+  padding: 2px 8px;
+  font-size: 0.9231rem;
+}
+.input:focus,
+.input:focus-within,
+.input.is-focused {
+  border-color: var(--aqua);
+}
+.input::placeholder,
+.input input::placeholder {
+  color: var(--tx-disabled);
+}
+
 /* A raised panel's surface (Panel.svelte and a page's main column); .col
    makes it a flex column. Layout (flex, width, margins) stays with the view. */
 .panel {

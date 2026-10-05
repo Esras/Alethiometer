@@ -6,6 +6,7 @@
   import { catColor } from '../../lib/app.svelte';
   import { Picker } from '../../lib/ui/picker.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import { KEEP, type EditLine, type Options, type Target } from './types';
 
   let {
@@ -36,8 +37,7 @@
 
 <div class="picker" role="dialog" aria-label="Where it goes" use:p.frame>
   <div class="search">
-    <i class="ph ph-magnifying-glass"></i>
-    <input use:p.field bind:value={p.q} placeholder="Topic, person or PLAT-…" spellcheck="false" />
+    <FilterField field={p.field} bind:value={p.q} placeholder="Topic, person or PLAT-…" spellcheck="false" />
   </div>
   <div class="list">
     {#each opts as o, i}
@@ -72,25 +72,11 @@
     font-size: 0.9615rem;
   }
   .search {
-    display: flex;
-    gap: 7px;
-    align-items: center;
-    padding: 7px 10px;
+    padding: 6px;
     border-bottom: 1px solid var(--border);
-    color: var(--tx-label);
   }
-  input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    font-size: 0.9615rem;
-    color: var(--tx-body);
+  .search :global(input) {
     caret-color: var(--aqua);
-  }
-  input::placeholder {
-    color: var(--tx-disabled);
   }
   .list {
     padding: 4px;

@@ -56,7 +56,7 @@
   }
 </script>
 
-<span class="stepper">
+<span class="input stepper">
   <button onclick={() => bump(-1)} disabled={min !== undefined && value <= min} aria-label="Less">−</button>
   {#if editing}
     <input
@@ -82,9 +82,12 @@
   .stepper {
     display: inline-flex;
     align-items: center;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
-    background: var(--bg-app);
+    width: auto;
+    padding: 0;
+  }
+  /* Aqua while you type a value, not while a − or + holds the focus after a click. */
+  .stepper:focus-within:not(:has(input:focus)) {
+    border-color: var(--border-strong);
   }
   button {
     width: 26px;

@@ -15,6 +15,7 @@
   import { cancelMerge, mergingAway, merges, pendingMerge, stageMerge } from '../../lib/merges.svelte';
   import Dock from '../../lib/ui/Dock.svelte';
   import DockHost from '../../lib/ui/DockHost.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
   import { listNav, moveSel } from '../../lib/ui/listNav';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import type { CategoryRow, TopicRow } from '../../lib/types';
@@ -207,11 +208,9 @@
 <div class="view">
   <div class="panel col">
     <div class="head">
-      <label class="filter">
-        <i class="ph ph-funnel-simple"></i>
-        <input bind:this={input} bind:value={q} placeholder="Filter topics" />
+      <FilterField class="topics-filter" icon="funnel-simple" bind:value={q} bind:el={input} placeholder="Filter topics">
         <span class="total tnum">{rows.length} topics</span>
-      </label>
+      </FilterField>
       <div class="seg" role="tablist" aria-label="Topics">
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
         <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
@@ -235,12 +234,10 @@
     </div>
     <div class="cols label"><span></span><span>Topic</span><span>Open</span><span>Last signal</span><span>Next meeting</span></div>
     {#if naming !== null}
-      <div class="naming">
-        <i class="ph ph-plus"></i>
-        <input bind:this={nameInput} bind:value={naming} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)} />
+      <FilterField class="naming" icon="plus" bind:value={naming} bind:el={nameInput} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)}>
         {#if catFilter !== null}<span class="in">in {category(catFilter).label}</span>{/if}
         <span class="hint">↵ create · esc</span>
-      </div>
+      </FilterField>
     {/if}
     <div class="body scroll" bind:this={body}>
       {#if active.length}
@@ -301,25 +298,8 @@
     padding: 12px 18px;
     border-bottom: 1px solid var(--border);
   }
-  .filter {
+  .head :global(.topics-filter) {
     flex: 1;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 12px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--border-strong);
-    background: var(--bg-app);
-    color: var(--tx-label);
-  }
-  .filter input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    outline: none;
-    color: var(--tx-body);
-    font: inherit;
   }
   .total {
     font-size: 0.8846rem;
@@ -363,24 +343,9 @@
     left: 10px;
     top: calc(100% - 6px);
   }
-  .naming {
-    display: flex;
-    gap: 10px;
-    align-items: center;
+  .panel :global(.naming) {
+    width: auto;
     margin: 10px 18px 0;
-    padding: 7px 12px;
-    border-radius: var(--r-input);
-    border: 1px solid var(--aqua);
-    color: var(--aqua);
-  }
-  .naming input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    outline: none;
-    color: var(--tx-body);
-    font: inherit;
   }
   .in,
   .hint {

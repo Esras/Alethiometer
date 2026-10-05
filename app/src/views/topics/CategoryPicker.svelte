@@ -36,7 +36,7 @@
 </script>
 
 <div class="picker" role="listbox" use:p.frame style:position={placement.position} style:top={placement.top} style:left={placement.left}>
-  <input use:p.field bind:value={p.q} placeholder="Category…" />
+  <input class="input" use:p.field bind:value={p.q} placeholder="Category…" />
   {#each matches as c, i (c.key)}
     <button class="opt" class:on={i === p.sel} {...p.row(i)}>
       <span class="sq" style:background={c.color}></span>
@@ -60,15 +60,7 @@
     box-shadow: var(--popover);
   }
   input {
-    width: 100%;
     margin-bottom: 4px;
-    padding: 5px 8px;
-    border: none;
-    border-bottom: 1px solid var(--border);
-    background: none;
-    outline: none;
-    color: var(--tx-body);
-    font: inherit;
   }
   .none {
     padding: 5px 8px;

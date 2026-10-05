@@ -63,6 +63,7 @@
     {#if denying}
       <div class="deny">
         <input
+          class="input"
           bind:this={reasonEl}
           bind:value={reason}
           placeholder="Why not? Sent as your next message (optional)"
@@ -159,12 +160,6 @@
   .deny input {
     flex: 1;
     min-width: 0;
-    padding: 5px 10px;
-    border-radius: var(--r-input);
-    background: var(--bg-app);
-    border: 1px solid var(--aqua);
-    outline: none;
-    font-size: 1rem;
   }
   .c {
     flex: 1;

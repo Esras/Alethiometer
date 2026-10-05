@@ -4,6 +4,7 @@
   import { catColor, openTopic, refresh } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import FilterField from '../lib/ui/FilterField.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import SignalDetail from './shared/SignalDetail.svelte';
   import TodoForm from './todos/TodoForm.svelte';
@@ -186,11 +187,9 @@
 <div class="view">
   <div class="main">
     <div class="bar">
-      <label class="filter">
-        <i class="ph ph-magnifying-glass"></i>
-        <input bind:this={filterEl} bind:value={q} placeholder="Filter todos" onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())} />
+      <FilterField class="todos-filter" bind:value={q} bind:el={filterEl} placeholder="Filter todos" onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())}>
         <span class="k">/</span>
-      </label>
+      </FilterField>
       <div class="chips">
         {#each SOURCES as s (s.key)}
           {#if s.key === 'all' || counts[s.key]}
@@ -238,7 +237,7 @@
               <span class="muted" title="Epics aren't estimated: you track them, the work is in their issues">-</span>
             {:else if editing === t.item_id}
               <input
-                class="est-pick"
+                class="input sm est-pick"
                 use:focusEl
                 value={t.estimate ? dur(t.estimate.minutes) : ''}
                 placeholder="45m"
@@ -295,24 +294,8 @@
     gap: 12px;
     margin-bottom: 10px;
   }
-  .filter {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .bar :global(.todos-filter) {
     width: 260px;
-    padding: 4px 10px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
-    color: var(--tx-label);
-  }
-  .filter input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    font-size: 0.9615rem;
-    color: var(--tx-body);
   }
   .chips {
     display: flex;
@@ -438,16 +421,6 @@
     font-size: 0.8077rem;
     font-style: normal;
     color: var(--tx-label);
-  }
-  .est-pick {
-    width: 100%;
-    padding: 1px 6px;
-    outline: none;
-    background: var(--bg-app);
-    color: var(--tx-body);
-    border: 1px solid var(--aqua);
-    border-radius: var(--r-input);
-    font-size: 0.9231rem;
   }
   .overdue {
     color: var(--red);

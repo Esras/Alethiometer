@@ -10,6 +10,7 @@
   import { accountLabel, initial, personColor, type Account, type PersonHit } from '../../lib/people';
   import { Picker } from '../../lib/ui/picker.svelte';
   import Avatar from '../../lib/ui/Avatar.svelte';
+  import FilterField from '../../lib/ui/FilterField.svelte';
 
   let {
     account,
@@ -74,10 +75,7 @@
     <span class="label">Link to person</span>
     <span class="acct ellipsis">{account.kind === 'email' || account.kind === 'github' ? account.id : name} · {source}</span>
   </div>
-  <div class="field">
-    <i class="ph ph-magnifying-glass"></i>
-    <input use:p.field bind:value={p.q} placeholder="Name or alias" />
-  </div>
+  <FilterField field={p.field} bind:value={p.q} placeholder="Name or alias" />
   <div class="rows">
     {#each hits as h, i (h.id)}
       <button class="row" class:on={i === p.sel} {...p.row(i)}>
@@ -131,25 +129,6 @@
   .acct {
     font-size: 0.8846rem;
     color: var(--tx-muted);
-  }
-  .field {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 6px 10px;
-    border-radius: var(--r-input);
-    background: var(--bg-app);
-    border: 1px solid var(--aqua);
-    color: var(--tx-label);
-  }
-  .field input {
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: 0;
-    outline: none;
-    font: inherit;
-    color: var(--tx-body);
   }
   .rows {
     display: flex;
