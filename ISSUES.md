@@ -4,10 +4,6 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
-### Reflect: the offline line offers ⌘R, which Reflect doesn't handle
-
-`reflect/NoteEditor`'s offline line says "⌘R retry" (Ctrl+R off the Mac), but no handler in Reflect retries on it; the sync chip's ⌘R retries failed writes globally, which may or may not be what the line means. Found while boxing key hints (2026-10-05). Either wire it or change the hint.
-
 ### Agents: local runtimes (sandbox, OpenShell, ssh) (user, 2026-10-03: deferred)
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.
