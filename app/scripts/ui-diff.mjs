@@ -121,6 +121,11 @@ const scenes = {
   'search-expanded': ['Control+k', { type: 'acme' }, 'Control+Enter', ' '],
   'topic-expanded': ['Control+3', 'Enter', 'j', 'j', 'Enter'],
   'topic-note-edit': ['Control+3', 'Enter', 'e'],
+  // Labels
+  // Chronology's Now rule only shows on a topic with open entries (Acme outage has two
+  // meetings today). Not covered: SlackReview's column header (the sample data has no
+  // Slack source) and the approval's "If planted" label (Explained needs a Bedrock answer).
+  'topic-page-now': ['Control+3', 'j', 'Enter'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

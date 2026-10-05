@@ -607,8 +607,8 @@
     <div class="panel col">
       <div class="body scroll">
         {#each groups as g, gi (g.source + g.label)}
-          <div class="group" class:rule={gi > 0}>
-            <AppIcon source={g.source} size={14} />{g.label}<span class="gcount">{g.signals.length}</span>
+          <div class="group panel-head" class:rule={gi > 0}>
+            <AppIcon source={g.source} size={14} />{g.label}<span class="n">{g.signals.length}</span>
           </div>
           {#each g.signals as s (s.item_id)}
             {@const sel = s.item_id === selItem}
@@ -937,19 +937,10 @@
     gap: 8px;
     align-items: center;
     padding: 8px 16px 6px;
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-muted-2);
   }
   .group.rule {
     border-top: 1px solid var(--border);
     margin-top: 4px;
-  }
-  .gcount {
-    letter-spacing: 0;
-    text-transform: none;
-    color: var(--tx-label);
   }
   .sig {
     transition: background 120ms;

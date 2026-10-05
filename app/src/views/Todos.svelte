@@ -205,7 +205,7 @@
       <TodoForm {jira} choose onsave={create} oncancel={() => (creating = false)} />
     {/if}
     <div class="panel col">
-      <div class="head row">
+      <div class="head row panel-head">
         <span></span>
         <button onclick={() => sortBy('title')}>Todo{#if sort.key === 'title'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
         <button onclick={() => sortBy('status')}>Status{#if sort.key === 'status'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
@@ -340,10 +340,6 @@
   }
   .head {
     border-bottom: 1px solid var(--border);
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .head button {
     display: flex;

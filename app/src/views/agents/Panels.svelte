@@ -14,7 +14,7 @@
 <div class="panels" class:solo={!req.parsed || !req.explained}>
   {#if req.parsed}
   <div class="facts-box">
-    <div class="ph-head">
+    <div class="ph-head label">
       <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub">shell parser · same answer every time</span>
       <span class="badge-wrap"><span class="mono-tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span>
     </div>
@@ -37,14 +37,14 @@
   {#if req.explained}
     {@const x = req.explained}
     <div class="facts-box">
-      <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model}</span></div>
+      <div class="ph-head label"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model}</span></div>
       {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
       {:else if x.state === 'ok'}
         <div class="ex"><Markdown text={x.text} /></div>
         {#if x.fits === false && x.fit_note}<div class="fit"><i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span></div>{/if}
         {#if x.misuse.length}
           <div class="misuse">
-            <span class="mh">If planted</span>
+            <span class="mh label">If planted</span>
             <div class="ex"><Markdown text={x.misuse.map((m) => `- ${m}`).join('\n')} /></div>
             {#if x.worst}<div class="worst"><Markdown text={`**Worst case:** ${x.worst}`} /></div>{/if}
           </div>
@@ -81,10 +81,6 @@
     display: flex;
     gap: 7px;
     align-items: center;
-    font-size: 0.846rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     margin-bottom: 2px;
   }
   .ph-head i {
@@ -182,9 +178,6 @@
     text-wrap: pretty;
   }
   .mh {
-    font-size: 0.808rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--orange);
   }
   .worst {

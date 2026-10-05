@@ -317,10 +317,6 @@
   .section {
     padding: 10px 18px 6px;
   }
-  .n {
-    color: var(--tx-muted-2);
-    margin-left: 4px;
-  }
   .body {
     flex: 1;
     min-height: 0;

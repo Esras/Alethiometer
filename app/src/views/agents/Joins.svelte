@@ -19,7 +19,7 @@
 </script>
 
 <div class="joins">
-  <div class="lab">Joins{#if project}<span class="proj">{project}</span>{/if}</div>
+  <div class="lab label">Joins{#if project}<span class="proj">{project}</span>{/if}</div>
   <div class="group">
     <i class="ph ph-caret-down"></i>
     <span class="gn"><span class="name">{name}</span>{#if goal}<span class="goal">{goal}</span>{/if}</span>
@@ -48,10 +48,6 @@
     display: flex;
     gap: 8px;
     align-items: baseline;
-    font-size: 0.808rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .proj {
     color: var(--tx-disabled);

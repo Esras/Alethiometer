@@ -45,10 +45,6 @@
 .agent-form .lab {
   flex: none;
   white-space: nowrap;
-  font-size: 0.808rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--tx-label);
 }
 /* The box itself is app.css's .input (padding, border, aqua on focus-within). */
 .agent-form .input {

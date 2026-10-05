@@ -28,7 +28,7 @@
 
 <section class="panel" class:accent>
   <header>
-    <button class="toggle" disabled={!collapsible} onclick={() => (open = !open)} aria-expanded={open}>
+    <button class="toggle panel-head" disabled={!collapsible} onclick={() => (open = !open)} aria-expanded={open}>
       {#if collapsible}<i class="ph ph-caret-{open ? 'down' : 'right'} caret"></i>{/if}
       <i class="ph-bold ph-{icon}" style:color={iconColor}></i>
       <span>{label}</span>
@@ -63,10 +63,6 @@
     gap: 8px;
     align-items: center;
     padding: 7px 0 7px 12px;
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-2);
     cursor: pointer;
     flex: 1;
     min-width: 0;
@@ -88,6 +84,7 @@
     align-items: center;
     font-size: 0.8462rem;
   }
+  /* The count sits beside the header, not inside it, so .panel-head .n can't reach it. */
   .n {
     color: var(--tx-muted-2);
   }

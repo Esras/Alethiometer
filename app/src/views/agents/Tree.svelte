@@ -111,7 +111,7 @@
 
   {#if requests.length}
     <div class="needs">
-      <div class="needs-head"><i class="ph ph-bell-simple"></i>Needs you<span class="n">{requests.length}</span></div>
+      <div class="needs-head label"><i class="ph ph-bell-simple"></i>Needs you<span class="n">{requests.length}</span></div>
       {#each requests as r (r.id)}
         {@const s = sessionById(r.session_id)}
         {@const l = needLine(r)}
@@ -128,9 +128,9 @@
   <div class="list">
     {#each list as n (n.key)}
       {#if n.type === 'project'}
-        <div class="project">{n.label}</div>
+        <div class="project label">{n.label}</div>
       {:else if n.type === 'unsorted'}
-        <div class="project unsorted">Unsorted</div>
+        <div class="project unsorted label">Unsorted</div>
       {:else if n.type === 'group'}
         {@const f = folded(n.sessions)}
         <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)}>
@@ -280,9 +280,6 @@
     align-items: center;
     gap: 8px;
     padding: 0 12px 4px;
-    font-size: 0.846rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--need, var(--orange));
   }
   .needs-head i {
@@ -291,7 +288,7 @@
   .needs-head .n {
     margin-left: auto;
     font: 0.846rem var(--font-mono);
-    letter-spacing: 0;
+    color: inherit;
   }
   .need {
     width: 100%;
@@ -342,10 +339,6 @@
   }
   .project {
     padding: 12px 14px 3px;
-    font-size: 0.808rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .project:first-child {
     padding-top: 10px;

@@ -102,9 +102,9 @@
   <Joins project={g?.project ?? ''} name={g?.name ?? ''} goal={g?.goal} host={g?.host} room={room && addToRoom ? (g?.room?.name ?? null) : null} {members} newName={name.trim()} />
   {#if !cat && !err}<span class="sub">Reading templates from the Hub…</span>{/if}
   <div class="fields">
-    <span class="lab">Name</span>
+    <span class="lab label">Name</span>
     <span class="input"><input bind:this={nameEl} bind:value={name} placeholder="reviewer" /><span class="note" class:taken>{taken ? 'taken' : 'unique in project'}</span></span>
-    <span class="lab">Template</span>
+    <span class="lab label">Template</span>
     <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>
       {#each cat?.templates ?? [] as x (x.name)}
         <button
@@ -118,34 +118,34 @@
         >
       {/each}
     </span>
-    <span class="lab">Harness</span>
+    <span class="lab label">Harness</span>
     <span class="input">
       <select bind:value={harness}>
         {#each cat?.harness_configs ?? [] as h (h.name)}<option value={h.name}>{h.name} · {h.harness} · {h.model} · {h.auth}</option>{/each}
       </select>
     </span>
-    <span class="lab">Broker</span>
+    <span class="lab label">Broker</span>
     <span class="input">
       <select bind:value={broker}>
         {#each cat?.brokers ?? [] as b (b.name)}<option value={b.name}>{b.name}{b.kind ? ` · ${b.kind}` : ''}{b.note ? ` · ${b.note}` : ''}</option>{/each}
       </select>
     </span>
-    <span class="lab">Branch</span>
+    <span class="lab label">Branch</span>
     <span class="input"><input bind:value={branch} placeholder="feat/…" /><span class="note">own clone</span></span>
     {#if room}
-      <span class="lab">Then</span>
+      <span class="lab label">Then</span>
       <button class="check" onclick={() => (addToRoom = !addToRoom)}>
         <span class="box" class:on={addToRoom}>{#if addToRoom}<i class="ph ph-check"></i>{/if}</span>Add to #{g?.room?.name}<span class="note">Alethiometer does this after start</span>
       </button>
     {/if}
   </div>
   <div class="right">
-    <span class="row-lab"><span class="lab">Instructions</span><span class="note">agent_instructions from {template} {version} · edit the template on Hub</span></span>
+    <span class="row-lab"><span class="lab label">Instructions</span><span class="note">agent_instructions from {template} {version} · edit the template on Hub</span></span>
     <div class="ro">{t?.instructions || '—'}</div>
     {#if t?.skills.length}
-      <span class="skills"><span class="lab">Skills</span>{#each t.skills as s (s)}<span class="skill">{s}</span>{/each}</span>
+      <span class="skills"><span class="lab label">Skills</span>{#each t.skills as s (s)}<span class="skill">{s}</span>{/each}</span>
     {/if}
-    <span class="row-lab"><span class="lab">Task</span><span class="note">first instruction, sent on start</span></span>
+    <span class="row-lab"><span class="lab label">Task</span><span class="note">first instruction, sent on start</span></span>
     <textarea bind:value={task} rows="2" placeholder="What should it do first?"></textarea>
     {#if err}<div class="err">{err}</div>{/if}
   </div>

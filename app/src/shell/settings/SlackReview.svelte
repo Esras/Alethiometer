@@ -74,7 +74,7 @@
     <button class="esc" onclick={onclose}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
   </header>
   <div class="field"><FilterField bind:value={q} bind:el={input} placeholder="Filter channels" oninput={() => (sel = 0)} /></div>
-  <div class="thead">
+  <div class="thead label">
     <span></span>
     <button class:on={sort === 'name'} onclick={() => (sort = 'name')}>Channel</button>
     <button class:on={sort === 'last'} onclick={() => (sort = 'last')}>Last activity</button>
@@ -146,10 +146,6 @@
     text-align: left;
   }
   .thead {
-    font-size: 0.8077rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     border-bottom: 1px solid var(--border);
   }
   .thead button {

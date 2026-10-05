@@ -252,6 +252,7 @@ These already match:
   - `Priorities:353` (`tx-muted`);
   - `Todos:365` (`tx-label`);
   - `Incoming:951 .group` (`tx-muted-2`).
+- **Done (2026-10-05):** `.label` (0.1em, `tx-label`), `.panel-head` (0.08em, `tx-2`) and `.label .n` / `.panel-head .n` (a bare count after the words) are in `app.css`, and every local copy is gone: the odd-tracking labels (agent form `.lab`, Joins, Keys, Tree's project and Needs you, Panels' Parsed/Explained heads and "If planted", Slack review's column header), the aqua Priorities "Selected" and Chronology "Now", and the headers Panel (its toggle), Priorities' quadrants, Todos' column head and Incoming's source groups now use `.panel-head`. Orange stays on the two state labels (Tree's "Needs you", Panels' "If planted"). Left alone: `NoteEditor .h` (an orange mixed-case heading in note text, not a label), Settings' `.glabel`/`.thead` (already `.label`) and Panel's own count (it sits beside the header, outside `.panel-head`).
 
 **9 · Key hints**, boxed everywhere → `.kbd`.
 - **The one-line change:** the global `kbd` at `app.css:187` boxes 32 `<kbd>` uses: Priorities ×8, Incoming ×7, NotePane ×5, SplitReview ×4, and others.

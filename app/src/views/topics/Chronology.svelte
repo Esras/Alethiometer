@@ -128,7 +128,7 @@
   <div class="line"></div>
   {#each rows as { entry: e, move }, i (e.item_id)}
     {#if i === nowIndex && i > 0}
-      <div class="now-rule"><span class="tick"></span>Now<span class="fade"></span></div>
+      <div class="now-rule label"><span class="tick"></span>Now<span class="fade"></span></div>
     {/if}
     {#if reviewing === e.item_id}
       <div class="review"><SplitReview itemId={e.item_id} filed onclose={endReview} /></div>
@@ -276,10 +276,6 @@
     align-items: center;
     gap: 8px;
     margin: 4px 0 4px -22px;
-    font-size: 0.8077rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--aqua);
   }
   .tick {
     width: 10px;

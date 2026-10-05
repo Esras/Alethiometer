@@ -164,8 +164,8 @@
   {@const q = quads[qi]}
   {#if q}
     <section class="quad">
-      <header>
-        {LABELS[q.key]}<span class="qcount tnum">{q.items.length}</span>
+      <header class="panel-head">
+        {LABELS[q.key]}<span class="n tnum">{q.items.length}</span>
         <button class="eye" onclick={() => toggle(qi)} title="{compact[q.key] ? 'Show rows' : 'Group by topic'} (v)">
           <i class="ph ph-{compact[q.key] ? 'eye-slash' : 'eye'}"></i>
         </button>
@@ -243,7 +243,7 @@
     </div>
 
     <div class="selected">
-      <span class="sel-label">Selected</span>
+      <span class="label">Selected</span>
       {#if selRow}
         <AppIcon source={selRow.source} />
         <span class="sel-title ellipsis">{selRow.title}</span>
@@ -358,15 +358,7 @@
     padding: 7px 12px;
     background: var(--bg-app);
     border-bottom: 1px solid var(--border);
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-muted);
     white-space: nowrap;
-  }
-  .qcount {
-    letter-spacing: 0;
-    color: var(--tx-label);
   }
   .eye {
     margin-left: auto;
@@ -483,12 +475,6 @@
     width: 8px;
     height: 8px;
     border-radius: 3px;
-  }
-  .sel-label {
-    font-size: 0.8077rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--aqua);
   }
   .sel-title {
     font-weight: 500;

@@ -148,12 +148,29 @@ pre,
   font-variant-numeric: tabular-nums;
 }
 
-/* 10.5px uppercase section label */
+/* 10.5px uppercase section label: one tracking, one colour. A state's colour
+   (an orange "needs you") is set locally on top of it. */
 .label {
   font-size: 0.8077rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--tx-label);
+}
+
+/* The header of a panel or box: 11px, a notch brighter than .label. */
+.panel-head {
+  font-size: 0.8462rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-2);
+}
+
+/* A bare count after the words of a label or panel header. */
+.label .n,
+.panel-head .n {
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tx-muted-2);
 }
 
 .scroll {

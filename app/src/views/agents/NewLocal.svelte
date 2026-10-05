@@ -116,13 +116,13 @@
     newName={name.trim() || `${harness || 'agent'}-…`}
   />
   <div class="fields">
-    <span class="lab">Harness</span>
+    <span class="lab label">Harness</span>
     <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>
       {#each harnesses as x (x.key)}
         <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}>{x.label}</button>
       {/each}
     </span>
-    <span class="lab">Model</span>
+    <span class="lab label">Model</span>
     <span class="input">
       {#if models.length}
         <select bind:value={model}>
@@ -135,7 +135,7 @@
       <span class="note">{loading ? 'from the harness' : models.length ? `${models.length} from ${h?.label ?? 'the harness'}` : 'none listed; type one or leave the default'}</span>
     </span>
     {#if levels}
-      <span class="lab">Thinking</span>
+      <span class="lab label">Thinking</span>
       <span class="input">
         <select bind:value={thinking}>
           <option value="">default · {levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current}</option>
@@ -144,12 +144,12 @@
         <span class="note">{model ? 'levels of the default model' : 'from the harness'}</span>
       </span>
     {/if}
-    <span class="lab">Name</span>
+    <span class="lab label">Name</span>
     <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
-    <span class="lab">Directory</span>
+    <span class="lab label">Directory</span>
     <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">its working directory</span></span>
     <datalist id="agent-dirs">{#each dirs as d (d)}<option value={d}></option>{/each}</datalist>
-    <span class="lab">Group</span>
+    <span class="lab label">Group</span>
     <span class="input">
       <select bind:value={groupId}>
         <option value="">Unsorted</option>
@@ -158,14 +158,14 @@
       </select>
     </span>
     {#if groupId === 'new'}
-      <span class="lab">Group name</span>
+      <span class="lab label">Group name</span>
       <span class="input"><input bind:value={newName} placeholder="Settings polish" /></span>
-      <span class="lab">Goal</span>
+      <span class="lab label">Goal</span>
       <span class="input"><input bind:value={newGoal} placeholder="Ship Settings; no overlaps" /></span>
     {/if}
   </div>
   <div class="right">
-    <span class="row-lab"><span class="lab">Task</span><span class="note">first prompt, sent on start</span></span>
+    <span class="row-lab"><span class="lab label">Task</span><span class="note">first prompt, sent on start</span></span>
     <textarea bind:this={taskEl} bind:value={task} rows="4" placeholder="What should it do?"></textarea>
     {#if err}<div class="err">{err}</div>{/if}
   </div>

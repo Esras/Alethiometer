@@ -76,7 +76,7 @@
     <div class="grid">
       {#each SECTIONS as s (s.title)}
         <div class="sec">
-          <div class="st">{s.title}</div>
+          <div class="st label">{s.title}</div>
           <div class="keys">
             {#each s.keys as [ks, what] (what)}
               <span class="ks">{#each ks as k (k)}<kbd>{k}</kbd>{/each}</span>
@@ -132,10 +132,6 @@
     gap: 6px;
   }
   .st {
-    font-size: 0.808rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     padding-bottom: 2px;
     border-bottom: 1px solid var(--border);
   }
