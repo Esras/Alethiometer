@@ -14,20 +14,10 @@ const stack: Entry[] = [];
 
 /** Call during component init. Unregisters on destroy. */
 export function useKeys(handler: KeyHandler, opts: { modal?: boolean } = {}) {
-  $effect(() => {
-    const entry: Entry = { handler, modal: !!opts.modal };
-    stack.push(entry);
-    return () => {
-      const i = stack.lastIndexOf(entry);
-      if (i >= 0) stack.splice(i, 1);
-    };
-  });
+  $effect(() => pushKeys(handler, opts));
 }
 
-/**
- * The same push and pop without a component's init, for a Svelte action
- * (lib/ui/popover.ts). Returns the function that pops it.
- */
+/** Push a handler outside a component's init (lib/ui/popover.ts). Returns the function that pops it. */
 export function pushKeys(handler: KeyHandler, opts: { modal?: boolean } = {}): () => void {
   const entry: Entry = { handler, modal: !!opts.modal };
   stack.push(entry);

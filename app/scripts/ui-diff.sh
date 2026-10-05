@@ -9,16 +9,19 @@
 # Then: node scripts/ui-diff.mjs [scene…]
 #
 # usage: scripts/ui-diff.sh [ref]     (default HEAD; "stop" stops this slot)
+# Both sides also get a fake Scion Hub (scripts/fake-scion-hub.mjs, one shared:
+# no scene posts to it) as a source, so Scion rooms and the composer's @ menu show.
 # UI_DIFF_SLOT=n runs a separate copy (ports and folder of its own), so several
 # checkouts or worktrees can diff at once. Slot 0: B 1420, A 1430, servers
-# 1421/1422. Slot n: B 1600+10n, A +1, servers +2/+3.
+# 1421/1422, hub 1423. Slot n: B 1600+10n, A +1, servers +2/+3, hub +4.
 set -euo pipefail
 APP=$(cd "$(dirname "$0")/.." && pwd)
 SLOT=${UI_DIFF_SLOT:-0}
 if [ "$SLOT" = 0 ]; then
-  PB=1420 PA=1430 DA=1421 DB=1422
+  PB=1420 PA=1430 DA=1421 DB=1422 HUB=1423
 else
   PB=$((1600 + 10 * SLOT)) PA=$((1601 + 10 * SLOT)) DA=$((1602 + 10 * SLOT)) DB=$((1603 + 10 * SLOT))
+  HUB=$((1604 + 10 * SLOT))
 fi
 WORK=${UI_DIFF_DIR:-${TMPDIR:-/tmp}/alethiometer-ui-diff}/$SLOT
 # The main checkout (this may be a worktree): its build and node_modules are shared.
@@ -26,7 +29,7 @@ MAIN=$(dirname "$(git -C "$APP" rev-parse --path-format=absolute --git-common-di
 BIN="$MAIN/src-tauri/target/debug/devserver"
 
 stop() {
-  for port in "$PA" "$PB" "$DA" "$DB"; do fuser -k -TERM "$port/tcp" > /dev/null 2>&1 || true; done
+  for port in "$PA" "$PB" "$DA" "$DB" "$HUB"; do fuser -k -TERM "$port/tcp" > /dev/null 2>&1 || true; done
   pkill -f "agentd --dir $WORK/" 2>/dev/null || true
   sleep 1
 }
@@ -80,6 +83,7 @@ done
 
 export ALETHIOMETER_FAKE_NOW=10:52
 # Detached (own session, no inherited stdin/stdout), so they outlive this script.
+setsid -f node "$MAIN/scripts/fake-scion-hub.mjs" "$HUB" < /dev/null > "$WORK/hub.log" 2>&1
 ALETHIOMETER_DATA_DIR="$WORK/data-a" ALETHIOMETER_DEVSERVER_ADDR=127.0.0.1:$DA setsid -f "$BIN" < /dev/null > "$WORK/dev-a.log" 2>&1
 ALETHIOMETER_DATA_DIR="$WORK/data-b" ALETHIOMETER_DEVSERVER_ADDR=127.0.0.1:$DB setsid -f "$BIN" < /dev/null > "$WORK/dev-b.log" 2>&1
 (cd "$WORK/base/app" && ALETHIOMETER_DEVSERVER=http://127.0.0.1:$DA setsid -f npx vite --port "$PA" --strictPort --config vite.ui-diff.config.ts < /dev/null > "$WORK/vite-a.log" 2>&1)
@@ -92,6 +96,14 @@ for _ in $(seq 1 90); do
   fi
   sleep 1
 done
+
+# The hub as a Scion source on both sides (any token will do).
+call() { curl -sf -o /dev/null -X POST -H 'X-Alethiometer: 1' "http://127.0.0.1:$1/call/$2" -d "$3"; }
+for port in "$DA" "$DB"; do
+  call "$port" settings.patch "{\"edits\":[{\"op\":\"push\",\"path\":[\"sources\"],\"value\":{\"kind\":\"scion\",\"name\":\"hub\",\"tag\":\"work\",\"config\":{\"hub_url\":\"http://127.0.0.1:$HUB\"}}}]}"
+  call "$port" settings.secret_set '{"name":"scion.token","value":"ui-diff"}'
+done
+sleep 4
 
 # The same two agents on both sides, one after the other: lists sort by when an
 # agent started asking, so a race would order them differently on each side.
