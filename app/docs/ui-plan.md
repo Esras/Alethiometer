@@ -11,7 +11,7 @@ Paths are under `app/src/`. "→" is the target class or component.
 - **User, 2026-10-05:** pickers that act on a row float under that row (`Dock under`), replacing the 2026-10-01 fixed dock; lines between rows stay, at least in a topic's Open panel (15 leans to lines; Priorities isn't live, so it can't be compared).
 - **Deferred:** the Cycler (10; built in ac11400 and reverted: one button showing only the current value hides the options), the Life-block hatching (DayStrip, Notes: the feature needs rethinking), Notes line states.
 - **Icon colours (user, 2026-10-05):** yellow is the icons' accent (`--icon`) for an icon that names a thing or an action, carets included; a field's icon (search, filter, a picker's arrow) and a bare close × are grey; add/create (+) is aqua, the "Confirm green"; an icon in a red failure count takes the red; a disabled button's icon greys with its text. All in `app.css` as `:where()` rules, so anything that colours an icon on purpose wins. Per-icon exceptions come from the list at https://claude.ai/artifact/LjJifUHdovU3Wa3UAygkVn (the user decides as they go).
-- **The design system artifact is behind** these notes: decision 10 is deferred, there is no `.quiet` (text actions are buttons), rows have min-heights 24/30/38, the ⌘K field keeps its bare line, ❗ red / ⚠ orange for errors.
+- **The design system artifact** was brought up to date on 2026-10-05 (as of `6d4abfd`: decisions 12 and 18 done, 20's `local` flag, the open items below). Its stale generated files (`tokens.css`, `api/`, `manifest.json`) are the page's to regenerate; see "Problems in the design system itself".
 - **How each decision was run:** a Sonnet subagent in a worktree with its own `UI_DIFF_SLOT`, from the current head; it commits one decision with a Done note and reports before/after crop regions. The lead cherry-picks, re-runs `scripts/ui-diff.sh <previous head>` + `node scripts/ui-diff.mjs` on the scenes it touched, `node scripts/ui-keys.mjs` and `npm run check`, then sends the user the crops (before above after). Two agents at a time; resolve `ui-diff.mjs` conflicts by keeping both scene blocks above `// Done and dismissed`.
 
 ## The rule for what becomes what
@@ -421,6 +421,9 @@ These already match:
     - group rules in Incoming `:962`, the split review `:471` and Topics `:451`.
   - **`--bg-head` lines (fainter):** Priorities rows `:392`, Reflect Rollup `:74` and the carry list `:107`, and the Agents status lines `StatusLine:97`.
   - **Already outlined:** AskCard choices `:173/257`, the Agents transcript boxes (RowView).
+- **18 · Empty states, make them one look?** They share `.empty-pane`/`.empty-row` but keep each site's padding, size, line height and colour (listed in 18's "Differences kept"). Settling them is a visible change.
+- **The New agent button's `+`** in the empty Agents pane is 26px and grey because `.hello i` reaches it. Looks accidental; the fix is one selector and visible.
+- **The segmented control** is to be redone (user); its thumb's 6px-in-6px corners go with that.
 
 ## Problems in the design system itself
 
