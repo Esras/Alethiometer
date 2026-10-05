@@ -4,8 +4,9 @@
   // live; the header says how ("Saved · live", "Saved · Slack reconnected").
   import { call } from '../../lib/api';
   import { refresh, ui } from '../../lib/app.svelte';
-  import { isTyping, pointerMoved, useKeys } from '../../lib/keys.svelte';
+  import { isTyping, pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import Modal from '../../lib/ui/Modal.svelte';
   import CategoryManager from '../../views/topics/CategoryManager.svelte';
   import {
     find,
@@ -362,13 +363,14 @@
 
   const sectionIds = SECTIONS.map((s) => s.id);
 
-  useKeys((e) => {
+  // Settings' own keys; Modal closes on the Escape this leaves, and traps Tab
+  // when it's typed in a field.
+  function onkeys(e: KeyboardEvent): boolean {
     if (e.code === 'Comma' && (e.metaKey || e.ctrlKey)) {
       if (e.shiftKey) call('settings.open_file').catch((x) => (err = String(x.message ?? x)));
       else close();
       return true;
     }
-    if (review) return false;
     if (isTyping(e)) {
       // Fields handle their own keys; esc leaves the field, not the modal.
       if (e.key === 'Escape') {
@@ -388,7 +390,7 @@
     if (e.key === 'Escape') {
       if (replacing) replacing = null;
       else if (editing) editing = false;
-      else close();
+      else return false;
       return true;
     }
     if (e.metaKey || e.ctrlKey) return false;
@@ -423,7 +425,7 @@
     else if (e.key === 's' && source?.status) call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
     else return false;
     return true;
-  }, { modal: true });
+  }
 
   const counts = $derived<Record<string, number | undefined>>({
     categories: ui.info ? Object.keys(ui.info.categories).length : undefined,
@@ -440,8 +442,8 @@
   });
 </script>
 
-<div class="scrim" onclick={close} role="presentation"></div>
-<div class="modal" role="dialog" aria-label="Settings">
+<Modal label="Settings" onclose={close} {onkeys} z={60} scrim="rgba(0, 0, 0, 0.45)">
+<div class="modal">
   <header>
     <i class="ph ph-gear-six cog"></i><span class="title">Settings</span>
     {#if err}
@@ -684,6 +686,7 @@
     {#each page?.usage ?? [] as u}<option value={u.model}></option>{/each}
   </datalist>
 </div>
+</Modal>
 {#if review && page}
   <SlackReview
     source={review}
@@ -693,15 +696,8 @@
 {/if}
 
 <style>
-  .scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 60;
-  }
   .modal {
     position: fixed;
-    z-index: 61;
     top: 56px;
     left: 50%;
     transform: translateX(-50%);

@@ -4,7 +4,7 @@
   // switches to Only these with everything else still checked.
   import { call } from '../../lib/api';
   import { ui } from '../../lib/app.svelte';
-  import { useKeys } from '../../lib/keys.svelte';
+  import Modal from '../../lib/ui/Modal.svelte';
   import { ago, type SourceRow } from './model';
 
   type Chan = { id: string; name: string; private: boolean; last: string | null; per_day: number };
@@ -53,19 +53,19 @@
     else onchange([...list, `#${c.name}`]);
   }
 
-  useKeys((e) => {
-    if (e.key === 'Escape') onclose();
-    else if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) sel = Math.min(sel + 1, shown.length - 1);
+  // Modal closes on Escape.
+  function onkeys(e: KeyboardEvent): boolean {
+    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) sel = Math.min(sel + 1, shown.length - 1);
     else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) sel = Math.max(sel - 1, 0);
     else if (e.key === 'Enter' && shown[sel]) toggle(shown[sel]);
     else if (e.key === 'Tab') sort = sort === 'per_day' ? 'last' : sort === 'last' ? 'name' : 'per_day';
     else return false;
     return true;
-  });
+  }
 </script>
 
-<div class="scrim" onclick={onclose} role="presentation"></div>
-<div class="review" role="dialog" aria-label="Slack channels">
+<Modal label="Slack channels" {onclose} {onkeys} z={70} scrim="rgba(0, 0, 0, 0.3)">
+<div class="review">
   <header>
     <span class="title">Channels in {source.name}</span>
     <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
@@ -97,17 +97,11 @@
     <span>↑↓ channel</span><span>↵ follow / unfollow</span><span>⇥ sort</span><span>Activity is what Alethiometer saw in the last 14 days.</span><span class="last">esc done</span>
   </footer>
 </div>
+</Modal>
 
 <style>
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 70;
-    background: rgba(0, 0, 0, 0.3);
-  }
   .review {
     position: fixed;
-    z-index: 71;
     top: 90px;
     left: 50%;
     transform: translateX(-50%);

@@ -136,10 +136,6 @@
   }
 
   useKeys((e) => {
-    if (ag.keys) {
-      if (e.key === 'Escape' || e.key === '?') ag.keys = false;
-      return true;
-    }
     if (mod(e) && e.key === '.') {
       interrupt();
       return true;

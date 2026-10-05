@@ -9,10 +9,11 @@
   import { call, openExternal } from '../lib/api';
   import { catColor, openSearch, openTopic, refresh, ui } from '../lib/app.svelte';
   import { feedback, hydrated, inLens, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
-  import { pointerMoved, useKeys } from '../lib/keys.svelte';
+  import { pointerMoved } from '../lib/keys.svelte';
   import { moveSignal } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FacetBar from '../lib/ui/FacetBar.svelte';
+  import Modal from '../lib/ui/Modal.svelte';
   import TopicPicker from '../views/incoming/TopicPicker.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
@@ -130,12 +131,9 @@
     run();
   }
 
-  useKeys((e) => {
+  // Modal closes on Escape.
+  function onkeys(e: KeyboardEvent): boolean {
     if (picking) return false;
-    if (e.key === 'Escape') {
-      ui.searchOpen = false;
-      return true;
-    }
     if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) {
       sel = Math.min(sel + 1, rows.length - 1);
       return true;
@@ -179,15 +177,16 @@
       reject();
       return true;
     }
-  }, { modal: true });
+    return false;
+  }
 
   $effect(() => {
     document.querySelector(`.palette [data-i="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
   });
 </script>
 
-<div class="scrim" onclick={() => (ui.searchOpen = false)} role="presentation"></div>
-<div class="palette" role="dialog" aria-label="Search">
+<Modal label="Search" onclose={() => (ui.searchOpen = false)} {onkeys} z={50} scrim="rgba(0, 0, 0, 0.35)">
+<div class="palette">
   <div class="field">
     <i class="ph ph-magnifying-glass"></i>
     <input bind:this={input} bind:value={q} placeholder="Search everything" />
@@ -265,17 +264,11 @@
     </div>
   {/if}
 </div>
+</Modal>
 
 <style>
-  .scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.35);
-    z-index: 50;
-  }
   .palette {
     position: fixed;
-    z-index: 51;
     top: 90px;
     left: 50%;
     transform: translateX(-50%);

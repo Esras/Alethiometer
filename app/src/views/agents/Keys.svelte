@@ -1,5 +1,6 @@
 <script lang="ts">
   // The keys sheet (06), on ?.
+  import Modal from '../../lib/ui/Modal.svelte';
   import { ag } from './state.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
@@ -55,12 +56,18 @@
       ],
     },
   ];
+
+  const close = () => (ag.keys = false);
+  // Modal does Esc; ? closes too, as it opens.
+  function onkeys(e: KeyboardEvent): boolean {
+    if (e.key !== '?') return false;
+    close();
+    return true;
+  }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="scrim" onclick={() => (ag.keys = false)}>
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="sheet" onclick={(e) => e.stopPropagation()}>
+<Modal label="Keys" onclose={close} {onkeys} z={20} scrim="rgba(12, 13, 14, 0.66)" position="absolute">
+  <div class="sheet">
     <div class="head">
       <span class="title">Keys</span>
       <span class="lede"><span class="kbd">⏎</span> goes in, <span class="kbd">Esc</span> comes out. <span class="kbd">Tab</span> moves between the tree, the thread and the composer.</span>
@@ -81,18 +88,9 @@
     </div>
     <div class="foot">Needs you keys work whenever a request is pinned and you aren’t typing. Single-letter keys are off while the composer has focus.</div>
   </div>
-</div>
+</Modal>
 
 <style>
-  .scrim {
-    position: absolute;
-    inset: 0;
-    background: rgba(12, 13, 14, 0.66);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 20;
-  }
   .sheet {
     width: min(1080px, calc(100% - 48px));
     border-radius: 12px;
