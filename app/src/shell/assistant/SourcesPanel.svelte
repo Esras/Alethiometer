@@ -33,8 +33,8 @@
   const kept = $derived(reply.sources.filter((s) => s.kept));
   const dropped = $derived(reply.sources.filter((s) => !s.kept));
   const list = $derived(tab === 'kept' ? kept : dropped);
-  const gleanCount = $derived(reply.queries.filter((q) => q.mark !== '◇').reduce((a, q) => a + q.returned, 0));
-  const localCount = $derived(reply.queries.find((q) => q.mark === '◇')?.returned ?? 0);
+  const gleanCount = $derived(reply.queries.filter((q) => !q.local).reduce((a, q) => a + q.returned, 0));
+  const localCount = $derived(reply.queries.find((q) => q.local)?.returned ?? 0);
 
   function open(s: Source | undefined) {
     if (!s) return;
@@ -92,7 +92,7 @@
     {#each reply.queries as q, i}
       <div class="query" class:on={hoverQuery === i} onmouseenter={() => (hoverQuery = i)} onmouseleave={() => (hoverQuery = null)} role="presentation">
         <span class="mark" style:color={markColor(i, q)}>{q.mark}</span>
-        <span class="qn mono">{q.mark === '◇' ? 'L' : `Q${i + 1}`}</span>
+        <span class="qn mono">{q.local ? 'L' : `Q${i + 1}`}</span>
         <span class="qt mono ellipsis" title={q.error ?? q.text}>{q.text}</span>
         {#if q.error}<span class="qerr" title={q.error}><i class="ph ph-warning"></i></span>{:else}<span class="qc tnum">{q.returned} → {q.kept}</span>{/if}
       </div>
@@ -173,7 +173,7 @@
     gap: 8px;
     padding: var(--row-pad-compact) 6px;
     min-height: var(--row-min-compact);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid transparent;
     font-size: 0.9231rem;
   }

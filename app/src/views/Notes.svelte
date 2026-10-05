@@ -477,7 +477,7 @@
   .car {
     display: flex;
     color: var(--tx-label);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-md);
     padding: 2px;
   }
   .car:hover:not(:disabled) {
@@ -492,7 +492,7 @@
     font-size: 0.8846rem;
     color: var(--tx-label);
     padding: 0 6px;
-    border-radius: var(--r-block);
+    border-radius: var(--radius-md);
   }
   .back:hover {
     color: var(--tx-2);
@@ -511,7 +511,7 @@
     align-items: start;
     padding: var(--row-pad-cozy) 0;
     min-height: var(--row-min-cozy);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-sm);
     transition: opacity 120ms;
   }
   .row.cur {

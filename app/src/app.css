@@ -95,10 +95,12 @@
   --row-min-cozy: 30px;
   --row-min-compact: 24px;
 
+  /* Radii (ui-plan decision 12). sm: key caps, tags, icon tiles, row highlights,
+     small marks. md: everything else (buttons, inputs, panels, popovers, modals,
+     insets). full: pills, counts, chips, avatars, a switch track. */
+  --radius-sm: 2px;
+  --radius-md: 6px;
   --radius-full: 999px;
-  --r-block: 4px;
-  --r-input: 6px;
-  --r-panel: 8px;
 
   /* Type (settings.json ui_font, mono_font, ui_font_size, reading_font_size;
      set at startup and live from Settings). Interface sizes are rem, so the
@@ -208,7 +210,7 @@ pre,
    row is a plain .btn with no key hint. A button that creates something is the
    primary and is disabled while there is nothing to act on. Disabled is
    --tx-disabled text and border with no fill, never opacity. .on is a toggled-on
-   button (same look as .chip.on). The radius is each button's own for now. */
+   button (same look as .chip.on). Radius --radius-md. */
 .btn {
   display: inline-flex;
   gap: 8px;
@@ -218,7 +220,7 @@ pre,
   justify-content: center;
   font-size: 0.9231rem;
   padding: 3px 10px;
-  border-radius: var(--r-input);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
   color: var(--tx-2);
   white-space: nowrap;
@@ -284,13 +286,13 @@ pre,
    focus (a field that opens ready to type is not aqua either), placeholder in
    --tx-disabled. .sm is the one in a row or toolbar. For a single-line field or
    a select; a wrapper holding an icon and a bare input (FilterField, the agent
-   forms' .input span) gets the focus border through :focus-within. The radius
-   is each site's own until decision 12. */
+   forms' .input span) gets the focus border through :focus-within. Radius
+   --radius-md. */
 .input {
   display: block;
   width: 100%;
   padding: 5px 10px;
-  border-radius: var(--r-input);
+  border-radius: var(--radius-md);
   background: var(--bg-app);
   border: 1px solid var(--border-strong);
   color: var(--tx-body);
@@ -314,7 +316,7 @@ pre,
 /* A raised panel's surface (Panel.svelte and a page's main column); .col
    makes it a flex column. Layout (flex, width, margins) stays with the view. */
 .panel {
-  border-radius: var(--r-panel);
+  border-radius: var(--radius-md);
   background: var(--bg-panel);
   border: 1px solid var(--border);
   overflow: hidden;
@@ -327,9 +329,9 @@ pre,
 /* Floating surfaces (ui-plan decision 5). Each casts one shadow: .popover for
    anything that opens from a control (menus, pickers, peeks, toasts), .modal
    for a dialog over the one .scrim. .popover.flush is for a list or menu that
-   runs edge to edge. .inset is a recessed block inside a panel. The radius is
-   each site's own for now (decision 12); an inset's is 6px. Position, size and
-   z-index stay with the site. */
+   runs edge to edge. .inset is a recessed block inside a panel. Every one is
+   --radius-md; each site sets its own. Position, size and z-index stay with
+   the site. */
 .popover {
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
@@ -351,7 +353,7 @@ pre,
 .inset {
   background: var(--bg-app);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 6px 10px;
 }
 
@@ -383,7 +385,7 @@ pre,
 .mono-tag {
   font: 0.808rem var(--font-mono);
   border: 1px solid currentColor;
-  border-radius: var(--r-block);
+  border-radius: var(--radius-sm);
   padding: 0 5px;
   white-space: nowrap;
   opacity: 0.9;
@@ -471,14 +473,14 @@ pre,
 .seg {
   display: flex;
   border: 1px solid var(--border);
-  border-radius: var(--r-input);
+  border-radius: var(--radius-md);
   font-size: 0.9231rem;
   background: var(--bg-panel);
 }
 .seg button {
   padding: 4px 12px;
   color: var(--tx-muted);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
 }
 .seg button.on {
   color: var(--bg-app);
@@ -501,7 +503,7 @@ kbd {
   color: var(--tx-body);
   background: var(--bg-head);
   border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 0 5px;
   white-space: nowrap;
 }

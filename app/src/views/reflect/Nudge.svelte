@@ -85,7 +85,7 @@
     right: 16px;
     z-index: 50;
     width: 420px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     color: var(--tx-body);
     font-size: 1rem;
     display: flex;

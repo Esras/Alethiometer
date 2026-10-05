@@ -82,7 +82,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 5px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-strong);
     background: var(--bg-app);
     color: var(--tx-title);
@@ -96,7 +96,7 @@
     top: calc(100% + 4px);
     width: 360px;
     z-index: 5;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .search {

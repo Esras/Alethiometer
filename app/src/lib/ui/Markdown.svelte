@@ -127,12 +127,12 @@
     font-family: var(--font-mono);
     font-size: 0.92em;
     padding: 0 3px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: rgba(235, 219, 178, 0.07);
   }
   pre {
     padding: 6px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     background: var(--hover-tint);
     overflow-x: auto;
   }

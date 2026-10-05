@@ -93,7 +93,7 @@
 <style>
   .sheet {
     width: min(1080px, calc(100% - 48px));
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     display: flex;
     flex-direction: column;
     gap: 16px;

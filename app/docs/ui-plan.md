@@ -6,8 +6,8 @@ Paths are under `app/src/`. "→" is the target class or component.
 
 ## Status (2026-10-05, on `main`)
 
-- **Done:** Phases 0–2, and Phase 3 decisions 3, 4, 5, 6/17/19, 7, 8, 9, 11, 13 and 14. Each has a "Done (2026-10-05)" note below, and a "User, 2026-10-05" note where the user changed or settled something on review; those notes win over the design system artifact.
-- **Next, in this order:** the icon colour list (below); 12 radii; NeedCard's head spacing to 6px for both Ask and Approval (`headBottom`; the user's call, the 6px is the app's usual spacing); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
+- **Done:** Phases 0–2, and Phase 3 decisions 3, 4, 5, 6/17/19, 7, 8, 9, 11, 12, 13 and 14. Each has a "Done (2026-10-05)" note below, and a "User, 2026-10-05" note where the user changed or settled something on review; those notes win over the design system artifact.
+- **Next, in this order:** the icon colour list (below); 18 empty states (no visual change); 20 Glean citations (an explicit `local` field first, then the marks). Then 15 (lines vs outlined rows) goes back to the user.
 - **User, 2026-10-05:** pickers that act on a row float under that row (`Dock under`), replacing the 2026-10-01 fixed dock; lines between rows stay, at least in a topic's Open panel (15 leans to lines; Priorities isn't live, so it can't be compared).
 - **Deferred:** the Cycler (10; built in ac11400 and reverted: one button showing only the current value hides the options), the Life-block hatching (DayStrip, Notes: the feature needs rethinking), Notes line states.
 - **Icon colours (user, 2026-10-05):** yellow is the icons' accent (`--icon`) for an icon that names a thing or an action, carets included; a field's icon (search, filter, a picker's arrow) and a bare close × are grey; add/create (+) is aqua, the "Confirm green"; an icon in a red failure count takes the red; a disabled button's icon greys with its text. All in `app.css` as `:where()` rules, so anything that colours an icon on purpose wins. Per-icon exceptions come from the list at https://claude.ai/artifact/LjJifUHdovU3Wa3UAygkVn (the user decides as they go).
@@ -53,7 +53,7 @@ Pixel-identical to `eb633f4` on every scene. Commits `6501866`…`5920b59`.
 - **Radius tokens** (`--radius-sm/md/full`) come with decision 12. The old `--r-input` 6px and `--r-panel` 8px both become 6px, so there's no single old value to alias.
 - **Todos' footer** differs from `.hint-bar` (7px padding, wraps, shrinks). It joins in the visible pass.
 - **NeedCard props, to settle in the visible pass:**
-  - `headBottom` (asks 4px, approvals 6px);
+  - `headBottom` (asks 4px, approvals 6px). **Done (2026-10-05):** the prop is gone; the head's bottom padding is 6px for both (the user's call; 6px is the app's usual spacing). Only the ask card's head changes (+2px);
   - `maxHeight` (approvals 55vh).
 - **Settings' 6px attention dot** is a notification mark, not a StatusMark.
 - **Agents tree colours.** `#9a9fd6` and `#8a9a5b` in the tree stay as literals: `--msg` and `--tool` follow the user's settings.
@@ -308,6 +308,13 @@ These already match:
   - .25 ×2 at `Notes:577` and `NotePane:320`, both text selection;
   - .55 at `NotePane:244`, .12 at `PersonPicker:188`, .08 at `Priorities:488` and .05 at `Notes:522`.
 - **Warm-white washes:** .03 ×9 → `row-hover`; .05 ×5 → `hover-tint` (including `app.css:133`).
+- **Done, radii (2026-10-05):** `app.css` has `--radius-sm` (2px), `--radius-md` (6px) and `--radius-full`; `--r-block`, `--r-input` and `--r-panel` are gone and no `border-radius` in `app/src` is a px literal except the marks below.
+  - **`radius-md`:** every `--r-input` and `--r-panel` (panels, popovers, modals, the palette, cards, buttons, inputs), every literal 5/6/7/8/10/12px (Agents' boxes, buttons, tabs and thread rows, the Settings and New agent modals, the Keys sheet, the assistant's question bubble), and the four-pixel inputs and buttons (Settings' price fields, MapEdit, the category colour input, the `.think` and `.buf` fields, Segmented's inner thumb). The `--r-block` that sat on a button or a box (the carets in Notes and Reflect, Notes' Back, Priorities' eye, Markdown's `pre` and NoteText's `.code` block) is `md` too. Partial radii keep their shape (`0 md md 0` on the Incoming topic rows and Search rows).
+  - **`radius-sm`:** the global `kbd` (was 3px), `.mono-tag`, the Agents `.skill` and host tags, AppIcon's tile and image, FacetBar's source tiles, Markdown's `code`, NoteText's inline code, Glean's citation tag, the day strip's `.block` and `+N` badge, the agent form's checkbox, and the row highlights (Notes' `.row`, the Notes picker's options, the Incoming and split-review message rows, the `0 2px 2px 0` selection bars at Incoming, the topic picker and the Topics index).
+  - **`radius-full`:** `CountdownPill` (14px), `Switch` (10px) and Glean's `.person` (999px).
+  - **Left as literals (small marks):** the 2px bars, swatches and ticks (Priorities, Rollup, DayBrief's blocks and meter, TodoForm and Todos' category bars, the split review's bar and swatch, the Notes picker, Margin, Topics index and category picker swatches, FacetBar's `.sq`, Search's `mark` and bar, the palette's swatch, the day strip's `.bar`), the 3px marks (Priorities' selected swatch, the assistant's swatch, the status line's bar), the 1px lines, and every `50%` dot.
+  - **Visible:** panels, popovers, modals and the agent boxes go from 8/10/12px to 6px; key caps 3 → 2px; app icons, FacetBar tiles, Markdown code and the message rows 4 → 2px; the pickers' options 4 → 2px; Segmented's thumb and the 4px inputs 4 → 6px; the day strip's event blocks 4 → 2px, stacked ones (`laneStyle`, which set 3px) too; the Switch and the countdown pill are round (they were 10px and 14px on a 20px and 28px box, so they were round already).
+- **Done, tints (2026-10-05):** `Chronology`'s fade gradient (.5) and `NotePane`'s editing border (.55) are `aqua-line` (.45); the warm-white .04 hovers are `row-hover` (.03) at Incoming's `.topic:hover`, Settings' nav `.sec`/`.sub` hover and Glean's `.prow.hot`, all list rows (no button or control used it, so `hover-tint` took none). Left alone: the text-selection .25 (Notes, NotePane), Priorities' `.selected` .08 (Priorities hasn't been designed, ISSUES.md) and Markdown's code .07 (it follows Markdown, not a wash). Visible: the Chronology fade and the NotePane edit border are a shade fainter, and the three row hovers are a shade fainter.
 
 **16 · Text links.** The look stays. Converge on `.link-act` (aqua), `.link-toggle`, `.link-nav` (grey →) and `.link-out` (blue ↗). Sites:
 - **Act here:** `reflect/DayBrief:191`, `agents/Tree:554`.
@@ -338,6 +345,7 @@ These already match:
   - `:183 .query.on` is orange.
 - **Query colours:** `MARK_COLORS` (`shell/assistant/types.ts:53`) → `query-1…6`.
 - **Do this before changing the local query's mark to a grey ◆.** The front end finds the local query by `mark === '◇'` (`SourcesPanel:36/37/95`, `types.ts:55`). `◆` is already Glean's mark 4 (`src-tauri/src/glean/ask.rs:139`), and `ask.rs:229` pushes `◇`, so switching the mark alone would mistake Glean query 4 for the local one. Add an explicit `local` field on `QueryRun` first.
+- **Done (step one, 2026-10-05):** `QueryRun` has `local: bool` (Rust, serialised as `local`; set only where the local query is pushed; the type is serialise-only, so nothing stored lacks it) and `local: boolean` in `types.ts`. `markColor`, `SourcesPanel`'s Glean/local counts and its `L`/`Q` label, and `AssistantPane`'s "N queries" count, test `q.local`, not the mark or the run's position. No mark or colour changed; the mark change (grey `◆`) and the rest of 20 are still to do.
 
 ## Decided by the user (2026-10-04)
 

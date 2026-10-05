@@ -261,7 +261,7 @@
   .b-fail {
     margin: 0 -10px;
     padding: 6px 10px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     border: 1px solid transparent;
   }
   .b-you {
@@ -295,7 +295,7 @@
     border: 1px solid transparent;
     margin: 0 -10px;
     padding: 6px 10px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
   }
   .g {
     display: grid;
@@ -447,7 +447,7 @@
     width: auto;
     max-width: 160px;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-strong);
   }
   .result {

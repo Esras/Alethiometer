@@ -120,7 +120,7 @@
   .src {
     display: inline-flex;
     padding: 1px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     opacity: 0.8;
   }
   .src:hover,

@@ -202,7 +202,7 @@
     padding: var(--row-pad-cozy) 8px var(--row-pad-cozy) 0;
     min-height: var(--row-min-cozy);
     margin-right: -4px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     position: relative;
     cursor: pointer;
   }
@@ -268,7 +268,7 @@
   }
   .review {
     margin: 4px -12px 4px -30px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--aqua-tint-soft);
     box-shadow: inset 3px 0 0 var(--aqua);
   }
@@ -286,7 +286,7 @@
   .fade {
     flex: 1;
     height: 1px;
-    background: linear-gradient(90deg, rgba(142, 192, 124, 0.5), transparent);
+    background: linear-gradient(90deg, var(--aqua-line), transparent);
   }
   .err {
     padding-top: 6px;

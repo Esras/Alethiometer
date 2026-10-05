@@ -64,7 +64,7 @@
     top: -6px;
     left: -1px;
     width: 270px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     overflow: hidden;
     font-size: 0.9615rem;
   }
@@ -86,7 +86,7 @@
     align-items: center;
     padding: var(--row-pad-compact) 8px;
     min-height: var(--row-min-compact);
-    border-radius: var(--r-block);
+    border-radius: var(--radius-sm);
     color: var(--tx-2);
     text-align: left;
     min-width: 0;

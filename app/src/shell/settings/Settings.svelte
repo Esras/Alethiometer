@@ -707,7 +707,7 @@
     height: calc(100vh - 110px);
     display: flex;
     flex-direction: column;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     /* Its header, nav and footer run edge to edge and carry their own padding. */
     padding: 0;
     overflow: hidden;
@@ -776,7 +776,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     color: var(--tx-2);
     text-align: left;
   }
@@ -785,7 +785,7 @@
   }
   .sec:hover,
   .sub:hover {
-    background: rgba(235, 219, 178, 0.04);
+    background: var(--row-hover);
   }
   .sec.on,
   .sub.on {
@@ -1032,7 +1032,7 @@
     width: 64px;
     padding: 2px 6px;
     text-align: right;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
   }
   .result {
     display: grid;

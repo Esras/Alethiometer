@@ -61,7 +61,7 @@
   <span class="c">{req.question}</span>
 {/snippet}
 
-<NeedCard icon="question" {compact} {title} {meta} {summary} headBottom={4}>
+<NeedCard icon="question" {compact} {title} {meta} {summary}>
     <div class="q">{req.question}</div>
     {#if formNeeded}
       <div class="fields">
@@ -143,7 +143,7 @@
   .choice {
     text-align: left;
     padding: 7px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     display: grid;
@@ -195,7 +195,7 @@
     align-items: center;
     padding: var(--row-pad-compact) 9px;
     min-height: var(--row-min-compact);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     color: var(--tx-body);

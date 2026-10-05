@@ -83,6 +83,9 @@ pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Re
 pub struct QueryRun {
     /// ●, ■, ▲, ◇… (the panel's marks).
     pub mark: String,
+    /// The local-index query, as opposed to one of Glean's. The UI tells them
+    /// apart by this, never by `mark`.
+    pub local: bool,
     pub text: String,
     pub returned: usize,
     pub kept: usize,
@@ -205,7 +208,7 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     let mut glean_state = json!({ "state": "ok" });
     let mut hits: Vec<(Hit, Vec<usize>)> = vec![];
     for (qi, q) in texts.iter().enumerate() {
-        let mut run = QueryRun { mark: MARKS[qi % MARKS.len()].into(), text: q.clone(), returned: 0, kept: 0, error: None };
+        let mut run = QueryRun { mark: MARKS[qi % MARKS.len()].into(), local: false, text: q.clone(), returned: 0, kept: 0, error: None };
         match super::search(app, glean_http, q) {
             Ok(found) => {
                 run.returned = found.len();
@@ -226,7 +229,7 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     // Local route.
     let local_qi = queries.len();
     let local_items = local_evidence(app, &question, topic)?;
-    queries.push(QueryRun { mark: "◇".into(), text: if app.embed.get().is_some() { "local index · topic embedding".into() } else { "local index · full text".into() }, returned: local_items.len(), kept: 0, error: None });
+    queries.push(QueryRun { mark: "◇".into(), local: true, text: if app.embed.get().is_some() { "local index · topic embedding".into() } else { "local index · full text".into() }, returned: local_items.len(), kept: 0, error: None });
 
     // Local check.
     let now = app.clock.now();
@@ -509,6 +512,9 @@ mod tests {
         assert_eq!(sent["query"], "datadog renewal from:\"Kim Lee\"");
         assert_eq!(r.queries.len(), 3, "two Glean queries and the local route");
         assert_eq!(r.queries[2].mark, "◇");
+        // The UI finds the local run by this flag, not by its mark.
+        assert_eq!(r.queries.iter().map(|q| q.local).collect::<Vec<_>>(), [false, false, true]);
+        assert_eq!(serde_json::to_value(&r.queries[2]).unwrap()["local"], true);
         assert!(r.sources.iter().any(|s| s.kept && s.title == "Datadog order form v2"));
         assert!(r.sources.iter().any(|s| !s.kept && s.reason == "shared words only"));
         assert!(!r.answer.contains("[99]"), "made-up citations are dropped: {}", r.answer);

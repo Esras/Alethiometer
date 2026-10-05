@@ -233,7 +233,7 @@
     align-items: flex-end;
     min-height: 36px;
     padding: 6px 12px;
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
     color: var(--tx-label);
@@ -269,7 +269,7 @@
     height: 48px;
     width: 48px;
     object-fit: cover;
-    border-radius: 5px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-strong);
   }
   .thumb .rm {
@@ -317,7 +317,7 @@
     margin-bottom: 4px;
   }
   .btn {
-    border-radius: 7px;
+    border-radius: var(--radius-md);
   }
   .btn i {
     font-size: 1.077rem;
@@ -327,7 +327,7 @@
     left: 30px;
     bottom: calc(100% + 4px);
     min-width: 220px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     display: flex;
     flex-direction: column;
     z-index: 5;

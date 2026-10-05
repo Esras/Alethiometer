@@ -278,7 +278,7 @@
   }
   .val {
     padding: 2px 8px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-head);
     color: var(--tx-2);
   }

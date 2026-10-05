@@ -91,7 +91,7 @@
     height: 14px;
     margin: 0 1px;
     padding: 0 3px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: var(--bg-head);
     color: var(--tx-muted-2);
     font-size: 0.7308rem;
@@ -109,7 +109,7 @@
     align-items: center;
     gap: 4px;
     padding: 0 6px 0 2px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     color: var(--pc);
     background: color-mix(in srgb, var(--pc) 12%, transparent);
     text-decoration: none;
@@ -135,7 +135,7 @@
     border-top: 1px solid var(--border);
   }
   .prow.hot {
-    background: rgba(235, 219, 178, 0.04);
+    background: var(--row-hover);
   }
   .pline {
     display: flex;

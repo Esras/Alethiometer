@@ -113,7 +113,7 @@
     margin: 6px 0 8px;
     padding: 10px 12px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     background: var(--bg-app);
     font-size: 0.9615rem;
   }
@@ -124,7 +124,7 @@
   }
   .switch button {
     padding: 3px 10px;
-    border-radius: var(--r-input);
+    border-radius: var(--radius-md);
     color: var(--tx-muted-2);
   }
   .switch button.on {

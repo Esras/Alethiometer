@@ -108,7 +108,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-radius: var(--r-panel);
+    border-radius: var(--radius-md);
     font-size: 0.9615rem;
     color: var(--tx-body);
   }
@@ -138,7 +138,7 @@
     align-items: center;
     padding: var(--row-pad-compact) 10px;
     min-height: var(--row-min-compact);
-    border-radius: 5px;
+    border-radius: var(--radius-md);
     text-align: left;
   }
   .row.on {

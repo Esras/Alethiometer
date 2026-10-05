@@ -81,7 +81,7 @@
   .think {
     width: auto;
     font: inherit;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     padding: 0 4px;
   }
   .think:disabled {
