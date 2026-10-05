@@ -9,7 +9,7 @@
   import ListEdit from './ListEdit.svelte';
   import type { Field, Seg } from './model';
   import Stepper from '../../lib/ui/Stepper.svelte';
-  import Cycler from '../../lib/ui/Cycler.svelte';
+  import Segmented from '../../lib/ui/Segmented.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
 
   let {
@@ -63,13 +63,6 @@
 
   const hour = (h: unknown) => `${String(Number(h ?? 0)).padStart(2, '0')}:00`;
   const presets = [1.0, 1.15, 1.3];
-  // A scale set by the stepper (1.05) joins the presets so the cycler can show it.
-  const scaleOptions = $derived(
-    [...new Set([...presets, Number(value)])]
-      .filter((p) => Number.isFinite(p))
-      .sort((a, b) => a - b)
-      .map((p) => ({ value: p, label: p.toFixed(p === 1 ? 1 : 2) })),
-  );
   const keyLabel = $derived(o.pair ? `${field.key} · ${o.pair}` : field.key);
 </script>
 
@@ -88,7 +81,7 @@
     {:else if field.widget === 'number'}
       <Stepper value={Number(value ?? 0)} step={o.step ?? 1} min={o.min} max={o.max} unit={o.unit} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'scale'}
-      <Cycler options={scaleOptions} bind:value={() => Number(value), (p) => onset(p)} label={field.label} />
+      <Segmented options={presets.map((p) => ({ value: p, label: p.toFixed(p === 1 ? 1 : 2) }))} value={Number(value)} onpick={(p) => onset(p)} />
       <Stepper value={Number(value ?? 1)} step={o.step ?? 0.05} min={o.min} max={o.max} digits={2} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'hour'}
       <Stepper value={Number(value ?? 0)} step={1} min={0} max={Number(pair ?? 24) - 1} format={hour} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -96,7 +89,7 @@
       <Stepper value={Number(pair ?? 24)} step={1} min={Number(value ?? 0) + 1} max={24} format={hour} onchange={(v) => onset(v, [o.pair ?? 'day_end_hour'])} />
     {:else if field.widget === 'enum'}
       {#if (o.enum ?? []).length <= 4}
-        <Cycler options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))} bind:value={() => value ?? '', (opt) => onset(opt)} disabled={readonly} label={field.label} />
+        <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))} value={value ?? ''} disabled={readonly} onpick={(opt) => onset(opt)} />
       {:else}
         <span class="dropdown">
           <select class="input" value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
@@ -127,10 +120,11 @@
     {:else if field.widget === 'slack_channels'}
       {@const all = value === 'all'}
       {@const list = Array.isArray(value) ? (value as string[]) : []}
-      <Cycler
+      <Segmented
         options={[{ value: 'all', label: "All I'm in" }, { value: 'only', label: 'Only these' }]}
-        bind:value={() => (all ? 'all' : 'only'), (v) => (v === 'all' ? !all && onset('all') : all && onaction('only'))}
-        label={field.label} />
+        value={all ? 'all' : 'only'}
+        onpick={(v) => (v === 'all' ? !all && onset('all') : all && onaction('only'))}
+      />
       {#if all}
         <span class="extra">{extra || 'every channel'}</span>
       {:else}
@@ -160,7 +154,7 @@
         {/each}
       </span>
     {:else if field.widget === 'segmented'}
-      <Cycler options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))} bind:value={() => value ?? '', (opt) => onset(opt)} label={field.label} />
+      <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))} value={value ?? ''} onpick={(opt) => onset(opt)} />
     {:else if field.widget === 'palette'}
       {#if editing}
         <ListEdit items={(value as string[]) ?? []} {editing} {onedit} onchange={(v) => onset(v)} />

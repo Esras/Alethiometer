@@ -13,7 +13,6 @@
   import { catColor, category, meetingPill, refresh, ui, UNCATEGORIZED } from '../../lib/app.svelte';
   import { plain, pointerMoved, useKeys } from '../../lib/keys.svelte';
   import { cancelMerge, mergingAway, merges, pendingMerge, stageMerge } from '../../lib/merges.svelte';
-  import Cycler from '../../lib/ui/Cycler.svelte';
   import Dock from '../../lib/ui/Dock.svelte';
   import DockHost from '../../lib/ui/DockHost.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
@@ -212,7 +211,10 @@
       <FilterField class="topics-filter" icon="funnel-simple" bind:value={q} bind:el={input} placeholder="Filter topics">
         <span class="total tnum">{rows.length} topics</span>
       </FilterField>
-      <Cycler options={[{ value: false, label: 'Active' }, { value: true, label: 'Archived' }]} bind:value={archived} label="Topics" />
+      <div class="seg" role="tablist" aria-label="Topics">
+        <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
+        <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
+      </div>
       <button class="btn md" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"><i class="ph ph-palette"></i>Categories</button>
       <button class="btn md primary" onclick={() => create()}><i class="ph ph-plus"></i>New topic</button>
     </div>

@@ -97,7 +97,7 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
 
 `scripts/ui-keys.mjs` leaves marks on the sample data (a notes line's target, Settings' "Saved"). Restart `scripts/ui-diff.sh` before running `ui-diff.mjs` after it.
 
-**Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass. (FilterField is done: see decision 7. The Cycler is done: see Phase 2 item 4.)
+**Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass. (FilterField is done: see decision 7.) **The Cycler is deferred (user, 2026-10-05):** it was built (ac11400) and reverted. One button showing only the current value hides the other options, which the segmented control shows at a glance. `Segmented` and `.seg` stay as they are until this is revisited.
 
 ## Phase 2 · New shared components (behaviour plus look)
 
@@ -120,7 +120,7 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
    - **Data loading:** PersonPicker sends a query per keystroke with no debounce; notes/Picker debounces at 80ms.
 
    Props: `{source: sync list | async (q) => list, row: snippet, create?, footer?}`. About 700 lines go. ⌃j/⌃k list navigation is also hand-written in SearchPalette, Settings, SlackReview and TopicsIndex; `listNav` covers those too.
-4. **`lib/ui/Cycler.svelte`**, with `{options: {value, label}[], value = $bindable, key?, label, disabled?}` (decision 10). **Done (2026-10-05):** `.cycler` replaces every site below; props also take `hint` (shows a key the view binds itself, registers nothing) and `title`; click or `key` steps on and wraps, Shift-click or Shift+key steps back; `Segmented` and the global `.seg` are deleted.
+4. **Deferred, see above.** **`lib/ui/Cycler.svelte`**, with `{options: {value, label}[], value = $bindable, key?, label, disabled?}` (decision 10).
    - **Renders:** `.cycler` (value, `ph-arrows-clockwise`, `.kbd`).
    - **Replaces:** global `.seg` (`app.css:164`, used at `Reflect:145`), `topics/TopicsIndex:214`, `incoming/SplitReview:294` (CSS :435), `settings/Settings:613` and `Row:81/93/128/161`, `todos/TodoForm:69` (`.switch`, keys ⌘1/⌘2), and `assistant/SourcesPanel:202 .tabs` (Kept/Dropped, missed by the list).
    - **`key` must be optional:** Settings' controls sit under the modal key floor, and Reflect gives each option its own key today.

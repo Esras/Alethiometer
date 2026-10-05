@@ -35,7 +35,7 @@
   import type { AgentsLook } from '../../views/agents/types';
   import AgentsPreview from './AgentsPreview.svelte';
   import Row from './Row.svelte';
-  import Cycler from '../../lib/ui/Cycler.svelte';
+  import Segmented from '../../lib/ui/Segmented.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
 
@@ -614,10 +614,11 @@
                     list="ai-models"
                     onblur={(e) => e.currentTarget.value !== model && apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
                     onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-                  <Cycler
+                  <Segmented
                     options={[['', 'default'], ['low', 'low'], ['medium', 'med'], ['high', 'high']].map(([v, l]) => ({ value: v, label: l }))}
-                    bind:value={() => effort, (v) => apply([{ path: ['ai', tier, 'effort'], value: v }])}
-                    label="{tier === 'small' ? 'Small' : 'Large'} tier effort" />
+                    value={effort}
+                    onpick={(v) => apply([{ path: ['ai', tier, 'effort'], value: v }])}
+                  />
                   <span class="r muted tnum">{model ? usageFor(model) : '—'}</span>
                 </div>
               {:else if item.t === 'price'}
@@ -997,7 +998,7 @@
   .thead,
   .trow {
     display: grid;
-    grid-template-columns: 110px 130px minmax(0, 1fr) 84px 160px;
+    grid-template-columns: 110px 130px minmax(0, 1fr) auto 160px;
     gap: 16px;
     align-items: center;
     padding: 10px 18px;

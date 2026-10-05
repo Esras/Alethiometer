@@ -12,7 +12,6 @@
   import { refresh, ui } from '../lib/app.svelte';
   import { isTyping, plain, useKeys } from '../lib/keys.svelte';
   import { live } from '../lib/live';
-  import Cycler from '../lib/ui/Cycler.svelte';
   import CarryList from './reflect/CarryList.svelte';
   import DayBrief from './reflect/DayBrief.svelte';
   import NoteEditor from './reflect/NoteEditor.svelte';
@@ -143,8 +142,11 @@
 
 <div class="view">
   <div class="controls">
-    <!-- d w m q jump to a scope (the keys above), so there is no key= here. -->
-    <Cycler options={SCOPES.map((s) => ({ value: s.id, label: s.label }))} bind:value={() => rs.scope, setScope} label="Scope" title="Scope (d w m q)" />
+    <div class="seg" role="tablist" aria-label="Scope">
+      {#each SCOPES as s}
+        <button class:on={rs.scope === s.id} onclick={() => setScope(s.id)} title="{s.label} ({s.id[0]})">{s.label}</button>
+      {/each}
+    </div>
     {#if d}
       <span class="period">
         <button class="car" onclick={() => step(-1)} title="Previous ([)" aria-label="Previous"><i class="ph ph-caret-left"></i></button>
