@@ -7,7 +7,7 @@
   import FontPick from './FontPick.svelte';
   import ListEdit from './ListEdit.svelte';
   import type { Field, Seg } from './model';
-  import Stepper from './Stepper.svelte';
+  import Stepper from '../../lib/ui/Stepper.svelte';
   import Segmented from '../../lib/ui/Segmented.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
 
