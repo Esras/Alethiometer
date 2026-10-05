@@ -157,7 +157,8 @@
 </NewModal>
 
 <style>
-  :global(.agent-form .note.taken) {
+  /* Its own span, so scoped (form.css's `.agent-form .note` has the same weight: a class less). */
+  .note.taken {
     color: var(--status-attention);
   }
 </style>

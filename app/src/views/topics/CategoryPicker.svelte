@@ -5,9 +5,9 @@
   import { Picker } from '../../lib/ui/picker.svelte';
   import type { CategoryRow } from '../../lib/types';
 
-  // `placement`: where the box sits, by the site's own anchor (it was reached
-  // into through :global(.picker)). To settle in the visible pass, with the
-  // design system's Popover, which owns placement.
+  // `placement`: where the box sits, by the site's own anchor (the crumb's
+  // dropdown, the index's inline row). A prop rather than a rule from the
+  // site, because the box is this component's markup.
   let {
     current,
     placement = {},

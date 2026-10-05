@@ -510,7 +510,7 @@
         {/if}
 
         {#if section === 'categories'}
-          <div class="card cats panel"><CategoryManager /></div>
+          <div class="card cats panel"><CategoryManager embedded /></div>
         {:else if section === 'agents'}
           <AgentsPreview look={(get(page.values, ['agents']) as AgentsLook) ?? DEFAULT_LOOK} />
         {:else if section === 'developer' && !page.dev}
@@ -922,14 +922,6 @@
   .card.cats {
     overflow: hidden;
     margin-top: 18px;
-  }
-  .card.cats :global(.mgr) {
-    background: none;
-    border: 0;
-    padding: 14px 18px;
-  }
-  .card.cats :global(.cat) {
-    justify-content: start;
   }
   .note {
     margin: 6px 4px 0;
