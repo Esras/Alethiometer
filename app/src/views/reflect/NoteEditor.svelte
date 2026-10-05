@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { indentKeys } from '../../lib/ui/indent';
   // The reflection note: the user's own words, saved to their Obsidian vault.
   // A note without headings (the day) is one plain textarea. A note with
   // `## ` headings (week and up, from a template) shows each heading in orange
@@ -231,6 +232,7 @@
             bind:value={s.body}
             rows="1"
             spellcheck="true"
+            onkeydown={indentKeys}
             oninput={(e) => {
               if (s.trail === 0 && s.head !== null && i < sections.length - 1) s.trail = 1;
               autosize(e.currentTarget);
@@ -247,6 +249,7 @@
       bind:value={sections[0].body}
       {placeholder}
       spellcheck="true"
+      onkeydown={indentKeys}
       oninput={() => {
         if (sections[0].trail === 0) sections[0].trail = 1;
         edited();
