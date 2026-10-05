@@ -8,6 +8,7 @@
   import { call } from '../../lib/api';
   import { accountLabel, initial, personColor, type Account, type PersonHit } from '../../lib/people';
   import { pointerMoved, useKeys } from '../../lib/keys.svelte';
+  import Avatar from '../../lib/ui/Avatar.svelte';
 
   let {
     account,
@@ -91,7 +92,7 @@
   <div class="rows">
     {#each hits as h, i (h.id)}
       <button class="row" class:on={i === sel} onmousedown={(e) => (e.preventDefault(), pick(i))} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
-        <span class="dot" style:background={personColor(h.color)}>{initial(h.name)}</span>
+        <Avatar initials={initial(h.name)} color={personColor(h.color)} size={22} font="0.8077rem" />
         <span class="who">
           <span class="name ellipsis">{h.name}</span>
           <span class="path ellipsis">{h.note_path}</span>
@@ -183,17 +184,6 @@
   .row.on {
     background: rgba(142, 192, 124, 0.12);
     box-shadow: inset 2px 0 0 var(--aqua);
-  }
-  .dot {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    color: var(--bg-app);
-    font-size: 0.8077rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
   .who {
     min-width: 0;

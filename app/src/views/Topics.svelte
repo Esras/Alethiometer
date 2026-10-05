@@ -14,6 +14,7 @@
   import { personColor } from '../lib/people';
   import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import Avatar from '../lib/ui/Avatar.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
   import Panel from '../lib/ui/Panel.svelte';
@@ -230,7 +231,7 @@
             <div class="people">
               {#each d.people as p (p.id ?? `${p.name}-${p.account?.id ?? ''}`)}
                 <div class="person">
-                  <span class="avatar" style:background={personColor(p.color)}>{p.initials}</span>
+                  <Avatar initials={p.initials} color={personColor(p.color)} size={26} font="0.7692rem" />
                   <div class="min0">
                     {#if !p.known && p.account}
                       <button class="strong unknown ellipsis" style:color={personColor(p.color)} title="No People note: link to a person" onclick={() => (linking = p)}
@@ -526,19 +527,6 @@
   }
   .person + .person {
     border-left: 1px solid var(--bg-head);
-  }
-  .avatar {
-    width: 26px;
-    height: 26px;
-    flex: none;
-    border-radius: 50%;
-    background: var(--border-strong);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.7692rem;
-    font-weight: 600;
-    color: var(--bg-app);
   }
   .unknown {
     display: block;

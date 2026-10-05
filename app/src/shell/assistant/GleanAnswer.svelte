@@ -6,6 +6,7 @@
   // management), each row a role, one sentence of why, then evidence.
   import { personColor } from '../../lib/people';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import Avatar from '../../lib/ui/Avatar.svelte';
   import { claims, sentences, type Reply } from './types';
 
   let {
@@ -44,7 +45,7 @@
             style:--pc={colorOf(p.name)}
             onmouseenter={() => (hoverPerson = p.name)}
             onmouseleave={() => (hoverPerson = null)}
-            role="presentation"><span class="dot">{initial(p.name)}</span>{p.name}</span
+            role="presentation"><Avatar initials={initial(p.name)} color={colorOf(p.name)} size={15} font="0.6923rem" />{p.name}</span
           >{/if}
       {/each}
     </span>
@@ -59,7 +60,7 @@
       {@const more = expanded === p.name ? p.evidence.length : i === 0 ? 2 : 1}
       <div class="prow" class:hot={hoverPerson === p.name} onmouseenter={() => (hoverPerson = p.name)} onmouseleave={() => (hoverPerson = null)} role="presentation">
         <div class="pline">
-          <span class="person" style:--pc={personColor(p.color)}><span class="dot">{initial(p.name)}</span>{p.name}</span>
+          <span class="person" style:--pc={personColor(p.color)}><Avatar initials={initial(p.name)} color={personColor(p.color)} size={15} font="0.6923rem" />{p.name}</span>
           <span class="role">{p.role}</span>
         </div>
         {#if p.why}<div class="why">{p.why}</div>{/if}
@@ -115,18 +116,6 @@
   }
   .person.hot {
     box-shadow: 0 0 0 1px var(--pc);
-  }
-  .dot {
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    background: var(--pc);
-    color: var(--bg-app);
-    font-size: 0.6923rem;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
   }
   .people {
     margin-top: 12px;
