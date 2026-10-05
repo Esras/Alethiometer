@@ -3,6 +3,7 @@
   // > tomorrow, < schedule (a calendar hold via the outbox), × let go (nothing
   // is deleted; it just leaves the list). Decided rows stay, faded, with undo.
   import type { CarryAction, CarryRow } from './types';
+  import Panel from '../../lib/ui/Panel.svelte';
 
   let {
     rows,
@@ -36,11 +37,7 @@
   const doneIcon = (r: CarryRow) => (r.action === 'tomorrow' ? 'caret-right' : r.action === 'schedule' ? 'caret-left' : 'x');
 </script>
 
-<section class="panel">
-  <header>
-    <i class="ph-bold ph-arrow-bend-down-right" style:color="var(--aqua)"></i>{label}
-    <span class="count">{open}</span>
-  </header>
+<Panel icon="arrow-bend-down-right" iconColor="var(--aqua)" {label} count={open} collapsible={false}>
   {#each rows as r, i (r.item_id + r.period)}
     {@const g = GLYPH[r.glyph] ?? GLYPH.do}
     <div class="row" class:sel={i === selected} class:done={r.action !== null}>
@@ -69,35 +66,9 @@
   {:else}
     <div class="empty">Nothing to carry.</div>
   {/each}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    flex: none;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
-  }
-  header {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 7px 12px;
-    background: var(--bg-head);
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-2);
-  }
-  header i {
-    font-size: 1rem;
-  }
-  .count {
-    margin-left: auto;
-    letter-spacing: 0;
-    color: var(--tx-muted-2);
-  }
   .row {
     display: grid;
     grid-template-columns: 18px minmax(0, 1fr) auto;

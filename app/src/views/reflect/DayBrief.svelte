@@ -2,6 +2,7 @@
   // "The day, briefly" (9b): four fact tiles, plan vs did to scale, and two
   // folded sections behind aqua text links.
   import { catColor } from '../../lib/app.svelte';
+  import Panel from '../../lib/ui/Panel.svelte';
   import type { Bar, DayBriefData } from './types';
 
   let {
@@ -22,8 +23,7 @@
   const maxWhere = $derived(Math.max(1, ...brief.where.map((w) => w.minutes)));
 </script>
 
-<section class="panel">
-  <header><i class="ph-bold ph-sun-horizon" style:color="var(--yellow)"></i>The day, briefly</header>
+<Panel icon="sun-horizon" iconColor="var(--yellow)" label="The day, briefly" collapsible={false}>
   <div class="inner">
     <div class="tiles">
       {#each brief.tiles as t}
@@ -94,30 +94,9 @@
       </div>
     {/if}
   </div>
-</section>
+</Panel>
 
 <style>
-  .panel {
-    flex: none;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
-  }
-  header {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 7px 12px;
-    background: var(--bg-head);
-    font-size: 0.8462rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tx-2);
-  }
-  header i {
-    font-size: 1rem;
-  }
   .inner {
     padding: 12px;
     display: flex;
