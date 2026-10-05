@@ -198,14 +198,12 @@
     min-height: 52px;
     padding: 9px 18px;
     border-top: 1px solid var(--border);
-    box-shadow: inset 2px 0 0 transparent;
   }
   .row:first-child {
     border-top: 0;
   }
   .row.focused {
-    background: var(--aqua-tint-soft);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .text {
     flex: 1;

@@ -158,6 +158,7 @@ These already match:
 - **Avatars only lead a row about a person:** the Topics People panel, the person picker and Glean's people.
 
 **3 · Selection** → `.row.cursor` (aqua-tint, no edge), `.check` and `.open` (bg-head). Every edge goes. There is no `border-left` anywhere; all of them are `box-shadow: inset`.
+- **Done (2026-10-05):** every site below is a fill now (`aqua-tint` cursor, `bg-head` open row, a check for picked rows) and no cursor has an edge. Left alone: Priorities' `.selected` bar, the Chronology and Search `.review` boxes, Panel's `.accent`, the tab underline, chip rings, and Glean's `--rc`/orange marks (`Search .row.lit`, `SearchPalette .row.sel`, `SourcesPanel .row.sel`). Decision 13's `.msg.moved` lost its edge here and kept its group tint.
 - **Right edge:**
   - global `.sel` (`app.css:182`), which also gives a right edge to `Priorities:178/194`, `reflect/CarryList:46` and `TopicsIndex:178`;
   - `Incoming:884 .topic.on` and `TopicPicker:158 .opt.on`;

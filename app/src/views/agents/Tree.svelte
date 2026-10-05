@@ -454,11 +454,10 @@
   }
   .group.sel,
   .row.sel {
-    background: var(--border);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .tree:not(.focus) .sel {
-    box-shadow: inset 2px 0 0 rgba(142, 192, 124, 0.5);
+    background: var(--bg-head);
   }
   .mark {
     display: flex;

@@ -166,8 +166,7 @@
     text-align: left;
   }
   .row.on {
-    background: rgba(142, 192, 124, 0.12);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .who {
     min-width: 0;

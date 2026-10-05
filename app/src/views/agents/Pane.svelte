@@ -488,8 +488,7 @@
     gap: 8px;
   }
   .runbox.sel {
-    border-color: var(--aqua);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .quiet {
     color: var(--tx-disabled);

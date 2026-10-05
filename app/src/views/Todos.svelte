@@ -378,10 +378,7 @@
     background: var(--row-hover);
   }
   .todo.sel {
-    background: var(--aqua-tint-soft);
-    box-shadow:
-      inset 3px 0 0 var(--topic, transparent),
-      inset -2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .check {
     color: var(--tx-muted-2);

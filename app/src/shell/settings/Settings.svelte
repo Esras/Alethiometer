@@ -974,8 +974,7 @@
   .row.focused,
   .trow.focused,
   .prow.focused {
-    background: var(--aqua-tint-soft);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .row .text {
     flex: 1;
@@ -1086,7 +1085,6 @@
   }
   .result.sel {
     background: var(--aqua-tint);
-    box-shadow: inset 2px 0 0 var(--aqua);
   }
   .rl {
     color: var(--tx-title);

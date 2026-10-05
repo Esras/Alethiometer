@@ -109,7 +109,6 @@
   }
   .opt.on {
     background: var(--aqua-tint);
-    box-shadow: inset 2px 0 0 var(--aqua);
     color: var(--tx-body);
   }
   .ic {

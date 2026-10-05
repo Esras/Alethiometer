@@ -487,13 +487,11 @@
   .msg:hover:not(.focus):not(.chosen) {
     background: var(--row-hover);
   }
-  .msg.focus {
-    background: var(--aqua-tint);
-    box-shadow: inset 2px 0 0 var(--aqua);
-  }
   .msg.moved {
     background: color-mix(in srgb, var(--tint) 8%, transparent);
-    box-shadow: inset 2px 0 0 var(--aqua);
+  }
+  .msg.focus {
+    background: var(--aqua-tint);
   }
   .msg.chosen .txt {
     color: var(--tx-body);

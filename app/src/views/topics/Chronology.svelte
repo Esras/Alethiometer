@@ -203,14 +203,13 @@
     position: relative;
     cursor: pointer;
   }
-  .entry.sel {
-    box-shadow: inset 2px 0 0 var(--aqua);
-    background: var(--aqua-tint-soft);
-  }
   .entry.open {
     background: var(--bg-head);
     padding-bottom: 10px;
     cursor: default;
+  }
+  .entry.sel {
+    background: var(--aqua-tint);
   }
   .entry.moved {
     cursor: default;

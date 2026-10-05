@@ -882,9 +882,9 @@
   .topic:hover {
     background: rgba(235, 219, 178, 0.04);
   }
+  /* The topic whose signals are open. The keyboard is in the signals, never here. */
   .topic.on {
-    background: var(--aqua-tint);
-    box-shadow: inset -2px 0 0 var(--aqua);
+    background: var(--bg-head);
   }
   .bar {
     align-self: stretch;
@@ -969,8 +969,7 @@
     background: var(--row-hover);
   }
   .sig.sel {
-    background: var(--aqua-tint-soft);
-    box-shadow: inset 3px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .row {
     display: grid;
@@ -1114,13 +1113,10 @@
   .msg.pickable {
     cursor: pointer;
   }
-  .msg.pickable:hover:not(.chosen) {
+  .msg.pickable:hover:not(.focus) {
     background: var(--row-hover);
   }
   .msg.focus {
-    box-shadow: inset 2px 0 0 var(--aqua);
-  }
-  .msg.chosen {
     background: var(--aqua-tint);
   }
   .msg.chosen .txt {

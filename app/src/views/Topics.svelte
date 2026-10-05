@@ -455,7 +455,7 @@
     padding: 9px 12px;
   }
   .up-row.today {
-    background: rgba(142, 192, 124, 0.07);
+    background: var(--aqua-tint-soft);
   }
   .up-row .when {
     font-size: 0.9231rem;

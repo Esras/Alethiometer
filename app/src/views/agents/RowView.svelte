@@ -289,11 +289,10 @@
     border-color: var(--fail-border);
   }
   .sel {
-    background: var(--bg-head);
-    border: 1px solid var(--aqua);
-    box-shadow: inset 2px 0 0 var(--aqua);
+    background: var(--aqua-tint);
   }
   .sel:not(.b-you, .b-tool, .b-msg, .b-hub, .b-need, .b-fail) {
+    border: 1px solid transparent;
     margin: 0 -10px;
     padding: 6px 10px;
     border-radius: 7px;

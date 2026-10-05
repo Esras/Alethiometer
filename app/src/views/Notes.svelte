@@ -514,7 +514,7 @@
     transition: opacity 120ms;
   }
   .row.cur {
-    background: rgba(142, 192, 124, 0.05);
+    background: var(--aqua-tint);
   }
   .row.sent {
     opacity: 0.55;

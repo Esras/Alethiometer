@@ -274,7 +274,6 @@
   }
   .row.sel {
     background: var(--aqua-tint);
-    box-shadow: inset 3px 0 0 var(--aqua);
   }
   .icon {
     margin-top: 2px;
