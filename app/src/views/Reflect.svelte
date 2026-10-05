@@ -183,7 +183,7 @@
         {:else}
           <CarryList rows={d.carry} label={OPEN_LABEL[d.scope]} bind:selected textButtons={d.scope !== 'day'} {act} />
           {#if d.scope === 'day'}
-            <div class="ask">
+            <div class="ask panel">
               <label class="askrow">
                 <i class="ph ph-magnifying-glass"></i>
                 <span class="field">
@@ -283,9 +283,7 @@
   }
   .ask {
     flex: none;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
+    overflow: visible;
   }
   .askrow {
     display: flex;

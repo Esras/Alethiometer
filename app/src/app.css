@@ -187,6 +187,19 @@ pre,
   background: var(--aqua-tint);
 }
 
+/* A raised panel's surface (Panel.svelte and a page's main column); .col
+   makes it a flex column. Layout (flex, width, margins) stays with the view. */
+.panel {
+  border-radius: var(--r-panel);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.panel.col {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Reason / weight pills */
 .pill {
   font-size: 0.8077rem;

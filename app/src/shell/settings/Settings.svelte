@@ -484,7 +484,7 @@
       {#if !page}
         <div class="empty">Loading…</div>
       {:else if findQ.trim()}
-        <div class="results">
+        <div class="results panel col">
           {#each results as r, i}
             <button class="result" class:sel={i === findSel} onclick={() => jump(r)} onmousemove={(e) => pointerMoved(e) && (findSel = i)}>
               <span class="rl">{r.field.label}</span>
@@ -515,7 +515,7 @@
         {/if}
 
         {#if section === 'categories'}
-          <div class="card cats"><CategoryManager /></div>
+          <div class="card cats panel"><CategoryManager /></div>
         {:else if section === 'agents'}
           <AgentsPreview look={(get(page.values, ['agents']) as AgentsLook) ?? DEFAULT_LOOK} />
         {:else if section === 'developer' && !page.dev}
@@ -531,7 +531,7 @@
               {#if g.name === 'Message colors'}<span class="gnote">Box, icon and legend for each kind</span><button class="reset" onclick={resetColors}>Reset to default</button>{/if}
             </div>
           {/if}
-          <div class="card" class:table={g.name === 'Models' || g.name === 'Prices'}>
+          <div class="card panel" class:table={g.name === 'Models' || g.name === 'Prices'}>
             {#if g.name === 'Models'}
               <div class="thead"><span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
             {/if}
@@ -656,7 +656,7 @@
         {/each}
         {#if section === 'ai'}
           <div class="glabel">Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span></div>
-          <div class="card">
+          <div class="card panel">
             <div class="row">
               <div class="text">
                 <div class="lbl mono">{page.embed.model}</div>
@@ -670,7 +670,7 @@
         {/if}
         {#if section === 'developer' && page.dev}
           <div class="glabel">Files</div>
-          <div class="card"><div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div></div>
+          <div class="card panel"><div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div></div>
         {/if}
       {/if}
     </section>
@@ -937,9 +937,6 @@
     color: var(--tx-muted-2);
   }
   .card {
-    border: 1px solid var(--border);
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
     overflow: visible;
   }
   .card:first-of-type {
@@ -1124,14 +1121,6 @@
   }
   .money input:focus {
     border-color: var(--aqua);
-  }
-  .results {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    overflow: hidden;
   }
   .result {
     display: grid;

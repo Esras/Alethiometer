@@ -199,7 +199,7 @@
   );
 </script>
 
-<div class="note">
+<div class="note panel col">
   <div class="head">
     <AppIcon source="obsidian" size={15} />
     <button class="path ellipsis" onclick={openInObsidian} title="Open in Obsidian (o)">{target.path}</button>
@@ -258,12 +258,6 @@
   .note {
     min-height: 0;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .head {
     flex: none;

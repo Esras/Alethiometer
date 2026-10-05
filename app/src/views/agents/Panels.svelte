@@ -13,7 +13,7 @@
 
 <div class="panels" class:solo={!req.parsed || !req.explained}>
   {#if req.parsed}
-  <div class="panel">
+  <div class="facts-box">
     <div class="ph-head">
       <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub">shell parser · same answer every time</span>
       <span class="badge-wrap"><span class="tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span>
@@ -36,7 +36,7 @@
   {/if}
   {#if req.explained}
     {@const x = req.explained}
-    <div class="panel">
+    <div class="facts-box">
       <div class="ph-head"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model}</span></div>
       {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
       {:else if x.state === 'ok'}
@@ -67,7 +67,7 @@
   .panels.solo {
     grid-template-columns: minmax(0, 1fr);
   }
-  .panel {
+  .facts-box {
     padding: 7px 10px;
     border-radius: var(--r-input);
     background: var(--bg-panel);

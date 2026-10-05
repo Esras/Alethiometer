@@ -46,10 +46,6 @@
 <style>
   .panel {
     flex: none;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .panel.accent {
     border-color: var(--border-strong);

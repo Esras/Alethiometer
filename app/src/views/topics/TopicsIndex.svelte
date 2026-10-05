@@ -204,7 +204,7 @@
 {/snippet}
 
 <div class="view">
-  <div class="panel">
+  <div class="panel col">
     <div class="head">
       <label class="filter">
         <i class="ph ph-funnel-simple"></i>
@@ -292,12 +292,6 @@
     flex: 1;
     max-width: 1200px;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .head {
     display: flex;

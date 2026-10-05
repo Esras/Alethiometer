@@ -198,7 +198,7 @@
   );
 </script>
 
-<div class="note" class:editing>
+<div class="note panel col" class:editing>
   <div class="note-head">
     <AppIcon source="obsidian" /><span class="path ellipsis">{note?.path ?? 'No note linked'}</span>
     {#if status === 'conflict'}
@@ -233,12 +233,6 @@
   .note {
     flex: 1;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .note.editing {
     border-color: rgba(142, 192, 124, 0.55);

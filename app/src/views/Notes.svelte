@@ -366,7 +366,7 @@
 </script>
 
 <div class="view">
-  <div class="sheet">
+  <div class="sheet panel col">
     <div class="grid head">
       <span></span>
       <span class="day">
@@ -451,12 +451,6 @@
   .sheet {
     width: 100%;
     max-width: 1060px;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .grid {
     display: grid;

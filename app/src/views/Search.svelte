@@ -141,7 +141,7 @@
 </script>
 
 <div class="view">
-  <div class="panel">
+  <div class="panel col">
     <div class="head">
       <span class="count">
         {#if res}{shown.length} {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
@@ -227,12 +227,6 @@
     position: relative;
     width: 100%;
     max-width: 1060px;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .head {
     flex: none;

@@ -81,7 +81,7 @@
   const dim = (s: Source) => (hoverQuery !== null && !s.queries.includes(hoverQuery)) || (hoverSource !== null && hoverSource !== s.key);
 </script>
 
-<div class="panel" style:width="{width}px" role="complementary" aria-label="Sources">
+<div class="sheet" style:width="{width}px" role="complementary" aria-label="Sources">
   <div class="edge" onpointerdown={drag} role="separator" aria-orientation="vertical"></div>
   <div class="head">
     <i class="ph ph-stack"></i><span class="title">Sources</span>
@@ -124,7 +124,7 @@
 </div>
 
 <style>
-  .panel {
+  .sheet {
     position: absolute;
     top: 0;
     bottom: 0;

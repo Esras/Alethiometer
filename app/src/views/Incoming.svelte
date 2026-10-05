@@ -603,7 +603,7 @@
   </div>
 
   <div class="main">
-    <div class="panel">
+    <div class="panel col">
       <div class="body scroll">
         {#each groups as g, gi (g.source + g.label)}
           <div class="group" class:rule={gi > 0}>
@@ -936,12 +936,6 @@
     position: relative;
     flex: 1;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-panel);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
   }
   .body {
     flex: 1;
