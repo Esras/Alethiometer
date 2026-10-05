@@ -533,7 +533,13 @@
   }
 
   function open(s: Signal | null) {
-    if (s?.url) openExternal(s.url);
+    if (!s?.url) return;
+    const m = inMsgs ? s.messages[msgIdx] : s.messages[s.messages.length - 1];
+    const reply = inMsgs ? undefined : m?.replies?.[m.replies.length - 1];
+    const key = (reply ?? m)?.key;
+    const re = /^(https:\/\/[^/]+\/archives\/([A-Z0-9]+)\/p)\d{7,}$/;
+    if (!key || !m?.key || !/^\d+\.\d+$/.test(key) || !re.test(s.url)) return openExternal(s.url);
+    openExternal(s.url.replace(re, (_, base, ch) => `${base}${key.replace('.', '')}${reply ? `?thread_ts=${m.key}&cid=${ch}` : ''}`));
   }
 
   useKeys((e) => {

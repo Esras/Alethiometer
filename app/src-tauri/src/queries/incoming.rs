@@ -41,6 +41,9 @@ use std::collections::HashMap;
 pub struct Message {
     /// `item_messages.id`: what a split names.
     pub id: i64,
+    /// `item_messages.ext_key` (a Slack `ts`): what "open" links to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub time: String,
     pub author: String,
     pub text: String,
@@ -426,6 +429,7 @@ fn message_rows(look: &Lookup, source: &str, rows: Vec<MessageRow>) -> Vec<MsgRo
         .map(|m| {
             let msg = Message {
                 id: m.id,
+                key: m.ext_key.clone(),
                 time: look.clock.local(m.at).strftime("%H:%M").to_string(),
                 who: look.people.who(source, m.author_id.as_deref(), &m.author),
                 author: m.author,

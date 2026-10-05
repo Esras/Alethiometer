@@ -145,6 +145,21 @@ mod tests {
     }
 
     #[test]
+    fn split_parts_link_to_their_own_newest_message() {
+        let (conn, src) = slack();
+        let mut it = run(&["10", "20"], true);
+        it.raw_json["msgs"] = json!(["1790000010.000100", "1790000020.000200"]);
+        it.url = Some("https://a.slack.com/archives/D1/p1790000020000200".into());
+        apply_now(&conn, &src, &Batch { items: vec![it], ..Default::default() }).unwrap();
+        let parent = item_id(&conn, "D1/100.01");
+        let ids = message_ids(&conn, parent).unwrap();
+        let child = split_off(&conn, parent, &[ids[0]]).unwrap();
+        let url = |id: i64| -> String { conn.query_row("SELECT url FROM items WHERE id = ?1", [id], |r| r.get(0)).unwrap() };
+        assert_eq!(url(child), "https://a.slack.com/archives/D1/p1790000010000100");
+        assert_eq!(url(parent), "https://a.slack.com/archives/D1/p1790000020000200");
+    }
+
+    #[test]
     fn split_moves_messages_and_fixes_both_sides() {
         let (conn, src) = slack();
         apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12", "13"], true)], ..Default::default() }).unwrap();
