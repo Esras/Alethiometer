@@ -142,10 +142,6 @@
   }
   .label {
     flex: none;
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .acct {
     font-size: 0.8846rem;

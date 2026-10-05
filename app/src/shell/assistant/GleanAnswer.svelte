@@ -137,12 +137,6 @@
     justify-content: space-between;
     padding: 8px 2px 4px;
   }
-  .label {
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
-  }
   .order {
     color: var(--tx-label);
     font-size: 0.8462rem;

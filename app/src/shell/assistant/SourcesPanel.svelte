@@ -163,10 +163,6 @@
   }
   .label {
     padding: 0 14px 4px;
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .queries {
     padding: 0 8px 8px;

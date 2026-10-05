@@ -166,7 +166,7 @@
       {#if note}<div class="note">{note}</div>{/if}
       {#if chips.length}
         <div class="sent">
-          <div class="slabel">Sent with your question</div>
+          <div class="label slabel">Sent with your question</div>
           <div class="chips">
             {#each chips as c (c.id)}
               <button class="chip" class:off={!c.on} onclick={() => toggle(c)} title={c.on ? 'Remove (asks again without it)' : 'Add'}>
@@ -332,10 +332,6 @@
     margin: 0 14px;
   }
   .slabel {
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     margin: 4px 0 6px;
   }
   .chips {

@@ -29,7 +29,7 @@
 </script>
 
 <div class="preview" style={lookVars(look)}>
-  <div class="cap">Live preview</div>
+  <div class="label cap">Live preview</div>
   <div class="rows">
     {#each rows as r (r.id)}<RowView row={r} own="h" {nameColor} />{/each}
   </div>
@@ -44,10 +44,6 @@
     padding: 8px 22px 12px;
   }
   .cap {
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     margin: 0 -10px 8px;
   }
   .rows {

@@ -524,7 +524,7 @@
 
         {#each groups as g}
           {#if g.name}
-            <div class="glabel">
+            <div class="label glabel">
               {GROUP_LABELS[g.name] ?? g.name}
               {#if g.name === 'secrets'}<span class="gnote">secrets.json (0600), never shown</span>{/if}
               {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD</span>{/if}
@@ -533,7 +533,7 @@
           {/if}
           <div class="card panel" class:table={g.name === 'Models' || g.name === 'Prices'}>
             {#if g.name === 'Models'}
-              <div class="thead"><span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
+              <div class="label thead"><span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
             {/if}
             {#each g.items as { item, i } (i)}
               {#if item.t === 'field'}
@@ -655,7 +655,7 @@
           </div>
         {/each}
         {#if section === 'ai'}
-          <div class="glabel">Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span></div>
+          <div class="label glabel">Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span></div>
           <div class="card panel">
             <div class="row">
               <div class="text">
@@ -669,7 +669,7 @@
           </div>
         {/if}
         {#if section === 'developer' && page.dev}
-          <div class="glabel">Files</div>
+          <div class="label glabel">Files</div>
           <div class="card panel"><div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div></div>
         {/if}
       {/if}
@@ -914,10 +914,6 @@
     display: flex;
     align-items: baseline;
     margin: 24px 0 8px 4px;
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
   }
   .reset {
     margin-left: auto;
@@ -1060,10 +1056,6 @@
     padding: 10px 18px;
   }
   .thead {
-    font-size: 0.8077rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--tx-label);
     border-bottom: 1px solid var(--border);
   }
   .trow {
