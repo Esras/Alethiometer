@@ -85,8 +85,8 @@
     right: 16px;
     z-index: 50;
     width: 420px;
-    background: #282828;
-    border: 1px solid #504945;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-strong);
     border-radius: var(--r-panel);
     color: var(--tx-body);
     font-size: 1rem;

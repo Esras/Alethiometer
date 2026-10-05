@@ -44,7 +44,7 @@ export interface Hydrated {
 
 export const ROUTE_LABEL: Record<Route, string> = { glean: 'Glean', local: 'Local' };
 /** Each route keeps its own colour; Glean's lavender comes from its icon. */
-export const ROUTE_COLOR: Record<Route, string> = { glean: '#9a9df5', local: 'var(--aqua)' };
+export const ROUTE_COLOR: Record<Route, string> = { glean: 'var(--route-glean)', local: 'var(--aqua)' };
 
 export function hydrated(q: string, anchor: number | null, glean: boolean): Promise<Hydrated> {
   return call<Hydrated>('search.hydrated', { q, anchor, glean });

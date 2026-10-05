@@ -143,7 +143,7 @@
     </div>
   {:else if row.kind === 'thinking'}
     <div class="g">
-      <i class="ph {ICON.thinking} ic" style:color="#7c6f64"></i>
+      <i class="ph {ICON.thinking} ic" style:color="var(--thinking)"></i>
       <div class="mid">
         {#snippet m()}<span class="own">thinking{row.tokens ? ` · ${row.tokens} tok` : ''}</span>{/snippet}
         {#snippet r()}<span class="k">E</span>{/snippet}
@@ -473,7 +473,7 @@
     overflow-y: auto;
   }
   .result.failed {
-    color: #d97a6c;
+    color: var(--result-failed);
   }
   .ok {
     color: var(--green);
@@ -509,7 +509,7 @@
     font: 0.808rem var(--font-mono);
   }
   .acts .primary {
-    background: rgba(142, 192, 124, 0.14);
+    background: var(--aqua-fill);
     border-color: var(--aqua);
     color: var(--aqua);
   }

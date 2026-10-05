@@ -485,10 +485,10 @@
     cursor: pointer;
   }
   .msg:hover:not(.focus):not(.chosen) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .msg.focus {
-    background: rgba(142, 192, 124, 0.1);
+    background: var(--aqua-tint);
     box-shadow: inset 2px 0 0 var(--aqua);
   }
   .msg.moved {

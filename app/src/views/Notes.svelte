@@ -488,7 +488,7 @@
   }
   .car:hover:not(:disabled) {
     color: var(--tx-2);
-    background: rgba(235, 219, 178, 0.05);
+    background: var(--hover-tint);
   }
   .car:disabled {
     color: var(--tx-disabled);

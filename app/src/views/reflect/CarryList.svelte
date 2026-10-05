@@ -107,7 +107,7 @@
     border-top: 1px solid var(--bg-head);
   }
   .row:not(.sel):hover {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .glyph {
     font-size: 1.0769rem;
@@ -141,7 +141,7 @@
     transition: background 120ms;
   }
   .b:hover {
-    background: rgba(235, 219, 178, 0.05);
+    background: var(--hover-tint);
     border-color: var(--border-strong);
   }
   .state {

@@ -217,7 +217,7 @@
     gap: 5px;
     font-size: 0.8462rem;
     font-weight: 400;
-    color: #9a9df5;
+    color: var(--route-glean);
   }
   .close {
     margin-left: auto;

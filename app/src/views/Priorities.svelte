@@ -398,7 +398,7 @@
     border-top: 0;
   }
   .row:hover:not(.sel) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .bar {
     align-self: stretch;
@@ -464,7 +464,7 @@
     transition: background 120ms;
   }
   .chip:hover:not(.sel) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .chip.sel {
     color: var(--tx-body);
@@ -486,7 +486,7 @@
     padding: 9px 14px;
     border-radius: var(--r-panel);
     background: rgba(142, 192, 124, 0.08);
-    border: 1px solid rgba(142, 192, 124, 0.45);
+    border: 1px solid var(--aqua-line);
     min-width: 0;
     white-space: nowrap;
   }
@@ -530,7 +530,7 @@
     border-radius: var(--r-panel);
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--popover);
     animation: fade 120ms ease-out;
   }
   @keyframes fade {

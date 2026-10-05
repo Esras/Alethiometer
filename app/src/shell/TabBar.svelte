@@ -65,7 +65,7 @@
   }
   .cog:hover {
     color: var(--tx-2);
-    background: rgba(235, 219, 178, 0.05);
+    background: var(--hover-tint);
   }
   .cog.on {
     color: var(--aqua);
@@ -93,7 +93,7 @@
     color: var(--tx-body);
   }
   .badge.on {
-    background: rgba(142, 192, 124, 0.2);
+    background: var(--aqua-badge);
     color: var(--aqua);
   }
   .right {

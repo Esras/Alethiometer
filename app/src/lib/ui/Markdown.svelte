@@ -133,7 +133,7 @@
   pre {
     padding: 6px 8px;
     border-radius: 4px;
-    background: rgba(235, 219, 178, 0.05);
+    background: var(--hover-tint);
     overflow-x: auto;
   }
   pre code {

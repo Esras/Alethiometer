@@ -449,7 +449,7 @@
     font-size: 0.8077rem;
     padding: 1px 7px;
     border-radius: 9px;
-    background: rgba(142, 192, 124, 0.2);
+    background: var(--aqua-badge);
     color: var(--aqua);
   }
   .path {

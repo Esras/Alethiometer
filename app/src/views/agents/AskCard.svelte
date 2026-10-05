@@ -215,7 +215,7 @@
     border-color: var(--aqua);
   }
   .b.primary {
-    background: rgba(142, 192, 124, 0.14);
+    background: var(--aqua-fill);
     border-color: var(--aqua);
     color: var(--aqua);
     font-weight: 500;

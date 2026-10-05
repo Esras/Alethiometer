@@ -54,7 +54,7 @@
     border-radius: var(--r-input);
     border: 1px solid var(--border-strong);
     background: var(--bg-app);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--popover);
   }
   input {
     width: 100%;

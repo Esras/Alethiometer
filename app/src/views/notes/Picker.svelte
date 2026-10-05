@@ -88,7 +88,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
     border-radius: var(--r-panel);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--popover);
     overflow: hidden;
     font-size: 0.9615rem;
   }

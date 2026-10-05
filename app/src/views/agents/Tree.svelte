@@ -464,7 +464,7 @@
   }
   .group:hover,
   .row:hover {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .group.sel,
   .row.sel {

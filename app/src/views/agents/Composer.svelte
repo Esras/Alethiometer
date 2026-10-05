@@ -322,7 +322,7 @@
     border-color: var(--tx-disabled);
   }
   .btn.primary {
-    background: rgba(142, 192, 124, 0.14);
+    background: var(--aqua-fill);
     border-color: var(--aqua);
     color: var(--aqua);
   }

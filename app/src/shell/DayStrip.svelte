@@ -363,13 +363,13 @@
     inset: -6px 0 auto 0;
     height: 3px;
     border-radius: 1px;
-    background: #fe8019;
+    background: var(--orange);
   }
   .band.triple {
     background: rgba(251, 73, 52, 0.14);
   }
   .band.triple::before {
-    background: #fb4934;
+    background: var(--red);
   }
   .more {
     position: absolute;
@@ -470,7 +470,7 @@
     border-radius: var(--r-panel);
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--popover);
     font-size: 0.9615rem;
   }
   .pop-head {

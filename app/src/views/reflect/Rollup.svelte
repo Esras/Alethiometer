@@ -76,7 +76,7 @@
     transition: background 120ms;
   }
   .row:hover {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .lbl {
     color: var(--tx-muted-2);

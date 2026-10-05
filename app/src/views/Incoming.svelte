@@ -915,7 +915,7 @@
     color: var(--tx-2);
   }
   .on .count {
-    background: rgba(142, 192, 124, 0.2);
+    background: var(--aqua-badge);
     color: var(--aqua);
   }
   .fade-rule {
@@ -971,7 +971,7 @@
     transition: background 120ms;
   }
   .sig:hover:not(.sel) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .sig.sel {
     background: var(--aqua-tint-soft);
@@ -1120,7 +1120,7 @@
     cursor: pointer;
   }
   .msg.pickable:hover:not(.chosen) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .msg.focus {
     box-shadow: inset 2px 0 0 var(--aqua);

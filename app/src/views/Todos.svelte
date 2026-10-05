@@ -381,7 +381,7 @@
     box-shadow: inset 3px 0 0 var(--topic, transparent);
   }
   .todo:hover:not(.sel) {
-    background: rgba(235, 219, 178, 0.03);
+    background: var(--row-hover);
   }
   .todo.sel {
     background: var(--aqua-tint-soft);

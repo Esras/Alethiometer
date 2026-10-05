@@ -111,7 +111,7 @@
   opacity: 0.8;
 }
 .agent-form .chip.on {
-  background: rgba(142, 192, 124, 0.14);
+  background: var(--aqua-fill);
   border-color: var(--aqua);
   color: var(--aqua);
 }
@@ -220,7 +220,7 @@
   white-space: nowrap;
 }
 .agent-form .b.primary {
-  background: rgba(142, 192, 124, 0.14);
+  background: var(--aqua-fill);
   border-color: var(--aqua);
   color: var(--aqua);
   font-weight: 500;

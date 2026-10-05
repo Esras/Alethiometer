@@ -47,7 +47,7 @@
     position: fixed;
     inset: 32px 0 0 0;
     z-index: 50;
-    background: rgba(15, 16, 18, 0.68);
+    background: var(--scrim);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -58,7 +58,7 @@
     border-radius: 10px;
     background: var(--bg-panel);
     border: 1px solid var(--border-strong);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--modal);
   }
   .modal .top {
     padding: 12px 16px;
