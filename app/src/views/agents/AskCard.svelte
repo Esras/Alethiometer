@@ -6,6 +6,7 @@
   import { agentColor } from './look';
   import { act, ag, age, look, openThread, sessionById } from './state.svelte';
   import type { FormField, Request } from './types';
+  import NeedCard from './NeedCard.svelte';
 
   let { req, compact = false, onReply }: { req: Request; compact?: boolean; onReply: () => void } = $props();
 
@@ -47,23 +48,20 @@
   }
 </script>
 
-{#if compact}
-  <div class="one">
-    <i class="ph ph-question"></i>
-    <span class="t"><span style:color={agentColor(look(), s)}>{s?.name}</span> is waiting for you</span>
-    <span class="c">{req.question}</span>
-    <span class="hint">back after Esc</span>
-  </div>
-{:else}
-  <div class="card">
-    <div class="top">
-      <i class="ph ph-question big"></i>
-      <span class="t">{s?.name ?? 'An agent'} is waiting for you</span>
-      <span class="via">{req.via || 'input-needed'} · {age(req.at, Date.now())}</span>
-      {#if req.thread !== `s:${req.session_id}`}
-        <button class="link" onclick={() => openThread(`s:${req.session_id}`)}><i class="ph ph-arrow-square-out"></i>Open session</button>
-      {/if}
-    </div>
+{#snippet title()}
+  {#if compact}<span style:color={agentColor(look(), s)}>{s?.name}</span> is waiting for you{:else}{s?.name ?? 'An agent'} is waiting for you{/if}
+{/snippet}
+{#snippet meta()}
+  <span class="via">{req.via || 'input-needed'} · {age(req.at, Date.now())}</span>
+  {#if req.thread !== `s:${req.session_id}`}
+    <button class="link" onclick={() => openThread(`s:${req.session_id}`)}><i class="ph ph-arrow-square-out"></i>Open session</button>
+  {/if}
+{/snippet}
+{#snippet summary()}
+  <span class="c">{req.question}</span>
+{/snippet}
+
+<NeedCard icon="question" {compact} {title} {meta} {summary} headBottom={4}>
     <div class="q">{req.question}</div>
     {#if formNeeded}
       <div class="fields">
@@ -112,32 +110,9 @@
       {#if req.form}<span class="right">Asked by {s?.name ?? 'the agent'}</span>
       {:else if req.choices.length}<span class="right">Choices read from {s?.name ?? 'the agent'}’s message</span>{/if}
     </div>
-  </div>
-{/if}
+</NeedCard>
 
 <style>
-  .card {
-    border-radius: var(--r-panel);
-    background: var(--need-soft);
-    border: 1px solid var(--need-soft-border);
-    display: flex;
-    flex-direction: column;
-  }
-  .top {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 8px 12px 4px;
-  }
-  .big {
-    font-size: 1.231rem;
-    color: var(--need);
-  }
-  .t {
-    color: var(--tx-title);
-    font-weight: 500;
-    white-space: nowrap;
-  }
   .via {
     font: 0.885rem var(--font-mono);
     color: var(--tx-label);
@@ -265,24 +240,7 @@
     font-size: 0.885rem;
     color: var(--tx-label);
   }
-  .one {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 6px 12px;
-    border-radius: var(--r-panel);
-    background: var(--need-soft);
-    border: 1px solid var(--need-soft-border);
-    min-width: 0;
-  }
-  .one i {
-    font-size: 1.077rem;
-    color: var(--need);
-  }
-  .one .t {
-    font-weight: 500;
-  }
-  .one .c {
+  .c {
     flex: 1;
     min-width: 0;
     font-size: 1rem;
@@ -290,10 +248,5 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .hint {
-    font: 0.846rem var(--font-mono);
-    color: var(--tx-label);
-    white-space: nowrap;
   }
 </style>

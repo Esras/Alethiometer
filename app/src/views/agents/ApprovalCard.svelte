@@ -5,6 +5,7 @@
   import Panels from './Panels.svelte';
   import { act } from './state.svelte';
   import type { Request } from './types';
+  import NeedCard from './NeedCard.svelte';
 
   let { req, compact = false, denying = $bindable(false) }: { req: Request; compact?: boolean; denying?: boolean } = $props();
 
@@ -46,21 +47,16 @@
   const label = (o: Option) => o.name.trim() || (isDeny(o) ? 'Deny' : o.kind === 'allow_once' ? 'Allow once' : 'Always');
 </script>
 
-{#if compact}
-  <div class="one">
-    <i class="ph ph-shield-warning"></i>
-    <span class="t">{req.title}</span>
-    <span class="c">{req.command}</span>
-    <span class="hint">back after Esc</span>
-  </div>
-{:else}
-  <div class="card">
-    <div class="top">
-      <i class="ph ph-shield-warning big"></i>
-      <span class="t">{req.title}</span>
-      <span class="tool">{req.tool}</span>
-      <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
-    </div>
+{#snippet title()}{req.title}{/snippet}
+{#snippet meta()}
+  <span class="tool">{req.tool}</span>
+  <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
+{/snippet}
+{#snippet summary()}
+  <span class="c">{req.command}</span>
+{/snippet}
+
+<NeedCard icon="shield-warning" {compact} {title} {meta} {summary} maxHeight="55vh">
     {#if req.command}<div class="command command-block">{pretty}</div>{/if}
     {#if req.message}<div class="said" title="Sent by the agent with the request; the explainer never sees it"><i class="ph ph-chat-text"></i><span>{req.message}</span></div>{/if}
     {#if req.parsed || req.explained}<div class="pw"><Panels {req} /></div>{/if}
@@ -92,33 +88,9 @@
         <span class="right">Esc later</span>
       </div>
     {/if}
-  </div>
-{/if}
+</NeedCard>
 
 <style>
-  .card {
-    border-radius: var(--r-panel);
-    background: var(--need-soft);
-    border: 1px solid var(--need-soft-border);
-    display: flex;
-    flex-direction: column;
-    max-height: 55vh;
-  }
-  .top {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 8px 12px 6px;
-  }
-  .big {
-    font-size: 1.231rem;
-    color: var(--need);
-  }
-  .t {
-    color: var(--tx-title);
-    font-weight: 500;
-    white-space: nowrap;
-  }
   .tool {
     font: 0.885rem var(--font-mono);
     color: var(--tx-label);
@@ -217,21 +189,7 @@
     outline: none;
     font-size: 1rem;
   }
-  .one {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 6px 12px;
-    border-radius: var(--r-panel);
-    background: var(--need-soft);
-    border: 1px solid var(--need-soft-border);
-    min-width: 0;
-  }
-  .one i {
-    font-size: 1.077rem;
-    color: var(--need);
-  }
-  .one .c {
+  .c {
     flex: 1;
     min-width: 0;
     font: 0.923rem var(--font-mono);
@@ -239,10 +197,5 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .hint {
-    font: 0.846rem var(--font-mono);
-    color: var(--tx-label);
-    white-space: nowrap;
   }
 </style>
