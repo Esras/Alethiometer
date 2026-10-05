@@ -598,7 +598,7 @@
         <span class="name ellipsis" title={t.name}>
           {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{:else if t.key === 'agents'}<i class="ph ph-robot"></i>{/if}{t.name}
         </span>
-        <span class="count tnum">{t.count}</span>
+        <span class="count tnum" class:on={t.key === selKey}>{t.count}</span>
       </button>
     {/each}
   </div>
@@ -637,7 +637,7 @@
                   {/if}
                   {#if s.split}
                     <span
-                      class="pill split"
+                      class="count split"
                       role="button"
                       tabindex="-1"
                       title="Split across topics: review it (s)"
@@ -908,17 +908,6 @@
   .unsorted .name i {
     color: var(--tx-label);
   }
-  .count {
-    font-size: 0.8077rem;
-    padding: 1px 7px;
-    border-radius: 9px;
-    background: var(--border);
-    color: var(--tx-2);
-  }
-  .on .count {
-    background: var(--aqua-badge);
-    color: var(--aqua);
-  }
   .fade-rule {
     flex: none;
     margin: 12px 14px 8px;
@@ -1130,9 +1119,6 @@
   .pill.cat {
     align-self: center;
     flex: none;
-    font-size: 0.8077rem;
-    padding: 1px 7px;
-    border-radius: 9px;
   }
   .pill.change {
     align-self: center;
@@ -1143,20 +1129,15 @@
     color: var(--tx-2);
     margin: 4px 0;
   }
-  .pill.split {
+  .count.split {
     align-self: center;
     flex: none;
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 0.8077rem;
-    padding: 1px 7px;
-    border-radius: 9px;
-    background: rgba(142, 192, 124, 0.18);
-    color: var(--aqua);
     cursor: pointer;
   }
-  .pill.split i {
+  .count.split i {
     font-size: 0.8462rem;
   }
   .gap {

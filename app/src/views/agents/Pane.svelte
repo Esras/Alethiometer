@@ -363,15 +363,6 @@
     font-size: 0.885rem;
     border-bottom: 1px solid var(--bg-head);
   }
-  .chip {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-    padding: 1px 7px;
-    border-radius: 5px;
-    border: 1px solid var(--tx-label);
-    color: var(--tx-2);
-  }
   .chip i {
     font-size: 0.923rem;
   }

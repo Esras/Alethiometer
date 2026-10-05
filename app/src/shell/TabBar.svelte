@@ -16,11 +16,11 @@
     <button class="tab" class:on={ui.tab === t.id} onclick={() => setTab(t.id)} title={n < 0 ? '' : `${isMac ? '⌘' : 'Ctrl+'}${n + 1}`}>
       {#if t.id === 'search'}<i class="ph ph-magnifying-glass"></i>{/if}{t.label}
       {#if t.id === 'incoming' && ui.info}
-        <span class="badge" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
+        <span class="count" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
       {:else if t.id === 'todos' && ui.info?.todo_count}
-        <span class="badge" class:on={ui.tab === t.id}>{ui.info.todo_count}</span>
+        <span class="count" class:on={ui.tab === t.id}>{ui.info.todo_count}</span>
       {:else if t.id === 'agents' && ui.info?.agents_waiting}
-        <span class="badge" class:on={ui.tab === t.id}>{ui.info.agents_waiting}</span>
+        <span class="count" class:on={ui.tab === t.id}>{ui.info.agents_waiting}</span>
       {/if}
     </button>
   {/each}
@@ -84,17 +84,6 @@
   .tab.on {
     color: var(--tx-body);
     box-shadow: inset 0 -2px 0 var(--aqua);
-  }
-  .badge {
-    font-size: 0.8077rem;
-    padding: 0 6px;
-    border-radius: 8px;
-    background: var(--border);
-    color: var(--tx-body);
-  }
-  .badge.on {
-    background: var(--aqua-badge);
-    color: var(--aqua);
   }
   .right {
     margin-left: auto;

@@ -288,7 +288,7 @@
     <div class="title-line">
       <span class="title ellipsis">{fam.title}</span>
       <span class="meta tnum">{metaLine}</span>
-      <span class="pill"><i class="ph ph-git-fork"></i>split</span>
+      <span class="count split"><i class="ph ph-git-fork"></i>split</span>
     </div>
     <span class="modes">
       <span class="seg">
@@ -413,18 +413,13 @@
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
-  .pill {
+  .count.split {
     align-self: center;
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 0.8077rem;
-    padding: 1px 7px;
-    border-radius: 9px;
-    background: rgba(142, 192, 124, 0.18);
-    color: var(--aqua);
   }
-  .pill i {
+  .count.split i {
     font-size: 0.8462rem;
   }
   .modes {

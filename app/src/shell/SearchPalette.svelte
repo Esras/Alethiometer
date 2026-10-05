@@ -189,7 +189,7 @@
     <i class="ph ph-magnifying-glass"></i>
     <input bind:this={input} bind:value={q} placeholder="Search everything" />
     {#if context !== null}
-      <button class="anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({k('⌥A', 'Alt+A')})">
+      <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({k('⌥A', 'Alt+A')})">
         {#if anchored}
           <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}></span>{anchorName ?? 'This topic'}
         {:else}
@@ -294,15 +294,7 @@
     color: var(--tx-title);
   }
   .anchor {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 4px 2px 9px;
-    border-radius: 999px;
-    border: 1px solid var(--border-strong);
-    color: var(--tx-muted-2);
-    font-size: 0.9231rem;
-    white-space: nowrap;
+    padding-right: 4px;
   }
   .anchor.on {
     border-color: color-mix(in srgb, var(--yellow) 60%, transparent);

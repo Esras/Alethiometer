@@ -82,6 +82,7 @@
   --space-14: 14px;
   --space-16: 16px;
 
+  --radius-full: 999px;
   --r-block: 4px;
   --r-input: 6px;
   --r-panel: 8px;
@@ -299,11 +300,15 @@ pre,
   color: var(--orange);
 }
 
-/* Reason / weight pills */
+/* Pills, counts and chips (ui-plan decision 4), all fully round.
+   .pill is a coloured label (reason, weight, category); .count is a neutral
+   number, aqua (.on) only on the row or tab that is open; .chip is a filter
+   or toggle, aqua when on. A chip with a per-item colour (a dot, a route
+   colour) keeps the mark in the view and shares only the shell. */
 .pill {
   font-size: 0.8077rem;
   padding: 1px 7px;
-  border-radius: 9px;
+  border-radius: var(--radius-full);
   white-space: nowrap;
 }
 .pill.red {
@@ -317,6 +322,34 @@ pre,
 .pill.green {
   background: var(--pill-green-fill);
   color: var(--green);
+}
+.count {
+  font-size: 0.8077rem;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+  color: var(--tx-2);
+  white-space: nowrap;
+}
+.count.on {
+  background: var(--aqua-badge);
+  color: var(--aqua);
+}
+.chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  color: var(--tx-muted-2);
+  font-size: 0.9231rem;
+  white-space: nowrap;
+}
+.chip.on {
+  background: var(--aqua-tint);
+  border-color: var(--aqua);
+  color: var(--tx-title);
 }
 
 /* Segmented control (Day/Week…, Both/Work/Life) */

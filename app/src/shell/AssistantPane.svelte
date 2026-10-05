@@ -153,7 +153,7 @@
       {#if last}
         {@const kept = last.sources.filter((s) => s.kept).length}
         {@const dropped = last.sources.length - kept}
-        <div class="count">
+        <div class="tally">
           <span>{kept} sources</span>
           <span class="warn">{dropped} dropped</span>
           <span>{last.queries.length - 1} {last.queries.length === 2 ? 'query' : 'queries'}</span>
@@ -169,7 +169,7 @@
           <div class="label slabel">Sent with your question</div>
           <div class="chips">
             {#each chips as c (c.id)}
-              <button class="chip" class:off={!c.on} onclick={() => toggle(c)} title={c.on ? 'Remove (asks again without it)' : 'Add'}>
+              <button class="src" class:off={!c.on} onclick={() => toggle(c)} title={c.on ? 'Remove (asks again without it)' : 'Add'}>
                 <span class:mono={c.id === 'keys'}>{c.label}</span><i class="ph {c.on ? 'ph-x' : 'ph-plus'}"></i>
               </button>
             {/each}
@@ -298,7 +298,7 @@
     display: flex;
     gap: 6px;
   }
-  .count {
+  .tally {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -308,7 +308,7 @@
     color: var(--tx-2);
     font-size: 0.9231rem;
   }
-  .count .warn {
+  .tally .warn {
     color: var(--orange);
   }
   .srcbtn {
@@ -333,7 +333,7 @@
     flex-wrap: wrap;
     gap: 6px;
   }
-  .chip {
+  .src {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -343,11 +343,11 @@
     color: var(--tx-2);
     font-size: 0.9231rem;
   }
-  .chip i {
+  .src i {
     color: var(--tx-label);
     font-size: 0.7692rem;
   }
-  .chip.off {
+  .src.off {
     background: none;
     border: 1px dashed var(--border-strong);
     color: var(--tx-label);

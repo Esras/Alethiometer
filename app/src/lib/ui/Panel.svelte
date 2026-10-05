@@ -35,7 +35,7 @@
     </button>
     <span class="right">
       {#if right}{@render right()}{/if}
-      {#if count !== null}<span class="count">{count}</span>{/if}
+      {#if count !== null}<span class="n">{count}</span>{/if}
     </span>
   </header>
   {#if open}
@@ -88,7 +88,7 @@
     align-items: center;
     font-size: 0.8462rem;
   }
-  .count {
+  .n {
     color: var(--tx-muted-2);
   }
 </style>

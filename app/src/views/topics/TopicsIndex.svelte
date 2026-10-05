@@ -184,7 +184,7 @@
     <div class="min0">
       <div class="name">
         <span class="ellipsis" title={t.name}>{t.name}</span>
-        {#if t.new_count > 0}<span class="badge tnum">{t.new_count} new</span>{/if}
+        {#if t.new_count > 0}<span class="count new tnum">{t.new_count} new</span>{/if}
       </div>
       {#if merge}
         <div class="path merging">merged into {merge.intoName} · <span class="u">u</span> undo</div>
@@ -210,7 +210,7 @@
       <label class="filter">
         <i class="ph ph-funnel-simple"></i>
         <input bind:this={input} bind:value={q} placeholder="Filter topics" />
-        <span class="count tnum">{rows.length} topics</span>
+        <span class="total tnum">{rows.length} topics</span>
       </label>
       <div class="seg" role="tablist" aria-label="Topics">
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
@@ -321,7 +321,7 @@
     color: var(--tx-body);
     font: inherit;
   }
-  .count {
+  .total {
     font-size: 0.8846rem;
   }
   .cols,
@@ -394,19 +394,6 @@
     padding: 8px 18px 0;
     font-size: 0.9231rem;
   }
-  .chip {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 2px 9px;
-    border-radius: 10px;
-    color: var(--tx-muted);
-  }
-  .chip.on {
-    background: rgba(142, 192, 124, 0.18);
-    color: var(--aqua);
-    box-shadow: inset 0 0 0 1px rgba(142, 192, 124, 0.5);
-  }
   .sq {
     width: 9px;
     height: 9px;
@@ -425,13 +412,8 @@
   .sel .name {
     font-weight: 500;
   }
-  .badge {
+  .count.new {
     flex: none;
-    font-size: 0.8077rem;
-    padding: 1px 7px;
-    border-radius: 9px;
-    background: var(--aqua-badge);
-    color: var(--aqua);
   }
   .path {
     font-size: 0.8846rem;

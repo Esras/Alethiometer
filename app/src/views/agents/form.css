@@ -96,27 +96,13 @@
   box-shadow: 0 0 0 1px var(--aqua);
 }
 .agent-form .chip {
-  display: flex;
-  gap: 6px;
   align-items: baseline;
-  padding: 2px 9px;
-  border-radius: 5px;
   font: 0.923rem var(--font-mono);
-  border: 1px solid var(--border-strong);
-  color: var(--tx-2);
 }
 .agent-form .chip .v {
   font-size: 0.808rem;
   color: var(--tx-label);
   opacity: 0.8;
-}
-.agent-form .chip.on {
-  background: var(--aqua-fill);
-  border-color: var(--aqua);
-  color: var(--aqua);
-}
-.agent-form .chip.on .v {
-  color: var(--aqua);
 }
 .agent-form .check {
   display: flex;

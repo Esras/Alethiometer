@@ -82,13 +82,6 @@
     padding: 7px 14px;
   }
   .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--border-strong);
-    color: var(--tx-muted-2);
     transition: border-color 120ms;
   }
   .chip.hot,

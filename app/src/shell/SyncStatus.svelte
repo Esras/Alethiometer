@@ -134,7 +134,7 @@
 </script>
 
 <span class="wrap">
-  <button class="chip" bind:this={chip} onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
+  <button class="sync" bind:this={chip} onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
     <StatusMark status={problem ? 'problem' : 'running'} />
     {#if live.length}synced {ago(newest)}{:else}sample data{/if}
     {#if pending.length}<span class="n">· {pending.length} sending</span>{/if}
@@ -192,7 +192,7 @@
         <div class="label">Writes</div>
         {#each shownWrites as w (w.id)}
           <div class="row w">
-            <span class="state {w.state}">{w.state}</span>
+            <span class="count {w.state}">{w.state}</span>
             <span class="ellipsis">{w.op}</span>
             <span class="when ellipsis">{w.error ? 'error' : w.source}</span>
           </div>
@@ -212,7 +212,7 @@
     display: flex;
     align-items: center;
   }
-  .chip {
+  .sync {
     display: flex;
     gap: 7px;
     align-items: center;
@@ -285,18 +285,11 @@
   .connect {
     word-break: break-all;
   }
-  .state {
-    font-size: 0.8077rem;
-    padding: 1px 6px;
-    border-radius: 9px;
-    background: var(--border);
-    color: var(--tx-2);
-  }
-  .state.failed {
+  .count.failed {
     background: rgba(254, 128, 25, 0.16);
     color: var(--orange);
   }
-  .state.confirmed {
+  .count.confirmed {
     background: rgba(184, 187, 38, 0.16);
     color: var(--green);
   }

@@ -96,6 +96,11 @@ const scenes = {
   // The reply toggle is .btn.on. The Assistant's Sources button (.btn.on too) only
   // shows after a Glean answer, which the sample data can't give.
   'agents-ask-reply': ['Control+7', { exact: 'fakeask-agent' }, 'r'],
+  // Counts and chips
+  // Priorities' compact quadrants are chips; the palette opened from a topic shows
+  // the anchor chip. The Todos Jira status chip needs a Jira todo the sample data lacks.
+  'priorities-compact': ['Control+2', 'v'],
+  'palette-in-topic': ['Control+3', 'Enter', 'Control+k'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

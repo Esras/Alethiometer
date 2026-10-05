@@ -497,20 +497,6 @@
     text-transform: none;
     font-size: 0.8462rem;
   }
-  .chip {
-    padding: 1px 7px;
-    border-radius: 9px;
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    color: var(--tx-muted);
-  }
-  .chip.on {
-    padding: 1px 8px;
-    background: rgba(142, 192, 124, 0.18);
-    color: var(--aqua);
-    box-shadow: inset 0 0 0 1px rgba(142, 192, 124, 0.5);
-  }
   .people {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

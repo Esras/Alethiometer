@@ -100,7 +100,7 @@
     {:else if field.widget === 'font'}
       <FontPick value={String(value ?? '')} {fonts} mono={!!o.mono} open={editing} onclose={() => onedit(false)} onchange={(v) => onset(v)} />
     {:else if readonly && Array.isArray(value)}
-      <span class="chips">{#each value as v}<span class="chip">{v}</span>{/each}</span>
+      <span class="chips">{#each value as v}<span class="val">{v}</span>{/each}</span>
       <span class="lock"><i class="ph ph-lock-simple"></i>settings.json only</span>
     {:else if field.widget === 'list' || field.widget === 'masked_list'}
       <ListEdit items={(value as string[]) ?? []} masked={field.widget === 'masked_list'} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -286,7 +286,7 @@
     display: flex;
     gap: 6px;
   }
-  .chip {
+  .val {
     padding: 2px 8px;
     border-radius: var(--r-input);
     background: var(--bg-head);

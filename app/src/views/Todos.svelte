@@ -229,7 +229,7 @@
                 <button class="from link ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
               {:else if t.from}<span class="from ellipsis">{t.from}</span>{/if}
             </span>
-            <span>{#if t.ext.type === 'jira'}<span class="status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
+            <span>{#if t.ext.type === 'jira'}<span class="chip status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
             <span class="topic ellipsis">
               {#if t.topic}<span class="cbar" style:background={catColor(t.topic.category)}></span>{t.topic.name}{:else}<span class="none">No topic</span>{/if}
             </span>
@@ -318,16 +318,6 @@
     display: flex;
     gap: 4px;
   }
-  .chip {
-    padding: 3px 10px;
-    border-radius: var(--r-input);
-    font-size: 0.9231rem;
-    color: var(--tx-muted-2);
-  }
-  .chip.on {
-    background: var(--aqua-tint);
-    color: var(--aqua);
-  }
   .grow {
     flex: 1;
   }
@@ -413,15 +403,11 @@
   .signal {
     padding: 0 16px 10px 56px;
   }
+  /* A chip that truncates: .ellipsis needs a block box, not .chip's inline-flex. */
   .status {
     display: inline-block;
     max-width: 100%;
     vertical-align: middle;
-    padding: 1px 7px;
-    border-radius: 10px;
-    border: 1px solid var(--border-strong);
-    font-size: 0.8462rem;
-    color: var(--tx-muted);
   }
   .topic {
     display: flex;

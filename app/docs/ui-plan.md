@@ -193,6 +193,7 @@ These already match:
   - 5px radius: `agents/Pane:377` (plus `.c-*` 389–413), `agents/form.css:97/112` and `Priorities:455`;
   - other radii: `TopicsIndex:416/424` (10px with an inset ring), `Topics:503/511` (9px) and `Todos:321/327` (`--r-input`);
   - `Todos:425 .status`.
+- **Done (2026-10-05):** `--radius-full: 999px`, `.pill` (now round), `.count`, `.count.on` and `.chip`, `.chip.on` are in `app.css`; every site above uses them. Counts are grey and aqua only on the open row or tab (TabBar's active tab, Incoming's open topic); TopicsIndex's "N new" and both `split` pills are plain grey `.count`s. Chips keep their marks (category squares, Pane's `c-*` fills, FacetBar's `--rc` and `.hot`/`.on`/`.off`, the palette anchor's yellow on-state), and Priorities' selected chip is `.on`. Todos' Jira `.status` is a `.chip` that keeps `display: inline-block` so it can truncate. Left alone: Panel's, Priorities' header, Settings' nav and Search's counts, and the sync chip, Assistant source chips and Settings' list/value chips are not in the list (their local class names were renamed so the globals don't reach them).
 
 **5 · Popovers, modals, scrims, insets.** These are the Phase 2 Modal and Popover. Inset blocks → `.inset` (6px radius, `--border`):
 - `agents/Pane:315 .facts` (7px) and `agents/Joins:38` (7px);

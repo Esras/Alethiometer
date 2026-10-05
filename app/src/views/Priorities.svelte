@@ -165,7 +165,7 @@
   {#if q}
     <section class="quad">
       <header>
-        {LABELS[q.key]}<span class="count tnum">{q.items.length}</span>
+        {LABELS[q.key]}<span class="qcount tnum">{q.items.length}</span>
         <button class="eye" onclick={() => toggle(qi)} title="{compact[q.key] ? 'Show rows' : 'Group by topic'} (v)">
           <i class="ph ph-{compact[q.key] ? 'eye-slash' : 'eye'}"></i>
         </button>
@@ -175,7 +175,7 @@
           {#each chips[qi] as c, i}
             <button
               class="chip"
-              class:sel={sel.q === qi && sel.i === i}
+              class:on={sel.q === qi && sel.i === i}
               bind:this={rowEls[`c${qi}-${i}`]}
               onclick={() => select(qi, i)}
               ondblclick={() => c.topic && openTopic(c.topic.id)}
@@ -364,7 +364,7 @@
     color: var(--tx-muted);
     white-space: nowrap;
   }
-  .count {
+  .qcount {
     letter-spacing: 0;
     color: var(--tx-label);
   }
@@ -453,21 +453,10 @@
     overflow-y: auto;
   }
   .chip {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 3px 8px;
-    border-radius: 5px;
-    border: 1px solid var(--border);
-    background: var(--bg-app);
-    white-space: nowrap;
     transition: background 120ms;
   }
-  .chip:hover:not(.sel) {
+  .chip:hover:not(.on) {
     background: var(--row-hover);
-  }
-  .chip.sel {
-    color: var(--tx-body);
   }
   .sq {
     width: 6px;

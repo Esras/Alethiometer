@@ -38,7 +38,7 @@
 
 <span class="list">
   {#each items as it, i}
-    <span class="chip" class:mono={masked}>
+    <span class="item" class:mono={masked}>
       {masked ? shorten(it) : it}
       <button onclick={() => onchange(items.filter((_, j) => j !== i))} aria-label="Remove {it}"><i class="ph ph-x"></i></button>
     </span>
@@ -72,7 +72,7 @@
     gap: 6px;
     max-width: 520px;
   }
-  .chip {
+  .item {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -81,12 +81,12 @@
     background: var(--bg-head);
     color: var(--tx-2);
   }
-  .chip button {
+  .item button {
     color: var(--tx-label);
     font-size: 0.8462rem;
     display: flex;
   }
-  .chip button:hover {
+  .item button:hover {
     color: var(--tx-title);
   }
   .add {

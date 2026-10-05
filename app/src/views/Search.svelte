@@ -143,7 +143,7 @@
 <div class="view">
   <div class="panel col">
     <div class="head">
-      <span class="count">
+      <span class="total">
         {#if res}{shown.length} {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
       </span>
       {#if asking}<span class="asking">asking Glean…</span>{/if}
@@ -251,7 +251,7 @@
   .row.lit {
     box-shadow: inset 2px 0 0 var(--rc);
   }
-  .count {
+  .total {
     font-size: 1.0769rem;
     color: var(--tx-body);
   }

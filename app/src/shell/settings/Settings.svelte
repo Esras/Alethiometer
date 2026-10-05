@@ -467,7 +467,7 @@
         <button class="sec" class:on={section === s.id && !findQ} onclick={() => goSection(s.id)}>
           <i class="ph ph-{s.icon}"></i><span>{s.label}</span>
           {#if s.id === 'sources' && attention && section !== 'sources'}<span class="dot"></span>{/if}
-          <span class="count">{counts[s.id] ?? ''}</span><span class="num">{i + 1}</span>
+          <span class="navcount">{counts[s.id] ?? ''}</span><span class="num">{i + 1}</span>
         </button>
         {#if s.id === 'sources' && section === 'sources' && page}
           {#each page.sources as so}
@@ -822,7 +822,7 @@
   .sub.add {
     color: var(--tx-label);
   }
-  .count {
+  .navcount {
     margin-left: auto;
     color: var(--tx-muted-2);
     font-size: 0.9231rem;
