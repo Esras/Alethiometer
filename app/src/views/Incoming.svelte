@@ -348,6 +348,10 @@
     reviewing = s.item_id;
   }
 
+  $effect(() => {
+    if (reviewing !== null && !flat.some((s) => s.item_id === reviewing)) reviewing = null;
+  });
+
   function endReview() {
     reviewing = null;
     refresh();
