@@ -716,7 +716,7 @@
                   {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
                   {#each s.context as m, ci (m.id)}
                     {#if hidden && ci === 1}
-                      <button class="more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                      <button class="link-toggle more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
                         … {hidden} earlier
                       </button>
                     {/if}
@@ -753,7 +753,7 @@
                       {@const readReplies = replies.filter((r) => r.read).length}
                       {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
                       {#if hiddenReplies}
-                        <button class="more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                        <button class="link-toggle more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
                           … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
                         </button>
                       {/if}

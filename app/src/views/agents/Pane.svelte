@@ -135,7 +135,7 @@
           <span class="fl">{label}</span>
           {#if f}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <span class="fv" class:link={!!f.url} onclick={() => f.url && openExternal(f.url)} title={f.url || undefined}
+            <span class="fv" class:link-out={!!f.url} onclick={() => f.url && openExternal(f.url)} title={f.url || undefined}
               ><span class:key={label === 'ticket'}>{f.label}</span>{#if f.detail} <span class="fd">{f.detail}</span>{/if}</span
             >
           {:else}<span class="fv none">{none}</span>{/if}
@@ -311,11 +311,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .fv.link {
+  .fv.link-out {
     cursor: pointer;
   }
-  .fv.link:hover {
-    text-decoration: underline;
+  .fv.link-out:hover {
+    text-underline-offset: auto;
   }
   .fv.none {
     color: var(--tx-disabled);

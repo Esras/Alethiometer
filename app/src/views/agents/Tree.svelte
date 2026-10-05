@@ -176,7 +176,7 @@
       {/if}
     {:else}
       <div class="empty-pane">
-        {#if ag.filter}Nothing matches "{ag.filter}".{:else}No sessions yet. <button class="link" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
+        {#if ag.filter}Nothing matches "{ag.filter}".{:else}No sessions yet. <button class="link-act" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
       </div>
     {/each}
   </div>
@@ -510,9 +510,6 @@
     font-size: 0.923rem;
     line-height: 1.5;
     text-align: left;
-  }
-  .link {
-    color: var(--aqua);
   }
   .hub-err {
     flex: none;

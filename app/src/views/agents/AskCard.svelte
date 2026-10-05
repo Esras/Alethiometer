@@ -54,7 +54,7 @@
 {#snippet meta()}
   <span class="via">{req.via || 'input-needed'} · {age(req.at, Date.now())}</span>
   {#if req.thread !== `s:${req.session_id}`}
-    <button class="link" onclick={() => openThread(`s:${req.session_id}`)}><i class="ph ph-arrow-square-out"></i>Open session</button>
+    <button class="link-nav" onclick={() => openThread(`s:${req.session_id}`)}><i class="ph ph-arrow-square-out"></i>Open session</button>
   {/if}
 {/snippet}
 {#snippet summary()}
@@ -117,16 +117,9 @@
     font: 0.885rem var(--font-mono);
     color: var(--tx-label);
   }
-  .link {
+  .link-nav {
     margin-left: auto;
     font-size: 0.923rem;
-    color: var(--tx-label);
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
-  .link:hover {
-    color: var(--tx-2);
   }
   .q {
     padding: 0 12px 0 38px;

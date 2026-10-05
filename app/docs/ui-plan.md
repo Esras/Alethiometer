@@ -336,6 +336,13 @@ These already match:
 - **Hover-underline links:** `Todos:418`, `Pane:340`.
 - **Leave the app:** `lib/ui/Markdown:149 a`.
 - **Unsure, not settled:** `lib/ui/NoteText:142 .link`, which is green.
+- **Done (2026-10-05):** `.link-act`, `.link-toggle`, `.link-nav` and `.link-out` are in `app.css` as the design system has them, and every scene is pixel-identical. Each site keeps what differs as a local override.
+  - **`.link-toggle`:** DayBrief's "Where time went" and "Decided" (the plan had them as "act here"; they show and hide a fold, caret and all; local `white-space: nowrap` and the hover underline) and Incoming's "… N earlier" `.more` (local grey `tx-muted-2`, aqua on hover, own padding and size).
+  - **`.link-act`:** the Agents tree's "Start one" (no override).
+  - **`.link-nav`:** AskCard's "Open session" (local `margin-left: auto` and size) and Todos' sender `.from` (local `display: block`, since the class's flex would stop its ellipsis; it keeps its own colour and hover underline).
+  - **`.link-out`:** `lib/ui/Markdown` links and the agent pane's fact values that carry a URL. Both keep the underline at the browser's default offset (the class's is 3px, which would show); the fact values also keep `tx-2` (not blue) through `.fv`.
+  - **Left alone:** Incoming's `.ghost` is the inert "Dismissed / Archived / Trashed" mark, not a link (a link class would add a hover), and TodoForm's `.ghost` is gone (Cancel and Clear are `.btn`). `NoteText .link` (green) is still unsure. Not in the plan and untouched: Incoming's `.all` (aqua) and `.app` (blue) with their hover underline, and the Agents tree's `.guess .move`.
+  - **Scenes:** `reflect`, `todos-done` (and the other todo scenes) and `composer-menu` reach DayBrief, Todos and AskCard. No scene reaches Incoming's `.more` (needs a signal with several earlier messages), the Agents tree's "Start one" (needs no sessions at all), the agent pane's URL facts or a Markdown link, and none shows a hover. By cascade: `.more` swaps `inline-block` for `inline-flex` (measured the same box and the same line below it); "Start one" only sets the colour it had; the fact values' and links' colour is the same (`--link-out` is `--blue`), the hover underline is the same with the offset put back.
 
 **18 · Empty states.** No visual change. `.empty-pane` (icon, sentence, button) is for a whole pane or list; `.empty-row` is for an empty panel.
 - **`.empty` rules:**

@@ -57,11 +57,11 @@
     </div>
 
     <div class="links">
-      <button class="link" onclick={() => (showWhere = !showWhere)} title="T">
+      <button class="link-toggle" onclick={() => (showWhere = !showWhere)} title="T">
         <i class="ph ph-caret-{showWhere ? 'down' : 'right'}"></i>Where time went
       </button>
       {#if !life}
-        <button class="link" onclick={() => (showDecided = !showDecided)} title="D">
+        <button class="link-toggle" onclick={() => (showDecided = !showDecided)} title="D">
           <i class="ph ph-caret-{showDecided ? 'down' : 'right'}"></i>Decided · {brief.decided.length}
         </button>
       {/if}
@@ -163,14 +163,10 @@
     gap: 16px;
     font-size: 0.9231rem;
   }
-  .link {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    color: var(--aqua);
+  .link-toggle {
     white-space: nowrap;
   }
-  .link:hover {
+  .link-toggle:hover {
     text-decoration: underline;
   }
   .fold {

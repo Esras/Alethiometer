@@ -225,7 +225,7 @@
               <AppIcon source={ICON[t.ext.type]} size={14} />
               <span class="title ellipsis" title={t.title}>{t.title}</span>
               {#if t.from && signalOf(t) !== null}
-                <button class="from link ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
+                <button class="from link-nav ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
               {:else if t.from}<span class="from ellipsis">{t.from}</span>{/if}
             </span>
             <span>{#if t.ext.type === 'jira'}<span class="chip status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
@@ -386,7 +386,10 @@
     font-size: 0.9231rem;
     color: var(--tx-label);
   }
-  .from.link:hover {
+  .from.link-nav {
+    display: block;
+  }
+  .from.link-nav:hover {
     color: var(--tx-2);
     text-decoration: underline;
   }

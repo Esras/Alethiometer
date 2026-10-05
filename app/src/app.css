@@ -210,6 +210,43 @@ pre,
   color: var(--tx-muted-2);
 }
 
+/* Text that acts like a link, by job (the look is today's; a site that differs
+   sets only the difference locally):
+   .link-act     aqua: does something here ("Start one")
+   .link-toggle  aqua, with its caret or icon: shows or hides something
+   .link-nav     grey, with its icon: goes elsewhere in the app
+   .link-out     blue, underlined on hover: leaves the app (a URL) */
+.link-act {
+  color: var(--aqua);
+}
+
+.link-toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--aqua);
+}
+
+.link-nav {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--tx-label);
+}
+
+.link-nav:hover {
+  color: var(--tx-2);
+}
+
+.link-out {
+  color: var(--link-out);
+}
+
+.link-out:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .scroll {
   overflow-y: auto;
   scrollbar-width: thin;
