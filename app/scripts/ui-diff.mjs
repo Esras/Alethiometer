@@ -163,6 +163,15 @@ const scenes = {
   'empty-topics-index': ['Control+3', { exact: 'Archived' }, '/', { type: 'zz' }],
   'empty-topic-page': ['Control+3', 'j', 'j', 'j', 'j', 'j', 'j', 'Enter'],
   'empty-reflect-day': ['Control+6', '[', 'T', 'D'],
+  // People and reach-ins (decision 2, Phase 0-2 leftovers): Marco has no People note, so
+  // his signal shows the New person strip; New agent on a Scion hub marks a name already
+  // in the project ("planner") as taken. Not covered: Topics' People panel with an
+  // unknown person who has an account (the sample data gives Marco none; checked by
+  // patching the topic's response), and Glean's avatars (parked).
+  'incoming-new-person': ['Enter'],
+  // The person picker's rows (avatars): Marco has no note, so the field is filled with a letter that matches people.
+  'incoming-personpicker-hits': ['Enter', { exact: 'Marco R.' }, 'Control+a', { type: 'a' }],
+  'agents-new-scion-taken': ['Control+7', { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
