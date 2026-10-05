@@ -83,6 +83,15 @@ const scenes = {
   'composer-menu': ['Control+7', { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
   // Small moves
   'incoming-split-dismissed': ['j', 's', 'd'],
+  // Picker
+  // Notes saves what you type, so these open the picker on the last line as it is.
+  'notes-picker': ['Control+5', 'Enter', 'Tab'],
+  'notes-picker-moved': ['Control+5', 'Enter', 'Tab', 'ArrowDown', 'ArrowDown'],
+  'settings-fontpick': ['Control+,', { exact: 'System', nth: 0 }],
+  'settings-fontpick-typed': ['Control+,', { exact: 'System', nth: 0 }, { type: 'dej' }, 'Control+j'],
+  'incoming-topicpicker-typed': ['t', { type: 'acme' }, 'ArrowDown'],
+  'incoming-personpicker-typed': ['Enter', { exact: 'Marco R.' }, 'Control+j'],
+  'topics-catpicker-moved': ['Control+3', 'c', 'Control+j', 'Control+j'],
 };
 
 async function shoot(base, steps, file) {

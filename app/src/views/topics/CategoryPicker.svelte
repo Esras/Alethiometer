@@ -1,41 +1,44 @@
 <script lang="ts">
-  // Pick a topic's category: type to filter, ↑/↓ or ⌃j/⌃k move, ↵ picks, Esc closes.
+  // Pick a topic's category: type to filter, ↑/↓ or ⌃j/⌃k move, ↵ picks, Esc
+  // closes (lib/ui/picker.svelte.ts).
   import { call } from '../../lib/api';
-  import { pointerMoved, useKeys } from '../../lib/keys.svelte';
+  import { Picker } from '../../lib/ui/picker.svelte';
   import type { CategoryRow } from '../../lib/types';
 
-  let { current, onpick, onclose }: { current: string; onpick: (key: string) => void; onclose: () => void } = $props();
+  // `placement`: where the box sits, by the site's own anchor (it was reached
+  // into through :global(.picker)). To settle in the visible pass, with the
+  // design system's Popover, which owns placement.
+  let {
+    current,
+    placement = {},
+    onpick,
+    onclose,
+  }: {
+    current: string;
+    placement?: { position?: 'absolute' | 'static'; top?: string; left?: string };
+    onpick: (key: string) => void;
+    onclose: () => void;
+  } = $props();
 
   let cats = $state<CategoryRow[]>([]);
-  let sel = $state(0);
-  let q = $state('');
-  let input = $state<HTMLInputElement>();
+
+  const p = new Picker<undefined>({ rows: (): number => matches.length, pick, onclose: () => onclose() });
   call<CategoryRow[]>('categories.list').then((c) => {
     cats = c;
-    sel = Math.max(0, c.findIndex((x) => x.key === current));
-  });
-  $effect(() => input?.focus());
-
-  const matches = $derived(q.trim() ? cats.filter((c) => c.label.toLowerCase().includes(q.trim().toLowerCase())) : cats);
-  $effect(() => {
-    if (q) sel = 0;
+    p.sel = Math.max(0, c.findIndex((x) => x.key === current));
   });
 
-  useKeys((e) => {
-    if (e.key === 'Escape') return onclose(), true;
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return (sel = Math.min(sel + 1, matches.length - 1)), true;
-    if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return (sel = Math.max(sel - 1, 0)), true;
-    if (e.key === 'Enter') return matches[sel] && onpick(matches[sel].key), true;
-    return e.target !== input;
-  });
+  const matches = $derived(p.q.trim() ? cats.filter((c) => c.label.toLowerCase().includes(p.q.trim().toLowerCase())) : cats);
+
+  function pick(i: number) {
+    if (matches[i]) onpick(matches[i].key);
+  }
 </script>
 
-<svelte:window onmousedown={onclose} />
-
-<div class="picker" onmousedown={(e) => e.stopPropagation()} role="listbox" tabindex="-1">
-  <input bind:this={input} bind:value={q} placeholder="Category…" />
+<div class="picker" role="listbox" use:p.frame style:position={placement.position} style:top={placement.top} style:left={placement.left}>
+  <input use:p.field bind:value={p.q} placeholder="Category…" />
   {#each matches as c, i (c.key)}
-    <button class="opt" class:on={i === sel} onclick={() => onpick(c.key)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
+    <button class="opt" class:on={i === p.sel} {...p.row(i)}>
       <span class="sq" style:background={c.color}></span>
       <span class="ellipsis">{c.label}</span>
       {#if c.key === current}<i class="ph ph-check"></i>{/if}

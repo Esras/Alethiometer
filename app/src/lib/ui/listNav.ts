@@ -1,0 +1,21 @@
+// The keys that move a cursor along a list, written once. Each site keeps its
+// own cursor and what it does on arrival; this only reads the key.
+import { plain } from '../keys.svelte';
+
+/**
+ * +1 for ↓ or ⌃j, -1 for ↑ or ⌃k, else 0. For a field that has the focus.
+ * `bare`: the keys j, k, ↑ and ↓ with no modifier and not typing, for a list
+ * that has the focus itself (⌃j and ⌃k don't count there).
+ * (Outside Settings, App's ⌘K handler takes ⌃k before any list sees it.)
+ */
+export function listNav(e: KeyboardEvent, opts: { bare?: boolean } = {}): -1 | 0 | 1 {
+  if (opts.bare) return plain(e, 'j') || plain(e, 'ArrowDown') ? 1 : plain(e, 'k') || plain(e, 'ArrowUp') ? -1 : 0;
+  if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return 1;
+  if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return -1;
+  return 0;
+}
+
+/** The cursor after a step of `d` in a list of `n` rows. It stops at both ends, it doesn't wrap. */
+export function moveSel(sel: number, d: number, n: number): number {
+  return Math.max(0, Math.min(sel + d, n - 1));
+}

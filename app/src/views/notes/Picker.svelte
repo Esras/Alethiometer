@@ -1,10 +1,10 @@
 <script lang="ts">
   // Tab on a line: a small picker in its margin cell. The next likely
   // destinations, type to search topics / people / Jira, or keep it as a note.
-  // ↑↓ (or Tab) move, ↵ picks, Esc closes.
+  // ↑↓, ⌃j/⌃k (or Tab) move, ↵ picks, Esc closes (lib/ui/picker.svelte.ts).
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
-  import { pointerMoved } from '../../lib/keys.svelte';
+  import { Picker } from '../../lib/ui/picker.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import { KEEP, type EditLine, type Options, type Target } from './types';
 
@@ -14,55 +14,34 @@
     onclose,
   }: { line: EditLine; onpick: (t: Target | null) => void; onclose: () => void } = $props();
 
-  let q = $state('');
-  let res = $state<Options>({ options: [], create: null });
-  let sel = $state(0);
-  let input: HTMLInputElement;
-
-  $effect(() => {
-    const query = q;
-    const timer = setTimeout(() => {
-      call<Options>('notes.options', { text: line.text, kind: line.kind, q: query }).then((r) => {
-        if (query === q) {
-          res = r;
-          sel = 0;
-        }
-      });
-    }, query ? 80 : 0);
-    return () => clearTimeout(timer);
+  const p = new Picker<Options>({
+    fetch: (q) => call<Options>('notes.options', { text: line.text, kind: line.kind, q }),
+    initial: { options: [], create: null },
+    rows: (): number => opts.length,
+    pick: (i) => onpick(opts[i].t),
+    onclose: () => onclose(),
+    // Tab steps the cursor too.
+    keys: (e): boolean => e.key === 'Tab' && (p.move(e.shiftKey ? -1 : 1), true),
   });
-
-  $effect(() => input.focus());
 
   type Opt = { t: Target | null; label: string; hint?: string };
   const opts = $derived.by(() => {
-    const out: Opt[] = res.options.map((t) => ({ t, label: t.label }));
-    if (res.create && !q) out.push({ t: res.create, label: res.create.label });
+    const out: Opt[] = p.result.options.map((t) => ({ t, label: t.label }));
+    if (p.result.create && !p.q) out.push({ t: p.result.create, label: p.result.create.label });
     out.push({ t: KEEP, label: KEEP.label });
     if (line.target && !line.target.auto) out.push({ t: null, label: 'Back to the suggestion' });
     return out;
   });
-
-  function onkey(e: KeyboardEvent) {
-    const n = opts.length;
-    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) sel = (sel + 1) % n;
-    else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) sel = (sel - 1 + n) % n;
-    else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) onpick(opts[sel].t);
-    else if (e.key === 'Escape') onclose();
-    else return;
-    e.preventDefault();
-    e.stopPropagation();
-  }
 </script>
 
-<div class="picker" role="dialog" aria-label="Where it goes">
+<div class="picker" role="dialog" aria-label="Where it goes" use:p.frame>
   <div class="search">
     <i class="ph ph-magnifying-glass"></i>
-    <input bind:this={input} bind:value={q} onkeydown={onkey} onblur={onclose} placeholder="Topic, person or PLAT-…" spellcheck="false" />
+    <input use:p.field bind:value={p.q} placeholder="Topic, person or PLAT-…" spellcheck="false" />
   </div>
   <div class="list">
     {#each opts as o, i}
-      <button class="opt" class:on={i === sel} onmousedown={(e) => e.preventDefault()} onclick={() => onpick(o.t)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
+      <button class="opt" class:on={i === p.sel} {...p.row(i)}>
         <span class="ic">
           {#if !o.t}<i class="ph ph-arrow-counter-clockwise"></i>
           {:else if o.t.type === 'topic'}<span class="sq" style:background={catColor(o.t.category ?? 'work')}></span>

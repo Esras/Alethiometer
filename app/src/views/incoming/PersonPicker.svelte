@@ -3,11 +3,12 @@
   // notes by name or alias, ↑/↓ or ⌃j/⌃k to move, ↵ adds this account to the
   // chosen note's frontmatter (an Obsidian write, through the outbox), and the
   // last row creates a new person's note. Never automatic: nothing is linked
-  // or merged unless picked here.
+  // or merged unless picked here. The search is lib/ui/picker.svelte.ts's
+  // async source: debounced, and only the latest reply counts.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { accountLabel, initial, personColor, type Account, type PersonHit } from '../../lib/people';
-  import { pointerMoved, useKeys } from '../../lib/keys.svelte';
+  import { Picker } from '../../lib/ui/picker.svelte';
   import Avatar from '../../lib/ui/Avatar.svelte';
 
   let {
@@ -26,26 +27,21 @@
     onclose: () => void;
   } = $props();
 
-  // Starts from their first name; the field is the user's after that.
-  let q = $state(untrack(() => name.split(/\s+/)[0] ?? ''));
-  let hits = $state<PersonHit[]>([]);
-  let sel = $state(0);
   let busy = $state(false);
   let err = $state<string | null>(null);
-  let input: HTMLInputElement;
 
-  $effect(() => input?.focus());
-  $effect(() => {
-    const query = q;
-    call<PersonHit[]>('people.search', { q: query }).then((h) => {
-      if (query === q) {
-        hits = h;
-        sel = 0;
-      }
-    });
+  // Starts from their first name; the field is the user's after that.
+  const p = new Picker<PersonHit[]>({
+    q: untrack(() => name.split(/\s+/)[0] ?? ''),
+    fetch: (q) => call<PersonHit[]>('people.search', { q }),
+    initial: [],
+    rows: (): number => rows,
+    pick,
+    onclose: () => onclose(),
   });
+  const hits = $derived(p.result);
 
-  const newName = $derived(q.trim());
+  const newName = $derived(p.q.trim());
   // Rows: the hits, then "Create person '…'".
   const rows = $derived(hits.length + (newName ? 1 : 0));
 
@@ -71,27 +67,20 @@
     if (h) run('people.link', { person_id: h.id, kind: account.kind, account: account.id });
     else if (newName) run('people.create', { name: newName, alias: name, kind: account.kind, account: account.id });
   }
-
-  useKeys((e) => {
-    if (e.key === 'Escape') return onclose(), true;
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return (sel = Math.min(sel + 1, rows - 1)), true;
-    if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return (sel = Math.max(sel - 1, 0)), true;
-    if (e.key === 'Enter') return pick(sel), true;
-  });
 </script>
 
-<div class="card" role="dialog" aria-label="Link to person">
+<div class="card" role="dialog" aria-label="Link to person" use:p.frame>
   <div class="head">
     <span class="label">Link to person</span>
     <span class="acct ellipsis">{account.kind === 'email' || account.kind === 'github' ? account.id : name} · {source}</span>
   </div>
   <div class="field">
     <i class="ph ph-magnifying-glass"></i>
-    <input bind:this={input} bind:value={q} placeholder="Name or alias" onblur={onclose} />
+    <input use:p.field bind:value={p.q} placeholder="Name or alias" />
   </div>
   <div class="rows">
     {#each hits as h, i (h.id)}
-      <button class="row" class:on={i === sel} onmousedown={(e) => (e.preventDefault(), pick(i))} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
+      <button class="row" class:on={i === p.sel} {...p.row(i)}>
         <Avatar initials={initial(h.name)} color={personColor(h.color)} size={22} font="0.8077rem" />
         <span class="who">
           <span class="name ellipsis">{h.name}</span>
@@ -101,12 +90,7 @@
       </button>
     {/each}
     {#if newName}
-      <button
-        class="row create"
-        class:on={sel === hits.length}
-        onmousedown={(e) => (e.preventDefault(), pick(hits.length))}
-        onmousemove={(e) => pointerMoved(e) && (sel = hits.length)}
-      >
+      <button class="row create" class:on={p.sel === hits.length} {...p.row(hits.length)}>
         <i class="ph ph-plus"></i><span class="ellipsis">Create person “{newName}”</span>
       </button>
     {/if}

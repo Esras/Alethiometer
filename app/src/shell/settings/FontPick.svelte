@@ -1,5 +1,8 @@
 <script lang="ts">
-  // Installed fonts, each shown in its own face. Type to filter, ↵ picks.
+  // Installed fonts, each shown in its own face. Type to filter, ↵ picks
+  // (lib/ui/picker.svelte.ts).
+  import { Picker } from '../../lib/ui/picker.svelte';
+
   let {
     value,
     fonts,
@@ -17,9 +20,9 @@
   } = $props();
 
   let shown = $state(false);
-  let q = $state('');
-  let sel = $state(0);
-  let input = $state<HTMLInputElement | null>(null);
+
+  // Stays mounted while closed, so it takes keys only while the list is open.
+  const p = new Picker<undefined>({ rows: (): number => list.length, pick: (i) => list[i] && pick(list[i].name), onclose: () => close(), active: () => shown });
 
   $effect(() => {
     if (open) show();
@@ -29,15 +32,14 @@
   const list = $derived.by(() => {
     const all = [{ name: '', mono: true }, ...fonts];
     const ordered = mono ? [...all.filter((f) => f.mono), ...all.filter((f) => !f.mono)] : all;
-    const n = q.trim().toLowerCase();
+    const n = p.q.trim().toLowerCase();
     return ordered.filter((f) => !n || (f.name || 'system').toLowerCase().includes(n)).slice(0, 200);
   });
 
   function show() {
     shown = true;
-    q = '';
-    sel = Math.max(0, list.findIndex((f) => f.name === value));
-    queueMicrotask(() => input?.focus());
+    p.q = '';
+    p.sel = Math.max(0, list.findIndex((f) => f.name === value));
   }
 
   function close() {
@@ -55,27 +57,14 @@
 </script>
 
 <span class="pick">
-  <button class="current" style:font-family={face(value)} onclick={show}>{label(value)}<i class="ph ph-caret-down"></i></button>
+  <!-- Open, a press here keeps the focus in the field, so the click closes (not blur, then reopen). -->
+  <button class="current" style:font-family={face(value)} onmousedown={(e) => shown && e.preventDefault()} onclick={() => (shown ? close() : show())}>{label(value)}<i class="ph ph-caret-down"></i></button>
   {#if shown}
-    <div class="pop" role="listbox">
-      <input
-        bind:this={input}
-        bind:value={q}
-        placeholder="Filter fonts…"
-        onblur={() => setTimeout(close, 120)}
-        oninput={() => (sel = 0)}
-        onkeydown={(e) => {
-          e.stopPropagation();
-          if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) sel = Math.min(sel + 1, list.length - 1);
-          else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) sel = Math.max(sel - 1, 0);
-          else if (e.key === 'Enter' && list[sel]) pick(list[sel].name);
-          else if (e.key === 'Escape') close();
-          else return;
-          e.preventDefault();
-        }} />
+    <div class="pop" role="listbox" use:p.frame>
+      <input use:p.field bind:value={p.q} placeholder="Filter fonts…" />
       <div class="opts scroll">
         {#each list as f, i (f.name)}
-          <button class="opt" class:sel={i === sel} style:font-family={face(f.name)} onmousedown={() => pick(f.name)}>{label(f.name)}</button>
+          <button class="opt" class:sel={i === p.sel} style:font-family={face(f.name)} {...p.row(i)}>{label(f.name)}</button>
         {/each}
         {#if !list.length}<div class="none">No installed font matches</div>{/if}
       </div>

@@ -158,7 +158,7 @@
             <i class="ph ph-{allFolded ? 'arrows-out-line-vertical' : 'arrows-in-line-vertical'}"></i>
           </button>
           <div class="titles">
-            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
+            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} placement={{ top: 'calc(100% + 4px)', left: '0' }} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
             {#if renaming !== null}
               <input class="name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
             {:else}
@@ -345,10 +345,6 @@
   }
   .catpick button:hover {
     text-decoration: underline;
-  }
-  .catpick :global(.picker) {
-    top: calc(100% + 4px);
-    left: 0;
   }
   .back:hover {
     color: var(--tx-2);

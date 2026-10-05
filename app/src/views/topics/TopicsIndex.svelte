@@ -178,7 +178,7 @@
   <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} class:merged={!!merge} data-topic={t.id} onclick={() => open(t)} onmousemove={(e) => pointerMoved(e) && (selId = t.id)} role="presentation">
     <button class="bar" style:background={catColor(t.category)} title="Category (c)" aria-label="Category" onclick={(e) => (e.stopPropagation(), (picking = t.id))}></button>
     {#if picking === t.id}
-      <div class="pick"><CategoryPicker current={t.category} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>
+      <div class="pick"><CategoryPicker current={t.category} placement={{ position: 'static' }} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>
     {/if}
     <div class="min0">
       <div class="name">
@@ -361,9 +361,6 @@
     z-index: 30;
     left: 10px;
     top: calc(100% - 6px);
-  }
-  .pick :global(.picker) {
-    position: static;
   }
   .cats-btn,
   .new {
