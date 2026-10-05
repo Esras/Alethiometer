@@ -820,7 +820,7 @@
         </Dock>
       {/if}
       <DockHost />
-      <div class="hints">
+      <div class="hint-bar">
         {#if reviewing !== null}
           <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
           <span>c confirm groups</span><span>g by topic / in order</span><span>esc back</span>
@@ -1247,16 +1247,5 @@
   .empty {
     padding: 16px;
     color: var(--tx-label);
-  }
-  .hints {
-    flex: none;
-    display: flex;
-    gap: 16px;
-    padding: 8px 16px;
-    border-top: 1px solid var(--border);
-    font-size: 0.8846rem;
-    color: var(--tx-label);
-    white-space: nowrap;
-    overflow: hidden;
   }
 </style>

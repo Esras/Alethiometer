@@ -204,7 +204,7 @@
       </Dock>
     {/if}
     <DockHost left={18} />
-    <div class="hints">
+    <div class="hint-bar">
       <span>j/k move</span><span>↵ open</span>
       {#if local}<span>space expand</span><span class="key">t move to topic</span>{/if}
       {#if current && local && current.msgs > 1}<span class="key">s split</span>{/if}
@@ -346,18 +346,7 @@
     padding: 16px 18px;
     color: var(--tx-label);
   }
-  .hints {
-    flex: none;
-    display: flex;
-    gap: 16px;
-    padding: 8px 16px;
-    border-top: 1px solid var(--border);
-    font-size: 0.8846rem;
-    color: var(--tx-label);
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .hints .key {
+  .hint-bar .key {
     color: var(--tx-2);
   }
   .err {

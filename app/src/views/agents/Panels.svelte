@@ -16,13 +16,13 @@
   <div class="facts-box">
     <div class="ph-head">
       <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub">shell parser · same answer every time</span>
-      <span class="badge-wrap"><span class="tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span>
+      <span class="badge-wrap"><span class="mono-tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span>
     </div>
     {#each req.parsed.steps as s (s.n)}
       <div class="step" class:deep={s.depth > 0}>
         <span class="n">{s.n}</span>
         <span class="st">{s.text}</span>
-        <span class="tags">{#each s.tags as t (t)}<span class="tag {tagClass(t)}">{t}</span>{/each}</span>
+        <span class="tags">{#each s.tags as t (t)}<span class="mono-tag {tagClass(t)}">{t}</span>{/each}</span>
       </div>
     {/each}
     {#if req.parsed.checks.length}
@@ -126,26 +126,6 @@
   .tags {
     display: flex;
     gap: 4px;
-  }
-  .tag {
-    font: 0.808rem var(--font-mono);
-    border: 1px solid currentColor;
-    border-radius: var(--r-block);
-    padding: 0 5px;
-    white-space: nowrap;
-    opacity: 0.9;
-  }
-  .tag.green {
-    color: var(--green);
-  }
-  .tag.blue {
-    color: var(--blue);
-  }
-  .tag.yellow {
-    color: var(--yellow);
-  }
-  .tag.orange {
-    color: var(--orange);
   }
   .checks {
     display: flex;

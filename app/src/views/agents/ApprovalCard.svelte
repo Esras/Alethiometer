@@ -61,7 +61,7 @@
       <span class="tool">{req.tool}</span>
       <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
     </div>
-    {#if req.command}<div class="command">{pretty}</div>{/if}
+    {#if req.command}<div class="command command-block">{pretty}</div>{/if}
     {#if req.message}<div class="said" title="Sent by the agent with the request; the explainer never sees it"><i class="ph ph-chat-text"></i><span>{req.message}</span></div>{/if}
     {#if req.parsed || req.explained}<div class="pw"><Panels {req} /></div>{/if}
     {#if denying}
@@ -140,16 +140,6 @@
   .command {
     flex: none;
     margin: 0 12px;
-    border-radius: 5px;
-    background: var(--bg-app);
-    border: 1px solid var(--border);
-    padding: 5px 10px;
-    font: 0.923rem/1.55 var(--font-mono);
-    color: var(--tx-body);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 160px;
-    overflow-y: auto;
   }
   .said {
     margin: 6px 12px 0;

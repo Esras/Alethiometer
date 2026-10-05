@@ -118,7 +118,7 @@
           {#if r.kind === 'ask'}<i class="ph ph-question q"></i>{:else}<StatusMark status="waiting" />{/if}
           <span class="who" style:color={agentColor(look(), s)}>{s?.name ?? '?'}</span>
           <span class="what"><span class={l.verbClass}>{l.verb}</span> {l.text}</span>
-          <span class="tag {r.kind === 'ask' ? 'orange' : tagClass(r.tag)}">{r.kind === 'ask' ? 'question' : r.tag}</span>
+          <span class="mono-tag {r.kind === 'ask' ? 'orange' : tagClass(r.tag)}">{r.kind === 'ask' ? 'question' : r.tag}</span>
         </button>
       {/each}
     </div>
@@ -350,20 +350,6 @@
   }
   .need .what .msg {
     color: var(--msg, #9a9fd6);
-  }
-  .tag {
-    font: 0.808rem var(--font-mono);
-    border: 1px solid currentColor;
-    border-radius: var(--r-block);
-    padding: 0 5px;
-    white-space: nowrap;
-    opacity: 0.9;
-  }
-  .tag.green {
-    color: var(--green);
-  }
-  .tag.orange {
-    color: var(--orange);
   }
 
   .list {

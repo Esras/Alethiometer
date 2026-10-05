@@ -270,7 +270,7 @@
       </Dock>
     {/if}
     <DockHost left={18} />
-    <div class="hints">
+    <div class="hint-bar">
       <span>j/k move</span><span>↵ open</span><span>/ filter</span>
       <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>[ ] filter chip</span><span>n new topic</span>{#if !archived}<span>m merge</span>{/if}
       {#if merges.list.length}<span>u undo merge</span>{/if}
@@ -510,16 +510,8 @@
     padding: 16px 18px;
     color: var(--tx-label);
   }
-  .hints {
-    flex: none;
-    display: flex;
-    gap: 16px;
+  .hint-bar {
     padding: 8px 18px;
-    border-top: 1px solid var(--border);
-    font-size: 0.8846rem;
-    color: var(--tx-label);
-    white-space: nowrap;
-    overflow: hidden;
   }
   .note {
     margin-left: auto;

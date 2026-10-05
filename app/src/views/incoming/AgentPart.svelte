@@ -154,7 +154,7 @@
   {#if a.why}<div class="why">{a.why}</div>{/if}
   {#if a.kind === 'approval'}
     {#if req}
-      {#if req.command}<div class="command">{req.command}</div>{/if}
+      {#if req.command}<div class="command-block">{req.command}</div>{/if}
       {#if req.message}<div class="said"><i class="ph ph-chat-text"></i>{req.message}</div>{/if}
       {#if req.parsed || req.explained}<Panels {req} />{/if}
     {:else}
@@ -211,18 +211,6 @@
   .why {
     font-size: 0.923rem;
     color: var(--tx-label);
-  }
-  .command {
-    padding: 5px 10px;
-    border-radius: 5px;
-    background: var(--bg-app);
-    border: 1px solid var(--border);
-    font: 0.923rem/1.55 var(--font-mono);
-    color: var(--tx-body);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 160px;
-    overflow-y: auto;
   }
   .said {
     display: flex;
