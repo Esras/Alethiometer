@@ -55,7 +55,7 @@ Pixel-identical to `eb633f4` on every scene. Commits `6501866`…`5920b59`.
 
 ## Phase 2 · progress (2026-10-05)
 
-Done, pixel-identical to `7e6be64` on every scene, with `scripts/ui-keys.mjs` checks for the behaviour:
+Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d80e`), with `scripts/ui-keys.mjs` checks for the behaviour:
 - **`lib/ui/Modal.svelte`** owns the behaviour of Settings, Slack review, New agent, the Keys sheet and the ⌘K palette.
   - **What it does:** one modal key-floor entry (the site's own keys first), Escape closes, mousedown on the scrim closes, Tab stays inside, focus returns, and `role=dialog` / `aria-modal`.
   - **The look stays with each site.** Scrim colour, z, position, inset and `isolate` are props until decision 5.
@@ -79,7 +79,22 @@ Done, pixel-identical to `7e6be64` on every scene, with `scripts/ui-keys.mjs` ch
   - A click outside closes it, and typing another @ word brings it back.
   - While it's closed, Tab, ↵ and the arrows aren't taken for completion.
 
-**Not checked on screen:** Slack review (it needs a Slack source), Glean's people avatars (they need a Glean answer).
+- **The five pickers** (topic, person, category, the Notes target picker, the font picker) share `lib/ui/picker.svelte.ts`. Four hand-written lists share `lib/ui/listNav.ts`: the palette, Settings, Slack review and the Topics index.
+  - **All pickers:**
+    - While a picker is open, keys it doesn't use stop at it instead of reaching the view.
+    - ⌘↵ doesn't pick.
+    - Clicking inside it (padding, icon, scrollbar) no longer closes it.
+    - Rows pick on mousedown, and the cursor scrolls into view.
+    - The cursor stops at both ends; it no longer wraps.
+  - **Person picker:** it searches 80ms after the last key, not on every keystroke.
+  - **Category picker:** it closes when its field loses focus, and it picks on mousedown.
+  - **Notes target picker:** it gains ⌃j, and Tab no longer wraps around. ⌘↵ no longer sends the note while it's open.
+  - **Font picker:** it closes at once on blur, and its button now toggles it.
+  - **Settings' list:** ↑↓ and j/k with Shift or Alt held no longer move the cursor.
+
+**Not checked on screen:** Slack review (it needs a Slack source), Glean's people avatars (they need a Glean answer). PersonPicker's ↵, which writes a People note, was tried once by hand and isn't in the checks.
+
+`scripts/ui-keys.mjs` leaves marks on the sample data (a notes line's target, Settings' "Saved"). Restart `scripts/ui-diff.sh` before running `ui-diff.mjs` after it.
 
 **Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass.
 
