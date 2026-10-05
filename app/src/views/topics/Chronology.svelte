@@ -286,7 +286,7 @@
   .fade {
     flex: 1;
     height: 1px;
-    background: linear-gradient(90deg, rgba(142, 192, 124, 0.5), transparent);
+    background: linear-gradient(90deg, var(--aqua-line), transparent);
   }
   .err {
     padding-top: 6px;

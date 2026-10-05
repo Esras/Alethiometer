@@ -235,7 +235,7 @@
     min-height: 0;
   }
   .note.editing {
-    border-color: rgba(142, 192, 124, 0.55);
+    border-color: var(--aqua-line);
   }
   .note-head {
     display: flex;

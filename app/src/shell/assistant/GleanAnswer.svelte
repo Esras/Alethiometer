@@ -135,7 +135,7 @@
     border-top: 1px solid var(--border);
   }
   .prow.hot {
-    background: rgba(235, 219, 178, 0.04);
+    background: var(--row-hover);
   }
   .pline {
     display: flex;

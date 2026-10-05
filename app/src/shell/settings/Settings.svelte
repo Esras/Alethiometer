@@ -785,7 +785,7 @@
   }
   .sec:hover,
   .sub:hover {
-    background: rgba(235, 219, 178, 0.04);
+    background: var(--row-hover);
   }
   .sec.on,
   .sub.on {

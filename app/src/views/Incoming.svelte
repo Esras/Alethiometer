@@ -886,7 +886,7 @@
     transition: background 120ms;
   }
   .topic:hover {
-    background: rgba(235, 219, 178, 0.04);
+    background: var(--row-hover);
   }
   /* The topic whose signals are open. The keyboard is in the signals, never here. */
   .topic.on {
