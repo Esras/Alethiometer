@@ -202,6 +202,7 @@ These already match:
 
 **6, 17, 19 · Buttons** → `.btn` (3px 10px), `.btn.md` (5px 12px), `.btn.primary` (now **filled** `aqua-fill`) and `.quiet`.
 - **Done (2026-10-05):** `.btn`, `.btn.md`, filled `.btn.primary`, `.btn.on` and the disabled look are in `app.css`; the sites below use them. Confirm and Move to topic are plain `.btn` (neither had a key hint). Opacity-disabled is gone from `form.css`, AskCard, Notes and StatusLine. Left alone: AskCard `.opt` and `.choice` (choice cards), Joins `.new` (a span, not a button), FontPick `.current` (a field), and `.quiet`, not added because four views already use that name locally. Assistant Sources takes `.btn.on` but no scene reaches it (it needs a Glean answer).
+- **User, 2026-10-05:** text-only actions are buttons too, so there is no `.quiet`: Incoming's Dismiss, Edit and Discard (held todo), TodoForm's Cancel and Clear, and ApprovalCard's Copy are `.btn` (the design system's Button README is wrong on this). Buttons that create are filled: Todos' New and the empty Agents pane's New agent. SyncStatus's Connect repeats per source, so it's plain. The carry list's taller rows are fine for now.
 - **Local `.btn` that differs** (riskiest): `agents/Composer:311` and `agents/Pane:245` (7px 12px, 7px radius).
 - **Other button rules:**
   - `agents/RowView:498 .acts button` and `incoming/AgentPart:255 .ans`;

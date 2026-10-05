@@ -50,7 +50,7 @@
 {#snippet title()}{req.title}{/snippet}
 {#snippet meta()}
   <span class="tool">{req.tool}</span>
-  <button class="copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
+  <button class="btn copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
 {/snippet}
 {#snippet summary()}
   <span class="c">{req.command}</span>
@@ -100,14 +100,6 @@
   }
   .copy {
     margin-left: auto;
-    font-size: 0.923rem;
-    color: var(--tx-label);
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
-  .copy:hover {
-    color: var(--tx-2);
   }
   .command {
     flex: none;

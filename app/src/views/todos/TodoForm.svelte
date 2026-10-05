@@ -82,7 +82,7 @@
     <span class="lbl">Due</span>
     <span class="due">
       <input class="date" class:empty={!due} type="date" bind:value={due} />
-      {#if due}<button class="ghost" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
+      {#if due}<button class="btn" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
     </span>
     <span class="lbl">Topic</span>
     {#if choose}
@@ -101,7 +101,7 @@
   </div>
   <div class="foot">
     <span class="fx">{held ? 'Once you confirm the signal, this will ' : 'This will '}{effects.join(' · ')}</span>
-    <button class="ghost" onclick={oncancel}>Cancel <span class="k">esc</span></button>
+    <button class="btn" onclick={oncancel}>Cancel <span class="k">esc</span></button>
     <button class="btn primary" disabled={!text.trim()} onclick={save}>Save <span class="k">⌘↵</span></button>
   </div>
 </div>
@@ -192,9 +192,6 @@
   .fx {
     flex: 1;
     font-size: 0.9231rem;
-    color: var(--tx-muted-2);
-  }
-  .ghost {
     color: var(--tx-muted-2);
   }
   .k {

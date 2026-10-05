@@ -157,7 +157,7 @@
               > · {/if}{s.last_error ? 'error' : ago(s.last_sync_at)}</span
           >
           {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
-            <button class="btn primary" onclick={() => connect(s.id)}>Connect</button>
+            <button class="btn" onclick={() => connect(s.id)}>Connect</button>
           {:else}
             {@const busy = s.syncing || clicked.has(s.id)}
             <button class="btn" onclick={() => syncNow(s.id)} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>

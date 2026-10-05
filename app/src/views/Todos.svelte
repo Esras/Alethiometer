@@ -199,7 +199,7 @@
         {/each}
       </div>
       <span class="grow"></span>
-      <button class="btn" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <span class="k">n</span></button>
+      <button class="btn primary" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <span class="k">n</span></button>
     </div>
     {#if err}<div class="err">{err}</div>{/if}
     {#if creating}

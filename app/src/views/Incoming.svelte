@@ -672,11 +672,11 @@
                       <button class="btn" onclick={() => pick(s)}>
                         {sel && chosen.size ? `Move ${chosen.size} of ${s.n_messages}` : 'Move to topic'}
                       </button>
-                      <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                      <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {:else}
                       <button class="btn" onclick={() => confirm(s)}>Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button>
                       <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
-                      <button class="ghost" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                      <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
                     {/if}
                   {/if}
                 </div>
@@ -700,8 +700,8 @@
                     {s.held.target === 'jira' ? 'Jira issue' : 'Todo'} held until you {unsorted ? 'file the signal' : 'confirm'} ·
                     <span class="htext">{s.held.text}</span>{#if s.held.due}&nbsp;· due {s.held.due}{/if}{#if s.held.target === 'jira' && jira}&nbsp;· {jira.project} · {jira.issue_type} · you{/if}
                   </span>
-                  <button class="ghost" onclick={(e) => (e.stopPropagation(), openTodo(s))}>Edit</button>
-                  <button class="ghost" onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}>Discard <kbd>u</kbd></button>
+                  <button class="btn" onclick={(e) => (e.stopPropagation(), openTodo(s))}>Edit</button>
+                  <button class="btn" onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}>Discard <kbd>u</kbd></button>
                 </div>
               {/if}
               {#if isOpen}
@@ -1044,9 +1044,6 @@
     padding: 0 8px;
     color: var(--tx-muted-2);
   }
-  button.ghost:hover {
-    color: var(--tx-2);
-  }
   .sig.gone {
     background: var(--hatch);
   }
@@ -1088,9 +1085,8 @@
   .held .htext {
     color: var(--tx-2);
   }
-  .held .ghost {
+  .held .btn {
     flex: none;
-    font-size: 0.9231rem;
   }
   .more {
     padding: 2px 0 2px 54px;
