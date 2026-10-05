@@ -616,7 +616,7 @@
             {@const gone = dismissed.has(s.item_id)}
             {@const ag_ = s.agent}
             {@const agSession = ag_ ? live?.sessions.find((x) => x.id === ag_.session) : undefined}
-            <div class="sig" class:sel class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+            <div class="sig" class:sel class:inside={sel && (inMsgs || reviewing === s.item_id)} class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
               {#if reviewing === s.item_id}
                 <SplitReview itemId={s.item_id} onclose={endReview} />
               {:else}
@@ -970,6 +970,10 @@
   }
   .sig.sel {
     background: var(--aqua-tint);
+  }
+  /* The keyboard is in its messages: the signal is the open row, the message the cursor. */
+  .sig.sel.inside {
+    background: var(--bg-head);
   }
   .row {
     display: grid;
