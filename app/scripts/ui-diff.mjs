@@ -40,6 +40,10 @@ const scenes = {
   'incoming-split': ['j', 's'],
   'incoming-todo': ['n'],
   'incoming-personpicker': ['Enter', { exact: 'Marco R.' }],
+  // The person picker's rows (avatars): Marco has no note, so the field is filled with a
+  // letter that matches people. Kept beside incoming-personpicker: run after the empty-* scenes,
+  // its click on Marco failed and it shot nothing.
+  'incoming-personpicker-hits': ['Enter', { exact: 'Marco R.' }, 'Control+a', { type: 'a' }],
   'incoming-topicpicker': ['t'],
   unsorted: [']', ']', ']', ']', ']'],
   'unsorted-expanded': [']', ']', ']', ']', ']', 'Enter'],
@@ -169,8 +173,6 @@ const scenes = {
   // unknown person who has an account (the sample data gives Marco none; checked by
   // patching the topic's response), and Glean's avatars (parked).
   'incoming-new-person': ['Enter'],
-  // The person picker's rows (avatars): Marco has no note, so the field is filled with a letter that matches people.
-  'incoming-personpicker-hits': ['Enter', { exact: 'Marco R.' }, 'Control+a', { type: 'a' }],
   'agents-new-scion-taken': ['Control+7', { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
