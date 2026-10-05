@@ -6,6 +6,15 @@
 const selected = (t) => t.page.locator('.sig.sel').first().innerText();
 
 export const checks = {
+  'Escape ends the review and j moves again': async (t) => {
+    await t.steps('j', 's');
+    await t.visible(t.page.getByText('By topic'));
+    await t.steps('Escape');
+    await t.gone(t.page.getByText('By topic'));
+    const before = await selected(t);
+    await t.steps('j');
+    t.ok((await selected(t)) !== before, 'j did not move after Escape');
+  },
   'dismissing the whole split signal in the review hands the keys back': async (t) => {
     await t.steps('j', 's');
     t.ok((await t.page.locator('.groups').count()) === 1, 's did not open the review');
