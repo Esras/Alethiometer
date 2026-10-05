@@ -8,6 +8,8 @@
   import ListEdit from './ListEdit.svelte';
   import type { Field, Seg } from './model';
   import Stepper from './Stepper.svelte';
+  import Segmented from '../../lib/ui/Segmented.svelte';
+  import Switch from '../../lib/ui/Switch.svelte';
 
   let {
     field,
@@ -74,15 +76,11 @@
   </div>
   <div class="control">
     {#if field.widget === 'toggle'}
-      <button class="switch" class:on={!!value} disabled={readonly} onclick={() => onset(!value)} aria-label={field.label} aria-pressed={!!value}><span></span></button>
+      <Switch on={!!value} label={field.label} disabled={readonly} onclick={() => onset(!value)} />
     {:else if field.widget === 'number'}
       <Stepper value={Number(value ?? 0)} step={o.step ?? 1} min={o.min} max={o.max} unit={o.unit} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'scale'}
-      <div class="seg">
-        {#each presets as p}
-          <button class:on={Number(value) === p} onclick={() => onset(p)}>{p.toFixed(p === 1 ? 1 : 2)}</button>
-        {/each}
-      </div>
+      <Segmented options={presets.map((p) => ({ value: p, label: p.toFixed(p === 1 ? 1 : 2) }))} value={Number(value)} onpick={(p) => onset(p)} />
       <Stepper value={Number(value ?? 1)} step={o.step ?? 0.05} min={o.min} max={o.max} digits={2} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'hour'}
       <Stepper value={Number(value ?? 0)} step={1} min={0} max={Number(pair ?? 24) - 1} format={hour} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -90,11 +88,7 @@
       <Stepper value={Number(pair ?? 24)} step={1} min={Number(value ?? 0) + 1} max={24} format={hour} onchange={(v) => onset(v, [o.pair ?? 'day_end_hour'])} />
     {:else if field.widget === 'enum'}
       {#if (o.enum ?? []).length <= 4}
-        <div class="seg">
-          {#each o.enum ?? [] as opt}
-            <button class:on={(value ?? '') === opt} disabled={readonly} onclick={() => onset(opt)}>{opt || 'default'}</button>
-          {/each}
-        </div>
+        <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))} value={value ?? ''} disabled={readonly} onpick={(opt) => onset(opt)} />
       {:else}
         <span class="dropdown">
           <select value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
@@ -125,10 +119,11 @@
     {:else if field.widget === 'slack_channels'}
       {@const all = value === 'all'}
       {@const list = Array.isArray(value) ? (value as string[]) : []}
-      <div class="seg">
-        <button class:on={all} onclick={() => !all && onset('all')}>All I'm in</button>
-        <button class:on={!all} onclick={() => all && onaction('only')}>Only these</button>
-      </div>
+      <Segmented
+        options={[{ value: 'all', label: "All I'm in" }, { value: 'only', label: 'Only these' }]}
+        value={all ? 'all' : 'only'}
+        onpick={(v) => (v === 'all' ? !all && onset('all') : all && onaction('only'))}
+      />
       {#if all}
         <span class="extra">{extra || 'every channel'}</span>
       {:else}
@@ -158,11 +153,7 @@
         {/each}
       </span>
     {:else if field.widget === 'segmented'}
-      <div class="seg">
-        {#each o.enum ?? [] as opt}
-          <button class:on={(value ?? '') === opt} onclick={() => onset(opt)}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</button>
-        {/each}
-      </div>
+      <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))} value={value ?? ''} onpick={(opt) => onset(opt)} />
     {:else if field.widget === 'palette'}
       {#if editing}
         <ListEdit items={(value as string[]) ?? []} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -238,47 +229,6 @@
     gap: 8px;
     flex: none;
     max-width: 60%;
-  }
-  .switch {
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--border-strong);
-    position: relative;
-    transition: background 120ms;
-  }
-  .switch span {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--bg-app);
-    transition: transform 120ms;
-  }
-  .switch.on {
-    background: var(--aqua);
-  }
-  .switch.on span {
-    transform: translateX(14px);
-  }
-  .seg {
-    display: inline-flex;
-    padding: 2px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
-    gap: 2px;
-  }
-  .seg button {
-    padding: 2px 9px;
-    border-radius: 4px;
-    color: var(--tx-muted-2);
-  }
-  .seg button.on {
-    background: var(--bg-head);
-    color: var(--tx-title);
-    box-shadow: inset 0 0 0 1px var(--border-strong);
   }
   .text-input,
   select,

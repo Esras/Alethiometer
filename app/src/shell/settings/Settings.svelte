@@ -32,6 +32,8 @@
   import type { AgentsLook } from '../../views/agents/types';
   import AgentsPreview from './AgentsPreview.svelte';
   import Row from './Row.svelte';
+  import Segmented from '../../lib/ui/Segmented.svelte';
+  import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
@@ -558,7 +560,7 @@
               {:else if item.t === 'enabled'}
                 <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
                   <span class="lbl">Enabled</span>
-                  <button class="switch" class:on={item.source.enabled} onclick={() => activate(item)} aria-label="Enabled" aria-pressed={item.source.enabled}><span></span></button>
+                  <Switch on={item.source.enabled} label="Enabled" onclick={() => activate(item)} />
                 </div>
               {:else if item.t === 'secret'}
                 <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
@@ -598,7 +600,7 @@
                 {@const allowed = (get(page.values, ['ai', 'allowed_providers']) ?? []) as string[]}
                 <div class="trow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
                   <span class="lbl tier">
-                    <button class="switch" class:on onclick={() => activate(item)} aria-label="{tier === 'small' ? 'Small' : 'Large'} tier" aria-pressed={on}><span></span></button>
+                    <Switch {on} label="{tier === 'small' ? 'Small' : 'Large'} tier" onclick={() => activate(item)} />
                     {tier === 'small' ? 'Small' : 'Large'}
                   </span>
                   <select class="text-input mono" value={provider} onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}>
@@ -610,11 +612,11 @@
                     list="ai-models"
                     onblur={(e) => e.currentTarget.value !== model && apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
                     onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-                  <div class="seg">
-                    {#each [['', 'default'], ['low', 'low'], ['medium', 'med'], ['high', 'high']] as [v, l]}
-                      <button class:on={effort === v} onclick={() => apply([{ path: ['ai', tier, 'effort'], value: v }])}>{l}</button>
-                    {/each}
-                  </div>
+                  <Segmented
+                    options={[['', 'default'], ['low', 'low'], ['medium', 'med'], ['high', 'high']].map(([v, l]) => ({ value: v, label: l }))}
+                    value={effort}
+                    onpick={(v) => apply([{ path: ['ai', tier, 'effort'], value: v }])}
+                  />
                   <span class="r muted tnum">{model ? usageFor(model) : '—'}</span>
                 </div>
               {:else if item.t === 'price'}
@@ -1008,29 +1010,6 @@
   .muted {
     color: var(--tx-label);
   }
-  .switch {
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--border-strong);
-    position: relative;
-  }
-  .switch span {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--bg-app);
-    transition: transform 120ms;
-  }
-  .switch.on {
-    background: var(--aqua);
-  }
-  .switch.on span {
-    transform: translateX(14px);
-  }
   .secret-input,
   .text-input {
     width: 360px;
@@ -1063,23 +1042,6 @@
   }
   .r {
     text-align: right;
-  }
-  .seg {
-    display: inline-flex;
-    padding: 2px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-input);
-    gap: 2px;
-  }
-  .seg button {
-    padding: 2px 9px;
-    border-radius: 4px;
-    color: var(--tx-muted-2);
-  }
-  .seg button.on {
-    background: var(--bg-head);
-    color: var(--tx-title);
-    box-shadow: inset 0 0 0 1px var(--border-strong);
   }
   .prow {
     display: flex;
