@@ -350,6 +350,8 @@
     text-transform: inherit;
   }
   .todo {
+    padding-top: var(--row-pad-comfortable);
+    padding-bottom: var(--row-pad-comfortable);
     box-shadow: inset 3px 0 0 var(--topic, transparent);
   }
   .todo:hover:not(.sel) {

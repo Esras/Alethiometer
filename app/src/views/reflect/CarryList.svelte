@@ -74,7 +74,7 @@
     grid-template-columns: 18px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--row-pad-compact) 12px;
     border-top: 1px solid var(--bg-head);
   }
   .row:not(.sel):hover {

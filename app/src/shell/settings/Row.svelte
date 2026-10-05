@@ -195,8 +195,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    min-height: 52px;
-    padding: 9px 18px;
+    padding: var(--row-pad-comfortable) 18px;
     border-top: 1px solid var(--border);
   }
   .row:first-child {

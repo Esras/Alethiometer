@@ -474,7 +474,7 @@
     grid-template-columns: 44px 56px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: baseline;
-    padding: 3px 8px;
+    padding: var(--row-pad-compact) 8px;
     margin: 0 -8px 0 0;
     border-radius: 4px;
     cursor: pointer;

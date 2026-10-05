@@ -268,7 +268,7 @@
     grid-template-columns: 18px minmax(0, 1fr) 170px 70px;
     gap: 14px;
     align-items: start;
-    padding: 10px 18px;
+    padding: var(--row-pad-comfortable) 18px;
     border-radius: 0 6px 6px 0;
     cursor: pointer;
   }

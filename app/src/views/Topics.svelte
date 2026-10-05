@@ -449,7 +449,7 @@
     grid-template-columns: 78px 22px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 9px 12px;
+    padding: var(--row-pad-comfortable) 12px;
   }
   .up-row.today {
     background: var(--aqua-tint-soft);
@@ -471,7 +471,7 @@
     grid-template-columns: 22px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--row-pad-compact) 12px;
   }
   .open-row.rule {
     border-top-color: var(--bg-head);
@@ -502,7 +502,7 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    padding: 9px 12px;
+    padding: var(--row-pad-comfortable) 12px;
   }
   .person + .person {
     border-left: 1px solid var(--bg-head);

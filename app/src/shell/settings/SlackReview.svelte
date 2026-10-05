@@ -163,6 +163,10 @@
     flex: 1;
     min-height: 120px;
   }
+  .row {
+    padding-top: var(--row-pad-compact);
+    padding-bottom: var(--row-pad-compact);
+  }
   .row.sel {
     background: var(--aqua-tint);
   }

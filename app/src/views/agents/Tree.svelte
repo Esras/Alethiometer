@@ -355,7 +355,7 @@
     grid-template-columns: 14px minmax(0, 1fr) auto;
     gap: 6px;
     align-items: center;
-    padding: 4px 14px;
+    padding: var(--row-pad-compact) 14px;
   }
   .caret {
     font-size: 0.846rem;
@@ -411,13 +411,13 @@
     grid-template-columns: 30px minmax(0, 1fr) 90px 52px 30px;
     gap: 6px;
     align-items: center;
-    padding: 4px 14px;
+    padding: var(--row-pad-compact) 14px;
   }
   .row.sub {
     grid-template-columns: calc(30px + var(--indent)) minmax(0, 1fr) 90px 52px 30px;
   }
   .row.loose {
-    padding: 5px 14px 2px;
+    padding: var(--row-pad-compact) 14px;
   }
   .group:hover,
   .row:hover {

@@ -171,7 +171,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 6px;
+    padding: var(--row-pad-compact) 6px;
     border-radius: var(--r-input);
     border: 1px solid transparent;
     font-size: 0.9231rem;
@@ -230,7 +230,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 14px;
+    padding: var(--row-pad-cozy) 14px;
     text-align: left;
     border-bottom: 1px solid var(--border);
     transition: opacity 120ms;

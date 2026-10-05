@@ -82,6 +82,14 @@
   --space-14: 14px;
   --space-16: 16px;
 
+  /* Row density (decision 14): a list row's vertical padding. Each list's own row
+     rule takes one of these for padding-top and padding-bottom; horizontal padding
+     stays with the list. The design system's rows have a 20px line, so one line is
+     38 / 30 / 24px. Rows that wrap or hold two lines grow with their content. */
+  --row-pad-comfortable: 9px;
+  --row-pad-cozy: 5px;
+  --row-pad-compact: 2px;
+
   --radius-full: 999px;
   --r-block: 4px;
   --r-input: 6px;

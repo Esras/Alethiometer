@@ -874,7 +874,7 @@
     grid-template-columns: 4px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 8px 12px 8px 0;
+    padding: var(--row-pad-comfortable) 12px var(--row-pad-comfortable) 0;
     border-radius: 0 6px 6px 0;
     text-align: left;
     transition: background 120ms;
@@ -960,7 +960,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
-    padding: 9px 16px 9px 38px;
+    padding: var(--row-pad-comfortable) 16px var(--row-pad-comfortable) 38px;
     position: relative;
   }
   /* An agent's status mark, as in the tree, in the 38px gutter. */
@@ -1043,7 +1043,7 @@
     display: grid;
     grid-template-columns: 44px 64px minmax(0, 1fr);
     gap: 10px;
-    padding: 4px 8px;
+    padding: var(--row-pad-compact) 8px;
     margin: 0 -8px;
     border-radius: 4px;
     transition: background 120ms;

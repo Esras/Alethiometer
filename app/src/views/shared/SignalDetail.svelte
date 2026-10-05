@@ -72,7 +72,7 @@
     grid-template-columns: 40px 56px minmax(0, 1fr);
     gap: 10px;
     align-items: baseline;
-    padding: 2px 0;
+    padding: var(--row-pad-compact) 0;
     font-size: calc(var(--fs-read) * 12.5 / 14);
   }
   .msg.faded {

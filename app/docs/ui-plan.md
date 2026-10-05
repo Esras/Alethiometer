@@ -376,6 +376,7 @@ These already match:
   - AskCard options `:250` (4);
   - message rows, which keep their reading line height: Incoming `:1071` (4), the split review `:476` (3) and SignalDetail `:68` (2);
   - Settings › Slack › Review…, the channel table (`SlackReview:154`, 6). Assumed compact as a picker; the user had taken it for Incoming's message list.
+- **Done (2026-10-05):** `app.css` has `--row-pad-comfortable` (9px), `--row-pad-cozy` (5px) and `--row-pad-compact` (2px), and every list above takes its density's vertical padding from its own row rule (horizontal padding, dividers and every other look unchanged); Settings' `min-height` 48/52 is gone so its rows follow the padding. Not covered by a scene: Glean sources and queries, Slack review, AskCard's form options and SignalDetail's messages.
 
 **Deferred**
 - **Life blocks in the day strip** (`:211, 393`, hatched in the Life colour) are to be redone. They come only from Proton ICS busy times (`store/ingest.rs:217`) or the sample data, and Proton ICS has never run against a real account.

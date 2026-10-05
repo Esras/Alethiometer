@@ -193,7 +193,7 @@
     display: inline-flex;
     gap: 6px;
     align-items: center;
-    padding: 4px 9px;
+    padding: var(--row-pad-compact) 9px;
     border-radius: var(--r-input);
     background: var(--bg-panel);
     border: 1px solid var(--border);

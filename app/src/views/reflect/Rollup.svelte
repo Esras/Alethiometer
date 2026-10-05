@@ -41,7 +41,7 @@
     grid-template-columns: 52px minmax(0, 1fr) 160px;
     gap: 12px;
     align-items: center;
-    padding: 10px 12px;
+    padding: var(--row-pad-cozy) 12px;
     border-top: 1px solid var(--bg-head);
     text-align: left;
     transition: background 120ms;

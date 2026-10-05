@@ -110,7 +110,7 @@
     display: block;
     width: 100%;
     text-align: left;
-    padding: 5px 10px;
+    padding: var(--row-pad-compact) 10px;
     font-size: 1.0769rem;
   }
   .opt.sel {

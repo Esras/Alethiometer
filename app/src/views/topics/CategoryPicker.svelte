@@ -68,7 +68,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    padding: 5px 12px;
+    padding: var(--row-pad-compact) 12px;
     text-align: left;
     color: var(--tx-2);
   }

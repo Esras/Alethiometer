@@ -84,7 +84,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    padding: 5px 8px;
+    padding: var(--row-pad-compact) 8px;
     border-radius: var(--r-block);
     color: var(--tx-2);
     text-align: left;

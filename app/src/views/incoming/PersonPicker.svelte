@@ -136,7 +136,7 @@
     grid-template-columns: 22px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 6px 10px;
+    padding: var(--row-pad-compact) 10px;
     border-radius: 5px;
     text-align: left;
   }

@@ -380,7 +380,7 @@
     grid-template-columns: 4px 22px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 9px 12px 9px 0;
+    padding: var(--row-pad-comfortable) 12px var(--row-pad-comfortable) 0;
     border-top: 1px solid var(--bg-head);
     cursor: pointer;
     outline: none;

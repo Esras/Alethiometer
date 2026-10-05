@@ -509,7 +509,7 @@
   }
   .row {
     align-items: start;
-    padding: 5px 0;
+    padding: var(--row-pad-cozy) 0;
     border-radius: var(--r-block);
     transition: opacity 120ms;
   }

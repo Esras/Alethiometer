@@ -199,7 +199,7 @@
     grid-template-columns: 62px 22px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: start;
-    padding: 7px 8px 7px 0;
+    padding: var(--row-pad-cozy) 8px var(--row-pad-cozy) 0;
     margin-right: -4px;
     border-radius: 6px;
     position: relative;

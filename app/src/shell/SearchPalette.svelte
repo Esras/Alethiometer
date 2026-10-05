@@ -331,7 +331,7 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    padding: 8px 14px;
+    padding: var(--row-pad-compact) 14px;
     text-align: left;
     color: var(--tx-2);
     box-shadow: inset 2px 0 0 transparent;

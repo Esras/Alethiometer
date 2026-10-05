@@ -113,7 +113,7 @@
     grid-template-columns: 4px minmax(0, 1fr);
     gap: 10px;
     align-items: center;
-    padding: 6px 10px 6px 0;
+    padding: var(--row-pad-compact) 10px var(--row-pad-compact) 0;
     text-align: left;
     font-size: 0.9615rem;
     color: var(--tx-2);
@@ -138,7 +138,7 @@
   }
   .opt.create {
     grid-template-columns: 16px minmax(0, 1fr);
-    padding: 6px 10px;
+    padding: var(--row-pad-compact) 10px;
     color: var(--tx-label);
   }
   .opt.create:hover {

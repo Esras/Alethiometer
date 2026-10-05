@@ -941,8 +941,7 @@
     align-items: center;
     gap: 16px;
     width: 100%;
-    min-height: 48px;
-    padding: 9px 18px;
+    padding: var(--row-pad-comfortable) 18px;
     border-top: 1px solid var(--border);
     text-align: left;
   }
