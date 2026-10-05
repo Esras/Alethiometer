@@ -15,6 +15,7 @@
   import { cancelMerge, mergingAway, merges, pendingMerge, stageMerge } from '../../lib/merges.svelte';
   import Dock from '../../lib/ui/Dock.svelte';
   import DockHost from '../../lib/ui/DockHost.svelte';
+  import { listNav, moveSel } from '../../lib/ui/listNav';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import type { CategoryRow, TopicRow } from '../../lib/types';
   import CategoryManager from './CategoryManager.svelte';
@@ -133,7 +134,7 @@
   }
 
   function move(d: number) {
-    const next = flat[Math.max(0, Math.min(flat.length - 1, sel + d))];
+    const next = flat[moveSel(sel, d, flat.length)];
     selId = next?.id ?? null;
     document.querySelector(`[data-topic="${next?.id}"]`)?.scrollIntoView({ block: 'nearest' });
   }
@@ -152,14 +153,14 @@
       return;
     }
     if (e.target === input) {
-      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return move(1), true;
-      if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return move(-1), true;
+      const d = listNav(e);
+      if (d) return move(d), true;
       if (e.key === 'Enter') return current ? open(current) : void create(), true;
       if (e.key === 'Escape') return input?.blur(), true;
       return;
     }
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return move(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return move(-1), true;
+    const d = listNav(e, { bare: true });
+    if (d) return move(d), true;
     if (plain(e, 'Enter')) return open(current), true;
     if (plain(e, 'a')) return toggleArchive(current), true;
     if (plain(e, 'n')) return create(), true;

@@ -4,6 +4,7 @@
   // switches to Only these with everything else still checked.
   import { call } from '../../lib/api';
   import { ui } from '../../lib/app.svelte';
+  import { listNav, moveSel } from '../../lib/ui/listNav';
   import Modal from '../../lib/ui/Modal.svelte';
   import { ago, type SourceRow } from './model';
 
@@ -55,8 +56,8 @@
 
   // Modal closes on Escape.
   function onkeys(e: KeyboardEvent): boolean {
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) sel = Math.min(sel + 1, shown.length - 1);
-    else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) sel = Math.max(sel - 1, 0);
+    const d = listNav(e);
+    if (d) sel = moveSel(sel, d, shown.length);
     else if (e.key === 'Enter' && shown[sel]) toggle(shown[sel]);
     else if (e.key === 'Tab') sort = sort === 'per_day' ? 'last' : sort === 'last' ? 'name' : 'per_day';
     else return false;

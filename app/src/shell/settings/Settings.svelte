@@ -6,6 +6,7 @@
   import { refresh, ui } from '../../lib/app.svelte';
   import { isTyping, pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import { listNav, moveSel } from '../../lib/ui/listNav';
   import Modal from '../../lib/ui/Modal.svelte';
   import CategoryManager from '../../views/topics/CategoryManager.svelte';
   import {
@@ -379,8 +380,8 @@
         return true;
       }
       if (e.target === findInput) {
-        if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) findSel = Math.min(findSel + 1, results.length - 1);
-        else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) findSel = Math.max(findSel - 1, 0);
+        const d = listNav(e);
+        if (d) findSel = moveSel(findSel, d, results.length);
         else if (e.key === 'Enter' && results[findSel]) jump(results[findSel]);
         else return false;
         return true;
@@ -400,8 +401,8 @@
       goSource(e.code === 'KeyJ' ? (cur + 1) % n : (cur - 1 + n) % n);
       return true;
     }
-    if (e.key === 'j' || e.key === 'ArrowDown') focus = Math.min(focus + 1, items.length - 1);
-    else if (e.key === 'k' || e.key === 'ArrowUp') focus = Math.max(focus - 1, 0);
+    const d = listNav(e, { bare: true });
+    if (d) focus = moveSel(focus, d, items.length);
     else if (/^[1-7]$/.test(e.key)) goSection(sectionIds[Number(e.key) - 1]);
     else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && pickNext(e.key === 'ArrowRight' ? 1 : -1)) return true;
     else if (e.key === 'Backspace' && resetAgents()) return true;

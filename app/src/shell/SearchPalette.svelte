@@ -13,6 +13,7 @@
   import { moveSignal } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FacetBar from '../lib/ui/FacetBar.svelte';
+  import { listNav, moveSel } from '../lib/ui/listNav';
   import Modal from '../lib/ui/Modal.svelte';
   import TopicPicker from '../views/incoming/TopicPicker.svelte';
 
@@ -134,12 +135,9 @@
   // Modal closes on Escape.
   function onkeys(e: KeyboardEvent): boolean {
     if (picking) return false;
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) {
-      sel = Math.min(sel + 1, rows.length - 1);
-      return true;
-    }
-    if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) {
-      sel = Math.max(sel - 1, 0);
+    const d = listNav(e);
+    if (d) {
+      sel = moveSel(sel, d, rows.length);
       return true;
     }
     // ⌥A: anchor on / off (e.code: ⌥A types "å" on a Mac).
