@@ -270,7 +270,7 @@
           <div class="empty-pane">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
         {/each}
       </div>
-      <div class="hints">
+      <div class="hint-bar">
         <span><kbd>j</kbd> <kbd>k</kbd> todo</span>
         <span><kbd>x</kbd> done</span>
         <span><kbd>u</kbd> undo</span>
@@ -439,12 +439,10 @@
     font: inherit;
     text-align: left;
   }
-  .hints {
-    display: flex;
-    gap: 16px;
-    padding: 7px 16px;
-    border-top: 1px solid var(--border);
-    font-size: 0.8846rem;
-    color: var(--tx-label);
+  /* Wraps (the shared bar clips): with a signal and a topic the hints can be wider
+     than the column at the minimum window width. */
+  .hint-bar {
+    flex-wrap: wrap;
+    gap: 4px 16px;
   }
 </style>
