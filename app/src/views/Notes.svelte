@@ -431,8 +431,8 @@
         {#if counts.ready}<span>{counts.ready} ready</span>{/if}
         {#if counts.incoming}<span>{counts.incoming} in Incoming</span>{/if}
         {#if counts.needs}<span>{counts.needs} {held && !counts.ready ? 'held' : 'needs a topic'}</span>{/if}
-        {#if counts.confirmed}<span style:color="var(--green)">{counts.confirmed} confirmed</span>{/if}
-        {#if counts.waiting}<span style:color="var(--orange)">{counts.waiting} waiting</span>{/if}
+        {#if counts.confirmed}<span style:color="var(--status-done)">{counts.confirmed} confirmed</span>{/if}
+        {#if counts.waiting}<span style:color="var(--status-attention)">{counts.waiting} waiting</span>{/if}
         {#if counts.life}<span class="lifec">{counts.life} life · Phase 2</span>{/if}
       </span>
       <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>

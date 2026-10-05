@@ -284,7 +284,7 @@
     color: var(--tx-muted-2);
   }
   .status.warn {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .conflict {
     flex: none;
@@ -297,7 +297,7 @@
     color: var(--tx-2);
   }
   .conflict i {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .acts {
     margin-left: auto;

@@ -47,7 +47,7 @@
         <span title={brief.did_note}>did</span>
         <div class="track">
           {#each brief.did as b}
-            <span class="blk" style:left={pct(b.start_min)} style:width={width(b)} style:background={b.over ? 'var(--orange)' : catColor(b.category)}></span>
+            <span class="blk" style:left={pct(b.start_min)} style:width={width(b)} style:background={b.over ? 'var(--status-attention)' : catColor(b.category)}></span>
           {/each}
         </div>
       </div>

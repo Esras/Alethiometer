@@ -155,12 +155,11 @@ export function refresh() {
   call<AppInfo>('app.info').then(setInfo);
 }
 
-/** Countdown color: green > 15 min, yellow 5–15, orange 2–5, red < 2. */
+/** Countdown color, three steps (ui-plan decision 11): green above 15 min, yellow 6–15, red at 5 or less. */
 export function urgencyColor(minutesLeft: number): string {
-  if (minutesLeft > 15) return 'var(--green)';
-  if (minutesLeft > 5) return 'var(--yellow)';
-  if (minutesLeft > 2) return 'var(--orange)';
-  return 'var(--red)';
+  if (minutesLeft > 15) return 'var(--time-far)';
+  if (minutesLeft > 5) return 'var(--time-near)';
+  return 'var(--time-now)';
 }
 
 /** Next-meeting pill in the Topics index: red within 30 min, yellow later today, green on another day. */

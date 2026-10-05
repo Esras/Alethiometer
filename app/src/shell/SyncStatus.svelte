@@ -148,7 +148,7 @@
         <div class="row">
           <AppIcon source={s.kind} size={14} />
           <span class="ellipsis">{s.name}</span>
-          <span class="when" class:bad={!!s.last_error} title={s.last_error ?? ''}
+          <span class="when" class:broken={!!s.last_error} title={s.last_error ?? ''}
             >{#if s.live != null}<span
                 class="mode"
                 class:on={s.live}
@@ -163,7 +163,7 @@
             <button class="btn" onclick={() => syncNow(s.id)} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>
           {/if}
         </div>
-        {#if s.last_error}<div class="err">{s.last_error}</div>{/if}
+        {#if s.last_error}<div class="err broken">{s.last_error}</div>{/if}
       {:else}
         <div class="muted">No live sources yet. Add them under "sources" in settings.json.</div>
       {/each}
@@ -222,7 +222,10 @@
   }
   .n.bad,
   .when.bad {
-    color: var(--orange);
+    color: var(--status-attention);
+  }
+  .when.broken {
+    color: var(--status-broken);
   }
   .pop {
     position: absolute;
@@ -264,7 +267,6 @@
   }
   .err {
     font-size: 0.8846rem;
-    color: var(--orange);
     padding-left: 22px;
   }
   .muted {
@@ -283,11 +285,11 @@
   }
   .count.failed {
     background: rgba(254, 128, 25, 0.16);
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .count.confirmed {
     background: rgba(184, 187, 38, 0.16);
-    color: var(--green);
+    color: var(--status-done);
   }
   .retry {
     align-self: flex-start;

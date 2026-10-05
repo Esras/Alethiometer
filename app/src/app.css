@@ -396,6 +396,16 @@ pre,
   color: var(--orange);
 }
 
+/* An error line (ui-plan decision 11): orange when it needs you, red (.broken)
+   when a source or tool can't be reached. The colour only; layout and size
+   stay with each site. */
+.err {
+  color: var(--status-attention);
+}
+.err.broken {
+  color: var(--status-broken);
+}
+
 /* Pills, counts and chips (ui-plan decision 4), all fully round.
    .pill is a coloured label (reason, weight, category); .count is a neutral
    number, aqua (.on) only on the row or tab that is open; .chip is a filter

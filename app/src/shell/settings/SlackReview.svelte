@@ -190,7 +190,7 @@
     color: var(--tx-label);
   }
   .warn {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   footer {
     display: flex;

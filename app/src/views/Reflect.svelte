@@ -263,7 +263,7 @@
     font-size: 0.9231rem;
   }
   .err i {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .grid {
     flex: 1;
@@ -334,7 +334,7 @@
     line-height: 1.5;
   }
   .answer.fail i {
-    color: var(--orange);
+    color: var(--status-attention);
     margin-top: 3px;
   }
   .lifenote {

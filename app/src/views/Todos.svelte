@@ -319,7 +319,6 @@
   }
   .err {
     margin-bottom: 8px;
-    color: var(--orange);
     font-size: 0.9615rem;
   }
   .panel {
@@ -430,7 +429,7 @@
     color: var(--tx-label);
   }
   .overdue {
-    color: var(--red);
+    color: var(--time-now);
   }
   .empty {
     padding: 24px 16px;

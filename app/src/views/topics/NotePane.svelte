@@ -264,7 +264,7 @@
     color: var(--aqua);
   }
   .state.warn {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .act {
     color: inherit;

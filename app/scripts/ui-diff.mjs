@@ -33,7 +33,7 @@ const FIXED = new Date();
 // Give Vite's watcher time to see edits saved just before this run.
 await new Promise((r) => setTimeout(r, 2500));
 
-// Key presses, or { click: title }, { clickText }, { exact: text, nth }, { button: name }, { type: text }.
+// Key presses, or { click: title }, { clickText }, { exact: text, nth }, { button: name }, { type: text }, { placeholder: text }.
 const scenes = {
   incoming: [],
   'incoming-expanded': ['j', 'Enter'],
@@ -139,6 +139,15 @@ const scenes = {
   'topic-page-catpicker': ['Control+3', 'Enter', 'c'],
   'incoming-agents-command': [{ exact: 'Agents waiting' }, { clickText: 'needs approval' }],
   'agents-new-scion': ['Control+7', { exact: 'migration', nth: 1 }, 'n'],
+  // Colours
+  // Error lines (decision 11): the assistant's failed ask is red (the dev server's
+  // Bedrock rejects the keys, so the AI can't be reached); a todo's bad estimate is
+  // orange (it needs you). Not covered: the countdown's red (at 10:52 the next block is
+  // 7 minutes away, so the ladder reads yellow before and after), the Agents tree's host
+  // line and Scion hub error, a failing source in the sync popover (the sample data has
+  // none) and Notes' margin states.
+  'assistant-ask-failed': ['Control+i', { placeholder: 'Ask, or @ to reference…' }, { type: 'What is blocking Acme?' }, 'Enter'],
+  'todos-estimate-bad': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e', { type: 'zzz' }, 'Enter'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
@@ -168,6 +177,7 @@ async function shoot(base, steps, file) {
       else if (k.click) await page.getByTitle(k.click).first().click({ timeout: 3000 });
       else if (k.clickText) await page.getByText(k.clickText).first().click({ timeout: 3000 });
       else if (k.exact) await page.getByText(k.exact, { exact: true }).nth(k.nth ?? 0).click({ timeout: 3000 });
+      else if (k.placeholder) await page.getByPlaceholder(k.placeholder).first().click({ timeout: 3000 });
       else if (k.button) await page.getByRole('button', { name: k.button }).first().click({ timeout: 3000 });
     } catch {
       errs.push('step failed: ' + JSON.stringify(k));

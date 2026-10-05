@@ -981,7 +981,7 @@
     display: flex;
     gap: 6px;
     align-items: center;
-    color: var(--green);
+    color: var(--status-done);
     white-space: nowrap;
   }
   .title-line {
@@ -1200,7 +1200,6 @@
   }
   .err {
     margin-left: auto;
-    color: var(--orange);
     display: flex;
     gap: 6px;
     align-items: center;

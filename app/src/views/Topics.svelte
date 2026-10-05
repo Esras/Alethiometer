@@ -399,7 +399,6 @@
     color: var(--tx-label);
   }
   .merging.err {
-    color: var(--orange);
     display: flex;
     gap: 6px;
     align-items: center;

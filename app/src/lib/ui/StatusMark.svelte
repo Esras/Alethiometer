@@ -29,7 +29,7 @@
     background: var(--aqua);
   }
   .dot.problem {
-    background: var(--orange);
+    background: var(--status-attention);
   }
   .dot.offline {
     background: var(--tx-disabled);
@@ -42,8 +42,8 @@
     border: 1.5px solid var(--tx-label);
   }
   .ring.waiting {
-    border-color: var(--orange);
-    background: linear-gradient(90deg, var(--orange) 50%, transparent 50%);
+    border-color: var(--status-attention);
+    background: linear-gradient(90deg, var(--status-attention) 50%, transparent 50%);
   }
   i {
     font-size: 0.846rem;
@@ -52,9 +52,9 @@
     justify-content: center;
   }
   .done {
-    color: var(--green);
+    color: var(--status-done);
   }
   .failed {
-    color: var(--red);
+    color: var(--status-broken);
   }
 </style>

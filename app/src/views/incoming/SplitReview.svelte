@@ -579,7 +579,6 @@
   }
   .err {
     flex-basis: 100%;
-    color: var(--orange);
     display: flex;
     gap: 6px;
     align-items: center;

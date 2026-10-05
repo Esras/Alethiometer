@@ -192,7 +192,7 @@
       {:else if host.state === 'starting'}
         <span>Agent host · starting…</span>
       {:else}
-        <span class="err">{host.error || 'Agent host unavailable'}</span>
+        <span class="err broken">{host.error || 'Agent host unavailable'}</span>
       {/if}
       <span class="hacts">
         {#if host.state === 'running' && localLive > 0}
@@ -243,7 +243,7 @@
     align-items: center;
   }
   .counts .red {
-    color: var(--red);
+    color: var(--status-broken);
   }
   .counts .red i {
     font-size: 0.846rem;
@@ -388,7 +388,7 @@
     align-items: center;
   }
   .fold.red {
-    color: var(--red);
+    color: var(--status-broken);
   }
   .host {
     background: var(--bg-head);
@@ -482,7 +482,7 @@
     text-align: right;
   }
   .age.orange {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .guess {
     display: flex;
@@ -515,8 +515,8 @@
     margin: 0 10px 6px;
     padding: 5px 10px;
     border-radius: 7px;
-    border: 1px solid rgba(251, 73, 52, 0.45);
-    background: rgba(251, 73, 52, 0.07);
+    border: 1px solid color-mix(in srgb, var(--status-broken) 45%, transparent);
+    background: color-mix(in srgb, var(--status-broken) 7%, transparent);
     color: var(--tx-2);
     font-size: 0.923rem;
     display: flex;
@@ -527,7 +527,7 @@
     text-overflow: ellipsis;
   }
   .hub-err i {
-    color: var(--red);
+    color: var(--status-broken);
   }
   .hostline {
     flex: none;
@@ -546,11 +546,8 @@
     text-overflow: ellipsis;
   }
   .hostline.bad i,
-  .hostline .err {
-    color: var(--orange);
-  }
   .hostline .note {
-    color: var(--yellow);
+    color: var(--status-headsup);
   }
   .hacts {
     margin-left: auto;

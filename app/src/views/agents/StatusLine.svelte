@@ -128,13 +128,13 @@
     color: var(--aqua);
   }
   .yellow {
-    color: var(--yellow);
+    color: var(--status-headsup);
   }
   .muted {
     color: var(--tx-disabled);
   }
   .problem {
-    color: var(--orange);
+    color: var(--status-attention);
     max-width: 380px;
     white-space: nowrap;
     overflow: hidden;

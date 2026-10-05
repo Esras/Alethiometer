@@ -479,6 +479,5 @@
   }
   .err {
     font-size: 0.923rem;
-    color: var(--orange);
   }
 </style>

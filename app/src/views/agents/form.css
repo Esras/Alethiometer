@@ -167,7 +167,6 @@
 }
 .agent-form .err {
   font-size: 0.923rem;
-  color: var(--orange);
 }
 .agent-form .foot {
   display: flex;

@@ -347,7 +347,6 @@
   }
   .err {
     margin-left: auto;
-    color: var(--orange);
     display: flex;
     gap: 6px;
     align-items: center;

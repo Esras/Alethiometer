@@ -140,11 +140,11 @@
   }
   .checks i {
     font-size: 0.923rem;
-    color: var(--green);
+    color: var(--status-done);
   }
   .checks .warn,
   .checks .warn i {
-    color: var(--yellow);
+    color: var(--status-headsup);
   }
   .ex {
     font-size: 1rem;
@@ -161,7 +161,7 @@
     align-items: baseline;
     font-size: 0.9615rem;
     line-height: 1.45;
-    color: var(--yellow);
+    color: var(--status-headsup);
   }
   .fit b {
     font-weight: 500;
@@ -178,7 +178,7 @@
     text-wrap: pretty;
   }
   .mh {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .worst {
     color: var(--tx-2);
@@ -193,7 +193,7 @@
     color: var(--tx-muted);
   }
   .benign i {
-    color: var(--green);
+    color: var(--status-done);
   }
   .readf {
     font: 0.846rem var(--font-mono);

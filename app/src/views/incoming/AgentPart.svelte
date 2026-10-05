@@ -282,6 +282,5 @@
     gap: 6px;
     align-items: center;
     font-size: 0.923rem;
-    color: var(--orange);
   }
 </style>

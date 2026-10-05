@@ -743,7 +743,7 @@
     color: var(--aqua);
   }
   .msg.warn {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .esc {
     margin-left: auto;
@@ -880,13 +880,13 @@
     color: var(--aqua);
   }
   .state.warn {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .state.off {
     color: var(--tx-label);
   }
   .armed {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .glabel {
     display: flex;
@@ -976,7 +976,7 @@
     font-size: 0.9231rem;
   }
   .warnline {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .row.kind {
     gap: 12px;

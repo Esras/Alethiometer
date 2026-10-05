@@ -289,7 +289,6 @@
   }
   .err {
     padding-top: 6px;
-    color: var(--orange);
     font-size: 0.9231rem;
     display: flex;
     gap: 6px;

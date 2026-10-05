@@ -182,7 +182,4 @@
   .right {
     margin-left: auto;
   }
-  .err {
-    color: var(--orange);
-  }
 </style>

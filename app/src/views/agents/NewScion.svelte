@@ -158,6 +158,6 @@
 
 <style>
   :global(.agent-form .note.taken) {
-    color: var(--orange);
+    color: var(--status-attention);
   }
 </style>

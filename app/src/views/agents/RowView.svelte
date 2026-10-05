@@ -183,7 +183,7 @@
     {/if}
   {:else}
     <div class="g">
-      <i class="ph {ICON[row.kind] ?? 'ph-dot'} ic" style:color={row.kind === 'you' ? YOU : row.kind === 'output' ? 'var(--tx-2)' : row.kind === 'message' ? 'var(--msg)' : row.kind === 'ask' ? 'var(--need)' : 'var(--red)'}></i>
+      <i class="ph {ICON[row.kind] ?? 'ph-dot'} ic" style:color={row.kind === 'you' ? YOU : row.kind === 'output' ? 'var(--tx-2)' : row.kind === 'message' ? 'var(--msg)' : row.kind === 'ask' ? 'var(--need)' : 'var(--status-broken)'}></i>
       <div class="mid">
         {#snippet r()}
           {#if row.note}<span class="note">{row.note}</span>{/if}
@@ -378,13 +378,13 @@
     font-size: 0.846rem;
   }
   .yellow {
-    color: var(--yellow);
+    color: var(--status-headsup);
   }
   .orange {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .red {
-    color: var(--red);
+    color: var(--status-broken);
   }
   .aqua {
     color: var(--aqua);
@@ -409,7 +409,7 @@
     color: var(--need);
   }
   .tname.failed {
-    color: var(--red);
+    color: var(--status-broken);
   }
   .detail {
     color: var(--tx-2);
@@ -468,7 +468,7 @@
     color: var(--result-failed);
   }
   .ok {
-    color: var(--green);
+    color: var(--status-done);
   }
   .grid {
     margin-top: 6px;

@@ -108,7 +108,7 @@
     margin-right: 4px;
   }
   .state.fail {
-    color: var(--orange);
+    color: var(--status-attention);
   }
   .empty {
     padding: 10px 12px;
