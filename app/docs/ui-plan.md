@@ -167,6 +167,7 @@ These already match:
   - **`.pane-title`:** Settings' three `h2`s (the section's name, a source's name and "Add source"; 18 → 19px), the Keys sheet's "Keys" (17 → 19px) and the agent pane's title (already 19px; keeps its local `line-height: 1.3` and `text-wrap: pretty`).
   - **Left alone, because they aren't page or pane titles:** the one-line header bars of modals and boxes at body size (New agent's `.t`, Settings' "Settings" `.title` at 14px, Slack review's `.title`), Reflect's period at 15px, and the big numbers (Topics' `.score`, DayBrief's `.v`, the Assistant's and the day strip's 17px glyphs). Note headings in `NoteText`/`Markdown` (`.h1`–`.h3`) are body content and keep their own sizes.
   - **Visible:** the Priorities heading, Settings' section heading and the Keys title grow (1.2 and 1.25 line heights are the design system's, where they had `normal`), so what sits below them moves down by the height change. Nothing else changes.
+- **User, 2026-10-05:** the three grown headings keep the design system's line heights. Most of the shift below them is the bigger font; `normal` (about 1.21 for Inter) would change it by under 1px.
 
 **2 · People** (corrected by the user, 2026-10-04). A name is always in the person's colour. The design system first said thread names go plain with an added avatar; the user rejected that, and the design system now matches.
 - **Thread names don't change:** they keep their colour, at weight 500, with no avatar.
