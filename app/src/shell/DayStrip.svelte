@@ -32,19 +32,6 @@
 
   const hl = (b: Block) => ui.topicId !== null && b.topic_ids.includes(ui.topicId);
 
-  // Hatched gaps of 15 min or more between blocks.
-  const gaps = $derived.by(() => {
-    if (!data) return [];
-    const out: { start: number; end: number }[] = [];
-    const sorted = [...data.blocks].sort((a, b) => a.start_min - b.start_min);
-    let cursor = data.day_start_min;
-    for (const b of sorted) {
-      if (b.start_min - cursor >= 15) out.push({ start: cursor, end: b.start_min });
-      cursor = Math.max(cursor, b.end_min);
-    }
-    return out;
-  });
-
   // Upcoming leave-by ticks get a label; hour labels they would cover are dropped.
   const leaves = $derived(data ? data.blocks.filter((b) => b.life && b.buffer_min && b.start_min > now).map((b) => b.start_min - (b.buffer_min ?? 0)) : []);
   const hours = $derived.by(() => {
@@ -159,9 +146,6 @@
         {/each}
       </div>
       <div class="layer faded">
-        {#each gaps as g}
-          <div class="gap" style:left="{pct(g.start)}%" style:width="{pct(g.end) - pct(g.start)}%"></div>
-        {/each}
         {#each data.blocks.filter((b) => !b.life && !hl(b) && shown(b)) as b (b.id)}
           <div
             class="block"
@@ -381,13 +365,6 @@
   }
   .block.lit {
     font-weight: 500;
-  }
-  .gap {
-    position: absolute;
-    top: 0;
-    height: var(--bh);
-    border-radius: 3px;
-    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.1) 0 3px, transparent 3px 6px);
   }
   .block.life {
     display: flex;

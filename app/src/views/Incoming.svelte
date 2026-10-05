@@ -1053,7 +1053,7 @@
     color: var(--tx-2);
   }
   .sig.gone {
-    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.025) 0 6px, transparent 6px 12px);
+    background: var(--hatch);
   }
   .gone .title,
   .gone .meta {

@@ -92,6 +92,16 @@ const scenes = {
   'incoming-topicpicker-typed': ['t', { type: 'acme' }, 'ArrowDown'],
   'incoming-personpicker-typed': ['Enter', { exact: 'Marco R.' }, 'ArrowDown'],
   'topics-catpicker-moved': ['Control+3', 'c', 'ArrowDown', 'ArrowDown'],
+  // Done and dismissed
+  // These change the sample data (a todo done, a signal dismissed, a merge staged), so
+  // keep them last and run them after the others, or restart ui-diff.sh between runs.
+  // The sample data has no todos: make two from signals (n, type, ⌘↵, confirm), then do the first.
+  'todos-done': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'n', { type: 'Reply to Dana' }, 'Control+Enter', 'c', 'Control+4', 'x', 'j'],
+  'incoming-dismissed': ['j', 'd', 'j'],
+  'incoming-dismissed-selected': ['j', 'd'],
+  // The cursor's fill hides the hatching, so move off the dismissed message.
+  'incoming-split-dismissed-away': ['j', 's', 'd', 'j'],
+  'topics-merged': ['Control+3', 'm', 'ArrowDown', 'Enter'],
 };
 
 async function shoot(base, steps, file) {

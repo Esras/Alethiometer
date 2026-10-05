@@ -220,7 +220,7 @@
           {@const done = struck.has(t.item_id)}
           <div class="row todo" class:sel={t.item_id === sel} class:done style:--topic={t.topic ? catColor(t.topic.category) : null} data-todo={t.item_id} onclick={() => (sel = t.item_id)} ondblclick={() => t.url && openExternal(t.url)} role="presentation">
             <button class="check" onclick={(e) => (e.stopPropagation(), toggle(t))} aria-label={done ? 'Reopen' : 'Done'}>
-              <i class="ph {done ? 'ph-check-square' : 'ph-square'}"></i>
+              <i class={done ? 'ph-fill ph-check-square' : 'ph ph-square'}></i>
             </button>
             <span class="title-cell">
               <AppIcon source={ICON[t.ext.type]} size={14} />
@@ -396,9 +396,9 @@
   .title {
     color: var(--tx-body);
   }
-  .done .title {
-    text-decoration: line-through;
-    color: var(--tx-label);
+  /* Done: the cells fade (the row's fill and topic bar stay); no strikethrough. */
+  .todo.done > * {
+    opacity: 0.45;
   }
   .from {
     flex: none;

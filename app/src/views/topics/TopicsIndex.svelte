@@ -458,7 +458,7 @@
     color: var(--tx-2);
   }
   .row.merged {
-    background: repeating-linear-gradient(135deg, rgba(235, 219, 178, 0.025) 0 6px, transparent 6px 12px);
+    background: var(--hatch);
   }
   .row.merged .name {
     color: var(--tx-label);

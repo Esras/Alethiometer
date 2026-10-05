@@ -487,6 +487,9 @@
   .msg:hover:not(.focus):not(.chosen) {
     background: var(--row-hover);
   }
+  .msg.gone {
+    background: var(--hatch);
+  }
   .msg.moved {
     background: color-mix(in srgb, var(--tint) 8%, transparent);
   }

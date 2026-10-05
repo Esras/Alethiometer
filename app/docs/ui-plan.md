@@ -321,6 +321,7 @@ These already match:
 ## Decided by the user (2026-10-04)
 
 **13 · Done and dismissed, partly.**
+- **Done (2026-10-05):** done todos (Todos only; no other view shows one) show `ph-fill ph-check-square` and fade to `opacity: 0.45` (CarryList's done fade) with no strikethrough; one `--hatch` token in `app.css` now serves `Incoming .sig.gone`, `TopicsIndex .row.merged` and the new `SplitReview .msg.gone` hatching; the day strip's gap stripes (`gaps`, `.gap`) are gone. Left alone: `Topics .name.merged` (a heading, no hatching today), `Notes .row.life`/`.row.done` and the DayStrip `.block.life` hatch (different meanings), CarryList's `.done` (a carry action, not a done todo).
 - **Done todos fade out** and show a filled checkbox. Today `Todos:221–223, 396, 408` show an outline `ph-check-square` in aqua and strike the title in `tx-label`. Assumed: the fade replaces the strikethrough.
 - **Dismissed, archived and trashed signals look the same.** For Gmail, Dismiss archives the thread, so it reads "Archived"; Trash (`#`) is Gmail-only and moves the thread to Gmail's Trash. Their row style (`Incoming:1057 .sig.gone`) stays one style.
 - **Dismissed things are hatched, faded and struck through, everywhere.** That covers dismissed signals and dismissed messages in the split review. `SplitReview:515–520 .msg.gone` strikes and fades today but has no hatching.
