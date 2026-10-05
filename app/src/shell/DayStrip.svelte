@@ -95,7 +95,7 @@
     const l = overlaps.lanes.get(b.id);
     if (!l || l.lanes < 2) return '';
     const h = laneH(l.lanes);
-    return `top:${l.lane * (h + 2)}px;height:${h}px;line-height:${h - (b.tentative ? 2 : 0)}px;padding-top:0;padding-bottom:0;font-size:${h >= 18 ? 10.5 / 13 : 10 / 13}rem;border-radius:3px;`;
+    return `top:${l.lane * (h + 2)}px;height:${h}px;line-height:${h - (b.tentative ? 2 : 0)}px;padding-top:0;padding-bottom:0;font-size:${h >= 18 ? 10.5 / 13 : 10 / 13}rem;`;
   }
   const laned = (b: Block) => (overlaps.lanes.get(b.id)?.lanes ?? 1) > 1;
   const shown = (b: Block) => (overlaps.lanes.get(b.id)?.lane ?? 0) < MAX_LANES;
