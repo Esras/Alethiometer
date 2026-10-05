@@ -56,7 +56,7 @@
   <span class="c">{req.command}</span>
 {/snippet}
 
-<NeedCard icon="shield-warning" {compact} {title} {meta} {summary} maxHeight="55vh">
+<NeedCard icon="shield-warning" {compact} {title} {meta} {summary} capped>
     {#if req.command}<div class="command inset command-block">{pretty}</div>{/if}
     {#if req.message}<div class="said" title="Sent by the agent with the request; the explainer never sees it"><i class="ph ph-chat-text"></i><span>{req.message}</span></div>{/if}
     {#if req.parsed || req.explained}<div class="pw"><Panels {req} /></div>{/if}
