@@ -88,7 +88,8 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
     - The cursor stops at both ends; it no longer wraps.
   - **Person picker:** it searches 80ms after the last key, not on every keystroke.
   - **Category picker:** it closes when its field loses focus, and it picks on mousedown.
-  - **Notes target picker:** it gains ⌃j, and Tab no longer wraps around. ⌘↵ no longer sends the note while it's open.
+  - **Notes target picker:** Tab no longer wraps around. ⌘↵ no longer sends the note while it's open.
+  - **Keys (7a7a160, every list):** in a field, ↑↓ move the cursor; ⌃j/⌃k are gone (they collided with ⌘K's Ctrl twin). Outside a field, j/k and ↑↓; `[` and `]` move between lists where a view has several. ⌘ shortcuts take ⌘ on the Mac and Ctrl elsewhere, so on the Mac the Ctrl twins (⌃K, ⌃2…) no longer fire.
   - **Font picker:** it closes at once on blur, and its button now toggles it.
   - **Settings' list:** ↑↓ and j/k with Shift or Alt held no longer move the cursor.
 
