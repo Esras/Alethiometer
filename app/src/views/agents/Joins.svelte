@@ -4,7 +4,7 @@
   // as the Name field says.
   import { agentColor } from './look';
   import { look } from './state.svelte';
-  import StatusMark from './StatusMark.svelte';
+  import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Session } from './types';
 
   let {

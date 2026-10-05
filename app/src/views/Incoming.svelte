@@ -34,7 +34,7 @@
   import AssistantPane from '../shell/AssistantPane.svelte';
   import { agentColor } from './agents/look';
   import { ag, look, openThread } from './agents/state.svelte';
-  import StatusMark from './agents/StatusMark.svelte';
+  import StatusMark from '../lib/ui/StatusMark.svelte';
   import type { Request as AgentRequest, Session as AgentSession, Tree as AgentTree } from './agents/types';
   import AgentPart from './incoming/AgentPart.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';

@@ -1,12 +1,16 @@
-<script lang="ts">
-  import type { Status } from './types';
-
-  // running: dot · waiting: half-filled ring · idle: ring · done: check · failed: x
-  let { status, size = 8 }: { status: Status; size?: number } = $props();
+<script module lang="ts">
+  /** An agent session's status, plus two for a connection: problem (needs a look) and offline. */
+  export type MarkStatus = 'running' | 'waiting' | 'idle' | 'done' | 'failed' | 'problem' | 'offline';
 </script>
 
-{#if status === 'running'}
-  <span class="dot" style:width="{size - 1}px" style:height="{size - 1}px"></span>
+<script lang="ts">
+  // running: dot · problem: orange dot · offline: grey dot · waiting: half-filled ring
+  // idle: ring · done: check · failed: x
+  let { status, size = 8 }: { status: MarkStatus; size?: number } = $props();
+</script>
+
+{#if status === 'running' || status === 'problem' || status === 'offline'}
+  <span class="dot {status}" style:width="{size - 1}px" style:height="{size - 1}px"></span>
 {:else if status === 'waiting'}
   <span class="ring waiting" style:width="{size}px" style:height="{size}px"></span>
 {:else if status === 'idle'}
@@ -23,6 +27,12 @@
     flex: none;
     border-radius: 50%;
     background: var(--aqua);
+  }
+  .dot.problem {
+    background: var(--orange);
+  }
+  .dot.offline {
+    background: var(--tx-disabled);
   }
   .ring {
     display: inline-block;

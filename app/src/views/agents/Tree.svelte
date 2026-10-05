@@ -2,7 +2,7 @@
   import { ui } from '../../lib/app.svelte';
   import { agentColor } from './look';
   import { act, ag, age, look, nodes, openThread, sessionById, type Node } from './state.svelte';
-  import StatusMark from './StatusMark.svelte';
+  import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Group, Request, Session, Status } from './types';
 
   let { onNew, filterEl = $bindable() }: { onNew: () => void; filterEl?: HTMLInputElement } = $props();

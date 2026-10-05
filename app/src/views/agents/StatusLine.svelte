@@ -3,6 +3,7 @@
   // cost. Rooms: Hub, thread id, mode; then loop cap, messages, live, ? keys.
   import { act, ag } from './state.svelte';
   import type { Group, Session } from './types';
+  import StatusMark from '../../lib/ui/StatusMark.svelte';
 
   let { session, group, room = false }: { session?: Session; group?: Group; room?: boolean } = $props();
 
@@ -45,7 +46,7 @@
     <span class="right">
       {#if r.loop_cap}<span>{r.loop_cap}</span>{/if}
       <span>{r.messages} messages</span>
-      <span class="live"><span class="dot" class:off={!r.live}></span>{r.live ? 'live' : 'offline'}</span>
+      <span class="live"><StatusMark status={r.live ? 'running' : 'offline'} />{r.live ? 'live' : 'offline'}</span>
       <button class="keys" onclick={() => (ag.keys = true)}><span class="kbd">?</span>keys</button>
     </span>
   {:else if s}
@@ -144,15 +145,6 @@
     display: flex;
     gap: 6px;
     align-items: center;
-  }
-  .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--aqua);
-  }
-  .dot.off {
-    background: var(--tx-disabled);
   }
   .keys {
     display: flex;

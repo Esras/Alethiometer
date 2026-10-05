@@ -11,7 +11,7 @@
   import RowView from './RowView.svelte';
   import { act, ag, look, pinned, setTab, threadOf } from './state.svelte';
   import StatusLine from './StatusLine.svelte';
-  import StatusMark from './StatusMark.svelte';
+  import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Fact } from './types';
 
   let { composerEl = $bindable(), approval = $bindable(), ask = $bindable(), denying = $bindable(false) }: {

@@ -5,6 +5,7 @@
   import { refresh, ui } from '../lib/app.svelte';
   import { useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
+  import StatusMark from '../lib/ui/StatusMark.svelte';
 
   type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null };
   type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
@@ -143,7 +144,7 @@
 
 <span class="wrap" bind:this={wrap}>
   <button class="chip" onclick={() => (open = !open)} aria-expanded={open} title="Sources and writes">
-    <span class="dot" class:bad={problem}></span>
+    <StatusMark status={problem ? 'problem' : 'running'} />
     {#if live.length}synced {ago(newest)}{:else}sample data{/if}
     {#if pending.length}<span class="n">· {pending.length} sending</span>{/if}
     {#if failed.length}<span class="n bad">· {failed.length} failed</span>{/if}
@@ -227,15 +228,6 @@
     font-size: 0.8846rem;
     color: var(--tx-label);
     white-space: nowrap;
-  }
-  .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--aqua);
-  }
-  .dot.bad {
-    background: var(--orange);
   }
   .n.bad,
   .when.bad {
