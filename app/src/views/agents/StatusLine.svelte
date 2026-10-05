@@ -47,7 +47,7 @@
       {#if r.loop_cap}<span>{r.loop_cap}</span>{/if}
       <span>{r.messages} messages</span>
       <span class="live"><StatusMark status={r.live ? 'running' : 'offline'} />{r.live ? 'live' : 'offline'}</span>
-      <button class="keys" onclick={() => (ag.keys = true)}><span class="kbd">?</span>keys</button>
+      <button class="keys" onclick={() => (ag.keys = true)}><kbd>?</kbd>keys</button>
     </span>
   {:else if s}
     <span>{s.harness}</span>

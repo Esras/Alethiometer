@@ -6,7 +6,7 @@
   import { tick } from 'svelte';
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
-  import { mod, plain, useKeys } from '../lib/keys.svelte';
+  import { chord, mod, plain, useKeys } from '../lib/keys.svelte';
   import Margin from './notes/Margin.svelte';
   import Picker from './notes/Picker.svelte';
   import { GLYPHS, PREFIXES, type EditLine, type Line, type Page, type Target } from './notes/types';
@@ -425,7 +425,7 @@
         <span><b>- [] () ^@</b> kinds</span>
         <span><b>#</b> topic</span>
         <span><b>~</b> life</span>
-        <span><b>Tab</b> change where it goes</span>
+        <span><kbd>Tab</kbd> change where it goes</span>
       </span>
       <span class="counts nowrap tnum">
         {#if counts.ready}<span>{counts.ready} ready</span>{/if}
@@ -435,7 +435,7 @@
         {#if counts.waiting}<span style:color="var(--orange)">{counts.waiting} waiting</span>{/if}
         {#if counts.life}<span class="lifec">{counts.life} life · Phase 2</span>{/if}
       </span>
-      <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming ⌃↵</button>
+      <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>
     </div>
   </div>
 </div>

@@ -165,7 +165,7 @@
               <button class="name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
             {/if}
             {#if pendingMerge(d.topic.id)}
-              <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <span class="u">u</span> undo</div>
+              <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo</div>
             {:else if merges.err}
               <div class="merging err"><i class="ph ph-warning"></i>{merges.err}</div>
             {:else if renameErr}
@@ -397,9 +397,6 @@
   .merging {
     font-size: 0.9231rem;
     color: var(--tx-label);
-  }
-  .merging .u {
-    color: var(--tx-2);
   }
   .merging.err {
     color: var(--orange);

@@ -95,7 +95,7 @@
       <div class="choices" style:grid-template-columns="repeat({Math.min(req.choices.length, 3)}, minmax(0, 1fr))">
         {#each req.choices as c (c.key)}
           <button class="choice" onclick={() => choose(c.key)}>
-            <span class="kbd">{c.key}</span>
+            <kbd>{c.key}</kbd>
             <span class="ct">{c.title}</span>
             <span></span>
             {#if c.detail}<span class="cd">{c.detail}</span>{/if}
@@ -105,8 +105,8 @@
     {/if}
     <div class="btns">
       {#if formNeeded}<button class="btn md primary" disabled={!ready} onclick={submit}>Send answer</button>{/if}
-      <button class="btn md" class:on={ag.replying === req.id} onclick={onReply}><span class="k">R</span>Write a reply…</button>
-      <button class="btn md" onclick={() => ag.later.add(req.id)}><span class="k">Esc</span>Later</button>
+      <button class="btn md" class:on={ag.replying === req.id} onclick={onReply}><kbd>R</kbd>Write a reply…</button>
+      <button class="btn md" onclick={() => ag.later.add(req.id)}><kbd>Esc</kbd>Later</button>
       {#if req.form}<span class="right">Asked by {s?.name ?? 'the agent'}</span>
       {:else if req.choices.length}<span class="right">Choices read from {s?.name ?? 'the agent'}’s message</span>{/if}
     </div>
@@ -168,10 +168,6 @@
     gap: 8px;
     align-items: center;
     padding: 9px 12px;
-  }
-  .k {
-    font: 0.808rem var(--font-mono);
-    color: var(--tx-label);
   }
   .fields {
     margin: 8px 12px 0 38px;

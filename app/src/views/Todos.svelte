@@ -188,7 +188,7 @@
   <div class="main">
     <div class="bar">
       <FilterField class="todos-filter" bind:value={q} bind:el={filterEl} placeholder="Filter todos" onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())}>
-        <span class="k">/</span>
+        <kbd>/</kbd>
       </FilterField>
       <div class="chips">
         {#each SOURCES as s (s.key)}
@@ -198,7 +198,7 @@
         {/each}
       </div>
       <span class="grow"></span>
-      <button class="btn primary" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <span class="k">n</span></button>
+      <button class="btn primary" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <kbd>n</kbd></button>
     </div>
     {#if err}<div class="err">{err}</div>{/if}
     {#if creating}
@@ -261,14 +261,27 @@
           </div>
           {#if open === t.item_id && signalOf(t) !== null}
             <div class="signal" role="presentation" onclick={() => (sel = t.item_id)}>
-              <SignalDetail itemId={signalOf(t)!} hints={t.topic ? 't open topic · esc collapse' : 'esc collapse'} />
+              <SignalDetail itemId={signalOf(t)!}>
+                {#snippet hints()}{#if t.topic}<kbd>t</kbd> open topic{' · '}{/if}<kbd>Esc</kbd> collapse{/snippet}
+              </SignalDetail>
             </div>
           {/if}
         {:else}
-          <div class="empty">{todos.length ? 'Nothing matches.' : 'No todos. Make one from a signal in Incoming (n), or here (n).'}</div>
+          <div class="empty">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
         {/each}
       </div>
-      <div class="hints"><span>j/k todo</span><span>x done</span><span>u undo</span><span>n new todo</span><span>/ filter</span><span>e estimate</span><span>s sort</span><span>o open source</span>{#if signalOf(current) !== null}<span>{open === sel ? 'esc' : '↵'} signal</span>{/if}{#if current?.topic}<span>t topic</span>{/if}</div>
+      <div class="hints">
+        <span><kbd>j</kbd> <kbd>k</kbd> todo</span>
+        <span><kbd>x</kbd> done</span>
+        <span><kbd>u</kbd> undo</span>
+        <span><kbd>n</kbd> new todo</span>
+        <span><kbd>/</kbd> filter</span>
+        <span><kbd>e</kbd> estimate</span>
+        <span><kbd>s</kbd> sort</span>
+        <span><kbd>o</kbd> open source</span>
+        {#if signalOf(current) !== null}<span><kbd>{open === sel ? 'Esc' : '↵'}</kbd> signal</span>{/if}
+        {#if current?.topic}<span><kbd>t</kbd> topic</span>{/if}
+      </div>
     </div>
   </div>
   <AssistantPane topic={current?.topic ?? null} />
@@ -303,10 +316,6 @@
   }
   .grow {
     flex: 1;
-  }
-  .k {
-    font-size: 0.8462rem;
-    color: var(--tx-label);
   }
   .err {
     margin-bottom: 8px;

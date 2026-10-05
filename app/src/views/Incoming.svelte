@@ -823,26 +823,26 @@
       <DockHost />
       <div class="hint-bar">
         {#if reviewing !== null}
-          <span>j/k message (skips ⋯)</span><span>space select</span><span>⇧j/k select range</span><span>t move</span><span>d dismiss</span><span>u undo</span>
-          <span>c confirm groups</span><span>g by topic / in order</span><span>esc back</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> message (skips ⋯)</span><span><kbd>Space</kbd> select</span><span><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span><span><kbd>t</kbd> move</span><span><kbd>d</kbd> dismiss</span><span><kbd>u</kbd> undo</span>
+          <span><kbd>c</kbd> confirm groups</span><span><kbd>g</kbd> by topic / in order</span><span><kbd>Esc</kbd> back</span>
         {:else if unsorted && inMsgs}
-          <span>j/k message</span><span>g/G first / last</span><span>space select</span><span>⇧j/k select range</span>
-          <span>{chosen.size ? `t move ${chosen.size} selected` : 't move whole signal'}</span>
-          <span>↵ collapse</span><span>esc done</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> message</span><span><kbd>g</kbd> <kbd>G</kbd> first / last</span><span><kbd>Space</kbd> select</span><span><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span>
+          <span><kbd>t</kbd> {chosen.size ? `move ${chosen.size} selected` : 'move whole signal'}</span>
+          <span><kbd>↵</kbd> collapse</span><span><kbd>Esc</kbd> done</span>
         {:else if unsorted}
-          <span>j/k signal</span><span>{splittable(current) ? '↵ pick messages' : '↵ expand'}</span><span>g/G top / end</span>
-          <span>t move to topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> {splittable(current) ? 'pick messages' : 'expand'}</span><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
+          <span><kbd>t</kbd> move to topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span>{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span>
         {:else}
-          <span>j/k signal</span><span>↵ expand</span><span>g/G top / end</span>
-          <span>c confirm</span><span>x wrong topic</span><span>n todo</span><span>d dismiss</span>{#if current?.source === 'gmail'}<span># trash</span>{/if}<span>u undo</span><span>t move to topic</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> expand</span><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
+          <span><kbd>c</kbd> confirm</span><span><kbd>x</kbd> wrong topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span>{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span><span><kbd>t</kbd> move to topic</span>
         {/if}
         {#if current?.agent && reviewing === null}
-          {#if expanded.has(current.item_id) && current.agent.waiting}<span>1–9 answer</span>{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span>r reply</span>{/if}<span>o open in Agents</span>
+          {#if expanded.has(current.item_id) && current.agent.waiting}<span><kbd>1–9</kbd> answer</span>{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span><kbd>r</kbd> reply</span>{/if}<span><kbd>o</kbd> open in Agents</span>
         {/if}
         {#if reviewing === null}
-          {#if current?.split}<span>s review split</span>{:else if reviewable(current)}<span>s split</span>{/if}
-          {#if current?.new_person && expanded.has(current.item_id)}<span>p new person</span><span>l link</span>{/if}
-          {#if !current?.agent}<span>o open</span>{/if}<span>[ ] topic</span>
+          {#if current?.split}<span><kbd>s</kbd> review split</span>{:else if reviewable(current)}<span><kbd>s</kbd> split</span>{/if}
+          {#if current?.new_person && expanded.has(current.item_id)}<span><kbd>p</kbd> new person</span><span><kbd>l</kbd> link</span>{/if}
+          {#if !current?.agent}<span><kbd>o</kbd> open</span>{/if}<span><kbd>[</kbd> <kbd>]</kbd> topic</span>
         {/if}
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
       </div>

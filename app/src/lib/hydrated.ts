@@ -73,11 +73,11 @@ export function parts(snippet: string): { text: string; hit: boolean }[] {
     .map((p) => (p.startsWith('\u0001') ? { text: p.slice(1, -1), hit: true } : { text: p, hit: false }));
 }
 
-/** What a route chip says when it has nothing to show. */
-export function routeNote(f: Facet, isMac: boolean): string {
+/** What a route chip says when it has nothing to show. For 'not_asked' the chip puts the key before it, as a <kbd>. */
+export function routeNote(f: Facet): string {
   switch (f.status.state) {
     case 'not_asked':
-      return `${isMac ? '⌥' : 'Alt+'}↵ to ask`;
+      return 'to ask';
     case 'off':
       return 'not set up';
     case 'no_token':

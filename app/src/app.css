@@ -210,7 +210,20 @@ pre,
 .btn.primary:hover:not(:disabled, .is-disabled) {
   background: var(--aqua-badge);
 }
-.btn.primary .kbd {
+/* The key's box is taller than a small button's, chip's or field's line of text
+   (17px against 15px), so inside one its margin takes the difference back: a
+   button with a key is the height of one without, and a row of both stays
+   aligned. */
+.btn .kbd,
+.btn kbd,
+.chip .kbd,
+.chip kbd,
+.input .kbd,
+.input kbd {
+  margin-block: -2px;
+}
+.btn.primary .kbd,
+.btn.primary kbd {
   color: var(--aqua);
   background: transparent;
   border-color: var(--aqua-line);
@@ -408,18 +421,16 @@ pre,
   background: var(--aqua-tint);
 }
 
+/* A key hint (ui-plan decision 9): one boxed key, <kbd>. Every hint is one,
+   in a button, a legend or a sentence; the words around it stay plain. */
+.kbd,
 kbd {
-  font: inherit;
-  color: var(--tx-2);
-}
-
-/* A boxed key cap. */
-.kbd {
-  font: 0.846rem var(--font-mono);
+  display: inline-block;
+  font: 0.846rem/1.35 var(--font-mono);
   color: var(--tx-body);
   background: var(--bg-head);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-block);
+  border-radius: 3px;
   padding: 0 5px;
   white-space: nowrap;
 }

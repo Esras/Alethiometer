@@ -130,7 +130,7 @@
       {:else}
         <span class="extra">{list.length} {list.length === 1 ? 'channel' : 'channels'}</span>
       {/if}
-      <button class="btn" onclick={() => onaction('review')}>Review… <span class="k">↵</span></button>
+      <button class="btn" onclick={() => onaction('review')}>Review… <kbd>↵</kbd></button>
     {:else if field.widget === 'glean_calls'}
       <Stepper value={Number(value ?? 0)} step={o.step ?? 50} min={o.min} {editing} {onedit} onchange={(v) => onset(v)} />
     {:else if field.widget === 'code'}
@@ -288,10 +288,6 @@
     align-items: center;
     color: var(--tx-label);
     font-size: 0.9231rem;
-  }
-  .k {
-    color: var(--tx-label);
-    margin-left: 2px;
   }
   .swatch {
     width: 14px;

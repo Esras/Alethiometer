@@ -188,7 +188,7 @@
         {#if t.new_count > 0}<span class="count new tnum">{t.new_count} new</span>{/if}
       </div>
       {#if merge}
-        <div class="path merging">merged into {merge.intoName} · <span class="u">u</span> undo</div>
+        <div class="path merging">merged into {merge.intoName} · <kbd>u</kbd> undo</div>
       {:else if t.obsidian_path}<div class="path ellipsis" title={t.obsidian_path}>{t.obsidian_path}</div>{:else}<div class="path none">no note</div>{/if}
     </div>
     <span class="cell tnum">{t.open_count ? `${t.open_count} open` : '—'}</span>
@@ -236,7 +236,7 @@
     {#if naming !== null}
       <FilterField class="naming" icon="plus" bind:value={naming} bind:el={nameInput} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)}>
         {#if catFilter !== null}<span class="in">in {category(catFilter).label}</span>{/if}
-        <span class="hint">↵ create · esc</span>
+        <span class="hint"><kbd>↵</kbd> create · <kbd>Esc</kbd></span>
       </FilterField>
     {/if}
     <div class="body scroll" bind:this={body}>
@@ -269,9 +269,9 @@
     {/if}
     <DockHost left={18} />
     <div class="hint-bar">
-      <span>j/k move</span><span>↵ open</span><span>/ filter</span>
-      <span>a {archived ? 'unarchive' : 'archive'}</span><span>c category</span><span>[ ] filter chip</span><span>n new topic</span>{#if !archived}<span>m merge</span>{/if}
-      {#if merges.list.length}<span>u undo merge</span>{/if}
+      <span><kbd>j</kbd> <kbd>k</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>/</kbd> filter</span>
+      <span><kbd>a</kbd> {archived ? 'unarchive' : 'archive'}</span><span><kbd>c</kbd> category</span><span><kbd>[</kbd> <kbd>]</kbd> filter chip</span><span><kbd>n</kbd> new topic</span>{#if !archived}<span><kbd>m</kbd> merge</span>{/if}
+      {#if merges.list.length}<span><kbd>u</kbd> undo merge</span>{/if}
       {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
     </div>
   </div>
@@ -389,9 +389,6 @@
   }
   .path.merging {
     color: var(--tx-label);
-  }
-  .path .u {
-    color: var(--tx-2);
   }
   .row.merged {
     background: var(--hatch);

@@ -95,7 +95,7 @@
         }
       }}
     >
-      <span class="hint">/</span>
+      <kbd>/</kbd>
     </FilterField>
     <span class="counts">
       <span title="running"><StatusMark status="running" />{counts.running}</span>
@@ -226,9 +226,8 @@
     /* 25px tall, as before: it lines up with the 26px + button beside it. */
     padding-block: 4px;
   }
-  .hint {
+  .filter-row kbd {
     margin-left: auto;
-    font-size: 0.846rem;
   }
   .counts {
     display: flex;

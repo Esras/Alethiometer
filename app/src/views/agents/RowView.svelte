@@ -89,7 +89,7 @@
     {@render main()}
     <span class="right">
       {#if right}{@render right()}{/if}
-      {#if earlier}<span class="earlier">{earlier} earlier <span class="k">E</span></span>{/if}
+      {#if earlier}<span class="earlier">{earlier} earlier <kbd>E</kbd></span>{/if}
       {#if row.at}<span class="time">{hm(row.at)}</span>{/if}
     </span>
   </div>
@@ -146,7 +146,7 @@
       <i class="ph {ICON.thinking} ic" style:color="var(--thinking)"></i>
       <div class="mid">
         {#snippet m()}<span class="own">thinking{row.tokens ? ` · ${row.tokens} tok` : ''}</span>{/snippet}
-        {#snippet r()}<span class="k">E</span>{/snippet}
+        {#snippet r()}<kbd>E</kbd>{/snippet}
         {@render header(m, r)}
         <div class="think" class:open role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>{row.text}</div>
       </div>
@@ -176,7 +176,7 @@
         <i class="ph ph-arrow-elbow-down-right ic" style:color="var(--tx-label)"></i>
         <div class="mid">
           <div class="result" class:open class:failed={t?.status === 'failed'} role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>
-            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{(open ? t.result : clip(t.result)).slice(1)}{:else}{open ? t?.result : clip(t?.result ?? '')}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <span class="k">E</span></span>{/if}
+            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{(open ? t.result : clip(t.result)).slice(1)}{:else}{open ? t?.result : clip(t?.result ?? '')}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <kbd>E</kbd></span>{/if}
           </div>
         </div>
       </div>
@@ -205,13 +205,13 @@
           </div>
           <div class="acts">
             {#if loud === 'unreach'}
-              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}><span class="k">⏎</span>Start it again and send</button>
-              <button class="btn" onclick={() => onDelivery?.('forward')}><span class="k">F</span>Send to another agent</button>
-              <button class="btn" onclick={() => onDelivery?.('discard')}><span class="k">Esc</span>Discard</button>
+              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}><kbd>⏎</kbd>Start it again and send</button>
+              <button class="btn" onclick={() => onDelivery?.('forward')}><kbd>F</kbd>Send to another agent</button>
+              <button class="btn" onclick={() => onDelivery?.('discard')}><kbd>Esc</kbd>Discard</button>
             {:else}
-              <button class="btn primary" onclick={() => onDelivery?.('retry')}><span class="k">⏎</span>Retry now</button>
-              <button class="btn" onclick={() => onDelivery?.('edit')}><span class="k">E</span>Edit</button>
-              <button class="btn" onclick={() => onDelivery?.('cancel')}><span class="k">Esc</span>Cancel</button>
+              <button class="btn primary" onclick={() => onDelivery?.('retry')}><kbd>⏎</kbd>Retry now</button>
+              <button class="btn" onclick={() => onDelivery?.('edit')}><kbd>E</kbd>Edit</button>
+              <button class="btn" onclick={() => onDelivery?.('cancel')}><kbd>Esc</kbd>Cancel</button>
             {/if}
           </div>
         {:else if sel && d && (d.state === 'deferred' || d.seen_by.length)}
@@ -233,7 +233,7 @@
           <div class="mid">
             <div class="head line">
               <span class="line-text"><span style:color={color(c.tool.name === row.to?.name ? row.to : null)}>{c.tool.name}</span> · {c.tool.summary}</span>
-              <span class="right"><span class="k">E</span></span>
+              <span class="right"><kbd>E</kbd></span>
             </div>
           </div>
         </div>
@@ -338,16 +338,9 @@
     font-size: 0.846rem;
     color: var(--tx-disabled);
   }
-  .k {
-    font-size: 0.808rem;
-    color: var(--tx-label);
-  }
   .earlier {
     font-size: 0.846rem;
     color: var(--tx-label);
-  }
-  .earlier .k {
-    color: var(--tx-muted-2);
   }
   .who {
     font-weight: 500;
@@ -493,11 +486,5 @@
     gap: 6px;
     flex-wrap: wrap;
     margin-top: 8px;
-  }
-  .acts .k {
-    font: 0.808rem var(--font-mono);
-  }
-  .acts .primary .k {
-    color: var(--aqua);
   }
 </style>

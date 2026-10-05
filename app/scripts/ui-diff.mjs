@@ -115,6 +115,12 @@ const scenes = {
   'daystrip-buffer': [{ exact: 'Life' }, 'b'],
   'settings-edit-number': ['Control+,', 'Enter'],
   'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e'],
+  // Key hints
+  // Keys written inside sentences and legends (decision 9): the legend under an
+  // expanded Search result and Topics' chronology, and the note pane's editing line.
+  'search-expanded': ['Control+k', { type: 'acme' }, 'Control+Enter', ' '],
+  'topic-expanded': ['Control+3', 'Enter', 'j', 'j', 'Enter'],
+  'topic-note-edit': ['Control+3', 'Enter', 'e'],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.

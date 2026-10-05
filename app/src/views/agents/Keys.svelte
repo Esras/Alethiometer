@@ -4,16 +4,16 @@
   import { ag } from './state.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
-  const M = isMac ? '⌘' : 'Ctrl';
+  const M = isMac ? '⌘' : 'Ctrl+';
   const SECTIONS: { title: string; keys: [string[], string][] }[] = [
     {
       title: 'Everywhere',
       keys: [
-        [[M, 'K'], 'Search everything'],
+        [[`${M}K`], 'Search everything'],
         [['/'], 'Filter sessions'],
         [['G', 'I'], 'Go to Incoming'],
         [['G', 'A'], 'Go to Agents'],
-        [[M, '.'], 'Interrupt the selected agent'],
+        [[`${M}.`], 'Interrupt the selected agent'],
         [['?'], 'This sheet'],
       ],
     },
@@ -49,7 +49,7 @@
     {
       title: 'Composer',
       keys: [
-        [[M, '⏎'], 'Send'],
+        [[`${M}⏎`], 'Send'],
         [['@'], 'Address one member (rooms)'],
         [['↑'], 'Bring back your last message'],
         [['Esc'], 'Back to the thread'],
@@ -70,8 +70,8 @@
   <div class="sheet">
     <div class="head">
       <span class="title">Keys</span>
-      <span class="lede"><span class="kbd">⏎</span> goes in, <span class="kbd">Esc</span> comes out. <span class="kbd">Tab</span> moves between the tree, the thread and the composer.</span>
-      <span class="close">? or Esc to close</span>
+      <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> moves between the tree, the thread and the composer.</span>
+      <span class="close"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span>
     </div>
     <div class="grid">
       {#each SECTIONS as s (s.title)}
@@ -79,7 +79,7 @@
           <div class="st">{s.title}</div>
           <div class="keys">
             {#each s.keys as [ks, what] (what)}
-              <span class="ks">{#each ks as k (k)}<span class="kbd">{k}</span>{/each}</span>
+              <span class="ks">{#each ks as k (k)}<kbd>{k}</kbd>{/each}</span>
               <span class="what">{what}</span>
             {/each}
           </div>
@@ -118,7 +118,7 @@
   }
   .close {
     margin-left: auto;
-    font: 0.885rem var(--font-mono);
+    font-size: 0.885rem;
     color: var(--tx-label);
   }
   .grid {

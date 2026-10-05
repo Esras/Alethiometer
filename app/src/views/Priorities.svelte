@@ -252,7 +252,7 @@
           <span><kbd>↵</kbd> open topic</span>
           {#if selRow.url}<span><kbd>o</kbd> open in {sourceLabel(selRow.source)}</span>{/if}
           <span><kbd>p</kbd> peek</span>
-          <span><kbd>j/k h/l</kbd> move</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd> move</span>
         </span>
       {:else if selChip}
         <span class="sq" style:background={selChip.topic ? catColor(selChip.topic.category) : 'var(--tx-label)'}></span>
@@ -261,7 +261,7 @@
         <span class="hints">
           {#if selChip.topic}<span><kbd>↵</kbd> open topic</span>{/if}
           <span><kbd>v</kbd> show rows</span>
-          <span><kbd>j/k h/l</kbd> move</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd> move</span>
         </span>
       {:else}
         <span class="sel-meta">Nothing to prioritize.</span>
@@ -507,9 +507,6 @@
     font-size: 0.8846rem;
     color: var(--tx-muted);
     flex: none;
-  }
-  .hints kbd {
-    color: var(--tx-body);
   }
   .peek {
     position: absolute;

@@ -3,7 +3,7 @@
   // A dot summarises: orange when a source errored or a write failed.
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
-  import { mod, useKeys } from '../lib/keys.svelte';
+  import { chord, mod, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import { popover } from '../lib/ui/popover';
   import StatusMark from '../lib/ui/StatusMark.svelte';
@@ -199,7 +199,7 @@
           {#if w.error}<div class="err">{w.error}</div>{/if}
         {/each}
         {#if failed.length}
-          <button class="btn primary retry" onclick={retryAll}>Retry failed <kbd>⌘R</kbd></button>
+          <button class="btn primary retry" onclick={retryAll}>Retry failed <kbd>{chord('⌘R', 'Ctrl+R')}</kbd></button>
         {/if}
       {/if}
     </div>

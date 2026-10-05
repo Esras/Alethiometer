@@ -9,7 +9,7 @@
   import { call, openExternal } from '../lib/api';
   import { catColor, openSearch, openTopic, refresh, ui } from '../lib/app.svelte';
   import { feedback, hydrated, inLens, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
-  import { mod, pointerMoved } from '../lib/keys.svelte';
+  import { chord, mod, pointerMoved } from '../lib/keys.svelte';
   import { moveSignal } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FacetBar from '../lib/ui/FacetBar.svelte';
@@ -17,8 +17,6 @@
   import Modal from '../lib/ui/Modal.svelte';
   import TopicPicker from '../views/incoming/TopicPicker.svelte';
 
-  const isMac = navigator.platform.toLowerCase().includes('mac');
-  const k = (mac: string, other: string) => (isMac ? mac : other);
 
   // From the Search results view, `/` comes back here with its query.
   const initial = ui.tab === 'search' ? ui.searchQuery : '';
@@ -37,6 +35,8 @@
   let filter = $state<Lens | null>(null);
   let exclude = $state<Lens | null>(null);
   let picking = $state(false);
+  // This note ends with the anchor key as a <kbd>, so the text is matched in the markup.
+  const ANCHOR_FIRST = 'Reject is per topic: anchor first';
   let note = $state<string | null>(null);
   let input: HTMLInputElement;
 
@@ -124,7 +124,7 @@
     const it = current;
     if (it?.kind !== 'row') return;
     if (!anchored || context === null) {
-      note = `Reject is per topic: anchor first (${k('⌥A', 'Alt+A')})`;
+      note = ANCHOR_FIRST;
       return;
     }
     await feedback(context, it.row, it.row.kept ? 'reject' : 'clear');
@@ -189,33 +189,33 @@
     <i class="ph ph-magnifying-glass"></i>
     <input bind:this={input} bind:value={q} placeholder="Search everything" />
     {#if context !== null}
-      <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({k('⌥A', 'Alt+A')})">
+      <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({chord('⌥A', 'Alt+A')})">
         {#if anchored}
           <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}></span>{anchorName ?? 'This topic'}
         {:else}
           <i class="ph ph-anchor-simple"></i>No anchor
         {/if}
-        <span class="glean-key">{k('⌥A', 'Alt+A')}</span>
+        <kbd>{chord('⌥A', 'Alt+A')}</kbd>
       </button>
     {/if}
   </div>
   <div class="helper">
     {#if anchored && res && res.hidden}
       <button class="hidden" onclick={() => (showHidden = !showHidden)}>{res.hidden} off-topic {showHidden ? 'shown' : 'hidden'}</button>
-      <span class="k">⇧↵ {showHidden ? 'hide' : 'show'}</span>
+      <span><kbd>{'⇧↵'}</kbd> {showHidden ? 'hide' : 'show'}</span>
     {:else if !anchored && context !== null}
       <span>Ranked by match and recency</span>
-      <span class="k">{k('⌥A', 'Alt+A')} anchor to {anchorName ?? 'this topic'}</span>
+      <span><kbd>{chord('⌥A', 'Alt+A')}</kbd> anchor to {anchorName ?? 'this topic'}</span>
     {:else if anchored}
       <span>Anchored to {anchorName ?? 'this topic'}</span>
     {:else}
       <span>Ranked by match and recency</span>
     {/if}
     <span class="grow"></span>
-    {#if loading}<span class="k">asking Glean…</span>{:else if q.trim() && !glean}<span class="k">{k('⌥↵', 'Alt+↵')} Glean</span>{/if}
-    <span class="k">↵ open</span>
-    <span class="k">{k('⌘T', 'Ctrl+T')} link to topic</span>
-    {#if anchored}<span class="k">{k('⌘⌫', 'Ctrl+⌫')} reject</span>{/if}
+    {#if loading}<span>asking Glean…</span>{:else if q.trim() && !glean}<span><kbd>{chord('⌥↵', 'Alt+↵')}</kbd> Glean</span>{/if}
+    <span><kbd>↵</kbd> open</span>
+    <span><kbd>{chord('⌘T', 'Ctrl+T')}</kbd> link to topic</span>
+    {#if anchored}<span><kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd> reject</span>{/if}
   </div>
   {#if res && q.trim()}
     <FacetBar facets={res.facets} total={visible.length} bind:hover bind:filter bind:exclude />
@@ -253,9 +253,9 @@
       {/each}
     </div>
   {:else if q.trim() && res}
-    <div class="empty">No quick matches{glean ? '' : ` · ${k('⌥↵', 'Alt+↵')} asks Glean`} · {k('⌘↵', 'Ctrl+↵')} searches everything</div>
+    <div class="empty">No quick matches{#if !glean}{' · '}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> asks Glean{/if} · <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd> searches everything</div>
   {/if}
-  {#if note}<div class="note">{note}</div>{/if}
+  {#if note}<div class="note">{note}{#if note === ANCHOR_FIRST}{' ('}<kbd>{chord('⌥A', 'Alt+A')}</kbd>){/if}</div>{/if}
   {#if picking && current?.kind === 'row'}
     <div class="picker">
       <TopicPicker exclude={current.row.topic?.id ?? null} placeholder="Link to topic…" onpick={linkTo} onclose={() => (picking = false)} />
@@ -300,13 +300,6 @@
     border-color: color-mix(in srgb, var(--yellow) 60%, transparent);
     color: var(--yellow);
     background: color-mix(in srgb, var(--yellow) 8%, transparent);
-  }
-  .glean-key {
-    padding: 0 5px;
-    border-radius: 4px;
-    background: var(--bg-head);
-    color: var(--tx-label);
-    font-size: 0.8077rem;
   }
   .sq {
     width: 8px;

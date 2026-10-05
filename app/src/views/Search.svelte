@@ -13,7 +13,7 @@
   import { openExternal } from '../lib/api';
   import { catColor, closeSearch, openTopic, refresh, ui } from '../lib/app.svelte';
   import { hydrated, inLens, parts, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
-  import { plain, useKeys } from '../lib/keys.svelte';
+  import { chord, plain, useKeys } from '../lib/keys.svelte';
   import { moveSignal, undoMove, type Move } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
@@ -22,8 +22,6 @@
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import SignalDetail from './shared/SignalDetail.svelte';
-
-  const isMac = navigator.platform.toLowerCase().includes('mac');
 
   let res = $state<Hydrated | null>(null);
   let hover = $state<Lens | null>(null);
@@ -172,7 +170,7 @@
             <div class="main">
               <span class="title">{r.title}</span>
               {#if move}
-                <span class="quiet">moved to {move.toName} · <span class="u">u</span> undo</span>
+                <span class="quiet">moved to {move.toName} · <kbd>u</kbd> undo</span>
               {:else}
                 <span class="snippet">
                   {#each parts(r.snippet) as p, i (i)}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}
@@ -180,7 +178,9 @@
               {/if}
               {#if expanded === r.key && r.item_id !== null}
                 <div onclick={(ev) => ev.stopPropagation()} role="presentation">
-                  <SignalDetail itemId={r.item_id} hints={r.msgs > 1 ? 't move · s split · esc collapse' : 't move · esc collapse'} />
+                  <SignalDetail itemId={r.item_id}>
+                    {#snippet hints()}<kbd>t</kbd> move · {#if r.msgs > 1}<kbd>s</kbd> split{' · '}{/if}<kbd>Esc</kbd> collapse{/snippet}
+                  </SignalDetail>
                 </div>
               {/if}
             </div>
@@ -205,11 +205,11 @@
     {/if}
     <DockHost left={18} />
     <div class="hint-bar">
-      <span>j/k move</span><span>↵ open</span>
-      {#if local}<span>space expand</span><span class="key">t move to topic</span>{/if}
-      {#if current && local && current.msgs > 1}<span class="key">s split</span>{/if}
-      {#if !ui.searchGlean}<span>{isMac ? '⌥↵' : 'Alt+↵'} Glean</span>{/if}
-      {#if moves.length}<span>u undo</span>{/if}<span>/ edit search</span><span>esc back</span>
+      <span><kbd>j</kbd> <kbd>k</kbd> move</span><span><kbd>↵</kbd> open</span>
+      {#if local}<span><kbd>Space</kbd> expand</span><span class="key"><kbd>t</kbd> move to topic</span>{/if}
+      {#if current && local && current.msgs > 1}<span class="key"><kbd>s</kbd> split</span>{/if}
+      {#if !ui.searchGlean}<span><kbd>{chord('⌥↵', 'Alt+↵')}</kbd> Glean</span>{/if}
+      {#if moves.length}<span><kbd>u</kbd> undo</span>{/if}<span><kbd>/</kbd> edit search</span><span><kbd>Esc</kbd> back</span>
       {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
     </div>
   </div>
@@ -305,9 +305,6 @@
   .quiet {
     font-size: 0.9231rem;
     color: var(--tx-label);
-  }
-  .u {
-    color: var(--tx-2);
   }
   .topic {
     display: flex;

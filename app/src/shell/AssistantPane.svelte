@@ -159,7 +159,7 @@
           <span>{last.queries.length - 1} {last.queries.length === 2 ? 'query' : 'queries'}</span>
           {#if last.glean.state !== 'ok'}<span class="warn" title={last.glean.message ?? ''}>Glean unavailable</span>{/if}
           <button class="btn srcbtn" class:on={sources} onclick={() => (sources = !sources)}>
-            <i class="ph {sources ? 'ph-caret-right' : 'ph-caret-left'}"></i>{sources ? 'Hide sources' : 'Sources'} <span class="k">e</span>
+            <i class="ph {sources ? 'ph-caret-right' : 'ph-caret-left'}"></i>{sources ? 'Hide sources' : 'Sources'} <kbd>e</kbd>
           </button>
         </div>
       {/if}
@@ -313,9 +313,6 @@
   }
   .srcbtn {
     margin-left: auto;
-  }
-  .k {
-    color: var(--tx-label);
   }
   .note {
     margin: 0 14px 4px;

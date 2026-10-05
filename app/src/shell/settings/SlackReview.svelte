@@ -71,7 +71,7 @@
   <header>
     <span class="title">Channels in {source.name}</span>
     <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
-    <button class="esc" onclick={onclose}>esc <i class="ph ph-x"></i></button>
+    <button class="esc" onclick={onclose}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
   </header>
   <div class="field"><FilterField bind:value={q} bind:el={input} placeholder="Filter channels" oninput={() => (sel = 0)} /></div>
   <div class="thead">
@@ -96,7 +96,7 @@
     {/each}
   </div>
   <footer>
-    <span>↑↓ channel</span><span>↵ follow / unfollow</span><span>⇥ sort</span><span>Activity is what Alethiometer saw in the last 14 days.</span><span class="last">esc done</span>
+    <span><kbd>↑</kbd> <kbd>↓</kbd> channel</span><span><kbd>↵</kbd> follow / unfollow</span><span><kbd>⇥</kbd> sort</span><span>Activity is what Alethiometer saw in the last 14 days.</span><span class="last"><kbd>Esc</kbd> done</span>
   </footer>
 </div>
 </Modal>

@@ -101,7 +101,7 @@
   <div class="tabs">
     <button class:on={tab === 'kept'} onclick={() => (tab = 'kept')}>Kept <span class="n">{kept.length}</span></button>
     <button class:on={tab === 'dropped'} onclick={() => (tab = 'dropped')}>Dropped <span class="n warn">{dropped.length}</span></button>
-    <span class="k">⇥</span>
+    <kbd>⇥</kbd>
   </div>
   <div class="rows scroll">
     {#each list as s, i (s.key)}
@@ -120,7 +120,7 @@
       <div class="empty">{tab === 'kept' ? 'Nothing kept.' : 'Nothing dropped.'}</div>
     {/each}
   </div>
-  <div class="foot"><span>hover a query to trace</span><span>↵ open</span><span>p pin</span><span>x reject</span><span>drag edge to widen</span></div>
+  <div class="foot"><span>hover a query to trace</span><span><kbd>↵</kbd> open</span><span><kbd>p</kbd> pin</span><span><kbd>x</kbd> reject</span><span>drag edge to widen</span></div>
 </div>
 
 <style>
@@ -218,9 +218,8 @@
   .n.warn {
     color: var(--orange);
   }
-  .k {
+  .tabs kbd {
     margin-left: auto;
-    color: var(--tx-label);
   }
   .rows {
     flex: 1;

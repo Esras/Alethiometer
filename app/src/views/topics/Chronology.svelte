@@ -150,7 +150,7 @@
         <span class="when nowrap" class:today={e.today}>{e.when}</span>
         <span class="icon"><AppIcon source={e.source} /></span>
         {#if move}
-          <div class="min0 quiet">moved to {move.toName} · <span class="u">u</span> undo</div>
+          <div class="min0 quiet">moved to {move.toName} · <kbd>u</kbd> undo</div>
           <span></span>
         {:else}
           <div class="min0">
@@ -162,7 +162,9 @@
           <span class="right nowrap">{e.right}</span>
           {#if expanded === e.item_id}
             <div class="expanded" onclick={(ev) => ev.stopPropagation()} role="presentation">
-              <SignalDetail itemId={e.item_id} hints={multi ? 't move · s split · esc collapse' : 't move · esc collapse'} ondetail={(d) => (detail = d)} />
+              <SignalDetail itemId={e.item_id} ondetail={(d) => (detail = d)}>
+                {#snippet hints()}<kbd>t</kbd> move · {#if multi}<kbd>s</kbd> split{' · '}{/if}<kbd>Esc</kbd> collapse{/snippet}
+              </SignalDetail>
             </div>
           {/if}
         {/if}
@@ -259,9 +261,6 @@
     font-size: 0.9231rem;
     color: var(--tx-label);
     padding-top: 1px;
-  }
-  .u {
-    color: var(--tx-2);
   }
   .moved .dot {
     opacity: 0.4;

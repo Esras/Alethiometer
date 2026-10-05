@@ -11,6 +11,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import { call, openExternal } from '../../lib/api';
   import { refresh } from '../../lib/app.svelte';
+  import { chord } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import type { ReflectNote, SaveResult, SaveStatus, Scope } from './types';
 
@@ -193,7 +194,7 @@
       unsaved: 'editing',
       saving: 'saving…',
       conflict: 'not saved',
-      offline: "Obsidian isn't open · ⌘R retry",
+      offline: "Obsidian isn't open",
       error: 'not saved',
     }[status],
   );
@@ -203,7 +204,7 @@
   <div class="head">
     <AppIcon source="obsidian" size={15} />
     <button class="path ellipsis" onclick={openInObsidian} title="Open in Obsidian (o)">{target.path}</button>
-    <span class="status nowrap" class:warn={status === 'conflict' || status === 'offline' || status === 'error'}>{statusLabel}</span>
+    <span class="status nowrap" class:warn={status === 'conflict' || status === 'offline' || status === 'error'}>{statusLabel}{#if status === 'offline'}{' · '}<kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry{/if}</span>
   </div>
   {#if status === 'conflict'}
     <div class="conflict">

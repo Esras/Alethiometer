@@ -8,7 +8,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import { call, openExternal } from '../../lib/api';
   import { refresh } from '../../lib/app.svelte';
-  import { mod, plain, useKeys } from '../../lib/keys.svelte';
+  import { chord, mod, plain, useKeys } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import NoteText from '../../lib/ui/NoteText.svelte';
   import type { SaveState, TopicNote } from './types';
@@ -188,7 +188,7 @@
   const label = $derived(
     {
       idle: '',
-      editing: 'editing · ⌘S save · esc done',
+      editing: 'editing',
       saving: 'saving…',
       saved: 'saved',
       conflict: '',
@@ -208,9 +208,9 @@
         <button class="act" onclick={keepMine}>keep mine <kbd>k</kbd></button>
       </span>
     {:else if status === 'offline'}
-      <span class="state warn nowrap">Obsidian isn't open · <button class="act" onclick={retry}><kbd>⌘R</kbd> retry</button></span>
+      <span class="state warn nowrap">Obsidian isn't open · <button class="act" onclick={retry}><kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry</button></span>
     {:else if label}
-      <span class="state nowrap ellipsis" class:warn={status === 'failed'} class:ok={status === 'saved'} title={status === 'failed' ? error : undefined}>{label}</span>
+      <span class="state nowrap ellipsis" class:warn={status === 'failed'} class:ok={status === 'saved'} title={status === 'failed' ? error : undefined}>{label}{#if status === 'editing'}{' · '}<kbd>{chord('⌘S', 'Ctrl+S')}</kbd> save · <kbd>Esc</kbd> done{/if}</span>
     {/if}
     {#if note}
       <span class="keys nowrap">

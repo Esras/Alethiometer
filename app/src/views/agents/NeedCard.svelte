@@ -33,7 +33,7 @@
     <i class="ph ph-{icon}"></i>
     <span class="t">{@render title()}</span>
     {@render summary?.()}
-    <span class="hint">back after Esc</span>
+    <span class="hint">back after <kbd>Esc</kbd></span>
   </div>
 {:else}
   <div class="card" style:max-height={maxHeight}>
@@ -84,7 +84,7 @@
     color: var(--need);
   }
   .hint {
-    font: 0.846rem var(--font-mono);
+    font-size: 0.846rem;
     color: var(--tx-label);
     white-space: nowrap;
   }

@@ -115,7 +115,7 @@
     <div class="hello">
       <i class="ph ph-robot"></i>
       <p>Open a session or room from the tree, or start a local session.</p>
-      <button class="btn md primary" onclick={() => (ag.form ={ kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<span class="k">N</span></button>
+      <button class="btn md primary" onclick={() => (ag.form ={ kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button>
     </div>
   </div>
 {:else}
@@ -149,7 +149,7 @@
           <button class="tab" onclick={() => setTab('transcript')}>Transcript<span class="n">{s?.stats.turns ?? 0} turns</span></button>
           <button class="tab on">Messages<span class="n">{messageCount}</span></button>
           <span class="tabnote">You ↔ {s?.name}, plus mentions of {s?.name} in rooms</span>
-          <span class="tk"><span class="kbd">T</span><span class="kbd">M</span></span>
+          <span class="tk"><kbd>T</kbd><kbd>M</kbd></span>
         </div>
       {:else}
         <div class="legend">
@@ -157,9 +157,9 @@
             {@const off = c.kinds.every((k) => ag.hidden.has(k as never))}
             <button class="chip {c.box ? `c-${c.box}` : ''}" class:off onclick={() => toggleKind(c.kinds)}><i class="ph {c.icon}" style:color={c.color}></i>{c.label}</button>
           {/each}
-          {#if kind === 'scion'}<button class="chip plain" onclick={() => setTab('messages')}>Messages tab<span class="kbd">M</span></button>{/if}
+          {#if kind === 'scion'}<button class="chip plain" onclick={() => setTab('messages')}>Messages tab<kbd>M</kbd></button>{/if}
           <button class="follow" class:paused={!following} onclick={latest}>
-            <i class="ph ph-arrow-down"></i>{following ? 'Following latest' : 'Jump to latest · G'}
+            <i class="ph ph-arrow-down"></i>{#if following}Following latest{:else}Jump to latest · <kbd>G</kbd>{/if}
           </button>
         </div>
       {/if}
@@ -244,13 +244,6 @@
   }
   .btn {
     border-radius: 7px;
-  }
-  .k {
-    font: 0.808rem var(--font-mono);
-    color: var(--tx-label);
-  }
-  .kbd {
-    font-size: 0.808rem;
   }
   .head {
     flex: none;

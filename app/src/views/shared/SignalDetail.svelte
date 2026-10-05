@@ -3,13 +3,15 @@
   // with sender colours and your replies, one faded context message before
   // them, Open in the app, and the actions as small hint text (nothing is
   // offered until it's expanded).
+  import type { Snippet } from 'svelte';
   import { call, openExternal } from '../../lib/api';
   import type { Detail } from '../../lib/reclassify';
   import { sourceLabel } from '../../lib/sources';
   import Markdown from '../../lib/ui/Markdown.svelte';
   import PersonName from '../../lib/ui/PersonName.svelte';
 
-  let { itemId, hints, ondetail }: { itemId: number; hints: string; ondetail?: (d: Detail) => void } = $props();
+  /** `hints` is the key legend at the foot: the site's own keys, as <kbd> and words. */
+  let { itemId, hints, ondetail }: { itemId: number; hints: Snippet; ondetail?: (d: Detail) => void } = $props();
 
   let d = $state<Detail | null>(null);
   $effect(() => {
@@ -52,7 +54,7 @@
     {/each}
     <div class="foot">
       {#if d.url}<button class="app" onclick={() => openExternal(d!.url!)}>Open in {sourceLabel(d.source)}</button>{/if}
-      <span class="hints">{hints}</span>
+      <span class="hints">{@render hints()}</span>
     </div>
   </div>
 {/if}

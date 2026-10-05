@@ -266,6 +266,7 @@ These already match:
   - `Todos:272/482`, `Incoming:823/1257`, `TopicsIndex:273/519` and `Search:207/355/366`;
   - `SignalDetail:55/105`;
   - `TabBar:38/126`, `Tree:97/250`, `TopicPicker:89/143`, `SourcesPanel:104/225` and `AssistantPane:162/323`.
+- **Done (2026-10-05):** every key hint is one `<kbd>` styled by the global `.kbd, kbd` in `app.css` (mono, `bg-head`, `border-strong`, 3px radius because the old global `kbd` had none; aqua-line in `.btn.primary`, grey in disabled), all local hint rules are gone, modifiers read through `chord('⌘K', 'Ctrl+K')` (`lib/keys.svelte.ts`), and the plain-text keys in legends and sentences are boxed one key each (`j/k` is two boxes, `1–7` one); inside `.btn`, `.chip` and `.input` the box takes back its extra 2px of height so those don't grow, and left alone are the Notes legend's typed prefixes (`#`, `~`, `- [] ()`), `Settings/Row`'s `.key` (a settings.json name) and tooltips (`title=`), which can't hold markup. Wording that changed: the Tab bar's hint is `Ctrl+K` off the Mac (it said `/`, which doesn't work on every tab), Notes' send button says `⌘↵` on the Mac (it said `⌃↵`; `mod()` is ⌘ there), and the other `⌘…` hints read `Ctrl+…` off the Mac.
 
 **11 · Colour roles.**
 - **Time pressure, `urgencyColor()` (`lib/app.svelte.ts:158`):** today it's four steps, with orange at 2–5 and red under 2. The system says three steps, with red from 5 minutes. **That turns the countdown red three minutes earlier.** Used at `CountdownPill:20/22` and `DayStrip:29`.

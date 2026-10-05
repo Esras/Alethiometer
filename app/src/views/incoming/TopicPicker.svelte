@@ -68,7 +68,7 @@
 <div class="picker" use:p.frame>
   <div class="field">
     <FilterField field={p.field} icon="arrow-bend-down-right" bind:value={p.q} {placeholder}>
-      <span class="hint">↵ pick · esc</span>
+      <span class="hint"><kbd>↵</kbd> pick · <kbd>Esc</kbd></span>
     </FilterField>
   </div>
   {#if showUnsorted}

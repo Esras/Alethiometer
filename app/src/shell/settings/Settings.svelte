@@ -4,7 +4,7 @@
   // live; the header says how ("Saved · live", "Saved · Slack reconnected").
   import { call } from '../../lib/api';
   import { refresh, ui } from '../../lib/app.svelte';
-  import { isTyping, mod, pointerMoved } from '../../lib/keys.svelte';
+  import { chord, isTyping, mod, pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
   import { listNav, moveSel } from '../../lib/ui/listNav';
@@ -39,8 +39,6 @@
   import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
 
-  const isMac = navigator.platform.toLowerCase().includes('mac');
-  const cmd = isMac ? '⌘' : 'Ctrl+';
 
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
@@ -435,13 +433,6 @@
   });
   const attention = $derived(page?.sources.some((s) => s.attention) ?? false);
   const sectionInfo = $derived(SECTIONS.find((s) => s.id === section)!);
-  const hints = $derived.by(() => {
-    const base = ['j/k setting', '1–7 or ⇥ section', '↵ edit', '−/+ step', 'space toggle', '/ find', 'esc close'];
-    if (section === 'sources') return ['j/k setting', '⌥j/⌥k previous / next source', '↵ edit', 'space toggle', 'r replace secret', 'a add', '⇧X remove', 's sync now', 'esc close'];
-    if (section === 'ai') return ['j/k setting', '1–7 section', '↵ edit', '/ find', 'esc close'];
-    if (section === 'agents') return ['j/k setting', '1–7 section', '←/→ pick a color', '↵ edit', 'space toggle', '⌫ reset', 'esc close'];
-    return base;
-  });
 </script>
 
 <Modal label="Settings" onclose={close} {onkeys} z={60} scrim="rgba(0, 0, 0, 0.45)">
@@ -455,18 +446,18 @@
     {:else if status?.message}
       <span class="msg ok"><i class="ph ph-check"></i>{status.message}</span>
     {/if}
-    <button class="esc" onclick={close}>esc <i class="ph ph-x"></i></button>
+    <button class="esc" onclick={close}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
   </header>
   <div class="body">
     <nav>
       <FilterField class="find" bind:value={findQ} bind:el={findInput} placeholder="Find a setting" oninput={() => (findSel = 0)}>
-        <span class="k">/</span>
+        <kbd>/</kbd>
       </FilterField>
       {#each SECTIONS as s, i}
         <button class="sec" class:on={section === s.id && !findQ} onclick={() => goSection(s.id)}>
           <i class="ph ph-{s.icon}"></i><span>{s.label}</span>
           {#if s.id === 'sources' && attention && section !== 'sources'}<span class="dot"></span>{/if}
-          <span class="navcount">{counts[s.id] ?? ''}</span><span class="num">{i + 1}</span>
+          <span class="navcount">{counts[s.id] ?? ''}</span><kbd>{i + 1}</kbd>
         </button>
         {#if s.id === 'sources' && section === 'sources' && page}
           {#each page.sources as so}
@@ -475,12 +466,12 @@
               {#if so.attention}<span class="dot"></span>{/if}
             </button>
           {/each}
-          <button class="sub add" class:on={src === 'add' && !findQ} onclick={() => goSource('add')}><i class="ph ph-plus"></i><span>Add source</span><span class="k">a</span></button>
+          <button class="sub add" class:on={src === 'add' && !findQ} onclick={() => goSource('add')}><i class="ph ph-plus"></i><span>Add source</span><kbd>a</kbd></button>
         {/if}
       {/each}
       <span class="grow"></span>
       <button class="file" onclick={() => call('settings.open_file').catch((x) => (err = String(x.message ?? x)))}>
-        <i class="ph ph-file-text"></i>Open settings.json<span class="k">{cmd}⇧,</span>
+        <i class="ph ph-file-text"></i>Open settings.json<kbd>{chord('⌘⇧,', 'Ctrl+⇧,')}</kbd>
       </button>
     </nav>
 
@@ -508,7 +499,7 @@
             <h2>{source.name}</h2>
             <span class="state {st.tone}"><span class="d"></span>{st.label}</span>
             <span class="grow"></span>
-            {#if removeArmed === source.index}<span class="armed">⇧X again removes {source.name} (its items stay)</span>{/if}
+            {#if removeArmed === source.index}<span class="armed"><kbd>⇧X</kbd> again removes {source.name} (its items stay)</span>{/if}
           </div>
         {:else if section === 'sources'}
           <h2>Add source</h2>
@@ -590,7 +581,7 @@
                   {:else if item.secret.oauth}
                     <span class="muted">Connect in the sync status</span>
                   {:else}
-                    <button class="btn" onclick={() => startReplace(item.secret)}>{item.secret.set ? 'Replace…' : 'Set…'} <span class="k">r</span></button>
+                    <button class="btn" onclick={() => startReplace(item.secret)}>{item.secret.set ? 'Replace…' : 'Set…'} <kbd>r</kbd></button>
                   {/if}
                 </div>
               {:else if item.t === 'tier'}
@@ -680,7 +671,18 @@
     </section>
   </div>
   <footer>
-    {#each hints as h}<span>{h}</span>{/each}
+    <span><kbd>j</kbd> <kbd>k</kbd> setting</span>
+    {#if section === 'sources'}
+      <span><kbd>{chord('⌥j', 'Alt+J')}</kbd> <kbd>{chord('⌥k', 'Alt+K')}</kbd> previous / next source</span>
+      <span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>r</kbd> replace secret</span><span><kbd>a</kbd> add</span><span><kbd>⇧X</kbd> remove</span><span><kbd>s</kbd> sync now</span>
+    {:else if section === 'ai'}
+      <span><kbd>1–7</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>/</kbd> find</span>
+    {:else if section === 'agents'}
+      <span><kbd>1–7</kbd> section</span><span><kbd>←</kbd> <kbd>→</kbd> pick a color</span><span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>⌫</kbd> reset</span>
+    {:else}
+      <span><kbd>1–7</kbd> or <kbd>⇥</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>−</kbd> <kbd>+</kbd> step</span><span><kbd>Space</kbd> toggle</span><span><kbd>/</kbd> find</span>
+    {/if}
+    <span><kbd>Esc</kbd> close</span>
   </footer>
   <datalist id="ai-models">
     {#each page?.usage ?? [] as u}<option value={u.model}></option>{/each}
@@ -769,10 +771,6 @@
   nav :global(.find) {
     margin-bottom: 10px;
   }
-  .k {
-    color: var(--tx-label);
-    font-size: 0.8462rem;
-  }
   .sec,
   .sub {
     display: flex;
@@ -810,12 +808,6 @@
     color: var(--tx-muted-2);
     font-size: 0.9231rem;
   }
-  .num {
-    width: 14px;
-    text-align: right;
-    color: var(--tx-label);
-    font-size: 0.8462rem;
-  }
   .dot {
     width: 6px;
     height: 6px;
@@ -826,7 +818,12 @@
   .sub .dot {
     margin-left: auto;
   }
-  .sub.add .k {
+  .sec kbd,
+  .sub kbd,
+  .file kbd {
+    margin-block: -2px;
+  }
+  .sub.add kbd {
     margin-left: auto;
   }
   .grow {
@@ -840,7 +837,7 @@
     border-top: 1px solid var(--border);
     color: var(--tx-muted-2);
   }
-  .file .k {
+  .file kbd {
     margin-left: auto;
   }
   .main {

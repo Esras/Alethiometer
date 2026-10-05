@@ -2,6 +2,7 @@
   // The facet bar (hi-fi 1c/3b): one chip per route with the sources it
   // returned. Hovering a route or a source highlights its rows; clicking
   // filters; ⌥click excludes. Rows themselves show only their source.
+  import { chord } from '../keys.svelte';
   import { ROUTE_COLOR, ROUTE_LABEL, routeNote, type Facet, type Lens } from '../hydrated';
   import AppIcon from './AppIcon.svelte';
 
@@ -67,7 +68,7 @@
             title="{s.system} via {ROUTE_LABEL[f.route]} · {s.count}"><AppIcon source={s.icon} size={14} /></button>
         {/each}
       {:else if f.status.state !== 'ok'}
-        <span class="note" title={f.status.message ?? ''}>{routeNote(f, isMac)}</span>
+        <span class="note" title={f.status.message ?? ''}>{#if f.status.state === 'not_asked'}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> {/if}{routeNote(f)}</span>
       {/if}
     </div>
   {/each}

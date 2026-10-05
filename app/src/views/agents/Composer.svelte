@@ -3,7 +3,7 @@
   // an empty composer brings back your last message. While an ask is being
   // answered (R), the text goes back as the answer.
   import { untrack } from 'svelte';
-  import { mod } from '../../lib/keys.svelte';
+  import { chord, mod } from '../../lib/keys.svelte';
   import { popover } from '../../lib/ui/popover';
   import { act, ag, sessionById } from './state.svelte';
   import type { Group, Session } from './types';
@@ -191,7 +191,7 @@
     </div>
     {#if room && !text}<span class="hint-at">@ to address one member</span>{/if}
     {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
-    <span class="send-key">⌘⏎</span>
+    <kbd class="send-key">{chord('⌘⏎', 'Ctrl+⏎')}</kbd>
     {#if options.length}
       <div class="pop" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
         {#each options as s, i (s.id)}
@@ -201,11 +201,11 @@
     {/if}
   </label>
   {#if room}
-    <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<span class="k">N</span></button>
+    <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<kbd>N</kbd></button>
   {/if}
   {#if session?.source === 'acp' && (session.status === 'running' || session.status === 'waiting') && session.live}
     <button class="btn" class:primary={hasQueued} onclick={() => act('interrupt', { session: session.id })}
-      ><i class="ph {hasQueued ? 'ph-fast-forward' : 'ph-hand-palm'}"></i>{hasQueued ? 'Send now' : 'Interrupt'}<span class="k">⌘.</span></button
+      ><i class="ph {hasQueued ? 'ph-fast-forward' : 'ph-hand-palm'}"></i>{hasQueued ? 'Send now' : 'Interrupt'}<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button
     >
   {/if}
   {#if session?.source === 'acp' && session.live && !session.id.includes('~')}
@@ -315,18 +315,12 @@
   .send-key {
     margin-left: auto;
     margin-bottom: 4px;
-    font: 0.846rem var(--font-mono);
-    color: var(--tx-disabled);
   }
   .btn {
     border-radius: 7px;
   }
   .btn i {
     font-size: 1.077rem;
-  }
-  .k {
-    font: 0.808rem var(--font-mono);
-    color: var(--tx-label);
   }
   .pop {
     position: absolute;

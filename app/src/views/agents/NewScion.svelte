@@ -7,6 +7,7 @@
   // footer shows the matching `scion start` command.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
+  import { chord } from '../../lib/keys.svelte';
   import Joins from './Joins.svelte';
   import NewModal from './NewModal.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
@@ -149,8 +150,8 @@
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="btn md primary" disabled={busy || !cat} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
-    <button class="btn md" onclick={onClose}>Cancel<span class="k">Esc</span></button>
+    <button class="btn md primary" disabled={busy || !cat} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
+    <button class="btn md" onclick={onClose}>Cancel<kbd>Esc</kbd></button>
     <span class="cmd"><i class="ph ph-terminal"></i><span>{command}</span><button title="Copy" onclick={() => navigator.clipboard?.writeText(command)}><i class="ph ph-copy"></i></button></span>
   {/snippet}
 </NewModal>

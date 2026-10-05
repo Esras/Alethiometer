@@ -1,5 +1,6 @@
 <script lang="ts">
   import { setTab, TABS, ui, type Tab } from '../lib/app.svelte';
+  import { chord } from '../lib/keys.svelte';
   import CountdownPill from './CountdownPill.svelte';
   import SyncStatus from './SyncStatus.svelte';
 
@@ -35,7 +36,7 @@
       <button class="search" onclick={() => (ui.searchOpen = true)}>
         <i class="ph ph-magnifying-glass"></i><span class="q" class:typed={ui.tab === 'search' && !!ui.searchQuery}
           >{ui.tab === 'search' && ui.searchQuery ? ui.searchQuery : 'Search everything'}</span
-        ><span class="hint">{isMac ? '⌘K' : '/'}</span>
+        ><kbd>{chord('⌘K', 'Ctrl+K')}</kbd>
       </button>
     {/if}
   </span>
@@ -96,7 +97,8 @@
     gap: 8px;
     align-items: center;
     width: 220px;
-    padding: 4px 10px;
+    /* 3px, not 4: the boxed key is 17px tall, so the button stays 25px. */
+    padding: 3px 10px;
     border-radius: var(--r-input);
     /* An .input's look (decision 7), without .input itself: this is a button that
        opens the palette, and it gets the focus back when the palette closes, so
@@ -107,8 +109,7 @@
     font-size: 0.9231rem;
     white-space: nowrap;
   }
-  .search i,
-  .hint {
+  .search i {
     color: var(--tx-label);
   }
   .q {
@@ -119,8 +120,7 @@
   .q.typed {
     color: var(--tx-body);
   }
-  .hint {
+  .search kbd {
     margin-left: auto;
-    font-size: 0.8462rem;
   }
 </style>

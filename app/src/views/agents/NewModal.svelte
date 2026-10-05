@@ -19,7 +19,7 @@
 <Modal label="New agent" onclose={onClose} {onkeys} z={50} scrim="var(--scrim)" inset="32px 0 0 0" isolate>
   <div class="modal agent-form">
     <div class="top">
-      <i class="ph ph-user-plus"></i><span class="t">New agent</span><span class="sub">{sub}</span><span class="esc">Esc</span>
+      <i class="ph ph-user-plus"></i><span class="t">New agent</span><span class="sub">{sub}</span><kbd>Esc</kbd>
     </div>
     <div class="body">
       {@render children()}

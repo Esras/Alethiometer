@@ -97,7 +97,7 @@
     {#if err}
       <span class="err ellipsis" title={err}>{err}</span>
     {:else}
-      <span>↵ link, adds {what} to the note</span><span>esc</span><span class="right">colour follows the note</span>
+      <span><kbd>↵</kbd> link, adds {what} to the note</span><span><kbd>Esc</kbd></span><span class="right">colour follows the note</span>
     {/if}
   </div>
 </div>

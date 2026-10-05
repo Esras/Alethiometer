@@ -295,8 +295,8 @@
         <button class:on={mode === 'topic'} onclick={() => (mode = 'topic')}>By topic</button>
         <button class:on={mode === 'order'} onclick={() => (mode = 'order')}>In order</button>
       </span>
-      <span class="key">g</span>
-      <button class="key" onclick={() => onclose(changed)}>· esc back</button>
+      <kbd>g</kbd>
+      <button class="key" onclick={() => onclose(changed)}>· <kbd>Esc</kbd> back</button>
     </span>
   </div>
 
@@ -329,9 +329,9 @@
                 <div class="txt"><Markdown text={m.text} /></div>
                 <span class="side">
                   {#if gone}
-                    <i class="ph ph-eye-slash"></i>dismissed{#if k}&nbsp;· <span class="u">u</span>&nbsp;undo{/if}
+                    <i class="ph ph-eye-slash"></i>dismissed{#if k}&nbsp;· <kbd>u</kbd>&nbsp;undo{/if}
                   {:else if k?.kind === 'moved'}
-                    moved from {k.from} · <span class="u">u</span>&nbsp;undo
+                    moved from {k.from} · <kbd>u</kbd>&nbsp;undo
                   {:else if m.replies?.length}
                     <i class="ph ph-chat-circle-dots"></i>thread · {m.replies.length} {m.replies.length === 1 ? 'reply' : 'replies'}
                   {/if}
@@ -520,9 +520,6 @@
     display: flex;
     gap: 5px;
     align-items: center;
-  }
-  .u {
-    color: var(--tx-2);
   }
   .replies {
     margin: 2px 0 2px 54px;

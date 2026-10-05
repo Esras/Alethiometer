@@ -2,6 +2,7 @@
   // The "Goes to" cell for one line: a quiet destination before send, the
   // result after (11a), and the life-line receipt states.
   import { catColor, clockHM } from '../../lib/app.svelte';
+  import { chord } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import type { EditLine } from './types';
 
@@ -20,7 +21,7 @@
     <span class="sub tnum ellipsis">receipt {receipt} · clearing from this Mac</span>
   {:else if line.state === 'failed'}
     <span class="main"><i class="ph-bold ph-warning" style:color="var(--orange)"></i><span class="ellipsis">Not delivered · kept here</span></span>
-    <span class="sub ellipsis">{line.error ?? 'Marvin unreachable'} · retrying · <kbd>⌘R</kbd> now</span>
+    <span class="sub ellipsis">{line.error ?? 'Marvin unreachable'} · retrying · <kbd>{chord('⌘R', 'Ctrl+R')}</kbd> now</span>
   {:else if line.state === 'pending'}
     <span class="main"><i class="ph ph-clock" style:color="var(--tx-muted-2)"></i><AppIcon source="marvin" size={14} /><span class="ellipsis">Marvin · Inbox</span></span>
     <span class="sub ellipsis">sent · waiting for receipt</span>
@@ -33,7 +34,7 @@
   {#if line.jira?.state === 'confirmed'}
     <span class="sub jira"><AppIcon source="jira" size={12} /><span class="ellipsis">{line.jira.key ?? 'Jira task created'}</span></span>
   {:else if line.jira?.state === 'failed'}
-    <span class="sub ellipsis" style:color="var(--orange)" title={line.jira.error ?? ''}>Jira task not created · <kbd>⌘R</kbd> retry</span>
+    <span class="sub ellipsis" style:color="var(--orange)" title={line.jira.error ?? ''}>Jira task not created · <kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry</span>
   {:else if line.jira}
     <span class="sub ellipsis">creating Jira task…</span>
   {/if}

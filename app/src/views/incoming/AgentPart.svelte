@@ -5,7 +5,7 @@
   import { tick } from 'svelte';
   import { call } from '../../lib/api';
   import { clockHM, ui } from '../../lib/app.svelte';
-  import { mod } from '../../lib/keys.svelte';
+  import { chord, mod } from '../../lib/keys.svelte';
   import Panels from '../agents/Panels.svelte';
   import { ag } from '../agents/state.svelte';
   import type { Request, Session } from '../agents/types';
@@ -185,7 +185,7 @@
       {:else}
         <textarea class="input" bind:this={box} bind:value={text} rows="2" placeholder={a.kind === 'turn' ? 'Your next prompt…' : 'Reply…'} onkeydown={onKey}></textarea>
       {/if}
-      <span class="note">{writing === 'reply' ? '⌘⏎ send' : '⏎ send'} · esc</span>
+      <span class="note"><kbd>{writing === 'reply' ? chord('⌘⏎', 'Ctrl+⏎') : '⏎'}</kbd> send · <kbd>Esc</kbd></span>
     </div>
   {:else if answers.length || canReply}
     <div class="answers">
@@ -256,10 +256,6 @@
   }
   .det {
     font-size: 0.885rem;
-    color: var(--tx-label);
-  }
-  kbd {
-    font: 0.808rem var(--font-mono);
     color: var(--tx-label);
   }
   .note {

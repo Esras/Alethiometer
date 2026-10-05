@@ -78,15 +78,15 @@
             e.stopPropagation();
           }}
         />
-        <button class="btn md" onclick={sendDeny}>Deny<span class="k">⏎</span></button>
-        <button class="btn md" onclick={() => (denying = false)}>Back<span class="k">Esc</span></button>
+        <button class="btn md" onclick={sendDeny}>Deny<kbd>⏎</kbd></button>
+        <button class="btn md" onclick={() => (denying = false)}>Back<kbd>Esc</kbd></button>
       </div>
     {:else}
       <div class="btns">
         {#each req.options as o (o.id)}
-          <button class="btn md" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<span class="k">{o.key}</span>{/if}</button>
+          <button class="btn md" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<kbd>{o.key}</kbd>{/if}</button>
         {/each}
-        <span class="right">Esc later</span>
+        <span class="right"><kbd>Esc</kbd> later</span>
       </div>
     {/if}
 </NeedCard>
@@ -143,14 +143,8 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  .k {
+  .btns kbd {
     flex: none;
-    font: 0.808rem var(--font-mono);
-    color: var(--tx-label);
-  }
-  .primary .k {
-    color: var(--aqua);
-    opacity: 0.75;
   }
   .right {
     margin-left: auto;

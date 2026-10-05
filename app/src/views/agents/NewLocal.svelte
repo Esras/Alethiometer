@@ -5,6 +5,7 @@
   // the group it lands in. The model list comes from the harness itself.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
+  import { chord } from '../../lib/keys.svelte';
   import Joins from './Joins.svelte';
   import type { ConfigChoice } from './types';
   import NewModal from './NewModal.svelte';
@@ -169,8 +170,8 @@
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="btn md primary" disabled={busy} onclick={start}>Start agent<span class="k">⌘⏎</span></button>
-    <button class="btn md" onclick={onClose}>Cancel<span class="k">Esc</span></button>
+    <button class="btn md primary" disabled={busy} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
+    <button class="btn md" onclick={onClose}>Cancel<kbd>Esc</kbd></button>
     <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
   {/snippet}
 </NewModal>

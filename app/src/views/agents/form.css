@@ -26,10 +26,8 @@
   font: 0.885rem var(--font-mono);
   color: var(--tx-label);
 }
-.agent-form .esc {
+.agent-form .top kbd {
   margin-left: auto;
-  font: 0.808rem var(--font-mono);
-  color: var(--tx-label);
 }
 .agent-form .cols {
   display: grid;
@@ -188,18 +186,6 @@
   align-items: center;
   padding: 10px 12px;
   min-width: 0;
-}
-.agent-form .k {
-  font: 0.808rem var(--font-mono);
-  color: var(--tx-label);
-}
-.agent-form .primary .k {
-  color: var(--aqua);
-  opacity: 0.75;
-}
-.agent-form .btn:disabled .k {
-  color: var(--tx-disabled);
-  opacity: 1;
 }
 .agent-form .cmd {
   margin-left: auto;

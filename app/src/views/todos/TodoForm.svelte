@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
-  import { mod } from '../../lib/keys.svelte';
+  import { chord, mod } from '../../lib/keys.svelte';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import type { TopicRef, TopicRow } from '../../lib/types';
   import type { Draft, JiraTarget } from './types';
@@ -67,9 +67,9 @@
 
 <div class="form" {onkeydown} onclick={(e) => e.stopPropagation()} role="presentation">
   <div class="switch">
-    <button class:on={target === 'local'} onclick={() => (target = 'local')}>Todo <span class="k">⌘1</span></button>
+    <button class:on={target === 'local'} onclick={() => (target = 'local')}>Todo <kbd>{chord('⌘1', 'Ctrl+1')}</kbd></button>
     <button class:on={target === 'jira'} disabled={!jira} title={jira ? '' : 'Set create_project on the Jira source to create issues'} onclick={() => (target = 'jira')}>
-      Jira issue <span class="k">⌘2</span>
+      Jira issue <kbd>{chord('⌘2', 'Ctrl+2')}</kbd>
     </button>
   </div>
   <div class="grid">
@@ -101,8 +101,8 @@
   </div>
   <div class="foot">
     <span class="fx">{held ? 'Once you confirm the signal, this will ' : 'This will '}{effects.join(' · ')}</span>
-    <button class="btn" onclick={oncancel}>Cancel <span class="k">esc</span></button>
-    <button class="btn primary" disabled={!text.trim()} onclick={save}>Save <span class="k">⌘↵</span></button>
+    <button class="btn" onclick={oncancel}>Cancel <kbd>Esc</kbd></button>
+    <button class="btn primary" disabled={!text.trim()} onclick={save}>Save <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>
   </div>
 </div>
 
@@ -133,6 +133,12 @@
   }
   .switch button:disabled {
     color: var(--tx-disabled);
+  }
+  /* Not a .btn, so the disabled key look is repeated here. */
+  .switch button:disabled kbd {
+    color: var(--tx-disabled);
+    background: transparent;
+    border-color: var(--border);
   }
   .grid {
     display: grid;
@@ -183,17 +189,5 @@
     flex: 1;
     font-size: 0.9231rem;
     color: var(--tx-muted-2);
-  }
-  .k {
-    font: 0.808rem var(--font-mono);
-    color: var(--tx-label);
-  }
-  .primary .k {
-    color: var(--aqua);
-    opacity: 0.75;
-  }
-  .btn:disabled .k {
-    color: var(--tx-disabled);
-    opacity: 1;
   }
 </style>

@@ -47,6 +47,9 @@ export function isTyping(e: KeyboardEvent): boolean {
 
 export const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
 
+/** A key as the app reads it on this platform: chord('⌘K', 'Ctrl+K'). Display only; which key does what is `mod()`. */
+export const chord = (mac: string, other: string) => (isMac ? mac : other);
+
 /** ⌘ on macOS, Ctrl elsewhere. Only that one, so ⌃ stays free on the Mac. */
 export function mod(e: KeyboardEvent): boolean {
   return isMac ? e.metaKey : e.ctrlKey;

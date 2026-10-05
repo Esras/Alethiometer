@@ -40,14 +40,14 @@
         onchange={(e) => run('categories.update', { key: c.key, label: e.currentTarget.value })}
         onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       />
-      <span class="key">{c.key}</span>
+      <kbd>{c.key}</kbd>
       <button class="btn" onclick={() => run('categories.delete', { key: c.key })} title="Remove (only when nothing uses it)"><i class="ph ph-trash"></i></button>
     </div>
   {/each}
   <form class="cat" onsubmit={add}>
     <input type="color" bind:value={color} title="Color" />
     <input class="input sm" bind:value={name} placeholder="New category…" />
-    <span class="key"></span>
+    <span></span>
     <button class="btn primary" type="submit" disabled={!name.trim()} title="Add category"><i class="ph ph-plus"></i></button>
   </form>
   {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}
@@ -76,9 +76,8 @@
     border-radius: 4px;
     background: none;
   }
-  .key {
-    font-size: 0.8846rem;
-    color: var(--tx-label);
+  .cat kbd {
+    justify-self: start;
   }
   .err {
     color: var(--orange);
