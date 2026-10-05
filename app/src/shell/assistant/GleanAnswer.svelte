@@ -45,7 +45,7 @@
             style:--pc={colorOf(p.name)}
             onmouseenter={() => (hoverPerson = p.name)}
             onmouseleave={() => (hoverPerson = null)}
-            role="presentation"><Avatar initials={initial(p.name)} color={colorOf(p.name)} size={15} font="0.6923rem" />{p.name}</span
+            role="presentation"><Avatar initials={initial(p.name)} color={colorOf(p.name)} size="sm" px={15} />{p.name}</span
           >{/if}
       {/each}
     </span>
@@ -60,7 +60,7 @@
       {@const more = expanded === p.name ? p.evidence.length : i === 0 ? 2 : 1}
       <div class="prow" class:hot={hoverPerson === p.name} onmouseenter={() => (hoverPerson = p.name)} onmouseleave={() => (hoverPerson = null)} role="presentation">
         <div class="pline">
-          <span class="person" style:--pc={personColor(p.color)}><Avatar initials={initial(p.name)} color={personColor(p.color)} size={15} font="0.6923rem" />{p.name}</span>
+          <span class="person" style:--pc={personColor(p.color)}><Avatar initials={initial(p.name)} color={personColor(p.color)} size="sm" px={15} />{p.name}</span>
           <span class="role">{p.role}</span>
         </div>
         {#if p.why}<div class="why">{p.why}</div>{/if}

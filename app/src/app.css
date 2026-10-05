@@ -102,6 +102,11 @@
   --radius-md: 6px;
   --radius-full: 999px;
 
+  /* Avatars (ui-plan decision 2): lg leads a person's card or page (Topics'
+     People panel), sm a row in a picker. */
+  --avatar-lg: 26px;
+  --avatar-sm: 18px;
+
   /* Type (settings.json ui_font, mono_font, ui_font_size, reading_font_size;
      set at startup and live from Settings). Interface sizes are rem, so the
      root size scales them all; reading text (messages, notes, drafts,

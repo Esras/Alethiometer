@@ -25,7 +25,7 @@
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
-  import { personColor, type Account } from '../lib/people';
+  import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
@@ -774,7 +774,7 @@
                     <div class="new-person">
                       <i class="ph ph-user-plus"></i>
                       <span class="q">New person?</span>
-                      <span class="np-name" style:color={personColor(np.color)}>{np.real_name ?? np.name}</span>
+                      <PersonName who={{ color: np.color, known: false, me: false }} name={np.real_name ?? np.name} />
                       <span class="np-info ellipsis">
                         {sourceLabel(np.source)}{#if np.email}&nbsp;· {np.email}{:else if np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
                       </span>
@@ -1170,9 +1170,6 @@
   }
   .new-person .q {
     color: var(--tx-body);
-  }
-  .np-name {
-    font-weight: 500;
   }
   .np-info {
     color: var(--tx-label);

@@ -79,7 +79,7 @@
   <div class="rows">
     {#each hits as h, i (h.id)}
       <button class="row" class:on={i === p.sel} {...p.row(i)}>
-        <Avatar initials={initial(h.name)} color={personColor(h.color)} size={22} font="0.8077rem" />
+        <Avatar initials={initial(h.name)} color={personColor(h.color)} size="sm" />
         <span class="who">
           <span class="name ellipsis">{h.name}</span>
           <span class="path ellipsis">{h.note_path}</span>

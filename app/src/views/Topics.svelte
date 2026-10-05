@@ -15,6 +15,7 @@
   import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Avatar from '../lib/ui/Avatar.svelte';
+  import PersonName from '../lib/ui/PersonName.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
   import Panel from '../lib/ui/Panel.svelte';
@@ -231,12 +232,10 @@
             <div class="people">
               {#each d.people as p (p.id ?? `${p.name}-${p.account?.id ?? ''}`)}
                 <div class="person">
-                  <Avatar initials={p.initials} color={personColor(p.color)} size={26} font="0.7692rem" />
+                  <Avatar initials={p.initials} color={personColor(p.color)} size="lg" />
                   <div class="min0">
                     {#if !p.known && p.account}
-                      <button class="strong unknown ellipsis" style:color={personColor(p.color)} title="No People note: link to a person" onclick={() => (linking = p)}
-                        >{p.name}</button
-                      >
+                      <PersonName who={{ color: p.color, known: false, me: false, account: p.account ?? undefined }} name={p.name} block onlink={() => (linking = p)} />
                     {:else}
                       <div class="strong ellipsis" title={p.name}>{p.name}</div>
                     {/if}
@@ -508,13 +507,6 @@
   }
   .person + .person {
     border-left: 1px solid var(--bg-head);
-  }
-  .unknown {
-    display: block;
-    max-width: 100%;
-    text-align: left;
-    text-decoration: underline dotted var(--tx-label);
-    text-underline-offset: 3px;
   }
 
   .role {
