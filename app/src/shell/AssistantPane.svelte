@@ -153,10 +153,11 @@
       {#if last}
         {@const kept = last.sources.filter((s) => s.kept).length}
         {@const dropped = last.sources.length - kept}
+        {@const asked = last.queries.filter((q) => !q.local).length}
         <div class="tally">
           <span>{kept} sources</span>
           <span class="warn">{dropped} dropped</span>
-          <span>{last.queries.length - 1} {last.queries.length === 2 ? 'query' : 'queries'}</span>
+          <span>{asked} {asked === 1 ? 'query' : 'queries'}</span>
           {#if last.glean.state !== 'ok'}<span class="warn" title={last.glean.message ?? ''}>Glean unavailable</span>{/if}
           <button class="btn srcbtn" class:on={sources} onclick={() => (sources = !sources)}>
             <i class="ph {sources ? 'ph-caret-right' : 'ph-caret-left'}"></i>{sources ? 'Hide sources' : 'Sources'} <kbd>e</kbd>
