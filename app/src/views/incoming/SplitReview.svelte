@@ -325,7 +325,7 @@
               >
                 {#if chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                 <span class="t tnum">{m.time}</span>
-                <PersonName who={m.who} name={m.author} />
+                <PersonName who={m.who} name={m.author} dim={gone} />
                 <div class="txt"><Markdown text={m.text} /></div>
                 <span class="side">
                   {#if gone}
@@ -511,9 +511,6 @@
   .txt {
     color: var(--tx-2);
     min-width: 0;
-  }
-  .msg.gone :global(.name) {
-    opacity: 0.5;
   }
   .msg.gone .txt {
     color: var(--tx-label);

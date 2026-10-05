@@ -81,6 +81,8 @@ const scenes = {
   // the fake hub (docs/agents.md) as a scion source on both dev servers.
   'daystrip-popover': [{ exact: 'Life' }],
   'composer-menu': ['Control+7', { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
+  // Small moves
+  'incoming-split-dismissed': ['j', 's', 'd'],
 };
 
 async function shoot(base, steps, file) {

@@ -583,6 +583,7 @@
   {#if rest !== null && s.author}<span class="who-meta"><PersonName
         who={s.author.who}
         name={s.author.name}
+        variant="tertiary"
         onlink={s.author.who.account ? () => link(s, s.author!.who.account!, s.author!.name) : undefined}
       /></span>{rest}{:else}{text}{/if}
 {/snippet}
@@ -1134,9 +1135,6 @@
   }
   .t {
     color: var(--tx-label);
-  }
-  .who-meta :global(.name) {
-    font-weight: 400;
   }
   .pill.cat {
     align-self: center;
