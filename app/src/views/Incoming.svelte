@@ -25,6 +25,7 @@
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
+  import { messageUrl } from '../lib/slackLink';
   import { personColor, type Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
@@ -561,11 +562,7 @@
   function open(s: Signal | null) {
     if (!s?.url) return;
     const m = inMsgs ? s.messages[msgIdx] : s.messages[s.messages.length - 1];
-    const reply = inMsgs ? undefined : m?.replies?.[m.replies.length - 1];
-    const key = (reply ?? m)?.key;
-    const re = /^(https:\/\/[^/]+\/archives\/([A-Z0-9]+)\/p)\d{7,}$/;
-    if (!key || !m?.key || !/^\d+\.\d+$/.test(key) || !re.test(s.url)) return openExternal(s.url);
-    openExternal(s.url.replace(re, (_, base, ch) => `${base}${key.replace('.', '')}${reply ? `?thread_ts=${m.key}&cid=${ch}` : ''}`));
+    openExternal(messageUrl(s.url, m, inMsgs ? undefined : m?.replies?.[m.replies.length - 1]));
   }
 
   useKeys((e) => {
