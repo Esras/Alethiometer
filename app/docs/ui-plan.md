@@ -53,6 +53,36 @@ Pixel-identical to `eb633f4` on every scene. Commits `6501866`…`5920b59`.
   - local `.modal` (`settings/Settings`, `agents/NewModal`);
   - local `.popover` (`shell/DayStrip`).
 
+## Phase 2 · progress (2026-10-05)
+
+Done, pixel-identical to `7e6be64` on every scene, with `scripts/ui-keys.mjs` checks for the behaviour:
+- **`lib/ui/Modal.svelte`** owns the behaviour of Settings, Slack review, New agent, the Keys sheet and the ⌘K palette.
+  - **What it does:** one modal key-floor entry (the site's own keys first), Escape closes, mousedown on the scrim closes, Tab stays inside, focus returns, and `role=dialog` / `aria-modal`.
+  - **The look stays with each site.** Scrim colour, z, position, inset and `isolate` are props until decision 5.
+- **`lib/ui/popover.ts`**, an action on the popover's own element: Escape through the key stack (new `pushKeys`), and a pointerdown outside it and its trigger closes it. It's on the day strip's Life popover, the sync chip, the Priorities peek and the composer's @ menu.
+- **Moved into `lib/ui`:**
+  - `CountdownPill`'s look (the data stays in `shell/`);
+  - `Stepper`;
+  - `Avatar` (Topics people, the person picker, Glean's people; today's sizes are props).
+- **`PersonName`** takes `variant` (`thread` | `tertiary`, both in the person's colour) and `dim`, instead of `:global` reach-ins from Incoming and the split review.
+
+**Behaviour changes to try on the Mac:**
+- **Settings, the palette, the Keys sheet:** they close on mousedown on the scrim, not on a click, so a drag that ends there no longer closes them. Tab stays inside, and focus goes back where it was.
+- **Slack review:** it's a key floor now, so ⌘, no longer closes Settings underneath it. Press Esc first.
+- **The Keys sheet:** Esc and `?` close it, and other keys stop at it instead of being swallowed.
+- **New agent:** its keys go through the key stack. ⌘K, ⌘1–7 and `g i` still don't reach the window under it.
+- **Stacking:** each box now sits inside its scrim's z-index. The Nudge toast could draw over the palette where they overlap.
+- **Life popover in the day strip:** a click outside now closes it.
+- **The Priorities peek:** a click outside closes it.
+- **The composer's @ menu:**
+  - Escape closes the menu and keeps focus; a second Escape blurs as before.
+  - A click outside closes it, and typing another @ word brings it back.
+  - While it's closed, Tab, ↵ and the arrows aren't taken for completion.
+
+**Not checked on screen:** Slack review (it needs a Slack source), Glean's people avatars (they need a Glean answer).
+
+**Moved to Phase 3:** the Cycler and FilterField. Both change the look (decisions 10 and 7), so they go with the visible pass.
+
 ## Phase 2 · New shared components (behaviour plus look)
 
 1. **`lib/ui/Modal.svelte`**, with `{open, onclose, label, width?, inset?, children, foot?}`.
