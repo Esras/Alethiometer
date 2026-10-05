@@ -43,12 +43,14 @@ stop
 mkdir -p "$WORK"
 
 # Vite refuses to serve files from a node_modules that is a symlink out of the
-# tree (fonts, icons); this config lets it.
+# tree (fonts, icons); this config lets it. It also gives the copy its own
+# dependency cache: two Vite servers sharing node_modules/.vite re-optimise over
+# each other, and the loser serves 504 "Outdated Optimize Dep" (a blank page).
 viteconf() {
   cat > "$1/vite.ui-diff.config.ts" <<'TS'
 import { mergeConfig } from 'vite';
 import base from './vite.config';
-export default mergeConfig(base, { server: { fs: { strict: false } } });
+export default mergeConfig(base, { cacheDir: '.vite-ui-diff', server: { fs: { strict: false } } });
 TS
 }
 

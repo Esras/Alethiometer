@@ -410,6 +410,10 @@ pre,
 .err.broken {
   color: var(--status-broken);
 }
+/* An error's icon is the error's colour: ⚠ with orange, ❗ (ph-warning-circle) with red. */
+.err i {
+  color: inherit;
+}
 
 /* Pills, counts and chips (ui-plan decision 4), all fully round.
    .pill is a coloured label (reason, weight, category); .count is a neutral
@@ -500,4 +504,11 @@ kbd {
   border-radius: 3px;
   padding: 0 5px;
   white-space: nowrap;
+}
+
+/* Icons are yellow unless a rule says otherwise. This used to come from a bare
+   `:global(i)` in NoteText that leaked to every <i> once it loaded (and made them
+   italic); :where() keeps it below any rule that colours an icon on purpose. */
+:where(i) {
+  color: var(--yellow);
 }

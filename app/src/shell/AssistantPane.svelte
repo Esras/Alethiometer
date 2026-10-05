@@ -146,7 +146,7 @@
         <div class="q" class:bubble={glean}>{m.q}</div>
         {#if m.reply}
           <GleanAnswer reply={m.reply} {hoverQuery} {hoverSource} bind:hoverPerson />
-        {:else if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err broken"><i class="ph ph-warning"></i>{m.err}</div>{:else}<div class="a pending">{glean ? 'Searching and reading…' : 'Thinking…'}</div>{/if}
+        {:else if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err broken"><i class="ph ph-warning-circle"></i>{m.err}</div>{:else}<div class="a pending">{glean ? 'Searching and reading…' : 'Thinking…'}</div>{/if}
       {/each}
     </div>
     {#if glean}

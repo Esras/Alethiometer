@@ -151,16 +151,16 @@
     color: var(--yellow);
     font-weight: 600;
   }
-  :global(i) {
+  i {
     color: var(--yellow);
     font-style: italic;
   }
-  :global(mark) {
+  mark {
     background: var(--yellow);
     color: var(--bg-app);
     padding: 0 2px;
   }
-  :global(s) {
+  s {
     color: var(--tx-label);
   }
   .inline-code {
