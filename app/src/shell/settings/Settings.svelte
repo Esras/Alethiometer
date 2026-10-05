@@ -4,7 +4,7 @@
   // live; the header says how ("Saved · live", "Saved · Slack reconnected").
   import { call } from '../../lib/api';
   import { refresh, ui } from '../../lib/app.svelte';
-  import { isTyping, pointerMoved } from '../../lib/keys.svelte';
+  import { isTyping, mod, pointerMoved } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import { listNav, moveSel } from '../../lib/ui/listNav';
   import Modal from '../../lib/ui/Modal.svelte';
@@ -367,7 +367,7 @@
   // Settings' own keys; Modal closes on the Escape this leaves, and traps Tab
   // when it's typed in a field.
   function onkeys(e: KeyboardEvent): boolean {
-    if (e.code === 'Comma' && (e.metaKey || e.ctrlKey)) {
+    if (e.code === 'Comma' && mod(e)) {
       if (e.shiftKey) call('settings.open_file').catch((x) => (err = String(x.message ?? x)));
       else close();
       return true;

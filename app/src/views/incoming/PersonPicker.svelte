@@ -1,6 +1,6 @@
 <script lang="ts">
   // Link to person (17b). Built like the topic picker: type to match People
-  // notes by name or alias, ↑/↓ or ⌃j/⌃k to move, ↵ adds this account to the
+  // notes by name or alias, ↑/↓ to move, ↵ adds this account to the
   // chosen note's frontmatter (an Obsidian write, through the outbox), and the
   // last row creates a new person's note. Never automatic: nothing is linked
   // or merged unless picked here. The search is lib/ui/picker.svelte.ts's

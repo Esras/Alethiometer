@@ -4,7 +4,7 @@
 
 <script lang="ts">
   // Topics index (12c): j/k move, ↵ opens, a archives, c category, n new topic, / filter
-  // (in the filter: ↑/↓ or ⌃j/⌃k move, ↵ opens, Esc leaves). m merges the
+  // (in the filter: ↑/↓ move, ↵ opens, Esc leaves). m merges the
   // selected topic into another; it's staged ("merged into B · u undo") and
   // written when you leave the index (lib/merges.svelte.ts).
   import { onDestroy, tick } from 'svelte';

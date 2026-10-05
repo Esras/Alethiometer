@@ -4,10 +4,6 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
-### Keys: ⌃k opens the palette instead of moving up a list (found 2026-10-05)
-
-`mod()` in `lib/keys.svelte.ts` says "⌘ on macOS, Ctrl elsewhere" but returns `metaKey || ctrlKey` everywhere, so App's ⌘K handler (`App.svelte:40`) also takes ⌃k. The pickers, the palette and the Topics index list ⌃j/⌃k for moving the cursor (`lib/ui/listNav.ts`); ⌃j works, ⌃k opens the palette, except inside Settings (a key floor). Fixing `mod()` per platform changes every ⌘ shortcut's Ctrl twin on the Mac, so check each before changing it.
-
 ### Agents: local runtimes (sandbox, OpenShell, ssh) (user, 2026-10-03: deferred)
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.

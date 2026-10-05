@@ -3,6 +3,7 @@
   // an empty composer brings back your last message. While an ask is being
   // answered (R), the text goes back as the answer.
   import { untrack } from 'svelte';
+  import { mod } from '../../lib/keys.svelte';
   import { popover } from '../../lib/ui/popover';
   import { act, ag, sessionById } from './state.svelte';
   import type { Group, Session } from './types';
@@ -119,7 +120,7 @@
     } else if (options.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       pick = (pick + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length;
       e.preventDefault();
-    } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    } else if (mod(e) && e.key === 'Enter') {
       send();
       e.preventDefault();
     } else if (e.key === 'ArrowUp' && !text) {
@@ -136,7 +137,7 @@
       el?.blur();
       ag.zone = 'tree';
       e.preventDefault();
-    } else if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+    } else if (mod(e) && e.key === '.') {
       return; // the view interrupts
     } else {
       e.stopPropagation();

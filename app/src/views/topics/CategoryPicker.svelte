@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Pick a topic's category: type to filter, ↑/↓ or ⌃j/⌃k move, ↵ picks, Esc
+  // Pick a topic's category: type to filter, ↑/↓ move, ↵ picks, Esc
   // closes (lib/ui/picker.svelte.ts).
   import { call } from '../../lib/api';
   import { Picker } from '../../lib/ui/picker.svelte';

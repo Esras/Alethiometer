@@ -1,7 +1,7 @@
 <script lang="ts">
   // Tab on a line: a small picker in its margin cell. The next likely
   // destinations, type to search topics / people / Jira, or keep it as a note.
-  // ↑↓, ⌃j/⌃k (or Tab) move, ↵ picks, Esc closes (lib/ui/picker.svelte.ts).
+  // ↑↓ (or Tab) move, ↵ picks, Esc closes (lib/ui/picker.svelte.ts).
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
   import { Picker } from '../../lib/ui/picker.svelte';

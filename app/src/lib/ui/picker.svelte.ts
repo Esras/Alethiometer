@@ -9,7 +9,7 @@
 //   Source:  the site derives its own list from `p.q`, or gives `fetch`: then
 //            `p.result` holds the latest reply, with one debounce and a guard
 //            against stale replies.
-//   Cursor:  `p.sel`, over `rows()` rows. ↑ ↓ and ⌃j ⌃k stop at the ends (no
+//   Cursor:  `p.sel`, over `rows()` rows. ↑ ↓ stop at the ends (no
 //            wrap). It goes back to the top when the query changes or a reply
 //            arrives. A site with a create row counts it in `rows`, or answers
 //            `pick(i)` for the index past the list.

@@ -2,6 +2,7 @@
   // One setting: label, one-line description, the control on the right. The
   // key path shows only while the row is focused. Changes save immediately.
   import { ui } from '../../lib/app.svelte';
+  import { mod } from '../../lib/keys.svelte';
   import { personColor } from '../../lib/people';
   import MapEdit from './MapEdit.svelte';
   import FontPick from './FontPick.svelte';
@@ -144,7 +145,7 @@
             e.currentTarget.value = String(value ?? '');
             e.currentTarget.blur();
           }
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
+          if (e.key === 'Enter' && mod(e)) e.currentTarget.blur();
         }}></textarea>
     {:else if field.widget === 'swatches'}
       <span class="swatches">

@@ -45,9 +45,11 @@ export function isTyping(e: KeyboardEvent): boolean {
   return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
 }
 
-/** ⌘ on macOS, Ctrl elsewhere. */
+export const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
+
+/** ⌘ on macOS, Ctrl elsewhere. Only that one, so ⌃ stays free on the Mac. */
 export function mod(e: KeyboardEvent): boolean {
-  return e.metaKey || e.ctrlKey;
+  return isMac ? e.metaKey : e.ctrlKey;
 }
 
 /** Plain key with no modifiers, not while typing. */

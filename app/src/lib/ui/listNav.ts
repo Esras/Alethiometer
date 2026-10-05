@@ -3,15 +3,14 @@
 import { plain } from '../keys.svelte';
 
 /**
- * +1 for ↓ or ⌃j, -1 for ↑ or ⌃k, else 0. For a field that has the focus.
- * `bare`: the keys j, k, ↑ and ↓ with no modifier and not typing, for a list
- * that has the focus itself (⌃j and ⌃k don't count there).
- * (Outside Settings, App's ⌘K handler takes ⌃k before any list sees it.)
+ * +1 for ↓, -1 for ↑, else 0. For a field that has the focus (j and k type).
+ * `bare`: also j and k, with no modifier and not typing, for a list that has
+ * the focus itself. The list a level up moves with [ and ] (Incoming, Reflect).
  */
 export function listNav(e: KeyboardEvent, opts: { bare?: boolean } = {}): -1 | 0 | 1 {
   if (opts.bare) return plain(e, 'j') || plain(e, 'ArrowDown') ? 1 : plain(e, 'k') || plain(e, 'ArrowUp') ? -1 : 0;
-  if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'j')) return 1;
-  if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'k')) return -1;
+  if (e.key === 'ArrowDown') return 1;
+  if (e.key === 'ArrowUp') return -1;
   return 0;
 }
 

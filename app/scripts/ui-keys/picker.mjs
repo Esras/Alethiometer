@@ -38,20 +38,16 @@ function cases(name, cfg) {
       t.ok(after > 0 && after < before, `${before} rows before, ${after} after`);
       t.ok(cfg.filter.expect.test(await cfg.opts(t).first().innerText()), `first row after filtering: ${await cfg.opts(t).first().innerText()}`);
     },
-    [`${name}: ↓ ⌃j ↑ move the cursor`]: async (t) => {
+    [`${name}: ↓ and ↑ move the cursor`]: async (t) => {
       await open(t);
       await expectCursor(t, cfg, cfg.start ?? 0, 'at the start');
       const s = cfg.start ?? 0;
       await t.steps('ArrowDown');
       await expectCursor(t, cfg, s + 1, 'after ↓');
-      await t.steps('Control+j');
-      await expectCursor(t, cfg, s + 2, 'after ⌃j');
+      await t.steps('ArrowDown');
+      await expectCursor(t, cfg, s + 2, 'after ↓↓');
       await t.steps('ArrowUp');
       await expectCursor(t, cfg, s + 1, 'after ↑');
-      if (cfg.ctrlK) {
-        await t.steps('Control+k');
-        await expectCursor(t, cfg, s, 'after ⌃k');
-      }
     },
     [`${name}: the cursor stops at the top`]: async (t) => {
       await open(t);
@@ -133,7 +129,6 @@ const fontPick = {
   root: (t) => t.page.locator('.pop[role=listbox]'),
   opts: (t) => t.page.locator('.pop .opt'),
   on: 'sel',
-  ctrlK: true,
   filter: { type: 'dejavu', expect: /DejaVu/i },
   // Inside Settings: its scrim would close it, so click its title.
   outside: (t) => t.page.getByText('General', { exact: true }).first().click(),
@@ -186,7 +181,7 @@ const picks = {
     await t.page.waitForTimeout(400);
     const rows = await t.page.locator('.card .rows .row').allInnerTexts();
     t.ok(rows.length === 1 && /Create person “zz”/.test(rows[0]), `rows for "zz": ${rows.join(' | ')}`);
-    await t.steps('Control+j'); // one row: the cursor stays on it
+    await t.steps('ArrowDown'); // one row: the cursor stays on it
     t.ok((await cursor(t, incomingPerson)) === 0, 'the cursor left the only row');
   },
   'category picker: ↓ ↵ changes the category, and a click puts it back': async (t) => {
@@ -273,7 +268,7 @@ const picks = {
   },
   'font picker: the cursor follows ↓ down a long list': async (t) => {
     await fontPick.open(t);
-    for (let i = 0; i < 14; i++) await t.steps('Control+j');
+    for (let i = 0; i < 14; i++) await t.steps('ArrowDown');
     const inView = await t.page.locator('.pop .opt.sel').evaluate((e) => {
       const r = e.getBoundingClientRect();
       const box = e.closest('.opts').getBoundingClientRect();
@@ -283,27 +278,27 @@ const picks = {
   },
 };
 
-// ⌃j / ⌃k where they were hand-written.
+// The list keys where they were hand-written (lib/ui/listNav.ts).
 const lists = {
-  '⌘K: ⌃j and ↑ move the result': async (t) => {
+  '⌘K: ↓ and ↑ move the result': async (t) => {
     await t.steps('Control+k', { type: 'acme' });
     await t.page.waitForTimeout(500);
     const sel = () => t.page.locator('.row[data-i]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     t.ok((await sel()) === 0, 'not at the top');
-    await t.steps('Control+j');
-    t.ok((await sel()) === 1, `⌃j: row ${await sel()}`);
+    await t.steps('ArrowDown');
+    t.ok((await sel()) === 1, `↓: row ${await sel()}`);
     await t.steps('ArrowUp');
     t.ok((await sel()) === 0, `↑: row ${await sel()}`);
   },
-  'Settings: ⌃j and ⌃k move the found setting, j and k move the setting': async (t) => {
+  'Settings: ↓ and ↑ move the found setting, j and k move the setting': async (t) => {
     await t.steps('Control+,', '/', { type: 'font' });
     await t.page.waitForTimeout(300);
     const found = () => t.page.locator('.result').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     t.ok((await found()) === 0, 'not at the top');
-    await t.steps('Control+j');
-    t.ok((await found()) === 1, `⌃j: result ${await found()}`);
-    await t.steps('Control+k');
-    t.ok((await found()) === 0, `⌃k: result ${await found()}`);
+    await t.steps('ArrowDown');
+    t.ok((await found()) === 1, `↓: result ${await found()}`);
+    await t.steps('ArrowUp');
+    t.ok((await found()) === 0, `↑: result ${await found()}`);
     await t.steps('Escape', 'Escape');
     await t.gone(t.page.getByPlaceholder('Find a setting'));
     await t.steps('Control+,');
@@ -316,7 +311,7 @@ const lists = {
     await t.steps('k');
     t.ok((await focused()) === start + 1, `k: setting ${await focused()}`);
   },
-  'Topics index: ⌃j and ↑ move in the filter, j and k on the list': async (t) => {
+  'Topics index: ↓ and ↑ move in the filter, j and k on the list': async (t) => {
     await t.steps('Control+3');
     const sel = () => t.page.locator('.row[data-topic]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     const start = await sel();
@@ -325,10 +320,10 @@ const lists = {
     await t.steps('k');
     t.ok((await sel()) === start, `k: row ${await sel()}`);
     await t.steps('/');
-    await t.steps('Control+j');
-    t.ok((await sel()) === start + 1, `⌃j in the filter: row ${await sel()}`);
     await t.steps('ArrowDown');
-    t.ok((await sel()) === start + 2, `↓ in the filter: row ${await sel()}`);
+    t.ok((await sel()) === start + 1, `↓ in the filter: row ${await sel()}`);
+    await t.steps('ArrowDown');
+    t.ok((await sel()) === start + 2, `↓↓ in the filter: row ${await sel()}`);
     await t.steps('ArrowUp');
     t.ok((await sel()) === start + 1, `↑ in the filter: row ${await sel()}`);
   },

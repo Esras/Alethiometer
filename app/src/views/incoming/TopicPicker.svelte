@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Inline "move to topic" picker (t). Type to filter, ↑/↓ or ⌃j/⌃k to move,
+  // Inline "move to topic" picker (t). Type to filter, ↑/↓ to move,
   // ↵ to pick, Esc to close (lib/ui/picker.svelte.ts). Picking creates a
   // confirmed link. With `onunsorted` (the split review), a first "Unsorted"
   // row moves there. The create row isn't a cursor row: ↵ with no match creates.

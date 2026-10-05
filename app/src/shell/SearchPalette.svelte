@@ -9,7 +9,7 @@
   import { call, openExternal } from '../lib/api';
   import { catColor, openSearch, openTopic, refresh, ui } from '../lib/app.svelte';
   import { feedback, hydrated, inLens, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
-  import { pointerMoved } from '../lib/keys.svelte';
+  import { mod, pointerMoved } from '../lib/keys.svelte';
   import { moveSignal } from '../lib/reclassify';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FacetBar from '../lib/ui/FacetBar.svelte';
@@ -154,7 +154,7 @@
       return true;
     }
     // ⌘↵ (or ↵ with nothing to pick): every result, in the Search view (18d).
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !rows.length)) {
+    if (e.key === 'Enter' && (mod(e) || !rows.length)) {
       if (q.trim()) {
         ui.searchGlean = glean;
         openSearch(q.trim());
@@ -165,13 +165,13 @@
       open(current);
       return true;
     }
-    if ((e.metaKey || e.ctrlKey) && e.code === 'KeyT') {
+    if (mod(e) && e.code === 'KeyT') {
       if (current?.kind !== 'row') return true;
       if (anchored && context !== null && anchorName) linkTo(context, anchorName);
       else picking = true;
       return true;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+    if (mod(e) && e.key === 'Backspace') {
       reject();
       return true;
     }

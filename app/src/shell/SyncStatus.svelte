@@ -3,7 +3,7 @@
   // A dot summarises: orange when a source errored or a write failed.
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
-  import { useKeys } from '../lib/keys.svelte';
+  import { mod, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import { popover } from '../lib/ui/popover';
   import StatusMark from '../lib/ui/StatusMark.svelte';
@@ -126,7 +126,7 @@
   }
 
   useKeys((e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'r' && failed.length) {
+    if (mod(e) && e.key === 'r' && failed.length) {
       retryAll();
       return true;
     }
