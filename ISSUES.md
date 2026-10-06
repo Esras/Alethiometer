@@ -45,9 +45,9 @@ Built for now: ⌘K searches locally as you type; Glean only on ⌥↵ (also in 
 
 The model comes from `https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx` (and `tokenizer.json`). Hugging Face wasn't reachable from the build environment, so the URL, the file and its input/output names were checked only against a stand-in with the same interface. If the first run on the Mac fails, Settings → AI shows why and offers Retry. A work network that blocks huggingface.co needs the two files dropped into `<data dir>/models/bge-small-en-v1.5/` by hand.
 
-### Priorities: scoring isn't built, and needs design first
+### Priorities: designed, not built
 
-The Priorities tab (8b) only ever shows sample data: nothing computes quadrants, scores or reason pills for real items, so with `demo_data: false` it's empty. The design never decided what makes something urgent or important. Inputs worth considering: due date, todo estimates (`todo_estimates`, built), who's asking, Jira status, mentions, an upcoming meeting on the topic. Also open: todos only, or every open signal (as 8b shows). Design pass first, then build.
+The Priorities tab (8b) only ever shows sample data, so with `demo_data: false` it's empty. The design is now settled (user, 2026-10-06): todos only, three orders side by side (Priority, Quick wins, Neglect), Taskwarrior-style scoring. See `app/docs/priorities.md`, including its "Not yet designed" list (who-asked weights, delegated asks, the heat baseline, the 0-to-1 curves).
 
 ### Todos: completing a Jira todo assumes a "Done" transition
 

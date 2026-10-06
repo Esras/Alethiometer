@@ -104,7 +104,7 @@ Read this first, then `app/README.md` and the docs it links. The original design
 
 1. **Slack**: live on the work Mac (`lookback_hours: 12`). Next: the missed-message audit (below).
 2. **Gmail**: done and resynced; filing archives (todo or not). Still open: Unsubscribe (19a).
-3. **Priorities scoring**: not built (sample data only); needs a design pass first, see ISSUES.md.
+3. **Priorities scoring**: designed 2026-10-06, not built (sample data only). Todos only, three orders (Priority, Quick wins, Neglect), Taskwarrior-style coefficients; see `app/docs/priorities.md`.
 4. 13b (AI failure panel): built in the sync chip; the macOS notification on ok → failed waits for notifications in `platform.rs`.
 5. **Todos (22a, 22c)**: built, see `app/docs/todos.md`. One typed model (`queries/todos.rs`, `TodoExt::Local | Jira | Obsidian`) over `items`; local todos live on the built-in `notes` source and never sync. Todos tab (sort, `/` filter, source chips, `x`/`u`, `n` new). In Incoming, `n` holds a todo on the signal (`held_todos`) until Confirm/Move creates it with that topic (Gmail threads are archived by the filing itself). Jira todos: `jira.create_issue` with `assign_me` + due, a stub item until the next poll. Creating a todo never writes to the topic's Obsidian note (the user's call; 22c's "link line" is dropped); todos show on the topic through their topic link, and `- [ ]` tasks in a topic's note are linked to that topic by the Obsidian sync. Not built: Marvin (needs the personal-boundary decision), 22b topic Tasks, 21e stale review, Topic/Priority/Due filter chips, AI-drafted todo text, Slack Later.
 
