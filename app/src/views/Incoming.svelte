@@ -60,8 +60,11 @@
   let jira = $state<JiraTarget | null>(null);
   call<TodosData>('todos.list').then((d) => (jira = d.jira));
   let picking = $state(false);
-  // Split review (15g/15h) open on this item.
-  let reviewing = $state<number | null>(null);
+  // Split review (15g/15h) open on this item. Until it closes the row stays put
+  // and the family's other parts stay out of the list (`holdReview`): the split
+  // happens in the review, and only its confirm files the parts.
+  let reviewing = $state<{ item: number; root: number } | null>(null);
+  let lastList: Queue | null = null;
   // Link to person (17b) open on this signal for this account.
   let linking = $state<{ item: number; account: Account; name: string } | null>(null);
   // Message mode (Unsorted): focus is inside the current signal's messages.
@@ -200,6 +203,7 @@
   // Keep the selection where it was: same topic and item if they still exist,
   // otherwise the row that moved into the same place.
   function apply(q: Queue) {
+    lastList = structuredClone(q);
     const prevEntries = entries;
     const prevFlat = flat;
     const topicIdx = Math.max(0, prevEntries.findIndex((e) => e.key === selKey));
@@ -211,6 +215,7 @@
       const i = known.indexOf(id);
       return i < 0 ? known.length : i;
     };
+    holdReview(q);
     keepDismissed(q);
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
@@ -240,6 +245,16 @@
     msgIdx = Math.max(0, Math.min(msgIdx, b.messages.length - 1));
   }
 
+  function holdReview(q: Queue) {
+    if (!reviewing) return;
+    const { item: id, root } = reviewing;
+    const out = (l: Signal[]) => l.filter((s) => s.item_id === id || s.root !== root);
+    for (const t of q.topics) t.signals = out(t.signals);
+    q.topics = q.topics.filter((t) => t.signals.length);
+    q.unsorted = out(q.unsorted);
+    keepRow(q, id);
+  }
+
   function keepDismissed(q: Queue) {
     const id = selItem;
     if (!queue || id === null || !dismissed.has(id)) return;
@@ -250,6 +265,12 @@
       }
       return;
     }
+    keepRow(q, id);
+  }
+
+  /** Put a row that left the list back where it was. */
+  function keepRow(q: Queue, id: number) {
+    if (!queue) return;
     if ([...q.topics.flatMap((t) => t.signals), ...q.unsorted].some((s) => s.item_id === id)) return;
     const put = (list: Signal[], from: Signal[]) => {
       const i = from.findIndex((s) => s.item_id === id);
@@ -346,15 +367,20 @@
     picking = false;
     linking = null;
     leaveMsgs();
-    reviewing = s.item_id;
+    reviewing = { item: s.item_id, root: s.root };
   }
 
   $effect(() => {
-    if (reviewing !== null && !flat.some((s) => s.item_id === reviewing)) reviewing = null;
+    if (reviewing && !flat.some((s) => s.item_id === reviewing!.item)) untrack(closeReview);
   });
 
-  function endReview() {
+  function closeReview() {
     reviewing = null;
+    if (lastList) apply(lastList);
+  }
+
+  function endReview() {
+    closeReview();
     refresh();
   }
 
@@ -654,8 +680,8 @@
             {@const gone = dismissed.has(s.item_id)}
             {@const ag_ = s.agent}
             {@const agSession = ag_ ? live?.sessions.find((x) => x.id === ag_.session) : undefined}
-            <div class="sig" class:sel class:inside={sel && (inMsgs || reviewing === s.item_id)} class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
-              {#if reviewing === s.item_id}
+            <div class="sig" class:sel class:inside={sel && (inMsgs || reviewing?.item === s.item_id)} class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+              {#if reviewing?.item === s.item_id}
                 <SplitReview itemId={s.item_id} onclose={endReview} />
               {:else}
               <div class="row">

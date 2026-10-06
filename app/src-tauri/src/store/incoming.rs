@@ -16,8 +16,8 @@ const SIGNAL: &str = "i.id, s.kind, i.kind, i.title, i.summary, i.url, i.occurre
      json_extract(i.raw_json, '$.category'), json_extract(i.raw_json, '$.change'), json_extract(i.raw_json, '$.moved_from'),
      CASE WHEN i.kind = 'event' THEN i.body END,
      CASE WHEN s.kind = 'agents' THEN json_extract(i.raw_json, '$.agent') END,
-     json_extract(i.raw_json, '$.thread_ts') IS NOT NULL, i.rev";
-const SIGNAL_COLS: usize = 18;
+     json_extract(i.raw_json, '$.thread_ts') IS NOT NULL, i.rev, coalesce(i.parent_id, i.id)";
+const SIGNAL_COLS: usize = 19;
 
 fn signal(r: &Row) -> rusqlite::Result<SignalRow> {
     Ok(SignalRow {
@@ -40,6 +40,7 @@ fn signal(r: &Row) -> rusqlite::Result<SignalRow> {
         agent_json: r.get(15)?,
         thread: r.get(16)?,
         rev: r.get(17)?,
+        root: r.get(18)?,
     })
 }
 

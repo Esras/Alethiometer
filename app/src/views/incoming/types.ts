@@ -61,6 +61,8 @@ export interface Signal {
    * Triage sends both back so it applies to what you saw. */
   rev: number;
   keys: string[];
+  /** The split family it belongs to (its first part's item). */
+  root: number;
 }
 
 export interface Held {

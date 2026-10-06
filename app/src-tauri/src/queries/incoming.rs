@@ -119,6 +119,8 @@ pub struct Signal {
     thread: bool,
     /// The item's revision as listed. Triage sends it back with `keys`.
     pub rev: i64,
+    /// The split family it belongs to (its first part's item).
+    pub root: i64,
     /// Keys of the messages listed (`item_messages.ext_key`).
     pub keys: Vec<String>,
 }
@@ -293,6 +295,7 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         author_name: row.author_name,
         thread: row.thread,
         rev: row.rev,
+        root: row.root,
         keys: vec![],
     }
 }

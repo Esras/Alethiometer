@@ -32,6 +32,8 @@ pub struct SignalRow {
     pub thread: bool,
     /// `items.rev`: what triage sends back so it applies to what you saw.
     pub rev: i64,
+    /// The split family it belongs to: its parent, else itself.
+    pub root: i64,
 }
 
 /// An unseen signal with a live link to a topic.
