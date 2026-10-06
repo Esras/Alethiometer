@@ -293,11 +293,21 @@ fn refresh(c: &Client, hub: &Hub) -> anyhow::Result<()> {
         st.me_email = s(&me, "email").into();
     }
     let want = &hub.cfg.projects;
-    let projects: Vec<Value> = c
+    let mut projects: Vec<Value> = c
         .projects()?
         .into_iter()
         .filter(|p| want.is_empty() || want.iter().any(|w| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str())))
         .collect();
+    for w in want {
+        if projects.iter().any(|p| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str())) {
+            continue;
+        }
+        match c.project(w) {
+            Ok(p) => projects.push(p),
+            Err(e) if hub_error(&e).is_some_and(|h| matches!(h.status, 403 | 404)) => {}
+            Err(e) => return Err(e),
+        }
+    }
     let mut agents = vec![];
     for p in &projects {
         agents.extend(c.agents(s(p, "id"))?);
@@ -998,6 +1008,26 @@ mod tests {
         let s = Session { id: format!("scion:work-hub:{PLANNER}"), name: "planner".into(), ..Default::default() };
         assert_eq!(attach_command(&s), "scion attach planner --hub https://hub.example.com -g ingest-svc");
         assert!(http.requests().iter().any(|(_, u, _)| u.contains("/interagent")), "agent mail is read on a full refresh");
+    }
+
+    #[test]
+    fn a_hub_token_that_lists_no_projects_reads_them_by_id() {
+        let http = hub_http();
+        http.on("GET", "/api/v1/projects?", 200, json!({ "projects": [], "totalCount": 0 }).to_string());
+        let project = text("projects.json").parse::<Value>().unwrap()["projects"][0].to_string();
+        http.on("GET", &format!("/api/v1/projects/{PID}"), 200, project);
+        http.on("GET", &format!("/api/v1/projects/{PID}/agents"), 200, text("agents.json"));
+        let gone = json!({ "error": { "code": "not_found", "message": "Resource not found" } });
+        http.on("GET", "/api/v1/projects/gone", 404, gone.to_string());
+        let (app, _d) = app();
+        app.platform.secret_set("scion.token", "scion_pat_test").unwrap();
+        let url = "https://hub.example.com";
+        let cfg = ScionConfig::from_json(&json!({ "hub_url": url, "projects": [PID, "gone"] })).unwrap();
+        let h = Arc::new(Hub::new("work-hub", cfg, String::new(), http.clone()));
+        app.agents.scion.get().insert("work-hub".into(), h.clone());
+        poll(&app, &h);
+        assert_eq!(h.link().state, "connected", "{}", h.link().error);
+        assert_eq!(app.agents.store.lock().sessions.len(), 4);
     }
 
     #[test]
