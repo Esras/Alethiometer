@@ -4,7 +4,6 @@ use super::Sql;
 use crate::domain::todos::{Held, TodoRow, TodoViews, Todos};
 use crate::domain::topics::TopicRef;
 use crate::time::{Date, Due};
-use crate::time::SQL_NOW;
 use rusqlite::{params, OptionalExtension};
 use crate::error::Result;
 
@@ -112,10 +111,8 @@ impl Todos for Sql<'_> {
     fn set_estimate(&self, item_id: i64, minutes: Option<i64>) -> Result<()> {
         match minutes {
             Some(m) => self.conn().execute(
-                &format!(
-                    "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'you')
-                     ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you', updated_at = {SQL_NOW}"
-                ),
+                "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'you')
+                     ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you'",
                 params![item_id, m],
             )?,
             None => self.conn().execute("DELETE FROM todo_estimates WHERE item_id = ?1", [item_id])?,

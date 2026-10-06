@@ -954,12 +954,12 @@ mod tests {
             conn.last_insert_rowid()
         };
         let (dd, ingest, other) = (topic("Datadog migration"), topic("Ingest"), topic("Retries"));
-        conn.execute("INSERT INTO topic_repos VALUES (?1, 'platform/observability-config')", [dd]).unwrap();
+        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/observability-config')", [dd]).unwrap();
         // platform/ingest is linked to two topics: ambiguous, so no suggestion.
-        conn.execute("INSERT INTO topic_repos VALUES (?1, 'platform/ingest')", [ingest]).unwrap();
-        conn.execute("INSERT INTO topic_repos VALUES (?1, 'Platform/Ingest')", [other]).unwrap();
+        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/ingest')", [ingest]).unwrap();
+        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'Platform/Ingest')", [other]).unwrap();
         // platform/rfcs → Ingest, but the user already marked that item wrong elsewhere.
-        conn.execute("INSERT INTO topic_repos VALUES (?1, 'platform/rfcs')", [ingest]).unwrap();
+        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/rfcs')", [ingest]).unwrap();
         let rfc: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'platform/rfcs#41'", [], |r| r.get(0)).unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", [rfc, dd]).unwrap();
 

@@ -57,12 +57,12 @@ impl SampleData for Sql<'_> {
     }
 
     fn topic_person(&self, topic_id: i64, person_id: i64) -> Result<()> {
-        self.conn().execute("INSERT INTO topic_people VALUES (?1, ?2)", params![topic_id, person_id])?;
+        self.conn().execute("INSERT INTO topic_people (topic_id, person_id) VALUES (?1, ?2)", params![topic_id, person_id])?;
         Ok(())
     }
 
     fn topic_repo(&self, topic_id: i64, repo: &str) -> Result<()> {
-        self.conn().execute("INSERT INTO topic_repos VALUES (?1, ?2)", params![topic_id, repo])?;
+        self.conn().execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, ?2)", params![topic_id, repo])?;
         Ok(())
     }
 

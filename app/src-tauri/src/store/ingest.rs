@@ -146,10 +146,8 @@ impl Ingest for Sql<'_> {
 
     fn put_profile(&self, p: &Profile) -> Result<()> {
         self.conn().execute(
-            &format!(
-                "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
-                 ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = {SQL_NOW}"
-            ),
+            "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
+                 ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5",
             params![p.kind, p.account, p.real_name, p.email, p.is_bot],
         )?;
         Ok(())

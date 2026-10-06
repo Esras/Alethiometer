@@ -102,6 +102,12 @@ fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
         tx.pragma_update(None, "user_version", (i + 1) as i64)?;
         tx.commit()?;
     }
+    // Times on every table, from each table's columns as they now are.
+    if to == MIGRATIONS.len() {
+        let tx = conn.transaction()?;
+        super::timestamps::ensure(&tx)?;
+        tx.commit()?;
+    }
     let new: Vec<String> = broken_references(conn)?.difference(&before).cloned().collect();
     if !new.is_empty() {
         anyhow::bail!("migration left broken references: {}", new.join(", "));
