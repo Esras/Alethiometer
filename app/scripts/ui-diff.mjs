@@ -40,6 +40,10 @@ const scenes = {
   'incoming-split': ['j', 's'],
   'incoming-todo': ['n'],
   'incoming-personpicker': ['Enter', { exact: 'Marco R.' }],
+  // The person picker's rows (avatars): Marco has no note, so the field is filled with a
+  // letter that matches people. Kept beside incoming-personpicker: run after the empty-* scenes,
+  // its click on Marco failed and it shot nothing.
+  'incoming-personpicker-hits': ['Enter', { exact: 'Marco R.' }, 'Control+a', { type: 'a' }],
   'incoming-topicpicker': ['t'],
   unsorted: [']', ']', ']', ']', ']'],
   'unsorted-expanded': [']', ']', ']', ']', ']', 'Enter'],
@@ -148,6 +152,33 @@ const scenes = {
   // none) and Notes' margin states.
   'assistant-ask-failed': ['Control+i', { placeholder: 'Ask, or @ to reference…' }, { type: 'What is blocking Acme?' }, 'Enter'],
   'todos-estimate-bad': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e', { type: 'zzz' }, 'Enter'],
+  // Empty states (decision 18): a filter nobody matches, the Archived topics, a topic with
+  // nothing open and no note (the sixth has both), a day with no calendar, decisions or
+  // carry rows. The existing agents scene has the Agents hello, todos the empty list and
+  // sync the "No live sources" line. Not covered: Incoming's and Priorities' empty lists
+  // (the sample data fills them), the topic picker's "No topic matches" (typing offers
+  // Create instead), Slack review and the Assistant's Sources panel.
+  'empty-search': ['Control+k', { type: 'zzqx' }, 'Control+Enter'],
+  'empty-palette': ['Control+k', { type: 'zzqx' }],
+  'empty-agents-tree': ['Control+7', '/', { type: 'zzqx' }],
+  'empty-settings-find': ['Control+,', '/', { type: 'zzqx' }],
+  'empty-catpicker': ['Control+3', 'c', { type: 'zzqx' }],
+  'empty-fontpick': ['Control+,', { exact: 'System', nth: 0 }, { type: 'zzqx' }],
+  'empty-topics-index': ['Control+3', { exact: 'Archived' }, '/', { type: 'zz' }],
+  'empty-topic-page': ['Control+3', 'j', 'j', 'j', 'j', 'j', 'j', 'Enter'],
+  'empty-reflect-day': ['Control+6', '[', 'T', 'D'],
+  // People and reach-ins (decision 2, Phase 0-2 leftovers): Marco has no People note, so
+  // his signal shows the New person strip; New agent on a Scion hub marks a name already
+  // in the project ("planner") as taken. Not covered: Topics' People panel with an
+  // unknown person who has an account (the sample data gives Marco none; checked by
+  // patching the topic's response), and Glean's avatars (parked).
+  'incoming-new-person': ['Enter'],
+  'agents-new-scion-taken': ['Control+7', { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
+  // A pi-style gate on a long multi-line command (the fakepi agent): the approval keeps
+  // the transcript's room, shows only the gate's `rule *` and scrolls Parsed and Explained
+  // separately. The same at 1760×800 (VIEWPORT), where the card must shrink.
+  'agents-approval-pi': ['Control+7', { exact: 'fakepi-agent' }],
+  'agents-approval-pi-short': ['Control+7', { exact: 'fakepi-agent' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
@@ -160,16 +191,57 @@ const scenes = {
   'topics-merged': ['Control+3', 'm', 'ArrowDown', 'Enter'],
 };
 
-async function shoot(base, steps, file) {
-  const page = await browser.newPage({ viewport: { width: 1760, height: 1175 }, deviceScaleFactor: 1 });
+// Waits until the page has been still for `quiet` ms: no DOM change, and no call to
+// the server in flight when that time is up (live.wait, the live queries' long poll,
+// is always open and doesn't count). Never longer than `max` ms, the old fixed
+// waits. Uses the page's own timers, which page.clock leaves running.
+const settle = (page, quiet, max) =>
+  page.evaluate(
+    ([quiet, max]) =>
+      new Promise((done) => {
+        let t;
+        const finish = () => {
+          obs.disconnect();
+          clearTimeout(t);
+          clearTimeout(cap);
+          done();
+        };
+        const arm = () => {
+          clearTimeout(t);
+          t = setTimeout(() => (window.__inflight ? arm() : finish()), quiet);
+        };
+        const obs = new MutationObserver(arm);
+        obs.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        const cap = setTimeout(finish, max);
+        arm();
+      }),
+    [quiet, max],
+  );
+// Counts the page's calls to the server in flight, for settle().
+const COUNT_FETCH = `(() => {
+  window.__inflight = 0;
+  const f = window.fetch;
+  window.fetch = (...a) => {
+    if (String(a[0]).endsWith('/live.wait')) return f(...a);
+    window.__inflight++;
+    return f(...a).finally(() => window.__inflight--);
+  };
+})()`;
+
+// A scene's window when it isn't the usual one.
+const VIEWPORT = { 'agents-approval-pi-short': { width: 1760, height: 800 } };
+
+async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }) {
+  const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
   await page.clock.setFixedTime(FIXED);
+  await page.addInitScript(COUNT_FETCH);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message.split('\n')[0]));
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
   // A transition caught half-way is timing, not a change.
   await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
-  await page.waitForTimeout(1500);
+  await settle(page, 400, 1500);
   for (const k of steps) {
     try {
       if (typeof k === 'string') await page.keyboard.press(k);
@@ -182,13 +254,12 @@ async function shoot(base, steps, file) {
     } catch {
       errs.push('step failed: ' + JSON.stringify(k));
     }
-    await page.waitForTimeout(450);
+    await settle(page, 250, 450);
   }
-  await page.waitForTimeout(600);
-  await page.mouse.move(1, 1170); // no hover states
+  await settle(page, 600, 900);
+  await page.mouse.move(1, viewport.height - 5); // no hover states
   await page.addStyleTag({ content: '*, *::before, *::after { caret-color: transparent !important; }' });
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(300);
   await page.screenshot({ path: file });
   await page.close();
   return errs;
@@ -212,8 +283,11 @@ for (const name of names) {
   let errs = [];
   // One retry: a scene that crosses a minute boundary between the two shots differs.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const ea = await shoot(`http://localhost:${PA}/`, scenes[name], a);
-    const eb = await shoot(`http://localhost:${PB}/`, scenes[name], b);
+    // The two sides have their own servers and data, so they're shot at once.
+    const [ea, eb] = await Promise.all([
+      shoot(`http://localhost:${PA}/`, scenes[name], a, VIEWPORT[name]),
+      shoot(`http://localhost:${PB}/`, scenes[name], b, VIEWPORT[name]),
+    ]);
     errs = [...new Set([...ea.map((x) => 'ref: ' + x), ...eb.map((x) => 'this: ' + x)])];
     px = differing(a, b, d);
     if (px === 0) break;

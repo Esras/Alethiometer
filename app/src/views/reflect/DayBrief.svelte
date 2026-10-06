@@ -58,11 +58,11 @@
     </div>
 
     <div class="links">
-      <button class="link" onclick={() => (showWhere = !showWhere)} title="T">
+      <button class="link-toggle" onclick={() => (showWhere = !showWhere)} title="T">
         <i class="ph ph-caret-{showWhere ? 'down' : 'right'}"></i>Where time went
       </button>
       {#if !life}
-        <button class="link" onclick={() => (showDecided = !showDecided)} title="D">
+        <button class="link-toggle" onclick={() => (showDecided = !showDecided)} title="D">
           <i class="ph ph-caret-{showDecided ? 'down' : 'right'}"></i>Decided · {brief.decided.length}
         </button>
         <button class="link" onclick={() => (showFinished = !showFinished)} title="F">
@@ -80,7 +80,7 @@
             <span class="tnum dur">{w.dur}</span>
           </div>
         {:else}
-          <div class="muted">Nothing on the calendar.</div>
+          <div class="empty-row">Nothing on the calendar.</div>
         {/each}
       </div>
     {/if}
@@ -93,7 +93,7 @@
             {#if d.topic}<span class="topic nowrap">{d.topic}</span>{/if}
           </div>
         {:else}
-          <div class="muted">Nothing recorded as decided.</div>
+          <div class="empty-row">Nothing recorded as decided.</div>
         {/each}
       </div>
     {/if}
@@ -180,14 +180,10 @@
     gap: 16px;
     font-size: 0.9231rem;
   }
-  .link {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    color: var(--aqua);
+  .link-toggle {
     white-space: nowrap;
   }
-  .link:hover {
+  .link-toggle:hover {
     text-decoration: underline;
   }
   .fold {
@@ -235,7 +231,8 @@
     color: var(--tx-label);
     font-size: 0.8846rem;
   }
-  .muted {
-    color: var(--tx-label);
+  .empty-row {
+    padding: 0;
+    font: inherit;
   }
 </style>

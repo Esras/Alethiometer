@@ -26,7 +26,7 @@
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
   import { messageUrl } from '../lib/slackLink';
-  import { personColor, type Account } from '../lib/people';
+  import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
@@ -749,7 +749,7 @@
                   {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
                   {#each s.context as m, ci (m.id)}
                     {#if hidden && ci === 1}
-                      <button class="more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                      <button class="link-toggle more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
                         … {hidden} earlier
                       </button>
                     {/if}
@@ -786,7 +786,7 @@
                       {@const readReplies = replies.filter((r) => r.read).length}
                       {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
                       {#if hiddenReplies}
-                        <button class="more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
+                        <button class="link-toggle more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
                           … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
                         </button>
                       {/if}
@@ -807,7 +807,7 @@
                     <div class="new-person">
                       <i class="ph ph-user-plus"></i>
                       <span class="q">New person?</span>
-                      <span class="np-name" style:color={personColor(np.color)}>{np.real_name ?? np.name}</span>
+                      <PersonName who={{ color: np.color, known: false, me: false }} name={np.real_name ?? np.name} />
                       <span class="np-info ellipsis">
                         {sourceLabel(np.source)}{#if np.email}&nbsp;· {np.email}{:else if np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
                       </span>
@@ -833,7 +833,7 @@
           {/each}
         {:else}
           {#if queue}
-            <div class="empty">{unsorted ? 'Nothing unsorted.' : `Nothing new on ${topicName}.`}</div>
+            <div class="empty-pane">{unsorted ? 'Nothing unsorted.' : `Nothing new on ${topicName}.`}</div>
           {/if}
         {/each}
       </div>
@@ -1212,9 +1212,6 @@
   .new-person .q {
     color: var(--tx-body);
   }
-  .np-name {
-    font-weight: 500;
-  }
   .np-info {
     color: var(--tx-label);
     min-width: 0;
@@ -1253,8 +1250,10 @@
     gap: 6px;
     align-items: center;
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 16px;
-    color: var(--tx-label);
+    font: inherit;
+    text-align: left;
   }
 </style>

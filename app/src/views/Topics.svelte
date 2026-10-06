@@ -15,6 +15,7 @@
   import type { TopicDetail, TopicPerson, TopicRow } from '../lib/types';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Avatar from '../lib/ui/Avatar.svelte';
+  import PersonName from '../lib/ui/PersonName.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
   import Panel from '../lib/ui/Panel.svelte';
@@ -160,9 +161,9 @@
           <div class="titles">
             <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} placement={{ top: 'calc(100% + 4px)', left: '0' }} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
             {#if renaming !== null}
-              <input class="name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
+              <input class="page-title name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
             {:else}
-              <button class="name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
+              <button class="page-title name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
             {/if}
             {#if pendingMerge(d.topic.id)}
               <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo</div>
@@ -209,7 +210,7 @@
                 </span>
               </div>
             {:else}
-              <div class="empty">Nothing open.</div>
+              <div class="empty-row">Nothing open.</div>
             {/each}
           </Panel>
 
@@ -231,12 +232,10 @@
             <div class="people">
               {#each d.people as p (p.id ?? `${p.name}-${p.account?.id ?? ''}`)}
                 <div class="person">
-                  <Avatar initials={p.initials} color={personColor(p.color)} size={26} font="0.7692rem" />
+                  <Avatar initials={p.initials} color={personColor(p.color)} size="lg" />
                   <div class="min0">
                     {#if !p.known && p.account}
-                      <button class="strong unknown ellipsis" style:color={personColor(p.color)} title="No People note: link to a person" onclick={() => (linking = p)}
-                        >{p.name}</button
-                      >
+                      <PersonName who={{ color: p.color, known: false, me: false, account: p.account ?? undefined }} name={p.name} block onlink={() => (linking = p)} />
                     {:else}
                       <div class="strong ellipsis" title={p.name}>{p.name}</div>
                     {/if}
@@ -363,12 +362,9 @@
     text-align: left;
     background: none;
     border: none;
-    font: inherit;
-    font-size: 1.8462rem;
-    font-weight: 500;
+    line-height: normal;
     letter-spacing: -0.015em;
     margin-top: 3px;
-    color: var(--tx-title);
   }
   .name:hover {
     text-decoration: underline;
@@ -383,11 +379,8 @@
     border-bottom: 1px solid var(--aqua);
     outline: none;
     background: none;
-    font: inherit;
-    font-size: 1.8462rem;
-    font-weight: 500;
+    line-height: normal;
     letter-spacing: -0.015em;
-    color: var(--tx-title);
   }
   .name.merged {
     color: var(--tx-label);
@@ -484,9 +477,9 @@
     font-size: 0.8462rem;
     color: var(--tx-muted);
   }
-  .empty {
+  .empty-row {
     padding: 8px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
   .filters {
     display: flex;
@@ -508,13 +501,6 @@
   }
   .person + .person {
     border-left: 1px solid var(--bg-head);
-  }
-  .unknown {
-    display: block;
-    max-width: 100%;
-    text-align: left;
-    text-decoration: underline dotted var(--tx-label);
-    text-underline-offset: 3px;
   }
 
   .role {

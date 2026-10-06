@@ -112,7 +112,7 @@
 
 {#if !key || (!s && !g)}
   <div class="empty">
-    <div class="hello">
+    <div class="empty-pane hello">
       <i class="ph ph-robot"></i>
       <p>Open a session or room from the tree, or start a local session.</p>
       <button class="btn md primary" onclick={() => (ag.form ={ kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button>
@@ -126,7 +126,7 @@
           {#if isRoom}<i class="ph ph-hash hash"></i>{g?.room?.name}{:else if s}<StatusMark status={s.status} /><span style:color={agentColor(lk, s)}>{s.name}</span>{/if}
           <span class="c">{isRoom ? `${g?.room?.hub ?? 'Scion Hub'} · project ${g?.project} · group thread` : s?.context}</span>
         </div>
-        <div class="title">{title}</div>
+        <div class="pane-title title">{title}</div>
         {#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
       </div>
       <div class="facts inset">
@@ -135,7 +135,7 @@
           <span class="fl">{label}</span>
           {#if f}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <span class="fv" class:link={!!f.url} onclick={() => f.url && openExternal(f.url)} title={f.url || undefined}
+            <span class="fv" class:link-out={!!f.url} onclick={() => f.url && openExternal(f.url)} title={f.url || undefined}
               ><span class:key={label === 'ticket'}>{f.label}</span>{#if f.detail} <span class="fd">{f.detail}</span>{/if}</span
             >
           {:else}<span class="fv none">{none}</span>{/if}
@@ -240,12 +240,11 @@
   }
   .hello {
     margin: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     gap: 10px;
-    color: var(--tx-label);
+    padding: 0;
+    font: inherit;
   }
+  /* Reaches the + in the button too (it was 2rem and grey before): kept. */
   .hello i {
     font-size: 2rem;
     color: var(--tx-disabled);
@@ -292,10 +291,7 @@
     color: var(--msg);
   }
   .title {
-    font-size: 1.4615rem;
-    font-weight: 500;
     line-height: 1.3;
-    color: var(--tx-title);
     text-wrap: pretty;
   }
   .subtitle {
@@ -326,11 +322,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .fv.link {
+  .fv.link-out {
     cursor: pointer;
   }
-  .fv.link:hover {
-    text-decoration: underline;
+  .fv.link-out:hover {
+    text-underline-offset: auto;
   }
   .fv.none {
     color: var(--tx-disabled);
@@ -445,9 +441,11 @@
     display: flex;
     gap: 4px;
   }
+  /* The transcript keeps room whatever sits under it: about five short rows on a
+     tall window, a quarter of a short one. The pinned card shrinks first. */
   .stream {
     flex: 1;
-    min-height: 0;
+    min-height: min(160px, 25vh);
     overflow-y: auto;
     overscroll-behavior: contain;
     display: flex;
@@ -480,13 +478,22 @@
     font-size: 0.923rem;
     padding: 20px 0;
   }
+  /* Shrinks (min-height 0) when the pinned card is taller than what the transcript
+     leaves; only that card gives way, the composer and the status line keep their size. */
   .bottom {
-    flex: none;
+    flex: 0 1 auto;
+    min-height: 0;
     border-top: 1px solid var(--bg-head);
     padding: 10px 12px 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .bottom > :global(*) {
+    flex-shrink: 0;
+  }
+  .bottom > :global(.card.capped) {
+    flex-shrink: 1;
   }
   .err {
     font-size: 0.923rem;

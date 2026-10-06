@@ -225,7 +225,7 @@
               <AppIcon source={ICON[t.ext.type]} size={14} />
               <span class="title ellipsis" title={t.title}>{t.title}</span>
               {#if t.from && signalOf(t) !== null}
-                <button class="from link ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
+                <button class="from link-nav ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
               {:else if t.from}<span class="from ellipsis">{t.from}</span>{/if}
             </span>
             <span>{#if t.ext.type === 'jira'}<span class="chip status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
@@ -267,10 +267,10 @@
             </div>
           {/if}
         {:else}
-          <div class="empty">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
+          <div class="empty-pane">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
         {/each}
       </div>
-      <div class="hints">
+      <div class="hint-bar">
         <span><kbd>j</kbd> <kbd>k</kbd> todo</span>
         <span><kbd>x</kbd> done</span>
         <span><kbd>u</kbd> undo</span>
@@ -386,7 +386,10 @@
     font-size: 0.9231rem;
     color: var(--tx-label);
   }
-  .from.link:hover {
+  .from.link-nav {
+    display: block;
+  }
+  .from.link-nav:hover {
     color: var(--tx-2);
     text-decoration: underline;
   }
@@ -432,16 +435,17 @@
   .overdue {
     color: var(--time-now);
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 24px 16px;
     color: var(--tx-muted-2);
+    font: inherit;
+    text-align: left;
   }
-  .hints {
-    display: flex;
-    gap: 16px;
-    padding: 7px 16px;
-    border-top: 1px solid var(--border);
-    font-size: 0.8846rem;
-    color: var(--tx-label);
+  /* Wraps (the shared bar clips): with a signal and a topic the hints can be wider
+     than the column at the minimum window width. */
+  .hint-bar {
+    flex-wrap: wrap;
+    gap: 4px 16px;
   }
 </style>

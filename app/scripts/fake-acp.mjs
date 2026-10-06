@@ -14,7 +14,8 @@
 // elicitation/create (a choice like Claude Code's AskUserQuestion, then text
 // like pi's input) and says what it got. FAKE_ACP_MODE=gate gates a bash
 // call the way pi-acp does for an extension's prompt: the request repeats
-// only the call's id and title, with the gate's text as content.
+// only the call's id and title, with the gate's text as content. FAKE_ACP_MODE=pigate
+// is that with pi's own prompt: a field list restating a long multi-line command.
 
 import readline from 'node:readline';
 
@@ -139,12 +140,11 @@ async function ask() {
   return cancelled ? 'cancelled' : 'end_turn';
 }
 
-async function gate() {
-  const cmd = 'rm -rf build && node scripts/clean.js';
+async function gate(cmd = 'rm -rf build && node scripts/clean.js', text = 'Dangerous command: deletes files. Allow?') {
   update({ sessionUpdate: 'tool_call', toolCallId: 'g1', kind: 'execute', title: cmd, status: 'pending', rawInput: { command: cmd } });
   const r = await request('session/request_permission', {
     sessionId: session,
-    toolCall: { toolCallId: 'g1', title: cmd, status: 'in_progress', content: [{ type: 'terminal', terminalId: 'g1' }, { type: 'content', content: { type: 'text', text: 'Dangerous command: deletes files. Allow?' } }] },
+    toolCall: { toolCallId: 'g1', title: cmd, status: 'in_progress', content: [{ type: 'terminal', terminalId: 'g1' }, { type: 'content', content: { type: 'text', text } }] },
     options: [
       { optionId: 'choice-0', name: 'Yes', kind: 'allow_once' },
       { optionId: 'choice-1', name: 'No', kind: 'reject_once' },
@@ -155,12 +155,28 @@ async function gate() {
   return 'end_turn';
 }
 
+// FAKE_ACP_MODE=pigate: the same gate with pi's prompt, a field list that restates the
+// call (tool, rule, command, then the whole command again) for a long heredoc.
+const PI_COMMAND = [
+  "cd ../Alethiometer-archive/app/src-tauri && python3 - <<'EOF'",
+  'import json, pathlib',
+  "rows = json.loads(pathlib.Path('tests/fixtures/acp/rows.json').read_text())",
+  "kinds = sorted({r['kind'] for r in rows})",
+  "print(len(rows), 'rows', kinds)",
+  'for r in rows[:40]:',
+  "    print(r['id'], r['kind'], (r.get('text') or '')[:80])",
+  "print('done')",
+  'EOF',
+].join('\n');
+const piGate = () => gate(PI_COMMAND, `tool         : bash\nrule         : *\ncommand      : python3\nfull command : ${PI_COMMAND}`);
+
 async function play(text) {
   turn++;
   cancelled = false;
   if (process.env.FAKE_ACP_MODE === 'stream') return stream();
   if (process.env.FAKE_ACP_MODE === 'ask') return ask();
   if (process.env.FAKE_ACP_MODE === 'gate') return gate();
+  if (process.env.FAKE_ACP_MODE === 'pigate') return piGate();
   const t = `t${turn}`;
   await chunks('agent_thought_chunk', 'Probably a flex row without min-width. Check Header.tsx before touching the modal, then look for overrides.');
   await tool(`${t}_read`, 'Read', 'read', 'Read src/settings/Header.tsx', { file_path: `${process.cwd()}/src/settings/Header.tsx` }, Array.from({ length: 64 }, (_, i) => `${i + 1}\tline ${i + 1}`).join('\n'));

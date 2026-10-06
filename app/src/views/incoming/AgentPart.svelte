@@ -6,6 +6,7 @@
   import { call } from '../../lib/api';
   import { clockHM, ui } from '../../lib/app.svelte';
   import { chord, mod } from '../../lib/keys.svelte';
+  import { fieldsLine, splitMessage } from '../agents/approvalMessage';
   import Panels from '../agents/Panels.svelte';
   import { ag } from '../agents/state.svelte';
   import type { Request, Session } from '../agents/types';
@@ -155,7 +156,8 @@
   {#if a.kind === 'approval'}
     {#if req}
       {#if req.command}<div class="inset command-block">{req.command}</div>{/if}
-      {#if req.message}<div class="said"><i class="ph ph-chat-text"></i>{req.message}</div>{/if}
+      {@const said = splitMessage(req.message ?? '', req.command, req.tool.split(' · ')[0])}
+      {#if said.fields.length}<div class="said" title={req.message}><i class="ph ph-chat-text"></i>{fieldsLine(said.fields)}</div>{:else if said.text}<div class="said"><i class="ph ph-chat-text"></i>{said.text}</div>{/if}
       {#if req.parsed || req.explained}<Panels {req} />{/if}
     {:else}
       <div class="why">No longer waiting.</div>

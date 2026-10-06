@@ -77,7 +77,7 @@
     {:else if s.kind === 'b'}<strong>{s.text}</strong>
     {:else if s.kind === 'i'}<em>{s.text}</em>
     {:else if s.kind === 's'}<s>{s.text}</s>
-    {:else if s.kind === 'link'}<a href={s.href} onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a>
+    {:else if s.kind === 'link'}<a class="link-out" href={s.href} onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a>
     {:else}{s.text}{/if}
   {/each}
 {/snippet}
@@ -146,10 +146,7 @@
     border-left: 2px solid var(--border-strong);
     color: var(--tx-muted);
   }
-  a {
-    color: var(--blue);
-  }
   a:hover {
-    text-decoration: underline;
+    text-underline-offset: auto;
   }
 </style>

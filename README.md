@@ -1,25 +1,49 @@
-# CODING AGENTS: READ THIS FIRST
+# Alethiometer
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+A personal, local-first work assistant for one person's working day. It pulls Slack, Gmail, Google Calendar, Jira, GitHub, Obsidian and Proton ICS into one keyboard-driven window, files what arrives into topics, and keeps notes, todos and a daily reflection beside them. An Agents tab runs and supervises coding agents (Claude Code, Pi, Scion). It was called **Helm** during design.
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+It is a Tauri 2 app: a Rust core with SQLite in `app/src-tauri`, a Svelte 5 UI in `app/src`, and a small agent host daemon in `app/agentd`. There is no mobile build.
 
-## What you should do — IMPORTANT
+## Read in this order
 
-**Read the chat transcripts first.** There are 2 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
+1. **`AGENTS.md`**: the engineering rules (accuracy over performance, battle-tested libraries, how time and the database are handled, tests). `CLAUDE.md` points to it.
+2. **`HANDOFF.md`**: what is built, what's in flight, every decision the user has made (don't re-ask those), and how to run the checks.
+3. **`app/README.md`**: the app's status table and how to run it.
+4. **`app/docs/`**: one document per area: `ai.md`, `agents.md`, `db-plan.md`, `people.md`, `settings.md`, `todos.md`, `reclassify-and-merge.md`, `ui-plan.md` (front-end work), and `sources/` for connector setup.
+5. **`ISSUES.md`**: bugs and gaps found on real accounts. Check it before connector work.
 
-**Read the design explorations in full.** They are split by round into `project/Helm Explorations 1-6.dc.html`, `7-12`, `13-16`, `17-20` and `21-24` (the old single `Assistant Hub Explorations.dc.html` ran out of memory in Firefox). Rounds 1–6 are all superseded; `project/design_handoff_helm/README.md` ("Files") lists which IDs in each file are current. Read them top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+## Run it
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+`direnv allow` once at the repo root to load the Nix devshell (`flake.nix`, `devshell.toml`); cargo, node and the system libraries then come from the repo, not the system.
 
-## About the design files
+Fastest, in a browser:
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+```sh
+cd app && npm ci
+ALETHIOMETER_FAKE_NOW=10:52 npm run devserver   # Rust core on :1421, sample data
+npm run dev                                      # UI on http://localhost:1420
+```
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+Desktop: `npx tauri dev`. Set `ALETHIOMETER_DATA_DIR` to keep a dev run off your real data. `HANDOFF.md` covers release builds on the Mac.
 
-## Bundle contents
+Checks:
 
-- `README.md` — this file
-- `chats/` — conversation transcripts (read these!)
-- `project/` — the `Personal assistant aggregator UI` project files (HTML prototypes, assets, components)
+- `cd app/src-tauri && cargo test --no-default-features`
+- `cd app/agentd && cargo test`
+- `cd app && npm run check`
+- UI changes: `app/scripts/ui-diff.sh <ref>` and `node scripts/ui-diff.mjs` pixel-diff about 90 scenes against a git ref, and `node scripts/ui-keys.mjs` runs the keyboard checks (`app/docs/ui-plan.md`).
+
+## The design
+
+The app was built from a Claude Design handoff, which stays in the repo as the reference:
+
+- **`project/design_handoff_helm/README.md`** is the spec. Its "Files" section says which mock IDs are current.
+- **`project/*.dc.html`** are the HTML mocks: explorations by round (rounds 1–6 are superseded), Agents, Glean and the day strip.
+- **`chats/`** holds the design conversations. Read them for intent: they show where the user landed, not only what was drawn.
+
+The **Alethiometer design system** (https://claude.ai/artifact/WH4uwJJM3gk6Ux2HX7f565) holds the tokens, shared classes and numbered decisions for the front end. Where it differs from the "User" notes in `app/docs/ui-plan.md`, the notes win.
+
+## Other files
+
+- `REVIEW-2026-10-03.md`: an architecture and correctness review, with its findings.
+- `patches/pi-acp/`: patches for the user's fork of `pi-acp`, the Pi adapter, kept until they land there. Alethiometer doesn't depend on them.

@@ -3,8 +3,9 @@
 # you see (app/docs/ui-plan.md). Starts two copies side by side:
 #   the UI at <ref> (a worktree)  on port A, with its own dev server
 #   this checkout's UI            on port B, with its own dev server
-# Each dev server gets fresh sample data, the clock at 10:52 and two scripted
-# agents (scripts/fake-acp.mjs: one waiting on an approval, one on a question).
+# Each dev server gets fresh sample data, the clock at 10:52 and three scripted
+# agents (scripts/fake-acp.mjs: one waiting on an approval, one on a question, one on
+# a Pi-style gate that restates a long command).
 # Both use the dev server binary of the main checkout: only the UI is compared.
 # Then: node scripts/ui-diff.mjs [scene…]
 #
@@ -77,8 +78,9 @@ for d in data-a data-b; do
   mkdir -p "$WORK/$d"
   cat > "$WORK/$d/settings.json" <<JSON
 { "agents": { "harnesses": [
-  { "key": "fake", "label": "Claude Code", "command": "node", "args": ["$MAIN/scripts/fake-acp.mjs"], "env": { "FAKE_ACP_FAST": "1" } },
-  { "key": "fakeask", "label": "Pi", "command": "node", "args": ["$MAIN/scripts/fake-acp.mjs"], "env": { "FAKE_ACP_FAST": "1", "FAKE_ACP_MODE": "ask" } }
+  { "key": "fake", "label": "Claude Code", "command": "node", "args": ["$APP/scripts/fake-acp.mjs"], "env": { "FAKE_ACP_FAST": "1" } },
+  { "key": "fakeask", "label": "Pi", "command": "node", "args": ["$APP/scripts/fake-acp.mjs"], "env": { "FAKE_ACP_FAST": "1", "FAKE_ACP_MODE": "ask" } },
+  { "key": "fakepi", "label": "Pi", "command": "node", "args": ["$APP/scripts/fake-acp.mjs"], "env": { "FAKE_ACP_FAST": "1", "FAKE_ACP_MODE": "pigate" } }
 ] } }
 JSON
 done
@@ -109,7 +111,7 @@ sleep 4
 
 # The same two agents on both sides, one after the other: lists sort by when an
 # agent started asking, so a race would order them differently on each side.
-for h in fake fakeask; do
+for h in fake fakeask fakepi; do
   for port in "$DA" "$DB"; do
     curl -sf -o /dev/null -X POST -H 'X-Alethiometer: 1' "http://127.0.0.1:$port/call/agents.start_local" \
       -d "{\"harness\":\"$h\",\"cwd\":\"$WORK/proj\",\"name\":\"$h-agent\",\"task\":\"Fix the retry storm\"}"

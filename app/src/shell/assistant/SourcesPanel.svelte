@@ -117,7 +117,7 @@
         </span>
       </button>
     {:else}
-      <div class="empty">{tab === 'kept' ? 'Nothing kept.' : 'Nothing dropped.'}</div>
+      <div class="empty-pane">{tab === 'kept' ? 'Nothing kept.' : 'Nothing dropped.'}</div>
     {/each}
   </div>
   <div class="foot"><span>hover a query to trace</span><span><kbd>↵</kbd> open</span><span><kbd>p</kbd> pin</span><span><kbd>x</kbd> reject</span><span>drag edge to widen</span></div>
@@ -268,9 +268,11 @@
     gap: 3px;
     font-size: 0.8462rem;
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 12px 14px;
-    color: var(--tx-label);
+    font: inherit;
+    text-align: left;
   }
   .foot {
     display: flex;

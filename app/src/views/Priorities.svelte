@@ -213,7 +213,7 @@
               <span class="score tnum">{r.score.toFixed(1)}</span>
             </div>
           {:else}
-            <div class="empty">Nothing here.</div>
+            <div class="empty-row">Nothing here.</div>
           {/each}
         </div>
       {/if}
@@ -224,7 +224,7 @@
 <div class="view">
   <div class="main" bind:this={mainEl}>
     <div class="head">
-      <span class="h1">Priorities</span>
+      <span class="page-title h1">Priorities</span>
       <span class="legend"><span class="dot" style:background="var(--red)"></span>adds a lot</span>
       <span class="legend"><span class="dot" style:background="var(--yellow)"></span>adds some</span>
       <span class="legend"><span class="dot" style:background="var(--green)"></span>adds a little</span>
@@ -309,9 +309,6 @@
     white-space: nowrap;
   }
   .h1 {
-    font-size: 1.5385rem;
-    font-weight: 500;
-    color: var(--tx-title);
     margin-right: 8px;
   }
   .legend {
@@ -431,9 +428,9 @@
     font-size: 0.8846rem;
     color: var(--tx-2);
   }
-  .empty {
+  .empty-row {
     padding: 10px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
   .chips {
     display: flex;

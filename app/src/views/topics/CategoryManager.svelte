@@ -1,9 +1,13 @@
 <script lang="ts">
   // Add, rename, recolor and remove categories. Changes save as you make them.
+  // `embedded`: it sits inside a card of its own (Settings), so it drops its
+  // header-band look (fill, border) and gets the card's padding.
   import { call } from '../../lib/api';
   import { refresh } from '../../lib/app.svelte';
   import { live } from '../../lib/live';
   import type { CategoryRow } from '../../lib/types';
+
+  let { embedded = false }: { embedded?: boolean } = $props();
 
   let cats = $state<CategoryRow[]>([]);
   let err = $state<string | null>(null);
@@ -30,7 +34,7 @@
   }
 </script>
 
-<div class="mgr">
+<div class="mgr" class:embedded>
   {#each cats as c (c.key)}
     <div class="cat">
       <input type="color" value={c.color} onchange={(e) => run('categories.update', { key: c.key, color: e.currentTarget.value })} title="Color" />
@@ -61,6 +65,14 @@
     padding: 12px 18px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-head);
+  }
+  .mgr.embedded {
+    background: none;
+    border: 0;
+    padding: 14px 18px;
+  }
+  .embedded .cat {
+    justify-content: start;
   }
   .cat {
     display: grid;

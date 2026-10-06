@@ -72,8 +72,8 @@
     padding: 6px;
     border-bottom: 1px solid var(--border);
   }
-  .search :global(input) {
-    caret-color: var(--aqua);
+  .search {
+    caret-color: var(--aqua); /* inherited by FilterField's input */
   }
   .list {
     padding: 4px;

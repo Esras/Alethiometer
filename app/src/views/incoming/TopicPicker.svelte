@@ -88,7 +88,7 @@
         <i class="ph ph-plus"></i><span class="ellipsis">Create “{p.q.trim()}”</span>
       </button>
     {:else}
-      <div class="none">No topic matches.</div>
+      <div class="empty-row">No topic matches.</div>
     {/if}
   {/each}
 </div>
@@ -146,9 +146,8 @@
   .opt.create:hover {
     color: var(--tx-title);
   }
-  .none {
+  .empty-row {
     padding: 6px 10px;
-    font-size: 0.9231rem;
-    color: var(--tx-label);
+    line-height: inherit;
   }
 </style>

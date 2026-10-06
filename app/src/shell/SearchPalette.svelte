@@ -253,7 +253,7 @@
       {/each}
     </div>
   {:else if q.trim() && res}
-    <div class="empty">No quick matches{#if !glean}{' · '}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> asks Glean{/if} · <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd> searches everything</div>
+    <div class="empty-row">No quick matches{#if !glean}{' · '}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> asks Glean{/if} · <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd> searches everything</div>
   {/if}
   {#if note}<div class="note">{note}{#if note === ANCHOR_FIRST}{' ('}<kbd>{chord('⌥A', 'Alt+A')}</kbd>){/if}</div>{/if}
   {#if picking && current?.kind === 'row'}
@@ -376,11 +376,14 @@
     min-width: 28px;
     text-align: right;
   }
-  .empty,
+  .empty-row,
   .note {
     padding: 10px 14px;
     color: var(--tx-label);
     border-top: 1px solid var(--border);
+  }
+  .empty-row {
+    font: inherit;
   }
   .picker {
     border-top: 1px solid var(--border);

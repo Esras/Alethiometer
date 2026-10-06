@@ -66,7 +66,7 @@
         {#each list as f, i (f.name)}
           <button class="opt" class:sel={i === p.sel} style:font-family={face(f.name)} {...p.row(i)}>{label(f.name)}</button>
         {/each}
-        {#if !list.length}<div class="none">No installed font matches</div>{/if}
+        {#if !list.length}<div class="empty-row">No installed font matches</div>{/if}
       </div>
     </div>
   {/if}
@@ -117,8 +117,8 @@
   .opt.sel {
     background: var(--aqua-tint);
   }
-  .none {
+  .empty-row {
     padding: 8px 10px;
-    color: var(--tx-label);
+    font: inherit;
   }
 </style>

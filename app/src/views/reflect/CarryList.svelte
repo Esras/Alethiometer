@@ -64,7 +64,7 @@
       </span>
     </div>
   {:else}
-    <div class="empty">Nothing to carry.</div>
+    <div class="empty-row">Nothing to carry.</div>
   {/each}
 </Panel>
 
@@ -111,8 +111,8 @@
   .state.fail {
     color: var(--status-attention);
   }
-  .empty {
+  .empty-row {
     padding: 10px 12px;
-    color: var(--tx-label);
+    font: inherit;
   }
 </style>

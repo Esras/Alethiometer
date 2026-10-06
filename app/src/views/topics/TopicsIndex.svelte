@@ -253,7 +253,7 @@
         {#if canCreate}
           <button class="create" onclick={() => create()}><i class="ph ph-plus"></i>Create “{q.trim()}”</button>
         {:else}
-          <div class="empty">{archived ? 'No archived topics.' : q ? 'No topic matches.' : 'No topics yet.'}</div>
+          <div class="empty-pane">{archived ? 'No archived topics.' : q ? 'No topic matches.' : 'No topics yet.'}</div>
         {/if}
       {/if}
     </div>
@@ -433,9 +433,11 @@
     margin: 10px 18px;
     color: var(--aqua);
   }
-  .empty {
+  .empty-pane {
+    display: block;
     padding: 16px 18px;
-    color: var(--tx-label);
+    font: inherit;
+    text-align: left;
   }
   .hint-bar {
     padding: 8px 18px;

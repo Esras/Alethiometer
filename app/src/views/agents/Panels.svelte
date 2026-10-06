@@ -4,14 +4,16 @@
   import Markdown from '../../lib/ui/Markdown.svelte';
   import type { Request } from './types';
 
-  let { req }: { req: Request } = $props();
+  // `fill`: the caller (the pinned card) limits the height, and each panel scrolls on its
+  // own inside it. Without it the panels are as tall as they need (Incoming).
+  let { req, fill = false }: { req: Request; fill?: boolean } = $props();
 
   const verdictClass = (v: string) => (v === 'read-only' ? 'green' : v === 'unknown' ? 'yellow' : 'orange');
   const tagClass = (t: string) =>
     ['reads files', 'reads git'].includes(t) ? 'blue' : ['local bin'].includes(t) ? 'green' : ['shell per file', 'runs shell', 'env', 'unknown command'].includes(t) ? 'yellow' : 'orange';
 </script>
 
-<div class="panels" class:solo={!req.parsed || !req.explained}>
+<div class="panels" class:solo={!req.parsed || !req.explained} class:fill>
   {#if req.parsed}
   <div class="facts-box">
     <div class="ph-head label">
@@ -68,7 +70,18 @@
   .panels.solo {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* Fills the room its caller gives it (a flex item that may shrink), one row as tall as that. */
+  .panels.fill {
+    flex: 0 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
   .facts-box {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
     padding: 7px 10px;
     border-radius: var(--radius-md);
     background: var(--bg-panel);
