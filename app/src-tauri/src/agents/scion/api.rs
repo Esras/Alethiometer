@@ -100,6 +100,10 @@ impl Client<'_> {
         self.list("/api/v1/projects?limit=100", "projects", 5)
     }
 
+    pub fn project(&self, id: &str) -> anyhow::Result<Value> {
+        self.get(&format!("/api/v1/projects/{}", enc(id)))
+    }
+
     pub fn agents(&self, project: &str) -> anyhow::Result<Vec<Value>> {
         self.list(&format!("/api/v1/projects/{}/agents?limit=500", enc(project)), "agents", 4)
     }
