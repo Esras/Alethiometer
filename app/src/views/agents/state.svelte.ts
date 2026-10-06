@@ -61,6 +61,16 @@ export const ag = $state({
   menu: null as { key: string; x: number; y: number } | null,
 });
 
+/** A local session that ended a turn since you looked (the core keeps the count, so the tab badge sees it too). */
+export function turnEnded(s: Session): boolean {
+  return s.source === 'acp' && s.status === 'idle' && s.seen_turns != null && s.stats.turns > s.seen_turns;
+}
+
+/** Looking at a session's thread counts as seeing its turns. */
+function markSeen(sessions: Session[]) {
+  for (const s of sessions) if (turnEnded(s) && ag.open === `s:${s.id}`) call('agents.seen', { session: s.id }).catch(() => {});
+}
+
 export type Pending = { target: string; until: number; force: boolean; label: string };
 
 const UNDO_MS = 10_000;
@@ -92,7 +102,8 @@ export async function poll() {
     });
     if (r.tree) {
       ag.tree = r.tree;
-      if (ui.info) ui.info.agents_waiting = r.tree.requests.length;
+      markSeen(r.tree.sessions);
+      if (ui.info) ui.info.agents_waiting = r.tree.requests.length + r.tree.sessions.filter(turnEnded).length;
     }
     ag.rev = r.rev;
     if (r.thread && r.thread.key === ag.open && r.thread.tab === ag.tab) merge(r.thread);
@@ -125,6 +136,7 @@ export function openThread(key: string) {
   ag.archived = null;
   if (ag.open !== key) {
     ag.open = key;
+    if (ag.tree) markSeen(ag.tree.sessions);
     ag.rows = [];
     ag.threadRev = 0;
     ag.threadKey = '';

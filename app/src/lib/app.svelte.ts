@@ -44,6 +44,13 @@ export async function loadInfo() {
   setInterval(tick, 15_000);
   watchSettings();
   setInterval(watchSettings, 3_000);
+  setInterval(watchAgents, 3_000);
+}
+
+/** The Agents tab's badge moves while you're on another tab. */
+async function watchAgents() {
+  const n = await call<number>('agents.badge').catch(() => null);
+  if (n !== null && ui.info) ui.info.agents_waiting = n;
 }
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

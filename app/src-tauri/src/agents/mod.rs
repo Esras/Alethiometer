@@ -153,6 +153,12 @@ fn session_of(app: &App, id: &str) -> Result<Session> {
     app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg(format!("no agent session '{id}'")))
 }
 
+/// What the Agents tab's badge counts: open requests, and local sessions that ended a turn you haven't looked at.
+pub fn attention(app: &App) -> usize {
+    let st = app.agents.store.lock();
+    st.requests.len() + st.sessions.values().filter(|s| s.turn_unseen()).count()
+}
+
 /// `agents.<name>` commands.
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
@@ -173,6 +179,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(out)
         }
         "tree" => Ok(tree(app)),
+        "badge" => Ok(json!(attention(app))),
+        "seen" => {
+            let id = arg_str(args, "session")?;
+            app.agents.store.lock().update_session(&id, |s| s.seen_turns = Some(s.stats.turns));
+            Ok(json!({ "ok": true }))
+        }
         "thread" => thread(app, &arg_str(args, "key")?, 0, opt(args, "tab").unwrap_or("transcript")),
         // Message a session or a room. `to` addresses one room member (@).
         "send" => {
@@ -204,6 +216,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             } else {
                 scion::interrupt(app, &id)?
             }
+            Ok(json!({ "ok": true }))
+        }
+        "send_queued" => {
+            acp::send_queued(app, &arg_str(args, "session")?)?;
             Ok(json!({ "ok": true }))
         }
         // Approval: pick one of the agent's own options (O/S/A/D).

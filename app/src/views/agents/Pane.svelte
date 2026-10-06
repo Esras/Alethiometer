@@ -164,11 +164,22 @@
         </div>
       {/if}
 
-      <div class="stream" bind:this={scroller} onscroll={onScroll}>
+      <div
+        class="stream"
+        bind:this={scroller}
+        onscroll={onScroll}
+        role="presentation"
+        onmousedown={(e) => {
+          ag.zone = 'thread';
+          (document.activeElement as HTMLElement | null)?.blur();
+          const row = (e.target as HTMLElement).closest<HTMLElement>('[data-row]');
+          if (row) ag.rowSel = Number(row.dataset.row);
+        }}
+      >
         <div class="rows">
           {#each list as it (it.key)}
             {#if it.run && !it.folded}
-              <div class="runbox" class:sel={ag.rowSel === it.row.id} data-row={it.row.id}>
+              <div class="runbox" class:sel={ag.zone === 'thread' && ag.rowSel === it.row.id} data-row={it.row.id}>
                 {#each it.run as r (r.id)}<RowView row={r} own={s?.id ?? null} nested={true} />{/each}
               </div>
             {:else}
@@ -176,7 +187,7 @@
                 <RowView
                   row={it.row}
                   own={s?.id ?? null}
-                  sel={ag.rowSel === it.row.id}
+                  sel={ag.zone === 'thread' && ag.rowSel === it.row.id}
                   open={ag.expanded.has(`row:${it.row.id}`)}
                   earlier={it.run ? it.run.length - 1 : 0}
                   waiting={!!it.row.request && waitingRows.has(it.row.request)}

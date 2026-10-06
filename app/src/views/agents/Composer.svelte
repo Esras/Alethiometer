@@ -65,7 +65,7 @@
     const t = text.trim();
     if (!t && !images.length) {
       // Cmd+Enter again on an empty box, with something already held back: same as Send now.
-      if (hasQueued && isLocal) act('interrupt', { session: session!.id }).catch(() => {});
+      if (hasQueued && isLocal) act('send_queued', { session: session!.id }).catch(() => {});
       return;
     }
     if (busy) return;
@@ -131,11 +131,11 @@
     } else if (e.key === 'Escape') {
       if (ag.replying) ag.replying = null;
       el?.blur();
-      ag.zone = 'thread';
+      ag.zone = 'tree';
       e.preventDefault();
     } else if (e.key === 'Tab') {
       el?.blur();
-      ag.zone = 'tree';
+      ag.zone = 'thread';
       e.preventDefault();
     } else if (mod(e) && e.key === '.') {
       return; // the view interrupts
@@ -203,10 +203,11 @@
   {#if room}
     <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<kbd>N</kbd></button>
   {/if}
+  {#if session?.source === 'acp' && session.live && hasQueued}
+    <button class="btn primary" onclick={() => act('send_queued', { session: session.id })}><i class="ph ph-fast-forward"></i>Send now<kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>
+  {/if}
   {#if session?.source === 'acp' && (session.status === 'running' || session.status === 'waiting') && session.live}
-    <button class="btn" class:primary={hasQueued} onclick={() => act('interrupt', { session: session.id })}
-      ><i class="ph {hasQueued ? 'ph-fast-forward' : 'ph-hand-palm'}"></i>{hasQueued ? 'Send now' : 'Interrupt'}<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button
-    >
+    <button class="btn" onclick={() => act('interrupt', { session: session.id })}><i class="ph ph-hand-palm"></i>Interrupt<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button>
   {/if}
   {#if session?.source === 'acp' && session.live && !session.id.includes('~')}
     <button class="btn" title="Stop the agent; sending starts it again" onclick={() => act('stop', { session: session.id })}><i class="ph ph-stop"></i>Stop</button>

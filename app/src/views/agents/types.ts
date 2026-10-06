@@ -44,6 +44,7 @@ export interface ConfigChoice {
 
 export interface Session {
   id: string;
+  seen_turns?: number | null;
   source: 'acp' | 'scion';
   group_id: string | null;
   parent_id: string | null;
@@ -124,6 +125,7 @@ export interface Step {
   text: string;
   tags: string[];
   depth: number;
+  notes?: string[];
 }
 
 export interface Request {

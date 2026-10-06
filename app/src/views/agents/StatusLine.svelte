@@ -53,12 +53,13 @@
     <span>{s.harness}</span>
     {#if s.model}<span>{s.model}</span>{/if}
     {#if s.thinking}
+      <span class="g">Thinking:
       <select class="input sm think" title="Thinking" value={s.thinking.current} disabled={!s.live} onchange={(e) => {
           const el = e.currentTarget;
           act('set_thinking', { session: s.id, value: el.value }).catch(() => (el.value = s.thinking?.current ?? ''));
         }}>
-        {#each s.thinking.options as o (o.value)}<option value={o.value}>thinking {o.name.toLowerCase()}</option>{/each}
-      </select>
+        {#each s.thinking.options as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '').toLowerCase()}</option>{/each}
+      </select></span>
     {/if}
     <span>{s.source === 'acp' ? `${s.host} · ${tilde(s.cwd)}` : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
