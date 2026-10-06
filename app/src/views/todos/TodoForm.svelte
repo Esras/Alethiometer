@@ -153,7 +153,7 @@
     width: auto;
     color-scheme: dark;
   }
-  .date.empty {
+  .date.empty:not(:focus-within) {
     color: var(--tx-label);
   }
   .due {
