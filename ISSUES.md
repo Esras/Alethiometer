@@ -12,6 +12,15 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 
 `views/agents/Tree.svelte` starts `now` at `Date.now()` without `ui.info.clock_offset_ms`; the 1 s interval adds it. So with a fake or offset clock, ages read one value (e.g. "5d") until the first tick and another ("6d") after. Found by the ui-diff sharding work (2026-10-06), where a shot racing that tick split the two sides; the scenes now wait past it. Not fixed: the fix is one line, but it needs a test.
 
+### Agents: archiving, what's left (2026-10-05)
+
+- **No "done" for local sessions** (user: allowed to archive half-done work, but there aren't enough signals yet). A local session goes idle after every turn and never reaches completed, so local groups get no done nudge and their confirm never shows Not done. Candidates: a merged PR or Done ticket on every member, a clean tree with nothing unpushed, the agent saying it finished.
+- **Unpushed commits on Scion:** the Hub's agent record has no ahead/behind count, so the "N unpushed commits" line only appears when the session's branch fact has one (a git checkout on this machine). Scion agents usually have none, so a clone with unpushed work can be deleted with no warning beyond the other Not done lines.
+- **The Scion group thread after its agents are deleted** is left as it is on the Hub (the design's open question).
+- **An archive still in its 10 s undo window when the app quits doesn't happen.** The window is kept in the UI, and the archive is only written when it ends.
+- **The tree behind the confirm** is dimmed by the modal's scrim, not drawn at 32% with the target still lit as in the mock.
+- **Archived search** is a substring scan (ASCII case-insensitive) over every archived row, run 150 ms after each keystroke. It's fine at hundreds of transcripts; past that it wants an FTS table.
+
 ### Agents: unverified against real agents and a live Scion Hub
 
 The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client is built from Scion's Go source and hand-written fixtures; it has never talked to a Hub. The list of things to confirm is in `app/docs/agents.md` ("To check against a live Hub"). Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
@@ -67,6 +76,10 @@ Unseen items with a `confirmed` link now show under their topic in Incoming as u
 ### Changing `obsidian_vault` strands notes saved in the stand-in vault
 
 With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. Setting `obsidian_vault` later switches every read to the real vault and nothing moves the stand-in's files, so earlier reflections silently disappear from Reflect. Hit when connecting Obsidian on the work Mac: `Reflections/Daily/2026-09-28.md` was copied over by hand (the original is still in the stand-in). Fix direction: on startup, if `obsidian_vault` is set and `<data dir>/vault` has files, offer to copy them over (never overwrite), or at least warn.
+
+### Obsidian notes: live-preview editing with the vault's theme (user, 2026-10-05: deferred)
+
+Notes are shown by our own `NoteText.svelte` and edited in a plain textarea, so a note goes from formatted to raw text the moment you edit. Idea: a CodeMirror 6 editor (as Obsidian uses) with decorations that hide markdown syntax except on the line being edited, styled by the theme named in `<vault>/.obsidian/appearance.json` (`cssTheme`, CSS in `.obsidian/themes/<name>/`, plus snippets). Needs: Obsidian's class names (`.cm-header-1`, `.HyperMD-list-line`, `.markdown-rendered`) and baseline CSS variables the theme doesn't define; our own decorations (Obsidian's live preview is closed; check for an open-source package first); tables, callouts and embeds last. Saving (conflicts, outbox) stays as it is. Start with the Topics note pane, then Reflect. Fidelity to the theme would be close, not exact; plugin-added styling won't carry over. Embedding Obsidian's own rendering isn't possible.
 
 ### Database Phases 2–4: unverified on real data
 

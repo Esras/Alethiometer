@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Sessions: harness, model, host · cwd; then context, cache, turns, elapsed,
+  // Sessions: harness, model, host; then context, cache, turns, elapsed,
   // cost. Rooms: Hub, thread id, mode; then loop cap, messages, live, ? keys.
   import { act, ag } from './state.svelte';
   import type { Group, Session } from './types';
@@ -24,18 +24,18 @@
     const m = Math.max(0, Math.round((to - from) / 60000));
     return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   });
-  // The agent rarely says; for Claude the prompt cache lasts about five minutes after a turn.
+  // The agent rarely says; the cache lasts the harness's cache_ttl_min after a turn (Claude Code: 5 unless set).
+  const ttl = $derived(ag.tree?.harnesses.find((h) => h.key === s?.template)?.cache_ttl_min ?? (s && /claude/i.test(s.harness) ? 5 : null));
   const cache = $derived.by(() => {
     if (!s) return null;
     if (s.stats.cache) return { label: s.stats.cache, cls: 'aqua', fill: 60 };
-    if (!/claude/i.test(s.harness) || !s.stats.turns) return null;
-    const left = 5 - (now - new Date(s.active_at).getTime()) / 60000;
+    if (!ttl || !s.stats.turns) return null;
+    const left = ttl - (now - new Date(s.active_at).getTime()) / 60000;
     if (s.status === 'running') return { label: 'warm', cls: 'aqua', fill: 100 };
-    if (left > 1) return { label: `warm ~${Math.round(left)}m`, cls: 'aqua', fill: Math.round(left * 20) };
+    if (left > 1) return { label: `warm ~${Math.round(left)}m`, cls: 'aqua', fill: Math.round((left * 100) / ttl) };
     if (left > 0) return { label: 'cooling', cls: 'yellow', fill: 15 };
     return { label: 'cold', cls: 'muted', fill: 0 };
   });
-  const tilde = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, '~');
 </script>
 
 <div class="line">
@@ -53,14 +53,15 @@
     <span>{s.harness}</span>
     {#if s.model}<span>{s.model}</span>{/if}
     {#if s.thinking}
+      <span class="g">Thinking:
       <select class="input sm think" title="Thinking" value={s.thinking.current} disabled={!s.live} onchange={(e) => {
           const el = e.currentTarget;
           act('set_thinking', { session: s.id, value: el.value }).catch(() => (el.value = s.thinking?.current ?? ''));
         }}>
-        {#each s.thinking.options as o (o.value)}<option value={o.value}>thinking {o.name.toLowerCase()}</option>{/each}
-      </select>
+        {#each s.thinking.options as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '').toLowerCase()}</option>{/each}
+      </select></span>
     {/if}
-    <span>{s.source === 'acp' ? `${s.host} · ${tilde(s.cwd)}` : s.host}</span>
+    <span>{s.source === 'acp' ? (ag.tree?.host ?? s.host) : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
     <span class="right">
       {#if pct !== null}

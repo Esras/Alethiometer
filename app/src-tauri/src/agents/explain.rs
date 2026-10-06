@@ -2,7 +2,8 @@
 //! is the deterministic part; this one reads the command adversarially: as
 //! if it was planted, because the realistic threat is an agent steered by
 //! prompt injection in something it read (a README, an issue, a web page, a
-//! dependency). It sees the command, the parse and your latest prompt, and
+//! dependency). It sees the command, the parse, your latest prompt, your answers to its
+//! questions (with the question text, labelled as the agent's), and
 //! never anything the agent wrote about the command (its thinking, its
 //! output, a tool description): a steered agent's words are where a planted
 //! "this is just a formatting check" would be. It says what the command does,
@@ -178,12 +179,12 @@ pub fn parse_reply(reply: &str, model: String) -> Explained {
 
 /// What the model is shown: the command, its parse, your latest prompt, and
 /// project scripts it runs. Nothing the agent wrote about the command.
-pub fn prompt(req: &Request, task: &str, files: &[(String, String)]) -> String {
+pub fn prompt(req: &Request, task: &str, answers: &[(String, String)], files: &[(String, String)]) -> String {
     let parsed = req
         .parsed
         .as_ref()
         .map(|p| {
-            let steps = p.steps.iter().map(|s| format!("{} {} [{}]", s.n, s.text, s.tags.join(", "))).collect::<Vec<_>>().join("\n");
+            let steps = p.steps.iter().map(|s| format!("{} {} [{}]{}", s.n, s.text, s.tags.join(", "), s.notes.iter().map(|n| format!("\n  - {n}")).collect::<String>())).collect::<Vec<_>>().join("\n");
             let checks = p.checks.iter().map(|c| format!("{} {}", if c.ok { "ok" } else { "warn" }, c.text)).collect::<Vec<_>>().join("\n");
             format!("{steps}\nverdict: {}\n{checks}", p.verdict)
         })
@@ -196,6 +197,12 @@ pub fn prompt(req: &Request, task: &str, files: &[(String, String)]) -> String {
         parsed,
         if task.is_empty() { "(unknown)" } else { task },
     );
+    if !answers.is_empty() {
+        u.push_str("\nthe developer's answers to the agent's earlier questions (the answer is theirs; the question is the agent's wording):\n");
+        for (q, a) in answers {
+            u.push_str(&format!("Q: {q}\nA: {a}\n"));
+        }
+    }
     for (label, text) in files {
         u.push_str(&format!("\nproject file the command runs: {label}\n```\n{text}\n```\n"));
     }
@@ -218,6 +225,16 @@ pub fn request(app: &App, id: &str) {
     let files = referenced_code(&req.command, &req.cwd);
     // Your words only: rows you sent, never the agent's.
     let task = app.agents.store.lock().find_row(&req.thread, |r| r.kind == Kind::You).map(|r| ai::context::clip(&r.text, 1500)).unwrap_or_default();
+    let answers: Vec<(String, String)> = {
+        let st = app.agents.store.lock();
+        let mut a: Vec<_> = st
+            .threads
+            .get(&req.thread)
+            .map(|t| t.rows.iter().filter(|r| r.kind == Kind::Ask).filter_map(|r| Some((ai::context::clip(&r.text, 300), ai::context::clip(r.note.strip_prefix("answered: ")?, 500)))).collect())
+            .unwrap_or_default();
+        a.drain(..a.len().saturating_sub(10));
+        a
+    };
     // The same command over the same files explains the same way; the task can differ, but rarely matters.
     let key = format!("{}\u{0}{}\u{0}{}", req.cwd, req.command, files.iter().map(|(l, t)| format!("{l}{t}")).collect::<String>());
     let read: Vec<String> = files.iter().map(|(l, _)| l.clone()).collect();
@@ -228,7 +245,7 @@ pub fn request(app: &App, id: &str) {
     set(&app, id, Explained { state: "pending".into(), model: label(&app), read: read.clone(), ..Default::default() });
     let id = id.to_owned();
     std::thread::spawn(move || {
-        let user = prompt(&req, &task, &files);
+        let user = prompt(&req, &task, &answers, &files);
         let out = ai::with_live(&app, |deps| ai::complete(&app, deps, Tier::Small, SYSTEM, &user, 900));
         let e = match out {
             Ok(reply) => {
@@ -298,9 +315,9 @@ mod tests {
     #[test]
     fn the_prompt_carries_your_request_and_files_not_the_agents_words() {
         let req = Request { command: "python3 scripts/migrate.py".into(), cwd: "/r".into(), ..Default::default() };
-        let p = prompt(&req, "Add a created_at column", &[("scripts/migrate.py".into(), "print(1)".into())]);
+        let p = prompt(&req, "Add a created_at column", &[("Which db?".into(), "sqlite only".into())], &[("scripts/migrate.py".into(), "print(1)".into())]);
         assert!(p.starts_with("<data>") && p.ends_with("</data>"));
-        for want in ["python3 scripts/migrate.py", "Add a created_at column", "project file the command runs: scripts/migrate.py", "print(1)"] {
+        for want in ["python3 scripts/migrate.py", "Add a created_at column", "Q: Which db?", "A: sqlite only", "project file the command runs: scripts/migrate.py", "print(1)"] {
             assert!(p.contains(want), "{want}");
         }
         assert!(!p.contains("said it is for") && !p.contains("last words"));

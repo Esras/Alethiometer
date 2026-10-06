@@ -4,6 +4,8 @@ import type { SourceKind, TopicRef } from "../../lib/types";
 
 export interface Message {
   id: number;
+  /** Source key of the message (a Slack `ts`). */
+  key?: string;
   time: string;
   author: string;
   text: string;

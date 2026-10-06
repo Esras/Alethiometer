@@ -47,7 +47,7 @@ pub fn branch_fact(cwd: &str, branch: Option<&str>) -> Option<Fact> {
         Some(0) | None => String::new(),
         Some(n) => format!("{n} ahead"),
     };
-    Some(Fact { label: name, detail, url: String::new() })
+    Some(Fact { label: name, detail, url: String::new(), done: false })
 }
 
 /// Ticket, PR and todo from the local database.
@@ -58,6 +58,7 @@ pub fn from_db(r: &dyn Reads, clock: &crate::clock::Clock, key: Option<&str>, br
                 label: k.to_owned(),
                 detail: t.summary.unwrap_or_default().split(" · ").next().unwrap_or("").to_owned(),
                 url: t.url.unwrap_or_default(),
+                done: t.done,
             },
             None => Fact { label: k.to_owned(), ..Default::default() },
         }),
@@ -66,8 +67,16 @@ pub fn from_db(r: &dyn Reads, clock: &crate::clock::Clock, key: Option<&str>, br
     let pr = r.agents().pr(branch, key)?.map(|p| {
         let url = p.url.unwrap_or_default();
         let n = url.rsplit('/').next().unwrap_or("").to_owned();
-        let detail = if p.draft { "draft".to_owned() } else if p.status == "done" { "merged".to_owned() } else { String::new() };
-        Fact { label: format!("#{n}"), detail, url }
+        let detail = if p.merged {
+            "merged"
+        } else if p.status == "done" {
+            "closed"
+        } else if p.draft {
+            "draft"
+        } else {
+            ""
+        };
+        Fact { label: format!("#{n}"), detail: detail.into(), url, done: p.merged }
     });
     // The open task for this ticket due soonest (by its real deadline here; undated last).
     let todo = match key {
@@ -79,7 +88,7 @@ pub fn from_db(r: &dyn Reads, clock: &crate::clock::Clock, key: Option<&str>, br
                 other => other,
             };
             let due = t.due.map(|d| clock.zoned(d.deadline(clock)).strftime("%a").to_string()).unwrap_or_default();
-            Fact { label: format!("{from} · {}", t.title), detail: due, url: t.url.unwrap_or_default() }
+            Fact { label: format!("{from} · {}", t.title), detail: due, url: t.url.unwrap_or_default(), done: false }
         }),
         None => None,
     };

@@ -130,7 +130,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "glean": crate::glean::config(app).is_some(),
                 // How the Agents tab looks (Settings › Agents), and the Needs you count for its tab.
                 "agents": { "colors": settings.agents.colors, "names": settings.agents.names, "boxes": settings.agents.boxes },
-                "agents_waiting": app.agents.store.lock().requests.len(),
+                "agents_waiting": crate::agents::attention(app),
             }))
         }
         "open_url" => {

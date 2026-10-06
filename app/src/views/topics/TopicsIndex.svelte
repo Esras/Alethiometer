@@ -113,9 +113,10 @@
   async function toggleArchive(t: TopicRow | null) {
     if (!t) return;
     const i = flat.findIndex((r) => r.id === t.id);
-    selId = (flat[i + 1] ?? flat[i - 1])?.id ?? null;
+    const next = (flat[i + 1] ?? flat[i - 1])?.id ?? null;
     try {
       await call(archived ? 'topics.unarchive' : 'topics.archive', { id: t.id });
+      if (selId === t.id) selId = next;
       err = null;
       refresh();
     } catch (e) {

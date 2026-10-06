@@ -7,14 +7,21 @@
   type Block =
     | { kind: 'code'; text: string }
     | { kind: 'h'; level: number; text: string }
-    | { kind: 'ul' | 'ol'; items: string[] }
+    | { kind: 'ul' | 'ol'; items: string[]; start?: number }
     | { kind: 'quote' | 'p'; lines: string[] };
 
   function blocks(src: string): Block[] {
     const out: Block[] = [];
     const lines = src.replace(/\r\n?/g, '\n').split('\n');
+    let gap = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (line.trim() === '') {
+        gap = true;
+        continue;
+      }
+      const afterGap = gap;
+      gap = false;
       if (/^\s*```/.test(line)) {
         const body: string[] = [];
         while (++i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i]);
@@ -32,20 +39,16 @@
         const kind = li[1] ? 'ul' : 'ol';
         const t = li[3].replace(/^\[([ xX])\]\s*/, (_, c) => (c === ' ' ? '\u2610 ' : '\u2611 '));
         if (last?.kind === kind) last.items.push(t);
-        else out.push({ kind, items: [t] });
-        continue;
-      }
-      if (line.trim() === '') {
-        out.push({ kind: 'p', lines: [] });
+        else out.push({ kind, items: [t], start: li[2] ? Number(li[2]) : undefined });
         continue;
       }
       const q = /^\s*>\s?(.*)$/.exec(line);
       const kind = q ? 'quote' : 'p';
       const t = q ? q[1] : line;
-      if (last?.kind === kind && last.lines.length) last.lines.push(t);
+      if (last?.kind === kind && !afterGap) last.lines.push(t);
       else out.push({ kind, lines: [t] });
     }
-    return out.filter((b) => b.kind !== 'p' || b.lines.length);
+    return out;
   }
 
   type Span = { kind: 'text' | 'code' | 'b' | 'i' | 's' | 'link'; text: string; href?: string };
@@ -87,7 +90,7 @@
     {#if b.kind === 'code'}<pre><code>{b.text}</code></pre>
     {:else if b.kind === 'h'}<div class="h h{Math.min(b.level, 3)}">{@render inline(b.text)}</div>
     {:else if b.kind === 'ul'}<ul>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ul>
-    {:else if b.kind === 'ol'}<ol>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ol>
+    {:else if b.kind === 'ol'}<ol start={b.start}>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ol>
     {:else if b.kind === 'quote'}<blockquote>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</blockquote>
     {:else if b.kind === 'p'}<p>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</p>{/if}
   {/each}

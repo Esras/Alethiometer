@@ -41,6 +41,9 @@ use std::collections::HashMap;
 pub struct Message {
     /// `item_messages.id`: what a split names.
     pub id: i64,
+    /// `item_messages.ext_key` (a Slack `ts`): what "open" links to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub time: String,
     pub author: String,
     pub text: String,
@@ -175,16 +178,27 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         "review_confirm" => Route::Write(|uow, ctx, args| Ok(json!({ "ok": true, "confirmed": review_confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?)? }))),
         "confirm" => Route::Write(|uow, ctx, args| {
-            let changed = confirm_seen(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed }))
+            let (item, topic) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?);
+            let moved = snapshot(uow, item, None, topic)?;
+            let changed = confirm_seen(uow, ctx.clock.now(), item, topic, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed, "moved": moved }))
         }),
         "wrong" => Route::Write(|uow, _, args| {
-            wrong(uow, arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?)?;
-            Ok(json!({ "ok": true }))
+            let (item, topic) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?);
+            let moved = snapshot(uow, item, None, topic)?;
+            wrong(uow, item, topic)?;
+            Ok(json!({ "ok": true, "moved": moved }))
         }),
         "move" => Route::Write(|uow, ctx, args| {
-            let changed = move_seen(uow, ctx.clock.now(), arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"), saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed }))
+            let (item, topic, from) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"));
+            let moved = snapshot(uow, item, from, topic)?;
+            let changed = move_seen(uow, ctx.clock.now(), item, topic, from, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed, "moved": moved }))
+        }),
+        "unfile" => Route::Write(|uow, _, args| {
+            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default()).map_err(|e| msg(format!("bad 'moved': {e}")))?;
+            unfile(uow, &moved, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?, args.get("filed").and_then(Value::as_bool).unwrap_or(false))?;
+            Ok(json!({ "ok": true }))
         }),
         "dismiss" => Route::Write(|uow, _, args| {
             let changed = dismiss_seen(uow, arg_i64(args, "item_id")?, saw_arg(args).as_ref())?;
@@ -426,6 +440,7 @@ fn message_rows(look: &Lookup, source: &str, rows: Vec<MessageRow>) -> Vec<MsgRo
         .map(|m| {
             let msg = Message {
                 id: m.id,
+                key: m.ext_key.clone(),
                 time: look.clock.local(m.at).strftime("%H:%M").to_string(),
                 who: look.people.who(source, m.author_id.as_deref(), &m.author),
                 author: m.author,
@@ -1053,6 +1068,27 @@ pub fn reclassify(uow: &dyn UnitOfWork, now: Ts, item_id: i64, from: Option<i64>
     }
     super::todos::settle(uow, now, item_id, to)?;
     Ok(moved)
+}
+
+/// The links and seen flags `unreclassify` needs, read before an action changes them.
+fn snapshot(uow: &dyn UnitOfWork, item_id: i64, from: Option<i64>, to: i64) -> Result<Vec<Moved>> {
+    series_of(uow, item_id)?
+        .into_iter()
+        .map(|id| {
+            let seen = uow.items().get(id)?.ok_or_else(|| msg("no such item"))?.seen;
+            Ok(Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen })
+        })
+        .collect()
+}
+
+/// `u` after Confirm, Move or Wrong in Incoming: the links and seen flags come back. `filed`: a Gmail thread goes back
+/// to the Inbox. (A Slack read marker and a todo the filing made stay.)
+pub fn unfile(uow: &dyn UnitOfWork, moved: &[Moved], from: Option<i64>, to: i64, filed: bool) -> Result<()> {
+    unreclassify(uow, moved, from, to)?;
+    match moved.first() {
+        Some(m) if filed => gmail_op(uow, m.item_id, "gmail.restore", None),
+        _ => Ok(()),
+    }
 }
 
 /// `u` after a reclassify: every link back as it was.
@@ -1765,6 +1801,32 @@ mod tests {
         assert_eq!(link_state(&conn, pr, webhook).unwrap(), None);
         let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0)).unwrap();
         assert!(!seen, "back in Incoming as it was");
+    }
+
+    #[test]
+    fn unfile_puts_back_a_confirm_a_move_and_a_wrong() {
+        let (conn, _now, _d) = setup();
+        let now = || crate::time::Ts::new(jiff::Timestamp::now());
+        let uow = crate::store::over(&conn);
+        let acme = topic_named(&conn, "Acme outage");
+        let webhook = topic_named(&conn, "Webhook reliability");
+        let pr: i64 = conn.query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| r.get(0)).unwrap();
+        let seen = || -> bool { conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0)).unwrap() };
+        conn.execute("DELETE FROM topic_links WHERE item_id = ?1", [pr]).unwrap();
+        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![pr, acme]).unwrap();
+        let before = (link_state(&conn, pr, acme).unwrap(), link_state(&conn, pr, webhook).unwrap());
+        let moved = snapshot(&uow, pr, None, acme).unwrap();
+        wrong(&uow, pr, acme).unwrap();
+        assert_eq!(link_state(&conn, pr, acme).unwrap().as_deref(), Some("wrong"));
+        unfile(&uow, &moved, None, acme, false).unwrap();
+        assert_eq!(link_state(&conn, pr, acme).unwrap(), before.0);
+        let moved = snapshot(&uow, pr, Some(acme), webhook).unwrap();
+        move_to(&uow, now(), pr, webhook, Some(acme)).unwrap();
+        assert_eq!(link_state(&conn, pr, webhook).unwrap().as_deref(), Some("confirmed"));
+        assert!(seen());
+        unfile(&uow, &moved, Some(acme), webhook, true).unwrap();
+        assert_eq!((link_state(&conn, pr, acme).unwrap(), link_state(&conn, pr, webhook).unwrap()), before);
+        assert!(!seen(), "back in Incoming");
     }
 
     #[test]

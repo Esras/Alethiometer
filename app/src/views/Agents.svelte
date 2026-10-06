@@ -11,7 +11,9 @@
   import NewScion from './agents/NewScion.svelte';
   import { lookVars } from './agents/look';
   import Pane from './agents/Pane.svelte';
-  import { act, ag, look, nodes, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf } from './agents/state.svelte';
+  import ArchiveModal from './agents/ArchiveModal.svelte';
+  import ArchivedPane from './agents/ArchivedPane.svelte';
+  import { act, ag, askArchive, closeArchived, look, nodes, openArchived, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf, turnEnded, undoArchive } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
 
   $effect(() => {
@@ -22,6 +24,7 @@
   let filterEl = $state<HTMLInputElement>();
   let composerEl = $state<HTMLTextAreaElement>();
   let pane = $state<Pane>();
+  let archivedPane = $state<ArchivedPane>();
   let approval = $state<ApprovalCard>();
   let ask = $state<AskCard>();
   let denying = $state(false);
@@ -34,7 +37,25 @@
     const i = list.findIndex((n) => n.key === ag.sel);
     const next = list[Math.max(0, Math.min(list.length - 1, i < 0 ? 0 : i + d))];
     ag.sel = next.key;
-    if (next.type !== 'group') openThread(next.key);
+    if (next.type !== 'group' && next.type !== 'archived') {
+      closeArchived();
+      openThread(next.key);
+    }
+  }
+
+  function nextAttention(d: 1 | -1) {
+    const asking = new Set((ag.tree?.requests ?? []).map((r) => r.thread));
+    const list = nodes().filter((n) => selectable(n) && n.type !== 'group');
+    const needs = (n: (typeof list)[number]) => asking.has(n.key) || (n.type === 'session' && (n.s.status === 'failed' || turnEnded(n.s)));
+    const at = list.findIndex((n) => n.key === ag.sel);
+    for (let step = 1; step <= list.length; step++) {
+      const n = list[(((at < 0 ? (d > 0 ? -1 : 0) : at) + d * step) % list.length + list.length) % list.length];
+      if (needs(n)) {
+        ag.sel = n.key;
+        openThread(n.key);
+        return;
+      }
+    }
   }
 
   function fold(open: boolean) {
@@ -140,6 +161,10 @@
       interrupt();
       return true;
     }
+    if (mod(e) && e.key.toLowerCase() === 'g' && ag.archived) {
+      archivedPane?.nextMatch(e.shiftKey ? -1 : 1);
+      return true;
+    }
     if (isTyping(e) || e.altKey || mod(e)) return false;
     if (ag.form) return false;
     const k = e.key;
@@ -153,7 +178,7 @@
       return true;
     }
     if (k === 'Tab') {
-      ag.zone = ag.zone === 'tree' ? (ag.open ? 'thread' : 'tree') : ag.zone === 'thread' ? 'composer' : 'tree';
+      ag.zone = ag.zone === 'tree' ? (ag.open ? 'thread' : 'tree') : ag.zone === 'thread' ? 'composer' : 'thread';
       if (ag.zone === 'composer') composerEl?.focus();
       return true;
     }
@@ -169,10 +194,17 @@
       }
     }
     if (ag.zone === 'thread' && deliveryKey(e)) return true;
+    if (k === 'u' && undoArchive()) return true;
+    if (k === 'Escape' && ag.archived) {
+      closeArchived();
+      ag.zone = 'tree';
+      return true;
+    }
     if (k === 'Escape') {
       if (req && ag.zone !== 'tree') {
         ag.later.add(req.id);
         ag.later = new Set(ag.later);
+        ag.zone = 'tree';
         return true;
       }
       if (ag.rowSel !== null) ag.rowSel = null;
@@ -186,10 +218,14 @@
     if (ag.zone === 'tree') {
       if (k === 'j' || k === 'ArrowDown') moveTree(1);
       else if (k === 'k' || k === 'ArrowUp') moveTree(-1);
+      else if (k === 'J') nextAttention(1);
+      else if (k === 'K') nextAttention(-1);
       else if (k === 'h' || k === 'ArrowLeft') fold(false);
       else if (k === 'l' || k === 'ArrowRight') fold(true);
+      else if (k === 'a' && ag.sel && !ag.sel.startsWith('a:')) askArchive(ag.sel);
       else if (k === 'Enter') {
-        if (ag.sel?.startsWith('g:')) fold(ag.folded.has(ag.sel.slice(2)));
+        if (ag.sel?.startsWith('a:')) openArchived(ag.sel.slice(2));
+        else if (ag.sel?.startsWith('g:')) fold(ag.folded.has(ag.sel.slice(2)));
         else if (ag.sel) {
           openThread(ag.sel);
           ag.zone = 'thread';
@@ -214,8 +250,13 @@
 
 <div class="agents" style={vars}>
   <Tree bind:filterEl onNew={newAgent} />
-  <Pane bind:this={pane} bind:composerEl bind:approval bind:ask bind:denying />
+  {#if ag.archived}
+    <ArchivedPane bind:this={archivedPane} a={ag.archived} />
+  {:else}
+    <Pane bind:this={pane} bind:composerEl bind:approval bind:ask bind:denying />
+  {/if}
   {#if ag.keys}<Keys />{/if}
+  {#if ag.plan}<ArchiveModal plan={ag.plan} />{/if}
   {#if ag.form?.kind === 'scion'}
     <NewScion group={ag.form.group} room={ag.form.room} onClose={closeForm} />
   {:else if ag.form?.kind === 'local'}

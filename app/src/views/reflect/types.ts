@@ -27,6 +27,7 @@ export interface DayBriefData {
   did_note: string;
   where: { label: string; category: string; minutes: number; dur: string }[];
   decided: { title: string; topic: string | null }[];
+  finished: { title: string; topic: string | null }[];
 }
 
 export interface CarryRow {

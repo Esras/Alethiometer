@@ -44,6 +44,7 @@ dependencies = [
  "chrono-tz",
  "dirs",
  "fontdb",
+ "glob",
  "jiff",
  "notify",
  "r2d2",

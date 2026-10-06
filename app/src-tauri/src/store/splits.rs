@@ -95,9 +95,17 @@ fn recount_by(conn: &Connection, item_id: i64, delta: i64) -> Result<()> {
         }
     }
     let body = rows.iter().map(|r| format!("{}: {}", r.2, r.3)).collect::<Vec<_>>().join("\n");
+    let url: Option<String> = conn.query_row("SELECT url FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
+    let url = match (url, last.4.as_deref().and_then(|k| k.split_once('.'))) {
+        (Some(u), Some((secs, micros))) if secs.chars().chain(micros.chars()).all(|c| c.is_ascii_digit()) => {
+            let re = regex::Regex::new(r"^(https://[^/]+/archives/[A-Z0-9]+/p)\d{7,}$").expect("static regex");
+            Some(re.replace(&u, format!("${{1}}{secs}{micros}")).into_owned())
+        }
+        (u, _) => u,
+    };
     conn.execute(
-        "UPDATE items SET occurred_at = ?2, ended_at = ?3, msg_count = ?4, summary = ?5, body = ?6, raw_json = ?7 WHERE id = ?1",
-        params![item_id, first.1, (rows.len() > 1).then_some(&last.1), count, clip(&last.3, 140), body, raw.to_string()],
+        "UPDATE items SET occurred_at = ?2, ended_at = ?3, msg_count = ?4, summary = ?5, body = ?6, raw_json = ?7, url = ?8 WHERE id = ?1",
+        params![item_id, first.1, (rows.len() > 1).then_some(&last.1), count, clip(&last.3, 140), body, raw.to_string(), url],
     )?;
     Ok(())
 }

@@ -14,7 +14,7 @@
 //! The supervisor re-reads settings every 3 s and restarts a source's thread
 //! when its config changes; a removed source's groups and sessions go away.
 
-mod api;
+pub(crate) mod api;
 mod map;
 
 use super::model::{Delivery, Kind, Row, Session, Who};

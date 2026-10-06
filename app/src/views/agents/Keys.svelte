@@ -21,9 +21,12 @@
       title: 'Tree',
       keys: [
         [['J', 'K'], 'Move'],
+        [['⇧J', '⇧K'], 'Next or previous that needs you (a request, failed, or ended a turn since you looked)'],
         [['H', 'L'], 'Fold or open a group'],
         [['⏎'], 'Open a session or room'],
         [['N'], 'New agent in this group'],
+        [['A'], 'Archive the selected row (right-click too)'],
+        [['U'], 'Undo an archive, for 10 seconds'],
         [['Esc'], 'Back to the tree, from anywhere'],
       ],
     },
@@ -43,7 +46,7 @@
       keys: [
         [['1', '2', '3', '…'], 'Allow once / session / always / deny…, or pick an answer'],
         [['R'], 'Write a reply'],
-        [['Esc'], 'Later'],
+        [['Esc'], 'Later, and back to the tree'],
       ],
     },
     {
@@ -52,7 +55,8 @@
         [[`${M}⏎`], 'Send'],
         [['@'], 'Address one member (rooms)'],
         [['↑'], 'Bring back your last message'],
-        [['Esc'], 'Back to the thread'],
+        [['Esc'], 'Back to the tree'],
+        [['Tab'], 'Switch between the composer and the thread'],
       ],
     },
   ];
@@ -70,7 +74,7 @@
   <div class="sheet modal">
     <div class="head">
       <span class="pane-title">Keys</span>
-      <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> moves between the tree, the thread and the composer.</span>
+      <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> goes from the tree to the thread, then toggles the thread and the composer.</span>
       <span class="close"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span>
     </div>
     <div class="grid">

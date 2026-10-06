@@ -11,6 +11,7 @@
 //! the app. The UI polls `agents.poll` with the last revision it saw (`store`).
 
 pub mod acp;
+pub mod archive;
 pub mod daemon;
 pub mod explain;
 pub mod facts;
@@ -55,6 +56,7 @@ pub fn start(app: Arc<App>) {
             }
         })
         .ok();
+    archive::refresh_failed(&app);
     daemon::start(app.clone());
     incoming::start(app.clone());
     scion::start(app);
@@ -85,13 +87,17 @@ fn tree(app: &App) -> Value {
     let mut requests: Vec<&Request> = i.requests.values().collect();
     requests.sort_by(|a, b| a.at.cmp(&b.at));
     let count = |st: Status| sessions.iter().filter(|s| s.status == st).count();
+    let now = app.clock.now();
+    let nudges: serde_json::Map<String, Value> = groups.iter().filter_map(|g| archive::nudge(&i, g, now).map(|t| (g.id.clone(), json!(t)))).collect();
     json!({
         "rev": i.tree_rev,
         "groups": groups,
         "sessions": sessions,
         "requests": requests,
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
-        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
+        "nudges": nudges,
+        "hub_failed": i.hub_failed,
+        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "cache_ttl_min": h.cache_ttl_min, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
         "hubs": scion::hubs(app),
         "agentd": daemon::status(app),
         "host": acp::host_label(),
@@ -147,6 +153,12 @@ fn session_of(app: &App, id: &str) -> Result<Session> {
     app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg(format!("no agent session '{id}'")))
 }
 
+/// What the Agents tab's badge counts: open requests, and local sessions that ended a turn you haven't looked at.
+pub fn attention(app: &App) -> usize {
+    let st = app.agents.store.lock();
+    st.requests.len() + st.sessions.values().filter(|s| s.turn_unseen()).count()
+}
+
 /// `agents.<name>` commands.
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
@@ -167,6 +179,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(out)
         }
         "tree" => Ok(tree(app)),
+        "badge" => Ok(json!(attention(app))),
+        "seen" => {
+            let id = arg_str(args, "session")?;
+            app.agents.store.lock().update_session(&id, |s| s.seen_turns = Some(s.stats.turns));
+            Ok(json!({ "ok": true }))
+        }
         "thread" => thread(app, &arg_str(args, "key")?, 0, opt(args, "tab").unwrap_or("transcript")),
         // Message a session or a room. `to` addresses one room member (@).
         "send" => {
@@ -198,6 +216,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             } else {
                 scion::interrupt(app, &id)?
             }
+            Ok(json!({ "ok": true }))
+        }
+        "send_queued" => {
+            acp::send_queued(app, &arg_str(args, "session")?)?;
             Ok(json!({ "ok": true }))
         }
         // Approval: pick one of the agent's own options (O/S/A/D).
@@ -256,6 +278,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             app.agents.store.lock().remove_session(&id);
             Ok(json!({ "ok": true }))
         }
+        "archive_plan" => Ok(serde_json::to_value(archive::plan(&app.agents.store.lock(), &arg_str(args, "target")?)?)?),
+        "archive" => archive::archive(app, &arg_str(args, "target")?, args.get("force").and_then(Value::as_bool).unwrap_or(false)),
+        "nudge_snooze" => {
+            archive::snooze(app, &arg_str(args, "group")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "archived" => archive::search(app, args.get("q").and_then(Value::as_str).unwrap_or("")),
+        "archived_open" => archive::open(app, &arg_str(args, "id")?),
         "group_create" => {
             let name = arg_str(args, "name")?;
             let id = format!("local:{}", next_local_id(app));

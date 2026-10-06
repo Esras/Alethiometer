@@ -6,6 +6,7 @@ pub mod gmail;
 pub mod jira;
 pub mod obsidian;
 pub mod protoncal;
+pub mod scion;
 pub mod slack;
 
 use super::Connector;
@@ -19,6 +20,7 @@ pub fn for_kind(kind: &str) -> Option<Box<dyn Connector>> {
         "github" => Box::new(github::GitHub),
         "obsidian" => Box::new(obsidian::Obsidian),
         "protoncal" => Box::new(protoncal::ProtonCalendar),
+        "scion" => Box::new(scion::Scion),
         _ => return None,
     })
 }

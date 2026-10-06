@@ -81,6 +81,12 @@
   const lines = (s: string) => s.split('\n');
   const long = (s: string) => s.split('\n').length > 3 || s.length > 400;
   const clip = (s: string) => lines(s).slice(0, 3).join('\n');
+  const tail = (s: string) => lines(s.replace(/\n$/, '')).slice(-3).join('\n');
+  function follow(el: HTMLElement, text: string | null) {
+    const go = (t: string | null) => t != null && (el.scrollTop = el.scrollHeight);
+    go(text);
+    return { update: go };
+  }
   const secs = (ms: number | null) => (ms == null ? '' : ms < 1000 ? `${(ms / 1000).toFixed(1)}s` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60000)}m`);
 </script>
 
@@ -164,7 +170,8 @@
         {:else}
           {#snippet m()}
             <span class="tname" class:failed={t?.status === 'failed'}>{t?.name}</span>
-            <span class="detail">{t?.detail}{#if t?.added != null}&nbsp; <span class="add">+{t.added}</span> <span class="del">−{t.removed}</span>{/if}</span>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <span class="detail" class:wrap={open} onclick={() => onToggle?.()}>{t?.detail}{#if t?.added != null}&nbsp; <span class="add">+{t.added}</span> <span class="del">−{t.removed}</span>{/if}</span>
           {/snippet}
           {#snippet r()}{#if t?.status === 'in_progress' || t?.status === 'pending'}<span class="run">running</span>{:else if t?.ms != null}<span class="time">{secs(t.ms)}</span>{/if}{/snippet}
           {@render header(m, r)}
@@ -172,11 +179,13 @@
       </div>
     </div>
     {#if row.kind === 'tool' && (t?.result || row.note)}
+      {@const running = t?.status === 'in_progress' || t?.status === 'pending'}
+      {@const shown = !t ? '' : open ? t.result : running ? tail(t.result) : clip(t.result)}
       <div class="g">
         <i class="ph ph-arrow-elbow-down-right ic" style:color="var(--tx-label)"></i>
         <div class="mid">
-          <div class="result" class:open class:failed={t?.status === 'failed'} role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>
-            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{(open ? t.result : clip(t.result)).slice(1)}{:else}{open ? t?.result : clip(t?.result ?? '')}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <kbd>E</kbd></span>{/if}
+          <div class="result" class:open class:failed={t?.status === 'failed'} use:follow={open && running ? t?.result ?? '' : null} role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>
+            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{shown.slice(1)}{:else}{shown}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <kbd>E</kbd></span>{/if}
           </div>
         </div>
       </div>
@@ -418,6 +427,12 @@
     text-overflow: ellipsis;
     min-width: 0;
     font-size: 0.9615rem;
+    cursor: pointer;
+  }
+  .detail.wrap {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow: visible;
   }
   .add {
     color: var(--green);

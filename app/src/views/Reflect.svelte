@@ -7,7 +7,7 @@
   // Keys: d w m q scope · [ ] or ←/→ period · t this period ·
   // e/↵ write · Esc leave the note · o open in Obsidian · j/k carry row ·
   // > tomorrow · < schedule · x let go · u undo · T where time went ·
-  // D decided · a ask about today.
+  // D decided · F finished · a ask about today.
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
   import { isTyping, plain, useKeys } from '../lib/keys.svelte';
@@ -37,6 +37,7 @@
   let selected = $state(0);
   let showWhere = $state(false);
   let showDecided = $state(false);
+  let showFinished = $state(false);
   let editor = $state<{ focus: () => void; openInObsidian: () => void } | null>(null);
   let askEl = $state<HTMLInputElement | null>(null);
   let question = $state('');
@@ -128,6 +129,7 @@
     if (plain(e, 'a') && d?.scope === 'day' && rs.lens !== 'life') return askEl?.focus(), true;
     if (plain(e, 'T') && d?.brief) return (showWhere = !showWhere), true;
     if (plain(e, 'D') && d?.brief && rs.lens !== 'life') return (showDecided = !showDecided), true;
+    if (plain(e, 'F') && d?.brief && rs.lens !== 'life') return (showFinished = !showFinished), true;
     const n = d?.carry.length ?? 0;
     if (plain(e, 'j') && n) return (selected = Math.min(n - 1, selected + 1)), true;
     if (plain(e, 'k') && n) return (selected = Math.max(0, selected - 1)), true;
@@ -170,7 +172,7 @@
 
       <div class="side scroll">
         {#if d.brief}
-          <DayBrief brief={d.brief} bind:showWhere bind:showDecided life={d.lens === 'life'} />
+          <DayBrief brief={d.brief} bind:showWhere bind:showDecided bind:showFinished life={d.lens === 'life'} />
         {/if}
         {#if d.children && d.scope !== 'day'}
           <Rollup rows={d.children} label={CHILD[d.scope].label} icon={CHILD[d.scope].icon} open={openChild} />

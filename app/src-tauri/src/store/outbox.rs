@@ -40,6 +40,10 @@ impl OutboxViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    fn failed(&self, op: &str) -> Result<usize> {
+        Ok(self.conn().query_row("SELECT count(*) FROM outbox WHERE op = ?1 AND state = 'failed'", [op], |r| r.get::<_, i64>(0))? as usize)
+    }
+
     fn open_for_path(&self, source_id: i64, op: &str, path: &str) -> Result<Option<OutboxEntry>> {
         Ok(self
             .conn()

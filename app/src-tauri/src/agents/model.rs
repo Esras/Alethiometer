@@ -107,6 +107,15 @@ pub struct Session {
     /// The agent's thinking option (ACP config option of category `thought_level`), if it offers one.
     #[serde(default)]
     pub thinking: Option<ConfigChoice>,
+    /// Turns you had seen the last time you looked (or the count before its first turn ended, for a session that never had one); `stats.turns` past it is an ended turn you haven't seen.
+    #[serde(default)]
+    pub seen_turns: Option<u64>,
+}
+
+impl Session {
+    pub fn turn_unseen(&self) -> bool {
+        self.source == "acp" && self.status == Status::Idle && self.seen_turns.is_some_and(|n| self.stats.turns > n)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -154,6 +163,9 @@ pub struct Fact {
     pub label: String,
     pub detail: String,
     pub url: String,
+    /// A ticket in Jira's done category, a merged PR.
+    #[serde(default)]
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { indentKeys } from '../../lib/ui/indent';
   // The topic's Obsidian note: the markdown preview, or (e) the note as plain
   // text to edit anywhere: add, change, move things around. ⌘S or leaving the
   // editor (esc, click away) saves the whole note, provided it still holds the
@@ -220,7 +221,7 @@
     {/if}
   </div>
   {#if editing}
-    <textarea class="note-body scroll" bind:this={area} bind:value={draft} spellcheck="true" oninput={typed} onblur={done}></textarea>
+    <textarea class="note-body scroll" bind:this={area} bind:value={draft} spellcheck="true" oninput={typed} onkeydown={indentKeys} onblur={done}></textarea>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="note-body scroll" ondblclick={edit}>

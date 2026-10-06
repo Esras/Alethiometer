@@ -207,6 +207,9 @@ pub struct Harness {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// Minutes the prompt cache lasts after a turn, for the status line's estimate. Unset: 5 for Claude Code, nothing for others.
+    #[serde(default)]
+    pub cache_ttl_min: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -281,6 +284,7 @@ impl Default for AgentsSettings {
             command: "npx".into(),
             args: args.iter().map(|a| a.to_string()).collect(),
             env: BTreeMap::new(),
+            cache_ttl_min: None,
         };
         AgentsSettings {
             harnesses: vec![h("pi", "Pi", &["-y", "pi-acp"]), h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"])],

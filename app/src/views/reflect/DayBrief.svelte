@@ -9,8 +9,9 @@
     brief,
     showWhere = $bindable(false),
     showDecided = $bindable(false),
+    showFinished = $bindable(false),
     life = false,
-  }: { brief: DayBriefData; showWhere?: boolean; showDecided?: boolean; life?: boolean } = $props();
+  }: { brief: DayBriefData; showWhere?: boolean; showDecided?: boolean; showFinished?: boolean; life?: boolean } = $props();
 
   const span = $derived(brief.range.end_min - brief.range.start_min);
   const pct = (m: number) => `${Math.max(0, Math.min(100, ((m - brief.range.start_min) / span) * 100))}%`;
@@ -64,6 +65,9 @@
         <button class="link-toggle" onclick={() => (showDecided = !showDecided)} title="D">
           <i class="ph ph-caret-{showDecided ? 'down' : 'right'}"></i>Decided · {brief.decided.length}
         </button>
+        <button class="link" onclick={() => (showFinished = !showFinished)} title="F">
+          <i class="ph ph-caret-{showFinished ? 'down' : 'right'}"></i>Finished · {brief.finished.length}
+        </button>
       {/if}
     </div>
 
@@ -90,6 +94,19 @@
           </div>
         {:else}
           <div class="empty-row">Nothing recorded as decided.</div>
+        {/each}
+      </div>
+    {/if}
+    {#if showFinished && !life}
+      <div class="fold">
+        {#each brief.finished as d}
+          <div class="decided">
+            <i class="ph-bold ph-check"></i>
+            <span class="ellipsis">{d.title}</span>
+            {#if d.topic}<span class="topic nowrap">{d.topic}</span>{/if}
+          </div>
+        {:else}
+          <div class="muted">No todos finished.</div>
         {/each}
       </div>
     {/if}

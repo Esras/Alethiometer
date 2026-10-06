@@ -138,8 +138,8 @@
       <span class="lab label">Thinking</span>
       <span class="input">
         <select bind:value={thinking}>
-          <option value="">default · {levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current}</option>
-          {#each levels.options.filter((o) => o.value !== levels?.current) as o (o.value)}<option value={o.value}>{o.name}</option>{/each}
+          <option value="">default · {(levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current).replace(/^thinking:?\s*/i, '')}</option>
+          {#each levels.options.filter((o) => o.value !== levels?.current) as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '')}</option>{/each}
         </select>
         <span class="note">{model ? 'levels of the default model' : 'from the harness'}</span>
       </span>

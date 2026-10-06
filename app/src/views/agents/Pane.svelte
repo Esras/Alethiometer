@@ -60,10 +60,26 @@
 
   let scroller = $state<HTMLDivElement>();
   let following = $state(true);
+  let rowsEl = $state<HTMLDivElement>();
+  let anchor: { el: Element; top: number } | null = null;
+  const topOf = (el: Element) => el.getBoundingClientRect().top - scroller!.getBoundingClientRect().top;
   function onScroll() {
     // column-reverse: 0 is the bottom.
     following = Math.abs(scroller?.scrollTop ?? 0) < 6;
+    anchor = null;
+    if (following || !scroller) return;
+    const el = [...scroller.querySelectorAll('[data-row]')].find((e) => topOf(e) + e.getBoundingClientRect().height > 0);
+    if (el) anchor = { el, top: topOf(el) };
   }
+  // WebKit has no scroll anchoring: keep the first visible row where it was when rows grow below it.
+  $effect(() => {
+    if (!rowsEl) return;
+    const ro = new ResizeObserver(() => {
+      if (scroller && anchor?.el.isConnected && !following) scroller.scrollTop += topOf(anchor.el) - anchor.top;
+    });
+    ro.observe(rowsEl);
+    return () => ro.disconnect();
+  });
   export function latest() {
     scroller?.scrollTo({ top: 0 });
     ag.rowSel = null;
@@ -164,11 +180,22 @@
         </div>
       {/if}
 
-      <div class="stream" bind:this={scroller} onscroll={onScroll}>
-        <div class="rows">
+      <div
+        class="stream"
+        bind:this={scroller}
+        onscroll={onScroll}
+        role="presentation"
+        onmousedown={(e) => {
+          ag.zone = 'thread';
+          (document.activeElement as HTMLElement | null)?.blur();
+          const row = (e.target as HTMLElement).closest<HTMLElement>('[data-row]');
+          if (row) ag.rowSel = Number(row.dataset.row);
+        }}
+      >
+        <div class="rows" bind:this={rowsEl}>
           {#each list as it (it.key)}
             {#if it.run && !it.folded}
-              <div class="runbox" class:sel={ag.rowSel === it.row.id} data-row={it.row.id}>
+              <div class="runbox" class:sel={ag.zone === 'thread' && ag.rowSel === it.row.id} data-row={it.row.id}>
                 {#each it.run as r (r.id)}<RowView row={r} own={s?.id ?? null} nested={true} />{/each}
               </div>
             {:else}
@@ -176,7 +203,7 @@
                 <RowView
                   row={it.row}
                   own={s?.id ?? null}
-                  sel={ag.rowSel === it.row.id}
+                  sel={ag.zone === 'thread' && ag.rowSel === it.row.id}
                   open={ag.expanded.has(`row:${it.row.id}`)}
                   earlier={it.run ? it.run.length - 1 : 0}
                   waiting={!!it.row.request && waitingRows.has(it.row.request)}

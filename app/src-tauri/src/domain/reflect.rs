@@ -34,6 +34,8 @@ pub trait ReflectViews {
     fn events(&self, from: Ts, to: Ts) -> Result<Vec<CalendarEvent>>;
     /// Work decisions made in `[from, to)`: title and confirmed topic, oldest first.
     fn decisions(&self, from: Ts, to: Ts) -> Result<Vec<(String, Option<String>)>>;
+    /// Work todos (Jira issues, vault tasks) that went to done in `[from, to)`: title and confirmed topic, oldest first.
+    fn finished(&self, from: Ts, to: Ts) -> Result<Vec<(String, Option<String>)>>;
     /// The stored one-line summary of a reflection: None when there's no
     /// reflection, Some(None) when it has no summary.
     fn summary(&self, scope: &str, period: Date, lens: &str) -> Result<Option<Option<String>>>;

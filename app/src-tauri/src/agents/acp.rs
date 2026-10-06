@@ -134,6 +134,10 @@ pub(crate) struct Turn {
     prompts: BTreeMap<u64, u64>,
     #[serde(default)]
     caps: Value,
+    /// The reason you typed with a deny, and whether the option you picked asks for one ("No, provide reason"):
+    /// then the agent's follow-up question gets it as its answer. Otherwise it goes out as your next message when the turn ends.
+    #[serde(default)]
+    deny_reason: Option<(String, bool)>,
     /// The ACP sessionId.
     #[serde(default)]
     sid: String,
@@ -226,9 +230,12 @@ pub fn rpc_error(e: &Value) -> String {
 pub fn host_label() -> String {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
-        let out = Command::new("hostname").arg("-s").output().ok().filter(|o| o.status.success());
-        out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-            .filter(|s| !s.is_empty())
+        let run = |cmd: &str, args: &[&str]| {
+            let out = Command::new(cmd).args(args).output().ok().filter(|o| o.status.success())?;
+            Some(String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|s| !s.is_empty())
+        };
+        let mac = if cfg!(target_os = "macos") { run("scutil", &["--get", "LocalHostName"]) } else { None };
+        mac.or_else(|| run("hostname", &["-s"]))
             .or_else(|| std::env::var("HOSTNAME").ok())
             .unwrap_or_else(|| "local".into())
     })
@@ -1534,6 +1541,17 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         let _ = conn.respond(&rpc_id, json!({ "action": "decline" }));
         return;
     }
+    let asked_reason = {
+        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        match (text_field(&schema), one_choice(&schema), &t.deny_reason) {
+            (Some(field), None, Some((_, true))) => t.deny_reason.take().map(|(r, _)| (field, r)),
+            _ => None,
+        }
+    };
+    if let Some((field, reason)) = asked_reason {
+        let _ = conn.respond(&rpc_id, json!({ "action": "accept", "content": { field: reason } }));
+        return;
+    }
     let ts = now(app);
     let req_id = format!("{session}:{rpc_id}");
     let question = p.get("message").and_then(Value::as_str).unwrap_or("").trim().to_owned();
@@ -1742,11 +1760,11 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
             i.update_session(&req.session_id, |s| s.status = Status::Running);
         }
     }
+    if let Some(r) = reason.map(str::trim).filter(|r| !r.is_empty()) {
+        conn.turn.lock().unwrap_or_else(|e| e.into_inner()).deny_reason = Some((r.to_owned(), opt.name.to_lowercase().contains("reason")));
+    }
     // Stored before it's sent: a turn that ends at once must find nothing waiting, or it never goes idle.
     conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }))?;
-    if let Some(r) = reason.filter(|r| !r.trim().is_empty()) {
-        send(app, &req.session_id, r, vec![])?;
-    }
     Ok(())
 }
 
@@ -1846,6 +1864,9 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Opti
             problem = Some(e);
         }
     }
+    if let Some((r, _)) = t.deny_reason.take() {
+        i.update_session(&id, |s| s.queued.push(QueuedMessage { text: r, images: vec![] }));
+    }
     // Only truly send the next queued message once this turn (end or cancel) is done.
     let next = if idle { i.sessions.get(&id).and_then(|s| s.queued.first().cloned()) } else { None };
     let drained = next.is_some() && i.sessions.get(&id).map(|s| s.queued.len() == 1).unwrap_or(false);
@@ -1858,6 +1879,7 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Opti
             s.queue_marker = None;
             s.queue_peak = 0;
         }
+        s.seen_turns.get_or_insert(s.stats.turns);
         s.stats.turns += 1;
         s.active_at = ts.to_owned();
         if let Some(p) = &problem {
@@ -1887,10 +1909,13 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
         return Err(msg("Subagents take messages through their parent"));
     }
     if let Some(conn) = app.agents.acp.get(id) {
-        let mid = !conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.is_empty();
-        if mid {
+        // Checked and queued under the turn lock: `finish_prompt` takes it to decide what follows a turn, so a turn can't end between the two and leave this message queued with nothing to send it.
+        let turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        if !turn.prompts.is_empty() {
             queue_message(app, id, text, images);
+            drop(turn);
         } else {
+            drop(turn);
             let arc = app.arc().ok_or_else(|| msg("not ready"))?;
             let row = push_you(app, id, text, false, images.clone());
             prompt(&arc, &conn, row, text.to_owned(), images);
@@ -1944,6 +1969,39 @@ pub fn interrupt(app: &App, id: &str) -> Result<()> {
         app.agents.store.lock().remove_request(&req);
     }
     conn.notify("session/cancel", json!({ "sessionId": conn.sid() }))
+}
+
+/// ⌘↵ on an empty box: send the held-back message now. During a turn that
+/// cancels it, which is what releases the queue (`finish_prompt`); with nothing
+/// running the first queued message goes out at once.
+pub fn send_queued(app: &App, id: &str) -> Result<()> {
+    let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running"))?;
+    let turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+    if !turn.prompts.is_empty() {
+        drop(turn);
+        return interrupt(app, id);
+    }
+    let key = session_thread(id);
+    let q = {
+        let mut i = app.agents.store.lock();
+        let Some(s) = i.sessions.get(id) else { return Ok(()) };
+        let (Some(q), drained, marker) = (s.queued.first().cloned(), s.queued.len() == 1, s.queue_marker) else { return Ok(()) };
+        i.update_session(id, |s| {
+            s.queued.remove(0);
+            if drained {
+                s.queue_marker = None;
+                s.queue_peak = 0;
+            }
+        });
+        if let (true, Some(rid)) = (drained, marker) {
+            let ts = now(app);
+            i.update_row(&key, rid, |r| r.delivery = Some(Delivery { state: "delivered".into(), at: ts.clone(), delivered_at: ts.clone(), count: 1, ..Default::default() }));
+        }
+        q
+    };
+    drop(turn);
+    run_after(app, id, After::Send(q));
+    Ok(())
 }
 
 /// Stop the agent (its process in the host). The transcript stays; sending starts it again.
@@ -2063,6 +2121,67 @@ pub(crate) mod tests {
         assert!(r.iter().all(|r| r.kind != Kind::You), "not a real row yet");
         let marker = r.iter().find(|r| r.kind == Kind::State).unwrap();
         assert_eq!(marker.text, "1 message queued");
+    }
+
+    #[test]
+    fn the_reason_typed_with_a_deny_answers_the_agents_follow_up_question() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        let form = json!({ "mode": "form", "message": "Share why", "requestedSchema": { "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] } });
+
+        conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), false));
+        elicit(&app, &conn, json!(1), &form);
+        assert_eq!(app.agents.store.lock().requests.len(), 1, "a plain No doesn't claim the question");
+        assert!(conn.turn.lock().unwrap().deny_reason.is_some());
+
+        conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), true));
+        elicit(&app, &conn, json!(2), &form);
+        assert_eq!(app.agents.store.lock().requests.len(), 1, "answered without a card");
+        assert!(conn.turn.lock().unwrap().deny_reason.is_none());
+    }
+
+    #[test]
+    fn a_reason_nobody_asked_for_goes_out_when_the_turn_ends() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), false));
+        let after = finish_prompt(&app, &conn, 1, Ok(json!({ "stopReason": "end_turn" })), "2026-10-05T10:00:00");
+        assert!(matches!(after, Some(After::Send(q)) if q.text == "too risky"));
+    }
+
+    #[test]
+    fn an_ended_turn_counts_for_the_badge_until_you_look() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        assert_eq!(crate::agents::attention(&app), 0);
+
+        finish_prompt(&app, &conn, 1, Ok(json!({ "stopReason": "end_turn" })), "2026-10-05T10:00:00");
+        assert_eq!(crate::agents::attention(&app), 1);
+
+        crate::agents::call(&app, "seen", &json!({ "session": id })).unwrap();
+        assert_eq!(crate::agents::attention(&app), 0);
+    }
+
+    #[test]
+    fn send_now_releases_a_queued_message_when_nothing_is_running() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), conn.clone());
+        send(&app, &id, "why not", vec![]).unwrap();
+        conn.turn.lock().unwrap().prompts.clear();
+
+        send_queued(&app, &id).unwrap();
+
+        assert!(app.agents.store.lock().sessions[&id].queued.is_empty());
+        assert!(rows(&app, &session_thread(&id)).iter().any(|r| r.kind == Kind::You && r.text == "why not"));
     }
 
     #[test]

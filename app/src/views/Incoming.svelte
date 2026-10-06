@@ -25,6 +25,7 @@
   import { plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
+  import { messageUrl } from '../lib/slackLink';
   import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
@@ -419,11 +420,26 @@
     expanded = next;
   }
 
-  async function act(cmd: string, args: Record<string, unknown>) {
+  // The last Confirm, Move or Wrong, kept for `u` until the next one: the row has left the list, and the view may have moved on.
+  type Filed = { text: string; itemId: number; key: QueueKey | null; moved: unknown; from: number | null; to: number; gmail: boolean };
+  let filed = $state<Filed | null>(null);
+  const topicNamed = (id: number) => entries.find((e) => e.key === id)?.name ?? 'topic';
+
+  async function unfile() {
+    const f = filed;
+    if (!f || busy) return;
+    filed = null;
+    await act('incoming.unfile', { moved: f.moved, from_topic_id: f.from, to_topic_id: f.to, filed: f.gmail });
+    if (f.key !== null) selKey = f.key;
+    selItem = f.itemId;
+  }
+
+  async function act(cmd: string, args: Record<string, unknown>, after?: (r: { moved: unknown }) => void) {
     if (busy) return;
     busy = true;
     try {
-      await call(cmd, args);
+      const r = await call<{ moved: unknown }>(cmd, args);
+      after?.(r);
       err = null;
       refresh();
     } catch (e) {
@@ -479,7 +495,10 @@
     // Agents waiting, not filed yet: confirming means picking its topic.
     if (topic === null) return selKey === 'agents' ? pick(s) : undefined;
     selItem = s.item_id;
-    act('incoming.confirm', { item_id: s.item_id, topic_id: topic, ...saw(s) });
+    const key = selKey;
+    act('incoming.confirm', { item_id: s.item_id, topic_id: topic, ...saw(s) }, (r) => {
+      filed = { text: `Filed to ${topicNamed(topic)}`, itemId: s.item_id, key, moved: r.moved, from: null, to: topic, gmail: true };
+    });
   }
 
   function wrong(s: Signal | null) {
@@ -487,7 +506,10 @@
     const topic = topicOf(s);
     if (topic === null) return;
     selItem = s.item_id;
-    act('incoming.wrong', { item_id: s.item_id, topic_id: topic });
+    const key = selKey;
+    act('incoming.wrong', { item_id: s.item_id, topic_id: topic }, (r) => {
+      filed = { text: `Not ${topicNamed(topic)}`, itemId: s.item_id, key, moved: r.moved, from: null, to: topic, gmail: false };
+    });
   }
 
   function pick(s: Signal | null) {
@@ -505,7 +527,12 @@
       act('incoming.split', { item_id: current.item_id, message_ids: ids, topic_id: topicId });
       return;
     }
-    act('incoming.move', { item_id: current.item_id, topic_id: topicId, from_topic_id: topicOf(current), ...saw(current) });
+    const s = current;
+    const from = topicOf(s);
+    const key = selKey;
+    act('incoming.move', { item_id: s.item_id, topic_id: topicId, from_topic_id: from, ...saw(s) }, (r) => {
+      filed = { text: `Filed to ${topicNamed(topicId)}`, itemId: s.item_id, key, moved: r.moved, from, to: topicId, gmail: true };
+    });
   }
 
   function openTodo(s: Signal | null) {
@@ -533,7 +560,9 @@
   }
 
   function open(s: Signal | null) {
-    if (s?.url) openExternal(s.url);
+    if (!s?.url) return;
+    const m = inMsgs ? s.messages[msgIdx] : s.messages[s.messages.length - 1];
+    openExternal(messageUrl(s.url, m, inMsgs ? undefined : m?.replies?.[m.replies.length - 1]));
   }
 
   useKeys((e) => {
@@ -570,7 +599,8 @@
     if (plain(e, 't')) return pick(current), true;
     if (plain(e, 'd')) return dismiss(current), true;
     if (plain(e, 'u')) {
-      if (current?.held && !dismissed.has(current.item_id)) act('todos.unhold', { item_id: current.item_id });
+      if (filed && !current?.held && !(current && dismissed.has(current.item_id))) unfile();
+      else if (current?.held && !dismissed.has(current.item_id)) act('todos.unhold', { item_id: current.item_id });
       else dismiss(current, false);
       return true;
     }
@@ -611,6 +641,9 @@
   <div class="main">
     <div class="panel col">
       <div class="body scroll">
+        {#if filed}
+          <div class="filed"><i class="ph ph-check"></i>{filed.text}<button class="btn" onclick={unfile}>Undo <kbd>u</kbd></button></div>
+        {/if}
         {#each groups as g, gi (g.source + g.label)}
           <div class="group panel-head" class:rule={gi > 0}>
             <AppIcon source={g.source} size={14} />{g.label}<span class="n">{g.signals.length}</span>
@@ -983,6 +1016,14 @@
   }
   .agent-name {
     font-weight: 500;
+  }
+  .filed {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 16px;
+    color: var(--status-done);
+    border-bottom: 1px solid var(--border);
   }
   .answered {
     display: flex;
