@@ -3,7 +3,7 @@
   import { agentColor } from './look';
   import { popover } from '../../lib/ui/popover';
   import { chord } from '../../lib/keys.svelte';
-  import { act, ag, age, archivable, askArchive, groupById, look, nodes, openArchived, openThread, pendingFor, searchArchived, sessionById, type Node } from './state.svelte';
+  import { act, ag, age, archivable, askArchive, groupById, look, nodes, openArchived, openThread, pendingFor, searchArchived, sessionById, turnEnded, type Node } from './state.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Group, Request, Session, Status } from './types';
@@ -75,8 +75,8 @@
   const menuNode = $derived(ag.menu ? list.find((n) => n.key === ag.menu!.key) : undefined);
   const menuGroup = $derived(menuNode ? groupById(gidOf(menuNode)) : undefined);
   function run(f: () => void) {
-    ag.menu = null;
     f();
+    ag.menu = null;
   }
 
   const fmtDay = (ts: string) => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
@@ -115,7 +115,15 @@
   });
 </script>
 
-<div class="tree" class:focus={ag.zone === 'tree'}>
+<div
+  class="tree"
+  class:focus={ag.zone === 'tree'}
+  role="presentation"
+  onmousedown={(e) => {
+    ag.zone = 'tree';
+    if (!(e.target as HTMLElement).closest('input, textarea, select')) (document.activeElement as HTMLElement | null)?.blur();
+  }}
+>
   <div class="filter-row">
     <FilterField
       class="tree-filter"
@@ -201,9 +209,9 @@
         <button class="row" class:sel={ag.sel === n.key} class:sub={n.depth > 0} class:loose={n.unsorted} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)} style:--indent="{14 * n.depth}px">
           <span class="mark">
             {#if n.depth > 0}<span class="elbow"></span>{/if}
-            <StatusMark status={s.status} />
+            <StatusMark status={turnEnded(s) ? 'problem' : s.status} />
           </span>
-          <span class="name" style:color={agentColor(look(), s)}
+          <span class="name" title={turnEnded(s) ? 'Ended its turn since you looked' : undefined} style:color={agentColor(look(), s)}
             >{s.name}{#if n.unsorted && s.cwd}<span class="cwd">{s.cwd.replace(/^\/(Users|home)\/[^/]+/, '~')}</span>{/if}</span
           >
           {#if pend && pend.target === n.key}
@@ -211,7 +219,7 @@
           {:else}
             <span class="mono" class:dim={s.status === 'done'}>{s.harness}</span>
             <span class="mono" class:dim={s.status === 'done'}>{s.model}</span>
-            <span class="age" class:orange={s.status === 'waiting'}>{age(s.active_at, now)}</span>
+            <span class="age" class:orange={s.status === 'waiting' || turnEnded(s)}>{age(s.active_at, now)}</span>
           {/if}
         </button>
         {#if n.unsorted && s.guess?.group_id}
