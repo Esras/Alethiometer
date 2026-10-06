@@ -154,7 +154,8 @@ export interface Request {
   } | null;
   tag: string;
   question: string;
-  choices: { key: string; title: string; detail: string; value?: string }[];
+  /** `free`: the agent asks for your own words after it ("Type something."). */
+  choices: { key: string; title: string; detail: string; value?: string; free?: boolean }[];
   via: string;
   /** An ACP elicitation's requestedSchema (JSON Schema, an object of fields). */
   form?: FormSchema | null;

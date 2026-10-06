@@ -376,6 +376,10 @@ pub struct Choice {
     /// What answering with it sends (an elicitation option's `const`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub value: String,
+    /// The agent asks for your own words after this one (pi's "Type something."):
+    /// the card takes them with the choice, as a deny takes its reason.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub free: bool,
 }
 
 /// Rough tokens for text the agent didn't count (thinking): ~4 chars a token.

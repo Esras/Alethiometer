@@ -1,20 +1,42 @@
 <script lang="ts">
   // A pinned ask: a Scion input-needed, or an ACP elicitation (Claude Code's
   // AskUserQuestion, pi's questions). The question, its choices as option
-  // cards (number keys), Write a reply… (R) and Later (Esc). An elicitation
+  // cards (number keys), Write a reply… (R, typed in the card as a deny reason
+  // is in ApprovalCard) and Later (Esc). An elicitation
   // that's more than one choice gets its fields as a small form.
   import { agentColor } from './look';
   import { act, ag, age, look, openThread, sessionById } from './state.svelte';
   import type { FormField, Request } from './types';
   import NeedCard from './NeedCard.svelte';
 
-  let { req, compact = false, onReply }: { req: Request; compact?: boolean; onReply: () => void } = $props();
+  let { req, compact = false }: { req: Request; compact?: boolean } = $props();
 
   const s = $derived(sessionById(req.session_id));
+
+  const replying = $derived(ag.replying === req.id);
+  let text = $state('');
+  let replyEl = $state<HTMLInputElement>();
+  $effect(() => {
+    if (replying) replyEl?.focus();
+  });
+  export function reply() {
+    ag.replying = req.id;
+    replyEl?.focus();
+  }
+  // pi offers "Type something." as a choice and asks for the words after it: they go with it.
+  const free = $derived(req.choices.find((c) => c.free));
+  function sendReply() {
+    const t = text.trim();
+    if (!t) return;
+    act('answer', free ? { request: req.id, choice: free.key, text: t } : { request: req.id, text: t }).catch(() => {});
+    ag.replying = null;
+    text = '';
+  }
 
   export function choose(key: string): boolean {
     const c = req.choices.find((c) => c.key === key);
     if (!c) return false;
+    if (c.free) return reply(), true;
     act('answer', req.form ? { request: req.id, choice: c.key } : { request: req.id, text: c.title }).catch(() => {});
     return true;
   }
@@ -103,13 +125,36 @@
         {/each}
       </div>
     {/if}
+    {#if replying}
+      <div class="btns">
+        <input
+          class="input reply"
+          bind:this={replyEl}
+          bind:value={text}
+          placeholder="Reply to {s?.name ?? 'the agent'}"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              sendReply();
+              e.preventDefault();
+            } else if (e.key === 'Escape') {
+              ag.replying = null;
+              e.preventDefault();
+            }
+            e.stopPropagation();
+          }}
+        />
+        <button class="btn md" disabled={!text.trim()} onclick={sendReply}>Send<kbd>⏎</kbd></button>
+        <button class="btn md" onclick={() => (ag.replying = null)}>Back<kbd>Esc</kbd></button>
+      </div>
+    {:else}
     <div class="btns">
       {#if formNeeded}<button class="btn md primary" disabled={!ready} onclick={submit}>Send answer</button>{/if}
-      <button class="btn md" class:on={ag.replying === req.id} onclick={onReply}><kbd>R</kbd>Write a reply…</button>
+      <button class="btn md" onclick={reply}><kbd>R</kbd>Write a reply…</button>
       <button class="btn md" onclick={() => ag.later.add(req.id)}><kbd>Esc</kbd>Later</button>
       {#if req.form}<span class="right">Asked by {s?.name ?? 'the agent'}</span>
       {:else if req.choices.length}<span class="right">Choices read from {s?.name ?? 'the agent'}’s message</span>{/if}
     </div>
+    {/if}
 </NeedCard>
 
 <style>
@@ -197,6 +242,10 @@
   }
   .opt.on {
     border-color: var(--need);
+  }
+  .reply {
+    flex: 1;
+    min-width: 0;
   }
   .right {
     margin-left: auto;

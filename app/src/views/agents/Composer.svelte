@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { chord, mod } from '../../lib/keys.svelte';
   import { popover } from '../../lib/ui/popover';
-  import { act, ag, sessionById } from './state.svelte';
+  import { act, ag, pinned, sessionById } from './state.svelte';
   import type { Group, Session } from './types';
 
   let {
@@ -27,7 +27,8 @@
   const room = $derived(thread.startsWith('r:') ? group?.room : null);
   const members = $derived(room && group ? (ag.tree?.sessions ?? []).filter((s) => s.group_id === group.id) : []);
   const target = $derived(room ? `#${room.name}` : (session?.name ?? ''));
-  const replyingTo = $derived(ag.replying ? ag.tree?.requests.find((r) => r.id === ag.replying) : undefined);
+  // A reply to the ask pinned above is typed in its card; this box takes one to another ask.
+  const replyingTo = $derived(ag.replying && ag.replying !== pinned(thread)?.id ? ag.tree?.requests.find((r) => r.id === ag.replying) : undefined);
   // Keyed by thread in Pane, so the draft is read once.
   let text = $state(untrack(() => ag.drafts[thread] ?? ''));
   let images = $state<{ data: string; mime: string }[]>([]);

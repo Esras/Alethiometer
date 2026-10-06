@@ -222,7 +222,7 @@
         {#if req && req.kind === 'approval'}
           <ApprovalCard bind:this={approval} bind:denying {req} compact={!!ag.form} />
         {:else if req && req.kind === 'ask'}
-          <AskCard bind:this={ask} {req} compact={!!ag.form} onReply={() => ((ag.replying = req.id), composerEl?.focus())} />
+          <AskCard bind:this={ask} {req} compact={!!ag.form} />
         {/if}
         {#if key}
           {#key key}

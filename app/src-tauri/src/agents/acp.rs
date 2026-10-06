@@ -136,6 +136,7 @@ pub(crate) struct Turn {
     caps: Value,
     /// The reason you typed with a deny, and whether the option you picked asks for one ("No, provide reason"):
     /// then the agent's follow-up question gets it as its answer. Otherwise it goes out as your next message when the turn ends.
+    /// Also the words typed with an ask's free choice ("Type something."), which always asks.
     #[serde(default)]
     deny_reason: Option<(String, bool)>,
     /// The ACP sessionId.
@@ -1609,7 +1610,8 @@ fn one_choice(schema: &Value) -> Option<(String, Vec<Choice>)> {
                 Some(d) => (title.to_owned(), d.to_owned()),
                 None => title.split_once(" - ").or_else(|| title.split_once(" — ")).map(|(a, b)| (a.trim().to_owned(), b.trim().to_owned())).unwrap_or_else(|| (title.to_owned(), String::new())),
             };
-            Choice { key: (i + 1).to_string(), title, detail, value }
+            let free = title.trim_end_matches('.').eq_ignore_ascii_case("type something");
+            Choice { key: (i + 1).to_string(), title, detail, value, free }
         })
         .collect();
     Some((name, choices))
@@ -1642,13 +1644,21 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
     let conn = app.agents.acp.get(&req.session_id).ok_or_else(|| msg("the agent isn't running anymore"))?;
     let schema = req.form.clone().unwrap_or(Value::Null);
     let text = text.map(str::trim).filter(|t| !t.is_empty());
+    let mut follow_up = None;
     let (reply, said, after) = if let Some(c) = content {
         let said = c.as_object().map(|o| o.values().map(|v| v.as_array().map(|a| a.iter().map(plain).collect::<Vec<_>>().join(", ")).unwrap_or_else(|| plain(v))).collect::<Vec<_>>().join("; ")).unwrap_or_default();
         (json!({ "action": "accept", "content": c }), said, None)
     } else if let Some(key) = choice {
         let (field, choices) = one_choice(&schema).ok_or_else(|| msg("That question has no choices"))?;
         let c = choices.iter().find(|c| c.key == key || c.value == key).ok_or_else(|| msg("not one of its choices"))?;
-        (json!({ "action": "accept", "content": { field: c.value } }), c.title.clone(), None)
+        let said = match text.filter(|_| c.free) {
+            Some(t) => {
+                follow_up = Some(t.to_owned());
+                t.to_owned()
+            }
+            None => c.title.clone(),
+        };
+        (json!({ "action": "accept", "content": { field: c.value } }), said, None)
     } else if let Some(t) = text {
         match text_field(&schema) {
             Some(field) => (json!({ "action": "accept", "content": { field: t } }), t.to_owned(), None),
@@ -1657,7 +1667,14 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
     } else {
         return Err(msg("Pick a choice or write a reply"));
     };
-    let w = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.remove(req_id).ok_or_else(|| msg("That question was already answered"))?;
+    let w = {
+        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        let w = t.waiting.remove(req_id).ok_or_else(|| msg("That question was already answered"))?;
+        if let Some(f) = follow_up {
+            t.deny_reason = Some((f, true));
+        }
+        w
+    };
     {
         let mut i = app.agents.store.lock();
         i.remove_request(req_id);
@@ -2140,6 +2157,28 @@ pub(crate) mod tests {
         elicit(&app, &conn, json!(2), &form);
         assert_eq!(app.agents.store.lock().requests.len(), 1, "answered without a card");
         assert!(conn.turn.lock().unwrap().deny_reason.is_none());
+    }
+
+    #[test]
+    fn words_typed_with_a_free_choice_answer_the_agents_follow_up_question() {
+        let (app, _d) = app();
+        let app = App::shared(app);
+        let id = session(&app);
+        let conn = fake_conn(&app, &id);
+        app.agents.acp.conns.lock().unwrap().insert(id.clone(), conn.clone());
+        let ask = json!({ "mode": "form", "message": "Which?", "requestedSchema": { "type": "object", "properties": { "value": { "type": "string", "oneOf": [
+            { "const": "1. Yes", "title": "1. Yes" },
+            { "const": "2. Type something.", "title": "2. Type something." }
+        ] } }, "required": ["value"] } });
+        elicit(&app, &conn, json!(1), &ask);
+        let req = app.agents.store.lock().requests.values().next().cloned().unwrap();
+        assert_eq!(req.choices.iter().map(|c| c.free).collect::<Vec<_>>(), [false, true]);
+        // The agent host isn't running here, so only the send fails; the words are kept first.
+        let _ = answer(&app, &req.id, Some("2"), Some("blue"), None);
+        assert_eq!(conn.turn.lock().unwrap().deny_reason, Some(("blue".into(), true)));
+        let text = json!({ "mode": "form", "message": "Your answer", "requestedSchema": { "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] } });
+        elicit(&app, &conn, json!(2), &text);
+        assert!(app.agents.store.lock().requests.is_empty(), "answered without a second card");
     }
 
     #[test]

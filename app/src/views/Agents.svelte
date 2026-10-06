@@ -122,6 +122,7 @@
     if (!it) return composerEl?.focus();
     const r = it.row;
     if (r.kind === 'tool' || r.kind === 'thinking') return toggleExpand();
+    if (r.request && r.request === pinned(ag.open)?.id && r.kind === 'ask' && ask) return ask.reply();
     if (r.request && ag.tree?.requests.some((q) => q.id === r.request) && r.kind === 'ask') {
       ag.replying = r.request;
     } else if (ag.open?.startsWith('r:') && r.who?.kind === 'agent' && ag.open) {
@@ -187,11 +188,7 @@
     if (req && !denying) {
       if (req.kind === 'approval' && /^[1-9]$/.test(k) && approval?.choose(k)) return true;
       if (req.kind === 'ask' && /^[1-9]$/.test(k) && ask?.choose(k)) return true;
-      if (req.kind === 'ask' && k === 'r') {
-        ag.replying = req.id;
-        composerEl?.focus();
-        return true;
-      }
+      if (req.kind === 'ask' && k === 'r' && ask) return ask.reply(), true;
     }
     if (ag.zone === 'thread' && deliveryKey(e)) return true;
     if (k === 'u' && undoArchive()) return true;

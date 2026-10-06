@@ -40,7 +40,7 @@ A `session/request_permission` pins a card above the composer and lists the sess
 The client advertises form elicitation (`clientCapabilities.elicitation.form`), so an agent's questions arrive as `elicitation/create` (Claude Code's AskUserQuestion; pi's questions and text input through pi-acp). Each pins an **Ask card** and a row in the transcript; nothing is parsed or explained, there's no command.
 
 - One single-choice field (with or without an optional free-text "Other"): the options are choice cards, keyed `1`–`9` in the agent's order; pi's "1. Label - what it means" labels split into title and detail. Picking one answers with that option's own value.
-- Write a reply… (`R`) fills the first free-text field (Claude's "Other", pi's text input). When the question has none, it declines the question and sends your text as the next message.
+- Write a reply… (`R`) opens a field in the card, as a deny reason does on an approval (Enter sends, Esc goes back). So does picking pi's "Type something." choice (`Choice.free`): the words go with that choice and answer pi's follow-up question, so no second card. The reply otherwise fills the first free-text field (Claude's "Other", pi's text input). When the question has none, it declines the question and sends your text as the next message.
 - Anything else (several questions, multi-select, numbers, yes/no): the fields as a small form with Send answer.
 - Questions wait in the turn state like approvals, so they survive an app restart. ⌘. cancels them.
 
