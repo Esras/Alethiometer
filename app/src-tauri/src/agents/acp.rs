@@ -230,9 +230,12 @@ pub fn rpc_error(e: &Value) -> String {
 pub fn host_label() -> String {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
-        let out = Command::new("hostname").arg("-s").output().ok().filter(|o| o.status.success());
-        out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-            .filter(|s| !s.is_empty())
+        let run = |cmd: &str, args: &[&str]| {
+            let out = Command::new(cmd).args(args).output().ok().filter(|o| o.status.success())?;
+            Some(String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|s| !s.is_empty())
+        };
+        let mac = if cfg!(target_os = "macos") { run("scutil", &["--get", "LocalHostName"]) } else { None };
+        mac.or_else(|| run("hostname", &["-s"]))
             .or_else(|| std::env::var("HOSTNAME").ok())
             .unwrap_or_else(|| "local".into())
     })

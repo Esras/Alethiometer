@@ -183,7 +183,7 @@ export interface Tree {
   sessions: Session[];
   requests: Request[];
   counts: { running: number; waiting: number; failed: number };
-  harnesses: { key: string; label: string; command: string }[];
+  harnesses: { key: string; label: string; command: string; cache_ttl_min: number | null }[];
   hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
   /** The agent host (app/agentd) local agents run in. */

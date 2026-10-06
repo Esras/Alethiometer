@@ -181,4 +181,4 @@ Design "Agents Archive" 01–05 (`project/Helm Agents Archive.dc.html`, spec in 
 - Renaming or deleting a local group from the UI (`agents.group_update` / `group_delete` exist), and moving a session other than through the Unsorted guess (`agents.move`).
 - Elicitation in URL mode (declined), and pushing an elicitation's `_meta` previews (Claude's option mockups) into the card.
 - Native ACP subagent sessions (`clientCapabilities.subagents`): the legacy Task shape is used.
-- The cache state is an estimate for Claude (about five minutes after the last turn); ACP doesn't report it.
+- The cache state is an estimate (ACP doesn't report it): `agents.harnesses[].cache_ttl_min` minutes after the last turn, 5 for Claude Code when unset, nothing for other harnesses.

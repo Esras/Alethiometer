@@ -97,7 +97,7 @@ fn tree(app: &App) -> Value {
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
         "nudges": nudges,
         "hub_failed": i.hub_failed,
-        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
+        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "cache_ttl_min": h.cache_ttl_min, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
         "hubs": scion::hubs(app),
         "agentd": daemon::status(app),
         "host": acp::host_label(),
