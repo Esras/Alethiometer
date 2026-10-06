@@ -652,7 +652,7 @@
 
 <div class="view">
   <div class="topics scroll">
-    <div class="label head">Topics with new signals</div>
+    <div class="label head">Topics</div>
     {#each entries as t (t.key)}
       {#if t.key === 'unsorted'}<div class="fade-rule"></div>{/if}
       <button class="topic" data-topic-key={t.key} class:on={t.key === selKey} class:unsorted={t.key === 'unsorted' || t.key === 'agents'} onclick={() => selectTopic(t.key)}>
