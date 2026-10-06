@@ -6,8 +6,19 @@
   import { act } from './state.svelte';
   import type { Request } from './types';
   import NeedCard from './NeedCard.svelte';
+  import { fieldsLine, oneLine, splitMessage } from './approvalMessage';
 
   let { req, compact = false, denying = $bindable(false) }: { req: Request; compact?: boolean; denying?: boolean } = $props();
+
+  // What came with the request (a gate's prompt or free text): the parts of a
+  // field list that the card doesn't already show go in the header, free text gets
+  // a line of its own that opens on a click.
+  const said = $derived(splitMessage(req.message ?? '', req.command, req.tool.split(' · ')[0]));
+  let sayOpen = $state(false);
+  $effect(() => {
+    req.id;
+    sayOpen = false;
+  });
 
   let reason = $state('');
   let reasonEl = $state<HTMLInputElement>();
@@ -50,6 +61,7 @@
 {#snippet title()}{req.title}{/snippet}
 {#snippet meta()}
   <span class="tool">{req.tool}</span>
+  {#if said.fields.length}<span class="tool gate" title={req.message}>{fieldsLine(said.fields)}</span>{/if}
   <button class="btn copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
 {/snippet}
 {#snippet summary()}
@@ -58,8 +70,12 @@
 
 <NeedCard icon="shield-warning" {compact} {title} {meta} {summary} capped>
     {#if req.command}<div class="command inset command-block">{pretty}</div>{/if}
-    {#if req.message}<div class="said" title="Sent by the agent with the request; the explainer never sees it"><i class="ph ph-chat-text"></i><span>{req.message}</span></div>{/if}
-    {#if req.parsed || req.explained}<div class="pw"><Panels {req} /></div>{/if}
+    {#if said.text}
+      <button class="said" aria-expanded={sayOpen} class:open={sayOpen} onclick={() => (sayOpen = !sayOpen)} title={sayOpen ? 'Sent with the request; the explainer never sees it. Click to fold' : said.text}>
+        <i class="ph ph-chat-text"></i><span>{sayOpen ? said.text : oneLine(said.text)}</span><i class="ph ph-caret-{sayOpen ? 'up' : 'down'} caret"></i>
+      </button>
+    {/if}
+    {#if req.parsed || req.explained}<div class="pw"><Panels {req} fill /></div>{/if}
     {#if denying}
       <div class="deny">
         <input
@@ -99,33 +115,64 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* What a gate's field list adds to the card (`rule *`), beside the tool. */
+  .gate {
+    color: var(--tx-2);
+  }
   .copy {
     margin-left: auto;
+    flex: none;
   }
   .command {
     flex: none;
     margin: 0 12px;
   }
+  /* The agent's text: one line until clicked, then as sent (wrapped, 120px, scrolling). */
   .said {
+    flex: none;
     margin: 6px 12px 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     display: flex;
     gap: 8px;
     align-items: baseline;
     font-size: 0.962rem;
     line-height: 1.5;
     color: var(--tx-2);
+    min-width: 0;
+  }
+  .said span {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .said.open span {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    max-height: 120px;
     overflow-y: auto;
+    max-height: 120px;
   }
   .said i {
     color: var(--tx-label);
   }
+  .said .caret {
+    flex: none;
+    font-size: 0.846rem;
+  }
+  /* The part of the card that gives way when the pane is short (the transcript keeps
+     its own minimum in Pane): Parsed and Explained scroll separately inside it. */
   .pw {
     margin: 8px 12px 0;
-    min-height: 0;
-    overflow-y: auto;
+    flex: 0 1 auto;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
   }
   .btns {
     flex-wrap: wrap;
@@ -136,6 +183,13 @@
     gap: 8px;
     align-items: center;
     padding: 9px 12px;
+    /* If the pane is so short that the card itself scrolls, the answers stay in reach. */
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    flex: none;
+    background: linear-gradient(var(--need-soft), var(--need-soft)), var(--bg-app);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
   }
   .btns .btn {
     max-width: 420px;

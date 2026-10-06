@@ -2,8 +2,8 @@
   // The frame an agent's ask or approval sits in (AskCard, ApprovalCard): a
   // tinted card with a header row (icon, title, then the caller's meta), or,
   // while a form has the composer, one compact line. `capped` stops the card at
-  // 55vh, for a body that scrolls inside it (the approval's panels); the ask
-  // card's form grows with its fields.
+  // 55vh and lets it shrink with the pane, for a body that scrolls inside it (the
+  // approval's panels); the ask card's form grows with its fields.
   import type { Snippet } from 'svelte';
 
   let {
@@ -53,8 +53,13 @@
     display: flex;
     flex-direction: column;
   }
+  /* Shrinks with the pane (Pane keeps the transcript its minimum): the approval's
+     panels give way first, and if even they are at their minimum the card scrolls. */
   .card.capped {
     max-height: 55vh;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   .top {
     display: flex;

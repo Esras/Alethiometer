@@ -430,9 +430,11 @@
     display: flex;
     gap: 4px;
   }
+  /* The transcript keeps room whatever sits under it: about five short rows on a
+     tall window, a quarter of a short one. The pinned card shrinks first. */
   .stream {
     flex: 1;
-    min-height: 0;
+    min-height: min(160px, 25vh);
     overflow-y: auto;
     overscroll-behavior: contain;
     display: flex;
@@ -465,13 +467,22 @@
     font-size: 0.923rem;
     padding: 20px 0;
   }
+  /* Shrinks (min-height 0) when the pinned card is taller than what the transcript
+     leaves; only that card gives way, the composer and the status line keep their size. */
   .bottom {
-    flex: none;
+    flex: 0 1 auto;
+    min-height: 0;
     border-top: 1px solid var(--bg-head);
     padding: 10px 12px 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .bottom > :global(*) {
+    flex-shrink: 0;
+  }
+  .bottom > :global(.card.capped) {
+    flex-shrink: 1;
   }
   .err {
     font-size: 0.923rem;
