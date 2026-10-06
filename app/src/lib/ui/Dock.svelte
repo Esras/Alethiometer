@@ -9,21 +9,16 @@
   // It's positioned onto the spot rather than moved into it: moving the node
   // would blur the picker's field, which closes it.
   import type { Snippet } from 'svelte';
+  import { placeByRow, type Pos } from './dock';
 
   let { under, children }: { under?: string; children: Snippet } = $props();
 
-  const GAP = 4;
   let box = $state<HTMLDivElement>();
 
-  type Pos = { left: number; top?: number; bottom?: number };
   function spot(): Pos {
     const row = under ? document.querySelector(under)?.getBoundingClientRect() : undefined;
-    if (row && row.bottom > 0 && row.top < window.innerHeight) {
-      const h = box?.offsetHeight ?? 0;
-      const left = Math.max(8, Math.min(row.left, window.innerWidth - (box?.offsetWidth ?? 0) - 8));
-      if (row.bottom + GAP + h <= window.innerHeight - 8) return { left, top: row.bottom + GAP };
-      return { left, bottom: window.innerHeight - row.top + GAP };
-    }
+    if (row && row.bottom > 0 && row.top < window.innerHeight)
+      return placeByRow(row, box?.offsetWidth ?? 0, box?.offsetHeight ?? 0, window.innerWidth, window.innerHeight);
     const r = document.querySelector('[data-dock-host]')?.getBoundingClientRect();
     return { left: r?.left ?? 16, bottom: r ? window.innerHeight - r.bottom : 16 };
   }
@@ -33,11 +28,15 @@
 
   $effect(() => {
     const place = () => (pos = spot());
-    // Once mounted its size is known: flip above the row if it doesn't fit below.
+    // Once mounted its size is known, and it changes as the list loads and
+    // filters: flip above the row if it doesn't fit below.
     place();
+    const sized = new ResizeObserver(place);
+    if (box) sized.observe(box);
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
     return () => {
+      sized.disconnect();
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
