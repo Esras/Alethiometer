@@ -277,6 +277,30 @@ fn login_path() -> String {
     .clone()
 }
 
+/// The project's direnv environment (its `.envrc`, a Nix devshell say), as Zed
+/// loads one for the agents it starts: `direnv export json` in `cwd`, run as if
+/// nothing were loaded yet (the app may itself run inside another project's
+/// devshell). Variables it unsets aren't carried: the agent host only sets.
+/// No direnv, a blocked `.envrc` or none: nothing. A devshell that's still
+/// building after two minutes is given up on, and the agent starts without it.
+fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
+    let Some(direnv) = which("direnv", path).filter(|_| !cwd.is_empty()) else { return BTreeMap::new() };
+    let mut c = Command::new(direnv);
+    c.args(["export", "json"]).current_dir(cwd).env("PATH", path).stdin(Stdio::null()).stderr(Stdio::null());
+    for (k, _) in std::env::vars().filter(|(k, _)| k.starts_with("DIRENV_")) {
+        c.env_remove(k);
+    }
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(c.output());
+    });
+    let Some(out) = rx.recv_timeout(Duration::from_secs(120)).ok().and_then(|o| o.ok()).filter(|o| o.status.success()) else {
+        return BTreeMap::new();
+    };
+    let vars: BTreeMap<String, Value> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    vars.into_iter().filter_map(|(k, v)| Some((k, v.as_str()?.to_owned()))).collect()
+}
+
 /// Where `cmd` is on the login PATH, or None.
 fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
     if cmd.contains('/') {
@@ -537,8 +561,9 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     app.agents.store.lock().set_host(id, HostState { seq: after, turn: Value::Null });
     let conn = Arc::new(Conn::new(app, id, Turn::default(), true));
     app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), conn.clone());
-    let mut env: BTreeMap<String, String> = h.env.clone().into_iter().collect();
-    env.insert("PATH".into(), path);
+    let mut env = direnv_env(&s.cwd, &path);
+    env.entry("PATH".into()).or_insert(path);
+    env.extend(h.env.clone());
     let spawned = daemon::call(
         app,
         &dproto::Request::Spawn { id: id.to_owned(), cmd: exe.display().to_string(), args: h.args.clone(), env, cwd: s.cwd.clone(), after },
@@ -2179,6 +2204,22 @@ pub(crate) mod tests {
         let text = json!({ "mode": "form", "message": "Your answer", "requestedSchema": { "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] } });
         elicit(&app, &conn, json!(2), &text);
         assert!(app.agents.store.lock().requests.is_empty(), "answered without a second card");
+    }
+
+    #[test]
+    fn a_projects_direnv_environment_is_read_as_if_nothing_were_loaded() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        // Stands in for direnv: prints what `export json` would, and whether it saw a loaded env.
+        let fake = bin.path().join("direnv");
+        std::fs::write(&fake, "#!/bin/sh\nprintf '{\"IN_DEVSHELL\":\"%s\",\"GONE\":null,\"PATH\":\"/nix/bin:%s\"}' \"${DIRENV_DIR:-none}\" \"$PATH\"\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:/usr/bin:/bin", bin.path().display());
+        let env = direnv_env(project.path().to_str().unwrap(), &path);
+        assert_eq!(env.get("IN_DEVSHELL").map(String::as_str), Some("none"));
+        assert_eq!(env.get("PATH"), Some(&format!("/nix/bin:{path}")));
+        assert!(!env.contains_key("GONE"));
     }
 
     #[test]
