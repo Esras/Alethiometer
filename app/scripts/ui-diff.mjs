@@ -186,16 +186,54 @@ const scenes = {
   'topics-merged': ['Control+3', 'm', 'ArrowDown', 'Enter'],
 };
 
+// Waits until the page has been still for `quiet` ms: no DOM change, and no call to
+// the server in flight when that time is up (live.wait, the live queries' long poll,
+// is always open and doesn't count). Never longer than `max` ms, the old fixed
+// waits. Uses the page's own timers, which page.clock leaves running.
+const settle = (page, quiet, max) =>
+  page.evaluate(
+    ([quiet, max]) =>
+      new Promise((done) => {
+        let t;
+        const finish = () => {
+          obs.disconnect();
+          clearTimeout(t);
+          clearTimeout(cap);
+          done();
+        };
+        const arm = () => {
+          clearTimeout(t);
+          t = setTimeout(() => (window.__inflight ? arm() : finish()), quiet);
+        };
+        const obs = new MutationObserver(arm);
+        obs.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        const cap = setTimeout(finish, max);
+        arm();
+      }),
+    [quiet, max],
+  );
+// Counts the page's calls to the server in flight, for settle().
+const COUNT_FETCH = `(() => {
+  window.__inflight = 0;
+  const f = window.fetch;
+  window.fetch = (...a) => {
+    if (String(a[0]).endsWith('/live.wait')) return f(...a);
+    window.__inflight++;
+    return f(...a).finally(() => window.__inflight--);
+  };
+})()`;
+
 async function shoot(base, steps, file) {
   const page = await browser.newPage({ viewport: { width: 1760, height: 1175 }, deviceScaleFactor: 1 });
   await page.clock.setFixedTime(FIXED);
+  await page.addInitScript(COUNT_FETCH);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message.split('\n')[0]));
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
   // A transition caught half-way is timing, not a change.
   await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
-  await page.waitForTimeout(1500);
+  await settle(page, 400, 1500);
   for (const k of steps) {
     try {
       if (typeof k === 'string') await page.keyboard.press(k);
@@ -208,13 +246,12 @@ async function shoot(base, steps, file) {
     } catch {
       errs.push('step failed: ' + JSON.stringify(k));
     }
-    await page.waitForTimeout(450);
+    await settle(page, 250, 450);
   }
-  await page.waitForTimeout(600);
+  await settle(page, 600, 900);
   await page.mouse.move(1, 1170); // no hover states
   await page.addStyleTag({ content: '*, *::before, *::after { caret-color: transparent !important; }' });
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(300);
   await page.screenshot({ path: file });
   await page.close();
   return errs;
@@ -238,8 +275,8 @@ for (const name of names) {
   let errs = [];
   // One retry: a scene that crosses a minute boundary between the two shots differs.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const ea = await shoot(`http://localhost:${PA}/`, scenes[name], a);
-    const eb = await shoot(`http://localhost:${PB}/`, scenes[name], b);
+    // The two sides have their own servers and data, so they're shot at once.
+    const [ea, eb] = await Promise.all([shoot(`http://localhost:${PA}/`, scenes[name], a), shoot(`http://localhost:${PB}/`, scenes[name], b)]);
     errs = [...new Set([...ea.map((x) => 'ref: ' + x), ...eb.map((x) => 'this: ' + x)])];
     px = differing(a, b, d);
     if (px === 0) break;
