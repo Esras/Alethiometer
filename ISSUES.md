@@ -8,6 +8,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.
 
+### Agents tree: ages ignore the clock offset for their first second
+
+`views/agents/Tree.svelte` starts `now` at `Date.now()` without `ui.info.clock_offset_ms`; the 1 s interval adds it. So with a fake or offset clock, ages read one value (e.g. "5d") until the first tick and another ("6d") after. Found by the ui-diff sharding work (2026-10-06), where a shot racing that tick split the two sides; the scenes now wait past it. Not fixed: the fix is one line, but it needs a test.
+
 ### Agents: unverified against real agents and a live Scion Hub
 
 The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client is built from Scion's Go source and hand-written fixtures; it has never talked to a Hub. The list of things to confirm is in `app/docs/agents.md` ("To check against a live Hub"). Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
