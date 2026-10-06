@@ -41,6 +41,7 @@
   import PersonPicker from './incoming/PersonPicker.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
+  import { nextKey } from './incoming/nextKey';
   import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
@@ -201,12 +202,11 @@
   }
 
   // Keep the selection where it was: same topic and item if they still exist,
-  // otherwise the row that moved into the same place.
+  // otherwise the next topic left and the row that moved into the same place.
   function apply(q: Queue) {
     lastList = structuredClone(q);
     const prevEntries = entries;
     const prevFlat = flat;
-    const topicIdx = Math.max(0, prevEntries.findIndex((e) => e.key === selKey));
     let itemIdx = Math.max(0, prevFlat.findIndex((s) => s.item_id === selItem));
     // Keep the topic order stable while triaging: topics already listed stay put,
     // topics that just got their first new signal go at the end, above Unsorted.
@@ -225,7 +225,7 @@
     if ([...answered.keys()].some((id) => !present.has(id))) answered = new Map([...answered].filter(([id]) => present.has(id)));
     const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted', ...(q.agents.length || selKey === 'agents' ? ['agents' as QueueKey] : [])];
     if (selKey === null || !keys.includes(selKey)) {
-      selKey = keys[Math.min(topicIdx, keys.length - 1)];
+      selKey = nextKey(prevEntries.map((e) => e.key), selKey, keys)!;
       selItem = null;
       itemIdx = 0;
     }
