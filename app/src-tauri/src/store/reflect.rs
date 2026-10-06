@@ -46,6 +46,22 @@ impl ReflectViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    fn finished(&self, from: Ts, to: Ts) -> Result<Vec<(String, Option<String>)>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT i.title, (SELECT t.name FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
+                                    WHERE tl.item_id = i.id AND tl.state = 'confirmed' LIMIT 1)
+                   FROM item_done d JOIN items i ON i.id = d.item_id JOIN sources s ON s.id = i.source_id
+                  WHERE s.tag = 'work' AND i.owner = 'you' AND i.status = 'done'
+                    AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))
+                    AND d.done_at >= ?1 AND d.done_at < ?2
+                  ORDER BY d.done_at",
+            )?
+            .query_map(params![from, to], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn summary(&self, scope: &str, period: Date, lens: &str) -> Result<Option<Option<String>>> {
         Ok(self
             .conn()

@@ -465,6 +465,12 @@ fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens:
         r.reflect().decisions(day_from, day_to)?.into_iter().map(|(title, topic)| Decision { title, topic }).collect()
     };
 
+    let finished: Vec<Decision> = if lens == "life" {
+        vec![]
+    } else {
+        r.reflect().finished(day_from, day_to)?.into_iter().map(|(title, topic)| Decision { title, topic }).collect()
+    };
+
     let tiles = if lens == "life" {
         let life: Vec<&&Ev> = evs.iter().filter(|e| e.life).collect();
         vec![
@@ -540,6 +546,7 @@ fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens:
         "did_note": "did: calendar with actual join/leave times where known (sample on two meetings), up to now",
         "where": where_,
         "decided": decided,
+        "finished": finished,
     }))
 }
 
@@ -1051,6 +1058,30 @@ mod tests {
         let week = get(&app, &json!({ "scope": "week", "lens": "work", "period": t })).unwrap();
         let day = week["children"].as_array().unwrap().iter().find(|c| c["period"] == t.as_str()).unwrap().clone();
         assert_eq!((day["summary"].as_str(), day["has_entry"].as_bool()), (Some("Calm day."), Some(true)));
+    }
+
+    #[test]
+    fn a_todo_finished_today_is_listed_and_reopening_it_takes_it_off() {
+        let (app, _d) = app();
+        let before = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap()["brief"]["finished"].as_array().unwrap().len();
+        let (id, title): (i64, String) = app
+            .db()
+            .query_row(
+                "SELECT i.id, i.title FROM items i JOIN sources s ON s.id = i.source_id
+                  WHERE s.tag = 'work' AND i.owner = 'you' AND i.status = 'open' AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        app.db().execute("UPDATE items SET status = 'done' WHERE id = ?1", [id]).unwrap();
+        let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
+        let finished = got["brief"]["finished"].as_array().unwrap();
+        assert_eq!(finished.len(), before + 1);
+        assert!(finished.iter().any(|f| f["title"] == title.as_str()));
+
+        app.db().execute("UPDATE items SET status = 'open' WHERE id = ?1", [id]).unwrap();
+        let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
+        assert_eq!(got["brief"]["finished"].as_array().unwrap().len(), before);
     }
 
     #[test]
