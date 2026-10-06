@@ -891,7 +891,7 @@ mod tests {
         // Builds the cache: nothing mentions the word yet.
         assert_eq!(suggest("zanzibar contract"), None);
         // A signal about it is filed under Conference CFP.
-        let item: i64 = app.db().query_row("SELECT id FROM items WHERE title = 'CFP deadline Nov 15'", [], |r| r.get(0)).unwrap();
+        let item: i64 = app.db().query_row("SELECT id FROM items WHERE title = 'Talk abstract outline'", [], |r| r.get(0)).unwrap();
         app.db().execute("UPDATE items SET body = 'Zanzibar contract terms attached' WHERE id = ?1", [item]).unwrap();
         assert_eq!(suggest("zanzibar contract").as_deref(), Some("Conference CFP"), "a linked item's edited text counts");
         // Its note mentions another word (written later, so its modification time moves).

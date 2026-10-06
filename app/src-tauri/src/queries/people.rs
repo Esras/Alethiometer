@@ -331,10 +331,11 @@ fn read_notes(vault: &Path) -> Vec<PersonNote> {
             role: field(&f, "role").first().cloned(),
             color: field(&f, "color").first().and_then(|c| c.parse::<u8>().ok()),
             aliases: field(&f, "aliases").to_vec(),
+            weight: field(&f, "weight").first().and_then(|w| w.parse::<f64>().ok()).filter(|w| w.is_finite()).map(|w| w.clamp(0.0, 1.0)),
             accounts,
         });
     }
-    notes.sort();
+    notes.sort_by(|a, b| a.path.cmp(&b.path));
     notes
 }
 
@@ -347,6 +348,8 @@ pub struct Person {
     pub note_path: String,
     pub role: Option<String>,
     pub color: u8,
+    /// The note's `weight` (0 to 1).
+    pub weight: Option<f64>,
     /// Account kinds the note lists, in `KINDS` order.
     pub kinds: Vec<String>,
 }
@@ -423,7 +426,7 @@ impl Resolver {
                 by_name.entry(n.to_lowercase()).or_insert(row.id);
             }
             colors.insert(row.id, row.color);
-            people.insert(row.id, Person { id: row.id, name: row.name, note_path: row.note_path, role: row.role, color: 0, kinds: vec![] });
+            people.insert(row.id, Person { id: row.id, name: row.name, note_path: row.note_path, role: row.role, color: 0, weight: row.weight, kinds: vec![] });
         }
         let mut by_account = HashMap::new();
         let mut keys: HashMap<i64, (Option<String>, Option<String>)> = HashMap::new();
@@ -957,6 +960,18 @@ mod tests {
         assert!(bulk(&("email".into(), "google-workspace-alerts-noreply@google.com".into())), "noreply as a suffix, no hyphen");
         assert!(!bulk(&("email".into(), "dana@acme.com".into())));
         assert!(!bulk(&("slack".into(), "news".into())));
+    }
+
+    #[test]
+    fn a_notes_weight_is_read_and_clamped_to_0_1() {
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(vault.path().join(PEOPLE_DIR)).unwrap();
+        for (name, w) in [("Kim", "0.7"), ("Lee", "3"), ("Sam", "high")] {
+            std::fs::write(vault.path().join(PEOPLE_DIR).join(format!("{name}.md")), format!("---\nweight: {w}\n---\n")).unwrap();
+        }
+        let notes = read_notes(vault.path());
+        let w = |n: &str| notes.iter().find(|p| p.name == n).unwrap().weight;
+        assert_eq!((w("Kim"), w("Lee"), w("Sam")), (Some(0.7), Some(1.0), None));
     }
 
     #[test]

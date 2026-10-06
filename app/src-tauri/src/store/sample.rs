@@ -1,7 +1,7 @@
 //! Sample data rows (`crate::seed`).
 
 use super::Sql;
-use crate::domain::sample::{ItemPatch, SampleData, SampleEvent, SampleItem, SampleMessage};
+use crate::domain::sample::{ItemPatch, SampleData, SampleEvent, SampleItem, SampleMessage, TodoExtras};
 use crate::error::Result;
 use crate::time::Due;
 use rusqlite::params;
@@ -53,6 +53,28 @@ impl SampleData for Sql<'_> {
 
     fn topic_score(&self, topic_id: i64, score: f64, pills_json: &str) -> Result<()> {
         self.conn().execute("UPDATE topics SET score = ?2, pills_json = ?3 WHERE id = ?1", params![topic_id, score, pills_json])?;
+        Ok(())
+    }
+
+    fn todo_extras(&self, item_id: i64, x: &TodoExtras) -> Result<()> {
+        let c = self.conn();
+        c.execute(
+            "UPDATE items SET raw_json = ?2, sched_day = ?3, source_created_at = ?4 WHERE id = ?1",
+            params![item_id, x.raw_json, x.sched_day, x.source_created_at],
+        )?;
+        if let Some((m, by)) = x.estimate {
+            c.execute(
+                "INSERT INTO todo_estimates (item_id, minutes, by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+                params![item_id, m, by, x.created_at],
+            )?;
+        }
+        c.execute("UPDATE topic_links SET created_at = ?2, updated_at = ?2 WHERE item_id = ?1", params![item_id, x.created_at])?;
+        c.execute("UPDATE items SET created_at = ?2, updated_at = ?3 WHERE id = ?1", params![item_id, x.created_at, x.updated_at])?;
+        Ok(())
+    }
+
+    fn topic_priority(&self, topic_id: i64, level: &str) -> Result<()> {
+        self.conn().execute("UPDATE topics SET priority = ?2 WHERE id = ?1", params![topic_id, level])?;
         Ok(())
     }
 
@@ -140,14 +162,6 @@ impl SampleData for Sql<'_> {
                 params![e.item_id, e.source_id, e.start, e.end, e.title, e.category, e.tentative as i64, e.attendees],
             )?;
         }
-        Ok(())
-    }
-
-    fn priority(&self, item_id: i64, quadrant: &str, score: f64, reasons_json: &str) -> Result<()> {
-        self.conn().execute(
-            "INSERT INTO priorities (item_id, quadrant, score, reasons_json) VALUES (?1, ?2, ?3, ?4)",
-            params![item_id, quadrant, score, reasons_json],
-        )?;
         Ok(())
     }
 

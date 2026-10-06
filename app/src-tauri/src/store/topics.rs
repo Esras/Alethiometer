@@ -28,7 +28,7 @@ impl TopicViews for Sql<'_> {
                  SELECT t.id, t.name, t.category, t.obsidian_path,
                         coalesce(nc.n, 0), coalesce(oc.n, 0),
                         coalesce(li.ended_at, li.occurred_at), ls.kind,
-                        m.start, m.title
+                        m.start, m.title, t.priority
                    FROM topics t
                    JOIN latest l ON l.topic_id = t.id
                    LEFT JOIN items li ON li.id = l.item_id
@@ -52,6 +52,7 @@ impl TopicViews for Sql<'_> {
                         Some(s) => Some((s, r.get::<_, Option<String>>(9)?.unwrap_or_default())),
                         None => None,
                     },
+                    priority: r.get(10)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?)
@@ -60,8 +61,8 @@ impl TopicViews for Sql<'_> {
     fn head(&self, id: i64) -> Result<Option<TopicHead>> {
         Ok(self
             .conn()
-            .query_row("SELECT name, category, obsidian_path, score, pills_json, archived_at IS NOT NULL FROM topics WHERE id = ?1", [id], |r| {
-                Ok(TopicHead { name: r.get(0)?, category: r.get(1)?, obsidian_path: r.get(2)?, score: r.get(3)?, pills_json: r.get(4)?, archived: r.get(5)? })
+            .query_row("SELECT name, category, obsidian_path, score, pills_json, archived_at IS NOT NULL, priority FROM topics WHERE id = ?1", [id], |r| {
+                Ok(TopicHead { name: r.get(0)?, category: r.get(1)?, obsidian_path: r.get(2)?, score: r.get(3)?, pills_json: r.get(4)?, archived: r.get(5)?, priority: r.get(6)? })
             })
             .optional()?)
     }
@@ -141,6 +142,10 @@ impl Topics for Sql<'_> {
         Ok(self.conn().execute("UPDATE topics SET category = ?2 WHERE id = ?1", params![id, category])? == 1)
     }
 
+    fn set_priority(&self, id: i64, priority: Option<&str>) -> Result<bool> {
+        Ok(self.conn().execute("UPDATE topics SET priority = ?2 WHERE id = ?1", params![id, priority])? == 1)
+    }
+
     fn set_archived(&self, id: i64, archived: bool) -> Result<bool> {
         Ok(self
             .conn()
@@ -173,7 +178,7 @@ impl Topics for Sql<'_> {
             params![from, into],
         )?;
         c.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
-        for table in ["topic_people", "topic_repos", "search_feedback"] {
+        for table in ["topic_people", "topic_repos", "search_feedback", "topic_tags"] {
             c.execute(&format!("UPDATE OR IGNORE {table} SET topic_id = ?2 WHERE topic_id = ?1"), params![from, into])?;
             c.execute(&format!("DELETE FROM {table} WHERE topic_id = ?1"), [from])?;
         }

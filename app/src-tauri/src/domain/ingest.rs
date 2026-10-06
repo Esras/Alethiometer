@@ -59,6 +59,8 @@ pub struct ItemUpsert {
     /// Author handle in the source (Slack user id, Jira accountId, GitHub login…).
     pub author: Option<Handle>,
     pub occurred_at: Ts,
+    /// When the item was made in its own system (Jira's `created`), if the source says.
+    pub source_created_at: Option<Ts>,
     pub ended_at: Option<Ts>,
     pub due: Option<Due>,
     /// open | done

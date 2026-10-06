@@ -38,7 +38,7 @@ pub const DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUse
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: usize = 20;
 const DEFAULT_LOOKBACK_DAYS: i64 = 14;
-const FIELDS: &str = "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype";
+const FIELDS: &str = "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,issuelinks";
 /// How many recent comments to keep as expanded context.
 const KEEP_COMMENTS: usize = 5;
 /// How far back `create_issue` looks for an issue an earlier attempt created.
@@ -305,6 +305,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
             })
         }),
         occurred_at: s("/updated").and_then(Ts::parse).or_else(|| s("/created").and_then(Ts::parse))?,
+        source_created_at: s("/created").and_then(Ts::parse),
         due: due(f, due_field),
         status: if done { "done" } else { "open" }.into(),
         msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
@@ -682,7 +683,7 @@ mod tests {
         let mut src = source(None);
         src.config["due_field"] = json!("customfield_10050");
         let (b, reqs) = polled_with(src);
-        assert!(reqs[1].1.contains("&fields=summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,customfield_10050&"));
+        assert!(reqs[1].1.contains("&fields=summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,issuelinks,customfield_10050&"));
         // The custom field's real time, converted to local; it wins over duedate.
         assert_eq!(b.items[0].due, Some(Due::At(Ts::parse("2026-10-01T15:00:00Z").unwrap())));
         // Field null and no duedate: no due.
@@ -728,6 +729,8 @@ mod tests {
         assert_eq!(it.status, "open");
         assert_eq!(it.msg_count, Some(2));
         assert_eq!(it.occurred_at, Ts::parse("2026-09-26T14:05:00.000+0000").unwrap());
+        assert_eq!(it.source_created_at, Ts::parse(it.raw_json["fields"]["created"].as_str().unwrap()), "Priorities' age");
+        assert!(it.source_created_at.is_some());
         assert_eq!(it.body, "Workers retry forever on 5xx.\nCap it.");
         assert_eq!(it.messages.len(), 2);
         assert_eq!(it.messages[1].text, "@Sam can you look?");

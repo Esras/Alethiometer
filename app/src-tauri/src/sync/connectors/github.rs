@@ -513,6 +513,7 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         url: s("/html_url").map(str::to_owned),
         author: (!author.is_empty()).then(|| Handle { handle: author.to_string(), display_name: author.to_string() }),
         occurred_at,
+        source_created_at: None,
         ended_at: None,
         due: None,
         status: if closed { "done" } else { "open" }.into(),

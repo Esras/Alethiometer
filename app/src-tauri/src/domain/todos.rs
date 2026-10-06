@@ -2,7 +2,7 @@
 
 use crate::domain::topics::TopicRef;
 use crate::error::Result;
-use crate::time::Due;
+use crate::time::{Date, Due};
 use serde::Serialize;
 
 /// A todo waiting on a signal in Incoming, made when the signal is filed.
@@ -11,6 +11,8 @@ pub struct Held {
     pub target: String,
     pub text: String,
     pub due: Option<String>,
+    /// The scheduled day, for a local todo.
+    pub sched: Option<String>,
 }
 
 /// An open work item you own in a system that holds todos.
@@ -26,7 +28,8 @@ pub struct TodoRow {
     pub summary: Option<String>,
     /// Confirmed, else suggested.
     pub topic: Option<TopicRef>,
-    pub priority: Option<String>,
+    /// A local todo's scheduled day.
+    pub sched: Option<Date>,
     /// Minutes, and who estimated them.
     pub estimate: Option<(i64, String)>,
 }

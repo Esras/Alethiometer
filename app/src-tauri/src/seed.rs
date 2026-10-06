@@ -274,6 +274,9 @@ pub fn seed(uow: &dyn UnitOfWork, clock: &Clock, vault: &std::path::Path) -> any
         sources.insert(kind, sample.source(kind, tag, &format!("{name} (sample)"))?);
     }
 
+    // The built-in source local todos live on, as the app makes it.
+    sources.insert("notes", uow.sources().ensure_local("notes", crate::queries::notes::NOTES_SOURCE)?);
+
     let mut people = HashMap::new();
     for (name, role) in [
         ("Kim", "Procurement"),
@@ -305,6 +308,9 @@ pub fn seed(uow: &dyn UnitOfWork, clock: &Clock, vault: &std::path::Path) -> any
         ("Webhook reliability", "work", "Topics/Webhook reliability.md"),
         ("On-call load", "work", "Topics/On-call load.md"),
         ("Conference CFP", "work", "Topics/Conference CFP.md"),
+        ("Board prep", "work", "Topics/Board prep.md"),
+        ("Staff loop", "work", "Topics/Staff loop.md"),
+        ("Team growth", "work", "Topics/Team growth.md"),
     ] {
         topics.insert(name, sample.topic(name, category, path)?);
     }

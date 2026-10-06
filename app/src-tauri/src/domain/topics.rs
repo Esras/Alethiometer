@@ -27,6 +27,8 @@ pub struct TopicSummary {
     pub last_source: Option<String>,
     /// The next linked meeting within the window: start and title.
     pub next_meeting: Option<(Ts, String)>,
+    /// H, M or L, set by you (Priorities).
+    pub priority: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,8 @@ pub struct TopicHead {
     /// Reason pills, as JSON.
     pub pills_json: String,
     pub archived: bool,
+    /// H, M or L, set by you (Priorities).
+    pub priority: Option<String>,
 }
 
 /// An item confirmed under a topic.
@@ -78,6 +82,8 @@ pub trait Topics {
     /// False when there's no such topic.
     fn rename(&self, id: i64, name: &str) -> Result<bool>;
     fn set_category(&self, id: i64, category: &str) -> Result<bool>;
+    /// H, M, L or none (Priorities' topic priority). False when there's no such topic.
+    fn set_priority(&self, id: i64, priority: Option<&str>) -> Result<bool>;
     fn set_archived(&self, id: i64, archived: bool) -> Result<bool>;
     /// Record where its note is, unless it already has one.
     fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()>;

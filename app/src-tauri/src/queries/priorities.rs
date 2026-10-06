@@ -1,361 +1,583 @@
-//! Priorities (8b): urgent × important, TaskWarrior-style. Four fixed quadrants
-//! (Now-ish, Make room for, Quick touch, Can wait). Each row carries its score and
-//! the reasons behind it as red/yellow/green pills (how much each reason adds).
+//! Priorities (app/docs/priorities.md): open todos in three orders side by
+//! side, Priority, Quick wins and Neglect. Every column holds every todo.
 //!
-//! Quadrant, score and reasons live in the `priorities` table. One kind of reason
-//! is computed live at read time: `{"live": "meeting"}` becomes "meeting in 8m"
-//! from the clock and the item's linked meeting, and drops once the meeting ends.
+//! Scoring is Taskwarrior-style: each factor is scored 0 to 1 and multiplied
+//! by its coefficient (`settings.priorities.coefficients`); the Priority score
+//! is the sum. Value, Pressure and Effort group the factors for the reason
+//! pills and for the other two columns. The database gives each todo's facts
+//! (`PriorityViews::facts`); the curves are here, because they need the Clock
+//! and the Resolver (who is "you", whose People note has which weight). Nothing
+//! is stored: every read scores afresh (user, 2026-10-06).
+//!
+//! Not built yet: thread and topic heat (the baseline is worked out on the work
+//! Mac), tag suggestions, delegated asks.
 //!
 //! Work only: items from personal sources never appear here (boundary rule 3).
 
-use super::{dur_label, ts_label, Pill, TopicRef};
-use crate::clock::Clock;
+use super::people::Resolver;
+use super::todos::TodoExt;
+use super::{dur_label, when_label, Pill, TopicRef};
 use crate::api::Route;
+use crate::clock::Clock;
 use crate::domain::ports::Reads;
+use crate::domain::priorities::TodoFacts;
 use crate::error::Result;
-use crate::seed::{Ctx, ItemSeed};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use crate::settings::{PrioritySettings, Settings};
+use crate::time::{Date, Due, Ts};
+use jiff::SignedDuration;
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
-pub const QUADRANTS: [&str; 4] = ["now", "make_room", "quick", "can_wait"];
+pub fn route(name: &str) -> Option<Route> {
+    match name {
+        "list" => Some(Route::Read(|r, ctx, _| Ok(serde_json::to_value(list(r, ctx.clock, ctx.settings)?)?))),
+        _ => None,
+    }
+}
 
-/// Stored reason. `live` marks a reason whose label is computed at read time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Reason {
-    #[serde(default)]
-    label: String,
-    #[serde(default)]
-    weight: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    live: Option<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Group {
+    Value,
+    Pressure,
+    Effort,
+}
+
+/// One factor of one todo: its 0-to-1 value and what it adds to the score.
+#[derive(Debug, Clone)]
+pub struct Factor {
+    /// `due`, `sched`, `meeting`, `waiting`, `blocks`, `topic_priority`, `who_asked`, `breadth`, `estimate`, `tag:<name>`.
+    pub key: String,
+    pub group: Group,
+    pub value: f64,
+    pub points: f64,
+    /// The reason pill's text.
+    pub label: String,
+}
+
+// ---------------------------------------------------------------- the curves
+
+/// Taskwarrior's due curve (`Task::urgency_due`): 0.2 two weeks or more out,
+/// rising linearly to 1.0 at a week overdue.
+pub fn due_curve(days_overdue: f64) -> f64 {
+    if days_overdue >= 7.0 {
+        1.0
+    } else if days_overdue >= -14.0 {
+        (days_overdue + 14.0) * 0.8 / 21.0 + 0.2
+    } else {
+        0.2
+    }
+}
+
+/// Taskwarrior's scheduled term: 1 once the day has come (user, 2026-10-06).
+pub fn sched_curve(sched: Date, today: Date) -> f64 {
+    if sched <= today { 1.0 } else { 0.0 }
+}
+
+/// The next meeting on the topic: 1 within 15 minutes of its start or while it
+/// runs, falling linearly to 0 at 8 hours out.
+pub fn meeting_curve(minutes_to_start: f64) -> f64 {
+    if minutes_to_start <= 15.0 { 1.0 } else { (1.0 - (minutes_to_start - 15.0) / (480.0 - 15.0)).max(0.0) }
+}
+
+/// Someone else spoke last: 0 right after, 1 after three days.
+pub fn waiting_curve(hours: f64) -> f64 {
+    (hours / 72.0).clamp(0.0, 1.0)
+}
+
+/// People and sources on the topic: half each, full at 10 people and 5 sources.
+pub fn breadth_curve(people: i64, sources: i64) -> f64 {
+    0.5 * (people as f64 / 10.0).min(1.0) + 0.5 * (sources as f64 / 5.0).min(1.0)
+}
+
+/// Short work scores high: 1 at 5 minutes or less, 0 at 4 hours or more, on a log scale.
+pub fn estimate_curve(minutes: i64) -> f64 {
+    let m = minutes.max(1) as f64;
+    (1.0 - (m / 5.0).log2() / 48f64.log2()).clamp(0.0, 1.0)
+}
+
+fn days(d: SignedDuration) -> f64 {
+    d.as_secs_f64() / 86_400.0
+}
+
+/// "today", "Wed", "Oct 9".
+fn day_label(d: Date, clock: &Clock) -> String {
+    when_label(d.at(12, 0, 0, 0), clock.local_now(), false).replace("Today", "today")
+}
+
+fn plural(n: i64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// "3h", "2d".
+fn ago_label(d: SignedDuration) -> String {
+    let h = d.as_secs() / 3600;
+    if h < 24 { format!("{}h", h.max(1)) } else { format!("{}d", h / 24) }
+}
+
+/// Every factor of a todo, with its value and points, those at 0 included.
+pub fn factors(t: &TodoFacts, p: &PrioritySettings, clock: &Clock, who: &Resolver, meeting: Option<(Ts, Ts)>) -> Vec<Factor> {
+    let c = &p.coefficients;
+    let now = clock.now();
+    let today = clock.today();
+    let mut out = vec![];
+    let mut add = |key: &str, group: Group, value: f64, coef: f64, label: String| {
+        out.push(Factor { key: key.into(), group, value, points: value * coef, label });
+    };
+
+    if let Some(due) = t.due {
+        let (overdue, day) = match due {
+            Due::At(at) => (days(now - at), clock.day_of(at)),
+            Due::Day(d) => ((today - d).get_days() as f64, d),
+        };
+        let late = (today - day).get_days();
+        let label = if late > 0 { format!("overdue {late}d") } else { format!("due {}", day_label(day, clock)) };
+        add("due", Group::Pressure, due_curve(overdue), c.due, label);
+    }
+    if let Some(s) = t.sched {
+        add("sched", Group::Pressure, sched_curve(s, today), c.scheduled, format!("sched {}", day_label(s, clock)));
+    }
+    if let Some((start, end)) = meeting {
+        let mins = (start - now).as_secs_f64() / 60.0;
+        let label = if start <= now && now < end { "meeting now".to_string() } else { format!("meeting in {}", dur_label(mins.ceil() as i64)) };
+        add("meeting", Group::Pressure, meeting_curve(mins), c.meeting, label);
+    }
+    if let (Some(at), Some(a)) = (t.last_signal, &t.last_author) {
+        if !who.who(&a.source_kind, a.author_id.as_deref(), &a.name).me {
+            add("waiting", Group::Pressure, waiting_curve(days(now - at) * 24.0), c.waiting, format!("waiting {}", ago_label(now - at)));
+        }
+    }
+    if t.blocks_open > 0 {
+        add("blocks", Group::Value, 1.0, c.blocks, format!("blocks {}", plural(t.blocks_open, "issue", "issues")));
+    }
+    if let Some(level) = t.topic_priority.as_deref() {
+        let (coef, name) = match level {
+            "H" => (c.topic_priority.H, "high"),
+            "M" => (c.topic_priority.M, "medium"),
+            _ => (c.topic_priority.L, "low"),
+        };
+        add("topic_priority", Group::Value, 1.0, coef, format!("topic: {name}"));
+    }
+    if let Some(a) = &t.asker {
+        let w = who.who(&a.source_kind, a.author_id.as_deref(), &a.name);
+        if let Some(p) = w.person_id.and_then(|id| who.person(id)) {
+            if !w.me {
+                add("who_asked", Group::Value, p.weight.unwrap_or(0.0), c.who_asked, format!("{} asked", p.name));
+            }
+        }
+    }
+    if t.topic.is_some() {
+        let b = breadth_curve(t.topic_people, t.topic_sources);
+        let label = if t.topic_people >= t.topic_sources * 2 { plural(t.topic_people, "person", "people") } else { plural(t.topic_sources, "source", "sources") };
+        add("breadth", Group::Value, b, c.breadth, label);
+    }
+    if let Some((m, _)) = t.estimate {
+        add("estimate", Group::Effort, estimate_curve(m), c.estimate, dur_label(m));
+    }
+    for tag in &t.tags {
+        let Some(def) = p.tags.iter().find(|d| d.name.eq_ignore_ascii_case(tag)) else { continue };
+        let group = match def.feeds.as_str() {
+            "pressure" => Group::Pressure,
+            "effort" => Group::Effort,
+            _ => Group::Value,
+        };
+        add(&format!("tag:{}", def.name), group, 1.0, def.coefficient, def.name.clone());
+    }
+    out
+}
+
+/// A reason's colour, by its share of the score (user, 2026-10-06): red for a
+/// third or more, yellow from a sixth, green below.
+fn share_weight(points: f64, score: f64) -> &'static str {
+    let share = if score > 0.0 { points / score } else { 0.0 };
+    if share >= 1.0 / 3.0 {
+        "red"
+    } else if share >= 1.0 / 6.0 {
+        "yellow"
+    } else {
+        "green"
+    }
+}
+
+// ---------------------------------------------------------------- the list
+
+#[derive(Debug, Serialize, Default)]
+pub struct Reasons {
+    pub value: Vec<Pill>,
+    pub pressure: Vec<Pill>,
+    pub effort: Vec<Pill>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DateMark {
+    /// due (hard) | sched (soft)
+    pub kind: &'static str,
+    pub label: String,
+    /// A hard date that has passed. A soft date is never overdue.
+    pub overdue: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Row {
     pub item_id: i64,
+    /// local | jira | obsidian
     pub source: String,
-    pub kind: String,
     pub title: String,
-    pub topic: Option<TopicRef>,
-    pub reasons: Vec<Pill>,
-    pub score: f64,
-    /// Time part of the Selected bar meta ("11:00–11:45", "due Wed", "Today 09:12").
-    pub when: Option<String>,
-    /// People part of the meta (attendees or author).
-    pub people: Option<String>,
-    pub summary: Option<String>,
-    pub body: String,
     pub url: Option<String>,
+    pub topic: Option<TopicRef>,
+    pub topic_priority: Option<String>,
+    /// The hard due date if there is one, else the soft one.
+    pub date: Option<DateMark>,
+    /// For the Date filter: od | today | week (the next 7 days) | later | none.
+    pub when: &'static str,
+    pub estimate: Option<super::todos::Estimate>,
+    pub score: f64,
+    pub value: f64,
+    pub pressure: f64,
+    pub effort: f64,
+    /// For the Score filter: the top, middle or bottom third of the Priority column (hi | mid | lo).
+    pub band: &'static str,
+    pub neglect: f64,
+    pub age_days: i64,
+    pub quiet_days: i64,
+    /// Factors present (0-to-1 value above 0), for the Factor filter.
+    pub factors: Vec<String>,
+    /// Factors that added to the score, by group.
+    pub reasons: Reasons,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Quadrant {
-    pub key: &'static str,
-    pub items: Vec<Row>,
+pub struct Orders {
+    pub priority: Vec<i64>,
+    pub quick: Vec<i64>,
+    pub neglect: Vec<i64>,
 }
 
-pub fn route(name: &str) -> Option<Route> {
-    match name {
-        "list" => Some(Route::Read(|r, ctx, _| Ok(json!({ "quadrants": list(r, ctx.clock)? })))),
-        _ => None,
+#[derive(Debug, Serialize)]
+pub struct List {
+    pub todos: Vec<Row>,
+    pub orders: Orders,
+    pub quick_max: i64,
+    /// The tag vocabulary, for the Factor filter.
+    pub tags: Vec<String>,
+}
+
+fn source_of(ext: &TodoExt) -> &'static str {
+    match ext {
+        TodoExt::Local(_) => "local",
+        TodoExt::Jira(_) => "jira",
+        TodoExt::Obsidian(_) => "obsidian",
     }
 }
 
-/// All four quadrants, always in the same order, rows by score descending.
-pub fn list(reads: &dyn Reads, clock: &Clock) -> Result<Vec<Quadrant>> {
-    let mut out: Vec<Quadrant> = QUADRANTS.iter().map(|&key| Quadrant { key, items: vec![] }).collect();
-    for r in reads.priorities().list()? {
-        let Some(q) = out.iter_mut().find(|q| q.key == r.quadrant) else { continue };
-        let stored: Vec<Reason> = serde_json::from_str(&r.reasons_json).unwrap_or_default();
-        let mut reasons = vec![];
-        for reason in stored {
-            match reason.live.as_deref() {
-                Some("meeting") => {
-                    if let Some(p) = meeting_pill(reads, r.item_id, r.topic.as_ref().map(|t| t.id), clock)? {
-                        reasons.push(p);
-                    }
-                }
-                _ => reasons.push(Pill { label: reason.label, weight: reason.weight }),
+/// Open todos scored, and the three orders. Jira epics are left out (you track
+/// them; the work is in their issues), as are projects the Jira source excludes.
+pub fn list(r: &dyn Reads, clock: &Clock, settings: &Settings) -> Result<List> {
+    let p = &settings.priorities;
+    let now = clock.now();
+    let today = clock.today();
+    let who = Resolver::load(r, &settings.people)?;
+    let skip = super::todos::excluded_projects(r)?;
+    let meetings: HashMap<i64, (Ts, Ts)> =
+        r.priorities().next_meetings(now, now + SignedDuration::from_hours(8))?.into_iter().map(|(t, s, e)| (t, (s, e))).collect();
+
+    struct Scored {
+        row: Row,
+        quick_rate: Option<f64>,
+        minutes: Option<i64>,
+    }
+    let mut scored: Vec<Scored> = vec![];
+    for t in r.priorities().facts()? {
+        let Some(ext) = TodoExt::parse(&t.source_kind, serde_json::from_str::<Value>(&t.raw_json).unwrap_or_default()) else { continue };
+        if let TodoExt::Jira(j) = &ext {
+            if j.is_epic() || super::todos::project_excluded(&j.key, &skip) {
+                continue;
             }
         }
+        let meeting = t.topic.as_ref().and_then(|tp| meetings.get(&tp.id)).copied();
+        let fs = factors(&t, p, clock, &who, meeting);
+        let sum = |g: Group| fs.iter().filter(|f| f.group == g).map(|f| f.points).sum::<f64>();
+        let (value, pressure, effort) = (sum(Group::Value), sum(Group::Pressure), sum(Group::Effort));
+        let score = value + pressure + effort;
 
-        let when = match r.event {
-            Some((s, e)) if clock.day_of(s) == clock.today() => Some(format!("{}–{}", clock.local(s).strftime("%H:%M"), clock.local(e).strftime("%H:%M"))),
-            Some((s, e)) => Some(format!("{}–{}", ts_label(s, clock, true), clock.local(e).strftime("%H:%M"))),
-            None => match r.due {
-                // "due Wed": the day only.
-                Some(d) => Some(format!("due {}", ts_label(d.deadline(clock), clock, false))),
-                None => Some(ts_label(r.at, clock, matches!(r.kind.as_str(), "email" | "message" | "thread"))),
-            },
+        let mut reasons = Reasons::default();
+        for f in fs.iter().filter(|f| f.points > 0.0 && f.key != "estimate") {
+            let pill = Pill { label: f.label.clone(), weight: share_weight(f.points, score).into() };
+            match f.group {
+                Group::Value => reasons.value.push(pill),
+                Group::Pressure => reasons.pressure.push(pill),
+                Group::Effort => reasons.effort.push(pill),
+            }
+        }
+        // Effort leads with where the estimate came from, coloured by size.
+        if let Some((m, by)) = &t.estimate {
+            let w = if *m <= 15 { "green" } else if *m <= 60 { "yellow" } else { "red" };
+            reasons.effort.insert(0, Pill { label: if by == "you" { "your estimate" } else { "AI guess" }.into(), weight: w.into() });
+        }
+
+        let (date, day) = match (t.due, t.sched) {
+            (Some(d), _) => {
+                let day = match d {
+                    Due::At(at) => clock.day_of(at),
+                    Due::Day(d) => d,
+                };
+                (Some(DateMark { kind: "due", label: format!("due {}", day_label(day, clock)), overdue: d.deadline(clock) < now }), Some(day))
+            }
+            (None, Some(s)) => (Some(DateMark { kind: "sched", label: format!("sched {}", day_label(s, clock)), overdue: false }), Some(s)),
+            (None, None) => (None, None),
         };
-        let people = r.attendees.filter(|a| !a.is_empty()).or(r.author);
+        let when = match (&date, day) {
+            (Some(m), _) if m.overdue => "od",
+            (Some(_), Some(d)) => match (d - today).get_days() {
+                ..=0 => "today",
+                1..=7 => "week",
+                _ => "later",
+            },
+            _ => "none",
+        };
 
-        q.items.push(Row {
-            item_id: r.item_id,
-            source: r.source_kind,
-            kind: r.kind,
-            title: r.title,
-            topic: r.topic,
-            reasons,
-            score: r.score,
-            when,
-            people,
-            summary: r.summary,
-            body: r.body,
-            url: r.url,
+        let quiet_from = [Some(t.created), Some(t.changed), t.last_signal].into_iter().flatten().max().unwrap_or(t.created);
+        let age = days(now - t.created).max(0.0);
+        let quiet = days(now - quiet_from).max(0.0);
+
+        let minutes = t.estimate.as_ref().map(|e| e.0);
+        let quick_rate = minutes.filter(|m| *m <= p.quick_max_minutes).map(|m| value / (m.max(1) as f64 / 60.0));
+        scored.push(Scored {
+            quick_rate,
+            minutes,
+            row: Row {
+                item_id: t.item_id,
+                source: source_of(&ext).into(),
+                title: t.title,
+                url: t.url,
+                topic: t.topic,
+                topic_priority: t.topic_priority,
+                date,
+                when,
+                estimate: t.estimate.map(|(minutes, by)| super::todos::Estimate { minutes, by }),
+                score,
+                value,
+                pressure,
+                effort,
+                band: "lo",
+                neglect: p.neglect.age * age + p.neglect.quiet * quiet,
+                age_days: age.floor() as i64,
+                quiet_days: quiet.floor() as i64,
+                factors: fs.iter().filter(|f| f.value > 0.0).map(|f| f.key.clone()).collect(),
+                reasons,
+            },
         });
     }
-    Ok(out)
+
+    let by = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
+    // Priority: score, then shorter first.
+    let mut priority: Vec<&Scored> = scored.iter().collect();
+    priority.sort_by(|a, b| by(a.row.score, b.row.score).then(a.minutes.unwrap_or(i64::MAX).cmp(&b.minutes.unwrap_or(i64::MAX))).then(a.row.item_id.cmp(&b.row.item_id)));
+    // Quick wins: under the cut-off by value per hour (deadlines ignored), then the rest by length, then the unestimated by score.
+    let mut quick: Vec<&Scored> = scored.iter().collect();
+    quick.sort_by(|a, b| {
+        let tier = |s: &Scored| if s.quick_rate.is_some() { 0 } else if s.minutes.is_some() { 1 } else { 2 };
+        tier(a).cmp(&tier(b)).then_with(|| match tier(a) {
+            0 => by(a.quick_rate.unwrap_or(0.0), b.quick_rate.unwrap_or(0.0)).then(a.minutes.cmp(&b.minutes)),
+            1 => a.minutes.cmp(&b.minutes).then(by(a.row.score, b.row.score)),
+            _ => by(a.row.score, b.row.score),
+        })
+        .then(a.row.item_id.cmp(&b.row.item_id))
+    });
+    // Neglect: most neglected first, then oldest.
+    let mut neglect: Vec<&Scored> = scored.iter().collect();
+    neglect.sort_by(|a, b| by(a.row.neglect, b.row.neglect).then(b.row.age_days.cmp(&a.row.age_days)).then(a.row.item_id.cmp(&b.row.item_id)));
+
+    let n = priority.len();
+    let bands: HashMap<i64, &'static str> = priority
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.row.item_id, if i * 3 < n { "hi" } else if i * 3 < 2 * n { "mid" } else { "lo" }))
+        .collect();
+    let orders = Orders {
+        priority: priority.iter().map(|s| s.row.item_id).collect(),
+        quick: quick.iter().map(|s| s.row.item_id).collect(),
+        neglect: neglect.iter().map(|s| s.row.item_id).collect(),
+    };
+    let todos = scored
+        .into_iter()
+        .map(|mut s| {
+            s.row.band = bands.get(&s.row.item_id).copied().unwrap_or("lo");
+            s.row
+        })
+        .collect();
+    Ok(List { todos, orders, quick_max: p.quick_max_minutes, tags: p.tags.iter().map(|t| t.name.clone()).collect() })
 }
 
-/// "meeting in 8m" for the item's own meeting, or else the next meeting linked
-/// to its topic. Red within 15 minutes, yellow within the hour, green later.
-/// None once the meeting is over (or there isn't one today).
-fn meeting_pill(reads: &dyn Reads, item_id: i64, topic_id: Option<i64>, clock: &Clock) -> Result<Option<Pill>> {
-    let now = clock.now();
-    let (day_start, day_end) = clock.day_range(clock.today());
-    let Some((start, _)) = reads.priorities().next_meeting(item_id, topic_id, now, day_start, day_end)? else { return Ok(None) };
-    let secs = (start - now).as_secs();
-    if secs <= 0 {
-        return Ok(Some(Pill { label: "meeting now".into(), weight: "red".into() }));
-    }
-    let mins = (secs + 59) / 60;
-    let weight = match mins {
-        0..=15 => "red",
-        16..=60 => "yellow",
-        _ => "green",
-    };
-    Ok(Some(Pill { label: format!("meeting in {}", dur_label(mins)), weight: weight.into() }))
+/// Each open todo's place in the Priority column, from 1.
+pub fn ranks(r: &dyn Reads, clock: &Clock, settings: &Settings) -> Result<HashMap<i64, usize>> {
+    Ok(list(r, clock, settings)?.orders.priority.into_iter().enumerate().map(|(i, id)| (id, i + 1)).collect())
 }
 
 // ---------------------------------------------------------------------------
-// Sample data (work only).
+// Sample data: the todos of `project/Priorities Three Orders.dc.html` (made up).
 
-struct P<'a> {
-    source: &'static str,
-    kind: &'static str,
-    title: &'a str,
-    topic: &'a str,
-    quadrant: &'static str,
-    score: f64,
-    reasons: &'a [(&'a str, &'a str)],
-    author: Option<&'static str>,
-    summary: &'a str,
-    body: &'a str,
-    days: i64,
-    hm: &'a str,
-    due: Option<(i64, &'a str)>,
-    url: &'a str,
+/// `flags`: b blocks others (Jira links), a someone asked (the signal it came
+/// from, or the reporter), w waiting on you (that person spoke last).
+struct T {
+    src: &'static str,
+    title: &'static str,
+    topic: &'static str,
+    est: i64,
+    mine: bool,
+    /// Hard (`due`) or soft (`sched`) date, days from today.
+    date: Option<(&'static str, i64)>,
+    flags: &'static str,
+    asker: Option<&'static str>,
+    blocks: i64,
+    age: i64,
+    quiet: i64,
 }
 
-fn reasons_json(reasons: &[(&str, &str)]) -> String {
-    let v: Vec<Reason> = reasons
-        .iter()
-        .map(|(label, weight)| Reason { label: (*label).into(), weight: (*weight).into(), live: None })
-        .collect();
-    serde_json::to_string(&v).expect("reasons json")
-}
+pub fn seed(ctx: &crate::seed::Ctx) -> anyhow::Result<()> {
+    use crate::domain::sample::TodoExtras;
+    use crate::seed::ItemSeed;
 
-fn prioritize(ctx: &Ctx, item_id: i64, quadrant: &str, score: f64, reasons: &str) {
-    ctx.sample().priority(item_id, quadrant, score, reasons).expect("seed priority");
-}
-
-pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
-    // Now-ish #1 is today's 11:00 Q4 headcount meeting (already on the strip). The
-    // decision it exists for is the item's title; the strip keeps the event title.
-    {
-        let q4 = ctx.meeting_id(0, "Q4 headcount");
-        ctx.sample().patch_item(
-            q4,
-            &crate::domain::sample::ItemPatch {
-                title: Some("Platform vs Data reqs"),
-                body: Some("Two open reqs for Q4, one budget line. Priya wants a Data eng hire for the ingest backlog; Jordan wants a second Platform SRE for on-call load. Lee brings attrition numbers. You make the call in the room."),
-                url: Some("https://calendar.google.com/calendar/r/day"),
-                ..Default::default()
-            },
-        )?;
-        let reasons = serde_json::to_string(&[
-            Reason { label: String::new(), weight: "red".into(), live: Some("meeting".into()) },
-            Reason { label: "your decision".into(), weight: "yellow".into(), live: None },
-        ])?;
-        prioritize(ctx, q4, "now", 8.4, &reasons);
+    for (topic, level) in [
+        ("Q4 headcount", "H"),
+        ("Acme outage", "H"),
+        ("Board prep", "H"),
+        ("Sr. EM offer", "M"),
+        ("Datadog renewal", "M"),
+        ("Webhook reliability", "M"),
+        ("Staff loop", "L"),
+        ("Team growth", "L"),
+        ("Conference CFP", "L"),
+    ] {
+        ctx.sample().topic_priority(ctx.topic(topic), level)?;
     }
 
-    let rows: &[P] = &[
-        // ---- Now-ish
-        P {
-            source: "gmail", kind: "email", title: "Reply to Dana", topic: "Acme outage", quadrant: "now", score: 9.1,
-            reasons: &[("customer asking", "red"), ("Sev 2", "yellow"), ("today", "green")],
-            author: Some("Dana"), summary: "Asking for an ETA and whether webhooks were dropped or delayed",
-            body: "Dana (Acme VP Eng): \"Our ops team is seeing delayed webhook deliveries since this morning. Can you confirm whether anything was dropped, and give us an ETA we can pass on?\"",
-            days: 0, hm: "09:41", due: None, url: "https://mail.google.com/mail/u/0/#inbox/acme-dana",
-        },
-        P {
-            source: "gmail", kind: "email", title: "Approve Sr. EM offer", topic: "Sr. EM offer", quadrant: "now", score: 7.0,
-            reasons: &[("expires Wed", "yellow"), ("hiring", "green")],
-            author: Some("Lee"), summary: "Offer letter ready; needs your approval before the candidate's deadline",
-            body: "Lee: \"Comp is at band midpoint plus sign-on, as discussed. Candidate has a competing offer that expires Wednesday. Approve in Workday when you can.\"",
-            days: -1, hm: "16:20", due: Some((3, "17:00")), url: "https://mail.google.com/mail/u/0/#inbox/sr-em-offer",
-        },
-        // ---- Make room for
-        P {
-            source: "sheets", kind: "sheet", title: "Datadog counter-offer", topic: "Datadog renewal", quadrant: "make_room", score: 5.8,
-            reasons: &[("$ at stake", "red"), ("due Wed", "yellow")],
-            author: Some("Ana"), summary: "Counter to 12% off / 3y: 2y + true-down at 12 months",
-            body: "Cost model v3 has the 1y vs 3y tabs. Counter needs the walk-away number agreed with Kim first; send to Ravi before Thursday's final terms call.",
-            days: -2, hm: "15:10", due: Some((3, "12:00")), url: "https://docs.google.com/spreadsheets/d/datadog-counter",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Q4 strategy doc, first draft", topic: "Q4 planning", quadrant: "make_room", score: 4.0,
-            reasons: &[("flagged important", "red"), ("no date", "green")],
-            author: None, summary: "Outline exists; needs the platform bets section",
-            body: "Outline: 1) where we are, 2) three platform bets (ingest v2, alert hygiene, webhook reliability), 3) what we stop doing, 4) headcount ask. Sections 2–4 still empty.",
-            days: -5, hm: "08:30", due: None, url: "obsidian://open?vault=work&file=Planning/Q4%20strategy",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Director narrative, one page", topic: "Career", quadrant: "make_room", score: 2.9,
-            reasons: &[("Jobs category", "yellow")],
-            author: None, summary: "One-pager for the director promo packet",
-            body: "Scope grown this year: platform + data ingest, 3 teams, Acme escalation owner. Needs two concrete org-level outcomes and one miss with what changed.",
-            days: -9, hm: "20:00", due: None, url: "obsidian://open?vault=work&file=Career/Director%20narrative",
-        },
-        // ---- Quick touch (or hand off)
-        P {
-            source: "jira", kind: "issue", title: "PLAT-1201 review request", topic: "Webhook reliability", quadrant: "quick", score: 5.5,
-            reasons: &[("waiting 2d", "yellow"), ("others can review", "green")],
-            author: Some("Marco"), summary: "Retry backoff with jitter for v2 delivery workers",
-            body: "Marco: \"Adds exponential backoff with full jitter and a per-endpoint retry budget. Would like your eyes on the budget defaults, or hand to Jordan.\"",
-            days: -2, hm: "11:05", due: None, url: "https://jira.example.com/browse/PLAT-1201",
-        },
-        P {
-            source: "slack", kind: "message", title: "Jordan: own disk-pressure tuning?", topic: "Alerting · P2", quadrant: "quick", score: 4.7,
-            reasons: &[("fires every 20m", "yellow"), ("hand off", "green")],
-            author: Some("Jordan"), summary: "Offered to take the node-7 alert tuning",
-            body: "Jordan: \"I can take disk-pressure on node-7 this sprint if you're OK with me muting it for 48h while I tune thresholds.\"",
-            days: 0, hm: "10:02", due: None, url: "https://slack.com/app_redirect?channel=D-jordan",
-        },
-        P {
-            source: "jira", kind: "issue", title: "PROC-412 sign-off", topic: "Datadog renewal", quadrant: "quick", score: 4.2,
-            reasons: &[("blocking Finance", "yellow"), ("one click", "green")],
-            author: Some("Kim"), summary: "Budget owner approval on the renewal ticket",
-            body: "Kim: \"Finance can't route the PO until the budget owner approves PROC-412. Terms can still change; this is only the budget line.\"",
-            days: -1, hm: "14:40", due: None, url: "https://jira.example.com/browse/PROC-412",
-        },
-        // ---- Can wait
-        P {
-            source: "gmail", kind: "email", title: "CFP deadline Nov 15", topic: "Conference CFP", quadrant: "can_wait", score: 2.4,
-            reasons: &[("7 weeks out", "green")], author: None, summary: "SREcon CFP closes Nov 15",
-            body: "Reminder from the program committee: talk proposals close November 15.", days: -6, hm: "08:00", due: None,
-            url: "https://mail.google.com/mail/u/0/#inbox/cfp",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Talk abstract outline", topic: "Conference CFP", quadrant: "can_wait", score: 1.6,
-            reasons: &[("no date", "green")], author: None, summary: "\"Retry storms we caused ourselves\"",
-            body: "Hook: the Acme retry storm. Three lessons, one diagram, live demo optional.", days: -3, hm: "21:00", due: None,
-            url: "obsidian://open?vault=work&file=Talks/Retry%20storms",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Skip-level notes for Lee", topic: "Career", quadrant: "can_wait", score: 2.2,
-            reasons: &[("next month", "green")], author: None, summary: "Topics for the October skip-level",
-            body: "Ask about director calibration timeline; bring the on-call load data.", days: -4, hm: "17:30", due: None,
-            url: "obsidian://open?vault=work&file=Career/Skip-level",
-        },
-        P {
-            source: "notion", kind: "doc", title: "Read \"Staff to Director\" doc", topic: "Career", quadrant: "can_wait", score: 1.2,
-            reasons: &[("reading", "green")], author: Some("Lee"), summary: "Internal leveling guide",
-            body: "HR's leveling guide for the director track, shared by Lee.", days: -8, hm: "10:00", due: None,
-            url: "https://notion.so/leveling-director",
-        },
-        P {
-            source: "jira", kind: "issue", title: "V1-88 deprecation banner copy", topic: "v1 ingest deprecation", quadrant: "can_wait", score: 2.3,
-            reasons: &[("before sunset", "green")], author: Some("Marco"), summary: "Copy for the in-app banner",
-            body: "Needs final wording and the sunset date.", days: -5, hm: "13:15", due: None,
-            url: "https://jira.example.com/browse/V1-88",
-        },
-        P {
-            source: "sheets", kind: "sheet", title: "Customers still on v1", topic: "v1 ingest deprecation", quadrant: "can_wait", score: 1.9,
-            reasons: &[("12 accounts", "green")], author: Some("Sam"), summary: "Account list with v1 traffic share",
-            body: "12 accounts still send >10% of traffic to v1. Sam owns outreach.", days: -7, hm: "09:30", due: None,
-            url: "https://docs.google.com/spreadsheets/d/v1-customers",
-        },
-        P {
-            source: "notion", kind: "doc", title: "Sunset comms plan", topic: "v1 ingest deprecation", quadrant: "can_wait", score: 1.4,
-            reasons: &[("draft", "green")], author: None, summary: "Timeline and who tells whom",
-            body: "T-90 email, T-30 banner, T-7 account calls.", days: -12, hm: "15:00", due: None,
-            url: "https://notion.so/v1-sunset-comms",
-        },
-        P {
-            source: "sheets", kind: "sheet", title: "Q3 pager stats", topic: "On-call load", quadrant: "can_wait", score: 2.0,
-            reasons: &[("for Q4 review", "green")], author: Some("Jordan"), summary: "Pages per shift, by service",
-            body: "Pages per shift up 30% vs Q2; alerting noise is most of it.", days: -3, hm: "11:00", due: None,
-            url: "https://docs.google.com/spreadsheets/d/pager-q3",
-        },
-        P {
-            source: "jira", kind: "issue", title: "PLAT-1150 runbook cleanup", topic: "On-call load", quadrant: "can_wait", score: 1.1,
-            reasons: &[("backlog", "green")], author: None, summary: "Stale runbooks for retired services",
-            body: "Seven runbooks point at services that no longer exist.", days: -20, hm: "10:00", due: None,
-            url: "https://jira.example.com/browse/PLAT-1150",
-        },
-        P {
-            source: "notion", kind: "doc", title: "Alert ownership map", topic: "Alerting · P2", quadrant: "can_wait", score: 1.7,
-            reasons: &[("nice to have", "green")], author: None, summary: "Who owns which alert",
-            body: "Half-filled table of alerts to owning team.", days: -14, hm: "16:00", due: None,
-            url: "https://notion.so/alert-ownership",
-        },
-        P {
-            source: "github", kind: "pr", title: "Retry budget RFC comments", topic: "Webhook reliability", quadrant: "can_wait", score: 2.1,
-            reasons: &[("FYI", "green")], author: Some("Marco"), summary: "platform/rfcs#41",
-            body: "Discussion on per-endpoint retry budgets; no decision needed from you yet.", days: -1, hm: "18:10", due: None,
-            url: "https://github.com/platform/rfcs/pull/41",
-        },
-        P {
-            source: "slack", kind: "message", title: "Collect team OKR drafts", topic: "Q4 planning", quadrant: "can_wait", score: 1.8,
-            reasons: &[("next week", "green")], author: Some("Priya"), summary: "#eng-leads thread",
-            body: "Priya: \"Drafts in the shared folder by next Friday please.\"", days: -2, hm: "09:20", due: None,
-            url: "https://slack.com/app_redirect?channel=eng-leads",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Postmortem skeleton", topic: "Acme outage", quadrant: "can_wait", score: 1.5,
-            reasons: &[("after fix", "green")], author: None, summary: "Start once the fix ships",
-            body: "Timeline, contributing factors, retry storm graph, action items.", days: 0, hm: "09:30", due: None,
-            url: "obsidian://open?vault=work&file=Postmortems/Acme",
-        },
-        P {
-            source: "notion", kind: "doc", title: "Log retention tiers", topic: "Datadog renewal", quadrant: "can_wait", score: 1.3,
-            reasons: &[("research", "green")], author: Some("Ana"), summary: "15d vs 30d cost comparison",
-            body: "Ana's notes on moving debug logs to 15-day retention.", days: -9, hm: "14:00", due: None,
-            url: "https://notion.so/log-retention",
-        },
-        P {
-            source: "gmail", kind: "email", title: "Req template for Data eng", topic: "Q4 headcount", quadrant: "can_wait", score: 1.0,
-            reasons: &[("after decision", "green")], author: Some("Lee"), summary: "Template to fill if the Data req wins",
-            body: "Lee: \"If you go with the Data req, fill this in and I'll open it the same day.\"", days: -1, hm: "12:10", due: None,
-            url: "https://mail.google.com/mail/u/0/#inbox/req-template",
-        },
-        P {
-            source: "obsidian", kind: "note", title: "Sr. EM onboarding plan", topic: "Sr. EM offer", quadrant: "can_wait", score: 0.9,
-            reasons: &[("after accept", "green")], author: None, summary: "First 30 days",
-            body: "Week 1 shadowing, week 2 1:1s with each lead, week 3 own the platform standup.", days: -4, hm: "19:00", due: None,
-            url: "obsidian://open?vault=work&file=Hiring/Sr%20EM%20onboarding",
-        },
+    let t = |src, title, topic, est, mine, date, flags, asker, blocks, age, quiet| T { src, title, topic, est, mine, date, flags, asker, blocks, age, quiet };
+    let rows = [
+        t("local", "Send Platform vs Data split to Priya", "Q4 headcount", 30, true, Some(("due", 0)), "a", Some("Priya"), 0, 2, 0),
+        t("local", "Reply to Dana with the outage timeline", "Acme outage", 20, false, Some(("due", 0)), "aw", Some("Dana"), 0, 1, 0),
+        t("local", "Approve Sr. EM offer", "Sr. EM offer", 10, false, Some(("due", 1)), "a", Some("Lee"), 0, 5, 1),
+        t("jira", "PLAT-1204 · review webhook retry PR", "Webhook reliability", 15, false, None, "aw", Some("Marco"), 0, 3, 2),
+        t("jira", "PROC-412 · sign off the Datadog PO", "Datadog renewal", 5, false, Some(("due", 2)), "ba", Some("Kim"), 1, 6, 4),
+        t("obsidian", "Q4 strategy doc, first draft", "Q4 planning", 240, true, None, "", None, 0, 21, 9),
+        t("obsidian", "Director narrative, one page", "Career", 120, true, None, "", None, 0, 64, 64),
+        t("local", "Hand off disk-pressure tuning to Jordan", "Alerting · P2", 10, true, None, "", None, 0, 9, 0),
+        t("jira", "PLAT-1173 · retry limits ADR", "Webhook reliability", 90, true, None, "b", None, 3, 18, 11),
+        t("local", "Datadog counter-offer numbers", "Datadog renewal", 45, false, Some(("due", 1)), "", None, 0, 8, 1),
+        t("local", "Book the Q4 offsite room", "Q4 planning", 10, false, Some(("due", 3)), "", None, 0, 12, 12),
+        t("jira", "PLAT-1219 · renew staging webhook secret", "Webhook reliability", 15, false, None, "", None, 0, 15, 15),
+        t("local", "Thank Lee for covering the pager", "Acme outage", 5, false, None, "", None, 0, 4, 4),
+        t("obsidian", "Interview rubric for the EM loop", "Sr. EM offer", 60, false, None, "", None, 0, 10, 6),
+        t("local", "Ask Kim for the Acme RCA draft", "Acme outage", 5, false, Some(("due", 2)), "", None, 0, 3, 0),
+        t("jira", "DEVOPS-88 · retire the v1 ingest cron", "v1 ingest deprecation", 30, false, None, "b", None, 1, 47, 30),
+        t("obsidian", "Alert-noise baseline write-up", "Alerting · P2", 120, true, None, "", None, 0, 35, 22),
+        t("local", "Reply to the CFP co-author", "Conference CFP", 10, false, Some(("sched", 2)), "aw", Some("Sam"), 0, 6, 1),
+        t("obsidian", "Talk abstract outline", "Conference CFP", 60, false, Some(("due", 40)), "", None, 0, 40, 40),
+        t("jira", "PLAT-1240 · retry queue depth dashboard", "Webhook reliability", 180, false, None, "", None, 0, 88, 53),
+        t("local", "Tell the team the headcount outcome", "Q4 headcount", 15, false, Some(("sched", 2)), "", None, 0, 1, 1),
+        t("local", "Expense the Datadog workshop", "Datadog renewal", 10, false, Some(("due", -1)), "", None, 0, 14, 14),
+        t("obsidian", "Skip-level notes for Priya", "Staff loop", 20, false, Some(("sched", 1)), "", None, 0, 7, 7),
+        t("jira", "DEVOPS-91 · ingest cutover runbook", "v1 ingest deprecation", 120, false, None, "b", None, 1, 52, 41),
+        t("local", "Approve PTO requests", "Staff loop", 5, false, Some(("due", 1)), "aw", Some("Lee"), 0, 3, 3),
+        t("obsidian", "Mentoring plan for Sam", "Team growth", 45, false, None, "", None, 0, 71, 71),
+        t("jira", "PLAT-1251 · fix the flaky webhook test", "Webhook reliability", 30, false, None, "", None, 0, 120, 34),
+        t("local", "Board-prep numbers to Finance", "Board prep", 20, false, Some(("due", 2)), "a", Some("Ana"), 0, 2, 0),
+        t("obsidian", "Reading group, SRE ch. 6", "Team growth", 45, false, Some(("sched", 3)), "", None, 0, 30, 30),
+        t("local", "Reply to the recruiter about the panel", "Sr. EM offer", 5, false, None, "aw", Some("Lee"), 0, 4, 1),
+        t("jira", "PLAT-1199 · decide retry caps", "Webhook reliability", 20, false, None, "b", None, 2, 26, 19),
+        t("obsidian", "Delegation map for Q1", "Q4 planning", 90, true, None, "", None, 0, 58, 58),
+        t("local", "Check alert routing after the Opsgenie change", "Alerting · P2", 15, false, None, "", None, 0, 11, 11),
+        t("local", "Order team dinner for the offsite", "Q4 planning", 10, false, Some(("sched", 3)), "", None, 0, 9, 9),
     ];
 
-    for p in rows {
+    for (n, r) in rows.iter().enumerate() {
+        let created = ctx.at(-r.age, "09:00");
+        let changed = ctx.at(-r.quiet, if r.quiet == 0 { "09:30" } else { "09:00" });
+        let due = match r.date {
+            Some(("due", d)) => Some(crate::time::Due::Day(ctx.today + jiff::ToSpan::days(d))),
+            _ => None,
+        };
+        let sched_day = match r.date {
+            Some(("sched", d)) => Some(ctx.today + jiff::ToSpan::days(d)),
+            _ => None,
+        };
+        let (source, kind, author) = match r.src {
+            "jira" => ("jira", "issue", r.asker),
+            "obsidian" => ("obsidian", "task", None),
+            _ => ("notes", "task", None),
+        };
+        let key = r.title.split(" · ").next().unwrap_or_default();
+        let url = match r.src {
+            "jira" => format!("https://jira.example.com/browse/{key}"),
+            "obsidian" => format!("obsidian://open?vault=work&file={}", r.topic.replace(' ', "%20")),
+            _ => String::new(),
+        };
         let id = ctx.item(ItemSeed {
-            source: p.source,
-            kind: p.kind,
-            title: p.title.into(),
-            body: p.body.into(),
-            summary: Some(p.summary.into()),
-            url: Some(p.url.into()),
-            author: p.author,
-            occurred_at: ctx.at(p.days, p.hm),
-            due: p.due.map(|(d, hm)| crate::time::Due::At(ctx.at(d, hm))),
+            source,
+            kind,
+            title: r.title.into(),
+            url: (!url.is_empty()).then_some(url),
+            author,
+            occurred_at: if r.src == "jira" { changed } else { created },
+            due,
             owner: Some("you".into()),
             ..Default::default()
         });
-        ctx.link(id, p.topic, "confirmed");
-        prioritize(ctx, id, p.quadrant, p.score, &reasons_json(p.reasons));
+        ctx.link(id, r.topic, "confirmed");
+
+        // The signal a local todo came from, with the asker's message.
+        let mut from_item = None;
+        if r.src == "local" {
+            if let Some(who) = r.asker {
+                let signal = ctx.item(ItemSeed {
+                    source: "gmail",
+                    kind: "email",
+                    title: format!("{who}: {}", r.title),
+                    author: Some(who),
+                    occurred_at: created,
+                    seen: true,
+                    ..Default::default()
+                });
+                if r.flags.contains('w') {
+                    ctx.message(signal, changed, who, "Any update on this?");
+                }
+                from_item = Some((signal, format!("{who}: {}", r.title)));
+            }
+        }
+        if r.src == "jira" && r.flags.contains('w') {
+            if let Some(who) = r.asker {
+                ctx.message(id, changed, who, "Could you take a look when you get a minute?");
+            }
+        }
+
+        let raw = match r.src {
+            "jira" => {
+                let links: Vec<Value> = (0..r.blocks)
+                    .map(|i| {
+                        json!({ "type": { "name": "Blocks", "inward": "is blocked by", "outward": "blocks" },
+                                "outwardIssue": { "key": format!("{}-{}", key.split('-').next().unwrap_or("PLAT"), 2000 + n * 10 + i as usize),
+                                                  "fields": { "status": { "name": "To Do", "statusCategory": { "key": "new" } } } } })
+                    })
+                    .collect();
+                json!({ "key": key, "fields": { "summary": r.title.split(" · ").nth(1).unwrap_or(r.title), "status": { "name": "In Progress" },
+                                               "issuetype": { "name": "Task" }, "issuelinks": links } })
+            }
+            "obsidian" => json!({ "path": format!("Topics/{}.md", r.topic), "text": r.title, "line": 3 + n }),
+            _ => json!({ "from": from_item.as_ref().map(|f| f.1.clone()), "from_item": from_item.as_ref().map(|f| f.0) }),
+        };
+        let raw = raw.to_string();
+        ctx.sample().todo_extras(
+            id,
+            &TodoExtras {
+                raw_json: &raw,
+                sched_day,
+                source_created_at: (r.src == "jira").then_some(created),
+                estimate: Some((r.est, if r.mine { "you" } else { "ai" })),
+                created_at: created,
+                updated_at: changed,
+            },
+        )?;
     }
     Ok(())
 }
@@ -364,83 +586,264 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crate::state::App;
-    use crate::time::Date;
     use rusqlite::Connection;
 
-    fn setup() -> (Connection, Date, tempfile::TempDir) {
+    const NOW: &str = "2026-09-24T10:52:00Z";
+
+    fn setup() -> (Connection, Clock, tempfile::TempDir) {
         let conn = crate::db::open_in_memory().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        crate::seed::seed(&crate::store::over(&conn), &at(jiff::civil::date(2026, 9, 24), "10:52"), dir.path()).unwrap();
-        (conn, jiff::civil::date(2026, 9, 24), dir)
+        let clock = crate::sync::test_clock(NOW);
+        crate::seed::seed(&crate::store::over(&conn), &clock, dir.path()).unwrap();
+        (conn, clock, dir)
     }
 
-    /// A clock at "HH:MM" on `day`, in UTC.
-    fn at(day: Date, hm: &str) -> Clock {
-        crate::sync::test_clock(&format!("{day}T{hm}:00Z"))
+    fn scored(conn: &Connection, clock: &Clock, settings: &Settings) -> List {
+        list(&crate::store::over(conn), clock, settings).unwrap()
     }
 
-    fn find<'a>(qs: &'a [Quadrant], title: &str) -> &'a Row {
-        qs.iter().flat_map(|q| &q.items).find(|r| r.title == title).unwrap_or_else(|| panic!("no row {title}"))
+    fn row<'a>(l: &'a List, title: &str) -> &'a Row {
+        l.todos.iter().find(|r| r.title == title).unwrap_or_else(|| panic!("no todo {title}"))
+    }
+
+    fn id_of(conn: &Connection, title: &str) -> i64 {
+        conn.query_row("SELECT id FROM items WHERE title = ?1", [title], |r| r.get(0)).unwrap()
     }
 
     #[test]
-    fn four_quadrants_in_order_sorted_by_score() {
-        let (conn, day, _d) = setup();
-        let qs = list(&crate::store::over(&conn), &at(day, "10:52")).unwrap();
-        assert_eq!(qs.iter().map(|q| q.key).collect::<Vec<_>>(), QUADRANTS);
-        let now: Vec<_> = qs[0].items.iter().map(|r| r.title.as_str()).collect();
-        assert_eq!(now, ["Reply to Dana", "Platform vs Data reqs", "Approve Sr. EM offer"]);
-        for q in &qs {
-            assert!(q.items.windows(2).all(|w| w[0].score >= w[1].score), "{} not sorted", q.key);
+    fn curves_match_taskwarrior_where_it_has_the_factor() {
+        assert_eq!(due_curve(-30.0), 0.2);
+        assert_eq!(due_curve(-14.0), 0.2);
+        assert!((due_curve(0.0) - (0.2 + 14.0 * 0.8 / 21.0)).abs() < 1e-9);
+        assert_eq!(due_curve(7.0), 1.0);
+        let d = |s: &str| s.parse::<Date>().unwrap();
+        assert_eq!(sched_curve(d("2026-09-25"), d("2026-09-24")), 0.0);
+        assert_eq!(sched_curve(d("2026-09-24"), d("2026-09-24")), 1.0);
+        assert_eq!(sched_curve(d("2026-09-01"), d("2026-09-24")), 1.0);
+        assert_eq!(estimate_curve(5), 1.0);
+        assert_eq!(estimate_curve(240), 0.0);
+        assert!(estimate_curve(30) > estimate_curve(60));
+        assert_eq!(meeting_curve(10.0), 1.0);
+        assert_eq!(meeting_curve(480.0), 0.0);
+        assert_eq!(waiting_curve(72.0), 1.0);
+        assert_eq!(breadth_curve(10, 5), 1.0);
+        assert_eq!(breadth_curve(0, 0), 0.0);
+    }
+
+    #[test]
+    fn every_column_holds_every_todo_and_epics_are_left_out() {
+        let (conn, clock, _d) = setup();
+        let epic = id_of(&conn, "PLAT-1240 · retry queue depth dashboard");
+        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.fields.issuetype.name', 'Epic') WHERE id = ?1", [epic]).unwrap();
+        let l = scored(&conn, &clock, &Settings::default());
+        assert_eq!(l.todos.len(), 33, "the mock's 34, less the epic");
+        assert!(!l.todos.iter().any(|r| r.item_id == epic));
+        let mut sets = [l.orders.priority.clone(), l.orders.quick.clone(), l.orders.neglect.clone()];
+        for s in &mut sets {
+            s.sort();
         }
-        assert!(qs[3].items.len() >= 15);
-        let dana = find(&qs, "Reply to Dana");
-        assert_eq!(dana.topic.as_ref().unwrap().name, "Acme outage");
-        assert_eq!(dana.people.as_deref(), Some("Dana"));
+        assert_eq!(sets[0], sets[1]);
+        assert_eq!(sets[1], sets[2]);
+        assert_eq!(sets[0].len(), 33);
     }
 
     #[test]
-    fn meeting_pill_is_live() {
-        let (conn, day, _d) = setup();
-        let row = |hm: &str| {
-            let qs = list(&crate::store::over(&conn), &at(day, hm)).unwrap();
-            let r = find(&qs, "Platform vs Data reqs");
-            (r.reasons.iter().map(|p| (p.label.clone(), p.weight.clone())).collect::<Vec<_>>(), r.when.clone())
+    fn scores_are_the_sum_of_factor_times_coefficient() {
+        let (conn, clock, _d) = setup();
+        let l = scored(&conn, &clock, &Settings::default());
+        // Due today (Taskwarrior: 0.733 × 12) under a high-priority topic (6.0).
+        let send = row(&l, "Send Platform vs Data split to Priya");
+        let due_today = (0.2 + 14.0 * 0.8 / 21.0) * 12.0;
+        assert!((send.pressure - due_today).abs() < 1e-9, "{}", send.pressure);
+        assert_eq!(send.value, 6.0);
+        assert!((send.score - (due_today + 6.0)).abs() < 1e-9);
+        assert_eq!(send.reasons.pressure[0].label, "due today");
+        assert_eq!(send.reasons.pressure[0].weight, "red", "more than a third of the score");
+        assert_eq!(send.reasons.value[0].label, "topic: high");
+        assert_eq!(send.date.as_ref().unwrap().kind, "due");
+        assert_eq!(send.when, "today");
+        // Factors at coefficient 0 count as present but add nothing and show no pill.
+        assert!(send.factors.contains(&"meeting".to_string()), "the 11:00 Q4 headcount");
+        assert!(!send.reasons.pressure.iter().any(|p| p.label.starts_with("meeting")));
+        // Effort leads with where its estimate came from.
+        assert_eq!(send.reasons.effort[0].label, "your estimate");
+
+        let adr = row(&l, "PLAT-1173 · retry limits ADR");
+        assert_eq!(adr.value, 8.0 + 3.9, "blocks open issues, medium topic");
+        assert_eq!(adr.reasons.value[0].label, "blocks 3 issues");
+
+        // A scheduled day still ahead adds nothing; Taskwarrior's step starts on the day.
+        let skip = row(&l, "Skip-level notes for Priya");
+        assert_eq!(skip.pressure, 0.0);
+        assert_eq!(skip.date.as_ref().unwrap().kind, "sched");
+
+        let late = row(&l, "Expense the Datadog workshop");
+        assert!(late.date.as_ref().unwrap().overdue);
+        assert_eq!(late.when, "od");
+        assert_eq!(late.reasons.pressure[0].label, "overdue 1d");
+
+        // Priority is by score.
+        let first = l.orders.priority.iter().map(|id| l.todos.iter().find(|r| r.item_id == *id).unwrap().score).collect::<Vec<_>>();
+        assert!(first.windows(2).all(|w| w[0] >= w[1]));
+        let top = l.todos.iter().find(|r| r.item_id == l.orders.priority[0]).unwrap();
+        assert_eq!(top.band, "hi");
+    }
+
+    #[test]
+    fn a_coefficient_from_settings_turns_a_factor_on() {
+        let (conn, clock, _d) = setup();
+        let dana = |s: &Settings| {
+            let l = scored(&conn, &clock, s);
+            let r = row(&l, "Reply to Dana with the outage timeline");
+            (r.pressure, r.reasons.pressure.iter().map(|p| p.label.clone()).collect::<Vec<_>>())
         };
-        let (pills, when) = row("10:52");
-        assert_eq!(pills[0], ("meeting in 8m".to_string(), "red".to_string()));
-        assert_eq!(pills[1].0, "your decision");
-        assert_eq!(when.as_deref(), Some("11:00–11:45"));
-        assert_eq!(row("10:30").0[0], ("meeting in 30m".to_string(), "yellow".to_string()));
-        assert_eq!(row("11:10").0[0].0, "meeting now");
-        let (after, _) = row("12:00");
-        assert_eq!(after.len(), 1, "meeting pill drops once the meeting is over");
+        let (before, pills) = dana(&Settings::default());
+        assert!(!pills.iter().any(|p| p.starts_with("waiting")));
+        let mut s = Settings::default();
+        s.priorities.coefficients.waiting = 4.0;
+        let (after, pills) = dana(&s);
+        assert!(after > before);
+        assert!(pills.iter().any(|p| p.starts_with("waiting")), "{pills:?}");
     }
 
     #[test]
-    fn personal_and_done_items_are_left_out() {
-        let (conn, day, _d) = setup();
+    fn quick_wins_rank_by_value_per_hour_under_the_cut_off_then_by_length() {
+        let (conn, clock, _d) = setup();
+        let l = scored(&conn, &clock, &Settings::default());
+        let rows: Vec<&Row> = l.orders.quick.iter().map(|id| l.todos.iter().find(|r| r.item_id == *id).unwrap()).collect();
+        let mins = |r: &Row| r.estimate.as_ref().unwrap().minutes;
+        let cut = rows.iter().position(|r| mins(r) > 30).unwrap();
+        assert!(rows[..cut].iter().all(|r| mins(r) <= 30));
+        let rate = |r: &Row| r.value / (mins(r) as f64 / 60.0);
+        assert!(rows[..cut].windows(2).all(|w| rate(w[0]) >= rate(w[1])));
+        assert!(rows[cut..].windows(2).all(|w| mins(w[0]) <= mins(w[1])), "past the cut-off, shortest first");
+        // A todo with no estimate goes last.
+        let thank = id_of(&conn, "Thank Lee for covering the pager");
+        conn.execute("DELETE FROM todo_estimates WHERE item_id = ?1", [thank]).unwrap();
+        let l = scored(&conn, &clock, &Settings::default());
+        assert_eq!(*l.orders.quick.last().unwrap(), thank);
+    }
+
+    #[test]
+    fn neglect_weighs_age_and_quiet_time() {
+        let (conn, clock, _d) = setup();
+        let l = scored(&conn, &clock, &Settings::default());
+        let sam = row(&l, "Mentoring plan for Sam");
+        assert_eq!((sam.age_days, sam.quiet_days), (71, 71));
+        let jira = row(&l, "PLAT-1251 · fix the flaky webhook test");
+        assert_eq!((jira.age_days, jira.quiet_days), (120, 34), "a Jira issue's age is its own created time");
+        let ns: Vec<f64> = l.orders.neglect.iter().map(|id| l.todos.iter().find(|r| r.item_id == *id).unwrap().neglect).collect();
+        assert!(ns.windows(2).all(|w| w[0] >= w[1]));
+        assert!((jira.neglect - (0.4 * 120.0 + 0.6 * 34.0)).abs() < 0.1, "{}", jira.neglect);
+
+        // Any change to the todo ends its quiet time; so does a topic change.
+        let id = id_of(&conn, "Mentoring plan for Sam");
+        conn.execute("UPDATE items SET title = 'Mentoring plan for Sam, v2' WHERE id = ?1", [id]).unwrap();
+        let l = list(&crate::store::over(&conn), &crate::sync::test_clock(&crate::time::Ts::parse(NOW).unwrap().to_db()), &Settings::default()).unwrap();
+        // The trigger stamps real time, which is after the test clock: quiet time can't go below 0.
+        assert_eq!(row(&l, "Mentoring plan for Sam, v2").quiet_days, 0);
+    }
+
+    #[test]
+    fn a_bots_message_isnt_the_last_signal() {
+        let (conn, _clock, _d) = setup();
+        // A Jira todo's thread is the issue itself; Marco asked on it.
+        let jira = id_of(&conn, "PLAT-1204 · review webhook retry PR");
+        let last = |conn: &Connection| {
+            let f = crate::store::over(conn).priorities().facts().unwrap().into_iter().find(|f| f.item_id == jira).unwrap();
+            (f.last_signal.map(|t| t.to_db()), f.last_author.map(|a| a.name))
+        };
+        let before = last(&conn);
+        assert_eq!(before.1.as_deref(), Some("Marco"));
+        conn.execute("INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES ('jira', 'bot-1', 'Automation', '', 1)", []).unwrap();
         conn.execute(
-            "INSERT INTO items (source_id, external_id, kind, title, occurred_at)
-             VALUES ((SELECT id FROM sources WHERE kind = 'marvin'), 'x1', 'task', 'Personal thing', '2026-09-24T09:00:00.000Z')",
+            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id) VALUES (?1, '2026-09-24T10:00:00.000Z', 'Automation', 'Moved', 'jira:b1', 'bot-1')",
+            [jira],
+        )
+        .unwrap();
+        assert_eq!(last(&conn), before, "the bot's comment is skipped");
+        conn.execute(
+            "INSERT INTO item_messages (item_id, at, author, text, ext_key, author_id) VALUES (?1, '2026-09-24T10:30:00.000Z', 'Kim', 'Me too', 'jira:k1', 'kim-1')",
+            [jira],
+        )
+        .unwrap();
+        assert_eq!(last(&conn), (Some("2026-09-24T10:30:00.000Z".into()), Some("Kim".into())));
+    }
+
+    #[test]
+    fn only_open_issues_this_one_blocks_count() {
+        let (conn, _clock, _d) = setup();
+        let id = id_of(&conn, "PLAT-1251 · fix the flaky webhook test");
+        let link = |dir: &str, key: &str, cat: &str| {
+            json!({ "type": { "name": "Blocks", "inward": "is blocked by", "outward": "blocks" },
+                    dir: { "key": key, "fields": { "status": { "name": "x", "statusCategory": { "key": cat } } } } })
+        };
+        let links = json!([link("outwardIssue", "PLAT-1", "new"), link("outwardIssue", "PLAT-2", "done"), link("inwardIssue", "PLAT-3", "new"),
+                           { "type": { "name": "Relates", "inward": "relates to", "outward": "relates to" }, "outwardIssue": { "key": "PLAT-4" } }]);
+        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.fields.issuelinks', json(?2)) WHERE id = ?1", rusqlite::params![id, links.to_string()]).unwrap();
+        let f = crate::store::over(&conn).priorities().facts().unwrap().into_iter().find(|f| f.item_id == id).unwrap();
+        assert_eq!(f.blocks_open, 1, "an open outward Blocks link; not done, inward or another link type");
+    }
+
+    #[test]
+    fn personal_and_done_todos_are_left_out() {
+        let (conn, clock, _d) = setup();
+        conn.execute(
+            "INSERT INTO items (source_id, external_id, kind, title, occurred_at, owner) VALUES
+               ((SELECT id FROM sources WHERE kind = 'marvin'), 'x1', 'task', 'Personal thing', '2026-09-24T09:00:00.000Z', 'you')",
             [],
         )
         .unwrap();
-        let personal = conn.last_insert_rowid();
-        conn.execute("INSERT INTO priorities (item_id, quadrant, score) VALUES (?1, 'now', 10.0)", [personal]).unwrap();
         conn.execute("UPDATE items SET status = 'done' WHERE title = 'Approve Sr. EM offer'", []).unwrap();
-        let qs = list(&crate::store::over(&conn), &at(day, "10:52")).unwrap();
-        let titles: Vec<_> = qs.iter().flat_map(|q| &q.items).map(|r| r.title.as_str()).collect();
-        assert!(!titles.contains(&"Personal thing"));
-        assert!(!titles.contains(&"Approve Sr. EM offer"));
+        let l = scored(&conn, &clock, &Settings::default());
+        assert!(!l.todos.iter().any(|r| r.title == "Personal thing" || r.title == "Approve Sr. EM offer"));
     }
 
     #[test]
-    fn call_routes_list() {
-        let (conn, _day, dir) = setup();
-        let app = App::from_parts(conn, crate::settings::Settings::default(), dir.path()).unwrap();
+    fn call_routes_list_and_todos_carry_their_rank() {
+        let (conn, _clock, dir) = setup();
+        let app = App::from_parts(conn, Settings::default(), dir.path()).unwrap();
         let v = crate::api::call(&app, "priorities.list", &json!({})).unwrap();
-        assert_eq!(v["quadrants"].as_array().unwrap().len(), 4);
+        assert!(v["todos"].as_array().unwrap().len() >= 30);
+        let first = v["orders"]["priority"][0].as_i64().unwrap();
+        let todos = crate::api::call(&app, "todos.list", &json!({})).unwrap();
+        let t = todos["todos"].as_array().unwrap().iter().find(|t| t["item_id"] == first).unwrap();
+        assert_eq!(t["rank"], 1);
         assert!(crate::api::call(&app, "priorities.nope", &json!({})).is_err());
+    }
+
+    #[test]
+    fn a_local_todo_can_be_scheduled_and_others_cant() {
+        let (conn, _clock, dir) = setup();
+        let app = App::from_parts(conn, Settings::default(), dir.path()).unwrap();
+        let local = id_of(&app.db(), "Book the Q4 offsite room");
+        crate::api::call(&app, "todos.schedule", &json!({ "item_id": local, "sched": "2026-09-30" })).unwrap();
+        let day: Option<String> = app.db().query_row("SELECT sched_day FROM items WHERE id = ?1", [local], |r| r.get(0)).unwrap();
+        assert_eq!(day.as_deref(), Some("2026-09-30"));
+        crate::api::call(&app, "todos.schedule", &json!({ "item_id": local, "sched": null })).unwrap();
+        let day: Option<String> = app.db().query_row("SELECT sched_day FROM items WHERE id = ?1", [local], |r| r.get(0)).unwrap();
+        assert_eq!(day, None);
+        let jira = id_of(&app.db(), "PLAT-1251 · fix the flaky webhook test");
+        assert!(crate::api::call(&app, "todos.schedule", &json!({ "item_id": jira, "sched": "2026-09-30" })).is_err());
+        // Made with one.
+        crate::api::call(&app, "todos.create", &json!({ "target": "local", "text": "Plan the offsite agenda", "sched": "2026-09-24" })).unwrap();
+        let l = app.store().read(|r| list(r, &app.clock, &Settings::default())).unwrap();
+        let r = row(&l, "Plan the offsite agenda");
+        assert_eq!(r.date.as_ref().unwrap().kind, "sched");
+        assert!(crate::api::call(&app, "todos.create", &json!({ "target": "jira", "text": "x", "sched": "2026-09-24" })).is_err());
+    }
+
+    #[test]
+    fn a_topic_priority_is_h_m_l_or_none() {
+        let (conn, _clock, dir) = setup();
+        let app = App::from_parts(conn, Settings::default(), dir.path()).unwrap();
+        let id: i64 = app.db().query_row("SELECT id FROM topics WHERE name = 'On-call load'", [], |r| r.get(0)).unwrap();
+        crate::api::call(&app, "topics.set_priority", &json!({ "id": id, "priority": "H" })).unwrap();
+        let p: Option<String> = app.db().query_row("SELECT priority FROM topics WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(p.as_deref(), Some("H"));
+        crate::api::call(&app, "topics.set_priority", &json!({ "id": id, "priority": null })).unwrap();
+        let p: Option<String> = app.db().query_row("SELECT priority FROM topics WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(p, None);
+        assert!(crate::api::call(&app, "topics.set_priority", &json!({ "id": id, "priority": "X" })).is_err());
     }
 }

@@ -27,6 +27,8 @@ struct TopicRow {
     last_signal: Option<String>,
     quiet: bool,
     next_meeting: Option<Meeting>,
+    /// H, M or L (Priorities).
+    priority: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -87,6 +89,17 @@ pub fn route(name: &str) -> Option<Route> {
         "unarchive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, false)),
         "create" => Route::Write(|uow, _, args| create(uow, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str))),
         "rename" => Route::Write(|uow, _, args| rename(uow, arg_i64(args, "id")?, &arg_str(args, "name")?)),
+        // Priorities' topic priority: H, M, L, or null for none.
+        "set_priority" => Route::Write(|uow, _, args| {
+            let p = args.get("priority").and_then(Value::as_str);
+            if p.is_some_and(|p| !matches!(p, "H" | "M" | "L")) {
+                return Err(msg("a topic's priority is H, M, L or none"));
+            }
+            if !uow.topics().set_priority(arg_i64(args, "id")?, p)? {
+                return Err(msg("no such topic"));
+            }
+            Ok(json!({ "ok": true }))
+        }),
         _ => return None,
     })
 }
@@ -269,6 +282,7 @@ fn list(r: &dyn Reads, ctx: &crate::api::Ctx, archived: bool) -> Result<Value> {
             quiet: t.last_signal_at.is_none_or(|l| l < quiet_before),
             last_signal_at: t.last_signal_at,
             next_meeting: t.next_meeting.map(|(start, title)| Meeting { start, title }),
+            priority: t.priority,
         })
         .collect();
     // Active first (next meeting soonest, then most recent signal), then quiet.
@@ -332,7 +346,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let now = clock.now();
     let today = clock.today();
     let head = reads.topics().head(id)?.ok_or_else(|| crate::error::msg("no such topic"))?;
-    let (name, category, path, score) = (head.name, head.category, head.obsidian_path, head.score);
+    let (name, category, path, score, priority) = (head.name, head.category, head.obsidian_path, head.score, head.priority);
     let pills: Vec<Pill> = serde_json::from_str(&head.pills_json).unwrap_or_default();
 
     // All confirmed links; suggestions still waiting in Incoming are left out.
@@ -444,7 +458,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let path = path.unwrap_or_else(|| default_note_path(&name));
 
     Ok((json!({
-        "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills },
+        "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills, "priority": priority },
         "upcoming": upcoming.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
         "open": open,
         "chronology": chron.into_iter().map(|(_, e)| e).collect::<Vec<_>>(),
@@ -743,7 +757,7 @@ mod tests {
             })
             .collect();
         referring.sort();
-        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos"]);
+        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos", "topic_tags"]);
     }
 
     #[test]
