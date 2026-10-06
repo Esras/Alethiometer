@@ -174,6 +174,11 @@ const scenes = {
   // patching the topic's response), and Glean's avatars (parked).
   'incoming-new-person': ['Enter'],
   'agents-new-scion-taken': ['Control+7', { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
+  // A pi-style gate on a long multi-line command (the fakepi agent): the approval keeps
+  // the transcript's room, shows only the gate's `rule *` and scrolls Parsed and Explained
+  // separately. The same at 1760×800 (VIEWPORT), where the card must shrink.
+  'agents-approval-pi': ['Control+7', { exact: 'fakepi-agent' }],
+  'agents-approval-pi-short': ['Control+7', { exact: 'fakepi-agent' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
@@ -223,8 +228,11 @@ const COUNT_FETCH = `(() => {
   };
 })()`;
 
-async function shoot(base, steps, file) {
-  const page = await browser.newPage({ viewport: { width: 1760, height: 1175 }, deviceScaleFactor: 1 });
+// A scene's window when it isn't the usual one.
+const VIEWPORT = { 'agents-approval-pi-short': { width: 1760, height: 800 } };
+
+async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }) {
+  const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
   await page.clock.setFixedTime(FIXED);
   await page.addInitScript(COUNT_FETCH);
   const errs = [];
@@ -249,7 +257,7 @@ async function shoot(base, steps, file) {
     await settle(page, 250, 450);
   }
   await settle(page, 600, 900);
-  await page.mouse.move(1, 1170); // no hover states
+  await page.mouse.move(1, viewport.height - 5); // no hover states
   await page.addStyleTag({ content: '*, *::before, *::after { caret-color: transparent !important; }' });
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: file });
@@ -276,7 +284,10 @@ for (const name of names) {
   // One retry: a scene that crosses a minute boundary between the two shots differs.
   for (let attempt = 0; attempt < 2; attempt++) {
     // The two sides have their own servers and data, so they're shot at once.
-    const [ea, eb] = await Promise.all([shoot(`http://localhost:${PA}/`, scenes[name], a), shoot(`http://localhost:${PB}/`, scenes[name], b)]);
+    const [ea, eb] = await Promise.all([
+      shoot(`http://localhost:${PA}/`, scenes[name], a, VIEWPORT[name]),
+      shoot(`http://localhost:${PB}/`, scenes[name], b, VIEWPORT[name]),
+    ]);
     errs = [...new Set([...ea.map((x) => 'ref: ' + x), ...eb.map((x) => 'this: ' + x)])];
     px = differing(a, b, d);
     if (px === 0) break;
