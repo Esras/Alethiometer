@@ -33,6 +33,7 @@ export interface Fact {
   label: string;
   detail: string;
   url: string;
+  done?: boolean;
 }
 
 export interface ConfigChoice {
@@ -185,6 +186,52 @@ export interface Tree {
   host: string;
   /** The agent host (app/agentd) local agents run in. */
   agentd: { state: 'idle' | 'starting' | 'running' | 'missing' | 'error' | 'unsupported' | ''; version: string; pid: number; error: string; stale: boolean; binary: string };
+  /** Done nudges by group id: "completed, #208 merged". */
+  nudges: Record<string, string>;
+  /** Hub deletes that failed after archiving (retried with ⌘R). */
+  hub_failed: number;
+}
+
+/** What archiving a row would do (agents.archive_plan). */
+export interface Plan {
+  target: string;
+  kind: 'session' | 'group';
+  name: string;
+  place: string;
+  state: 'ok' | 'not_done' | 'blocked';
+  rows: { kind: 'group' | 'room' | 'session'; name: string; session: string | null; status: Status | null; harness: string; depth: number; lit: boolean; tag: string }[];
+  reasons: { text: string; note: string }[];
+  going: number;
+  hub: number;
+  local: number;
+}
+
+/** An archived group or session, as listed by the tree filter. */
+export interface ArchivedItem {
+  id: string;
+  kind: 'group' | 'session';
+  source: 'acp' | 'scion';
+  project: string;
+  group: string;
+  group_id: string | null;
+  at: string;
+  name: string;
+  goal: string | null;
+  harness: string | null;
+  model: string | null;
+  room: string | null;
+  line?: string;
+  who?: string;
+}
+
+/** An archived item opened read-only (agents.archived_open). */
+export interface ArchivedOpen {
+  item: ArchivedItem;
+  data: Partial<Session> & Partial<Group>;
+  thread: string;
+  rows: Row[];
+  members: ArchivedItem[];
+  kept: { messages: number; transcripts: number };
 }
 
 export interface ThreadData {

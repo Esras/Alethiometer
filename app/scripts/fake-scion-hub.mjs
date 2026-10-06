@@ -71,6 +71,11 @@ http
       if (get && p.startsWith('/api/v1/templates/') && p.includes('/files/')) return send(200, load('template_file.json'));
       if (get && p === '/api/v1/harness-configs') return send(200, load('harness_configs.json'));
       if (get && (m = p.match(/^\/api\/v1\/agents\/([^/]+)$/))) return send(200, agents.agents.find((a) => a.id === m[1]) ?? {});
+      if (req.method === 'DELETE' && (m = p.match(/^\/api\/v1\/agents\/([^/]+)$/))) {
+        const before = agents.agents.length;
+        agents.agents = agents.agents.filter((a) => a.id !== m[1]);
+        return before === agents.agents.length ? send(404, { error: { code: 'not_found', message: 'no such agent' } }) : (res.writeHead(204), res.end());
+      }
       const args = body ? JSON.parse(body) : {};
       if (!get && (m = p.match(/^\/api\/v1\/chat\/conversations\/([^/]+)\/messages$/))) {
         const c = conversations.conversations.find((c) => c.kind === 'group' && c.externalRef?.endsWith(m[1]));

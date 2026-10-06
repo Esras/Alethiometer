@@ -154,6 +154,15 @@ impl Client<'_> {
         self.get(&format!("/api/v1/agents/{}", enc(agent)))
     }
 
+    /// Delete an agent and its clone (the Hub's defaults: files and branch go
+    /// too). Deleting one that's already gone counts as done.
+    pub fn delete_agent(&self, agent: &str) -> anyhow::Result<Value> {
+        match self.call("DELETE", &format!("/api/v1/agents/{}", enc(agent)), None) {
+            Err(e) if hub_error(&e).is_some_and(|h| h.status == 404) => Ok(json!({ "gone": true })),
+            r => r,
+        }
+    }
+
     pub fn create_agent(&self, body: &Value) -> anyhow::Result<Value> {
         self.post("/api/v1/agents", body)
     }

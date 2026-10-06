@@ -4,8 +4,8 @@
 
 use crate::agents::model::{Group, Row, Session};
 use crate::error::Result;
-use crate::time::Due;
-use std::collections::HashMap;
+use crate::time::{Due, Ts};
+use std::collections::{HashMap, HashSet};
 
 /// A local agent's place in the agent host's log, and its turn state.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -22,6 +22,33 @@ pub struct SavedAgents {
     pub hosts: Vec<(String, HostState)>,
     /// The last stored row id of each thread.
     pub last_row_ids: HashMap<String, u64>,
+    /// Ids of every archived group and session: never put back in the tree.
+    pub archived: HashSet<String>,
+    /// Done nudges put off with Not now, until when.
+    pub snoozed: HashMap<String, Ts>,
+}
+
+/// An archived group or session, as it was when archived.
+#[derive(Debug, Clone)]
+pub struct Archived {
+    pub id: String,
+    /// group | session
+    pub kind: String,
+    pub source: String,
+    pub project: String,
+    pub group_name: String,
+    pub group_id: Option<String>,
+    pub at: Ts,
+    /// The `Group` or `Session` as JSON.
+    pub data: String,
+}
+
+/// An archived item matching the tree filter, and the first row that matched.
+#[derive(Debug, Clone)]
+pub struct ArchivedMatch {
+    pub item: Archived,
+    /// The matching row's thread and JSON, when the match was in a transcript.
+    pub row: Option<(String, String)>,
 }
 
 /// A Jira ticket for the facts box.
@@ -29,6 +56,8 @@ pub struct SavedAgents {
 pub struct TicketRow {
     pub summary: Option<String>,
     pub url: Option<String>,
+    /// Its status is in Jira's done category.
+    pub done: bool,
 }
 
 /// A GitHub PR for the facts box.
@@ -37,6 +66,7 @@ pub struct PrRow {
     pub url: Option<String>,
     pub status: String,
     pub draft: bool,
+    pub merged: bool,
 }
 
 /// An open task naming a ticket.
@@ -64,6 +94,15 @@ pub trait AgentViews {
     fn transcript(&self, thread: &str) -> Result<Vec<Row>>;
     /// The Jira issue with this key.
     fn ticket(&self, key: &str) -> Result<Option<TicketRow>>;
+    /// Archived items whose name, goal or title contains `q`, or one of whose
+    /// rows does (its text or a tool's target or result), newest first. ASCII
+    /// case-insensitive.
+    fn archived_matching(&self, q: &str, limit: usize) -> Result<Vec<ArchivedMatch>>;
+    fn archived(&self, id: &str) -> Result<Option<Archived>>;
+    /// Archived sessions in a group archived with them.
+    fn archived_members(&self, group_id: &str) -> Result<Vec<Archived>>;
+    /// How many sessions have been archived.
+    fn archived_sessions(&self) -> Result<usize>;
     /// The latest GitHub PR for this branch, or with this key in its title.
     fn pr(&self, branch: Option<&str>, key: Option<&str>) -> Result<Option<PrRow>>;
     /// Tasks not done whose id is the key or whose title names it.
@@ -84,6 +123,11 @@ pub trait AgentState {
     /// A session and its transcript.
     fn remove_session(&self, id: &str) -> Result<()>;
     fn put_row(&self, thread: &str, r: &Row) -> Result<()>;
+    /// Move a group or session out of the tree's tables into the archive (a
+    /// session's agent-host state goes too). Its rows stay.
+    fn archive(&self, a: &Archived) -> Result<()>;
+    /// Put off a group's done nudge.
+    fn snooze_nudge(&self, group: &str, until: Ts) -> Result<()>;
     /// `name`'s colour in `group`: assigned in order of creation, unique
     /// within the group while the palette lasts, and kept.
     fn color(&self, group: &str, name: &str, palette_len: usize) -> Result<usize>;

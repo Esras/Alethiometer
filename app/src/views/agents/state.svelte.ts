@@ -5,7 +5,7 @@
 import { call } from '../../lib/api';
 import { ui } from '../../lib/app.svelte';
 import { DEFAULT_LOOK } from './look';
-import type { Group, Kind, Request, Row, Session, ThreadData, Tree } from './types';
+import type { ArchivedItem, ArchivedOpen, Group, Kind, Plan, Request, Row, Session, ThreadData, Tree } from './types';
 
 export type Zone = 'tree' | 'thread' | 'composer';
 export type Node =
@@ -13,7 +13,10 @@ export type Node =
   | { type: 'group'; key: string; group: Group; open: boolean; sessions: Session[] }
   | { type: 'room'; key: string; group: Group }
   | { type: 'session'; key: string; s: Session; depth: number; unsorted: boolean }
-  | { type: 'unsorted'; key: string };
+  | { type: 'unsorted'; key: string }
+  | { type: 'archived-head'; key: string; groups: number; sessions: number; total: number }
+  | { type: 'archived-label'; key: string; label: string; project: boolean }
+  | { type: 'archived'; key: string; item: ArchivedItem };
 
 export type Form = { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null };
 
@@ -44,7 +47,23 @@ export const ag = $state({
   /** Composer text per thread, and an ask being answered with R. */
   drafts: {} as Record<string, string>,
   replying: null as string | null,
+  /** Archived items matching the filter, and how many sessions are archived. */
+  hits: [] as ArchivedItem[],
+  hitsTotal: 0,
+  /** An archived item opened read-only, and the filter it was found with. */
+  archived: null as ArchivedOpen | null,
+  archivedQ: '',
+  /** The archive confirm (02). */
+  plan: null as Plan | null,
+  /** Archived but still in the undo window (03), newest last. */
+  pending: [] as Pending[],
+  /** The right-click menu (05). */
+  menu: null as { key: string; x: number; y: number } | null,
 });
+
+export type Pending = { target: string; until: number; force: boolean; label: string };
+
+const UNDO_MS = 10_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let busy = false;
@@ -67,7 +86,7 @@ export async function poll() {
   try {
     const r = await call<{ rev: number; tree: Tree | null; thread: ThreadData | null }>('agents.poll', {
       rev: ag.rev,
-      thread: key ?? '',
+      thread: ag.archived ? '' : (key ?? ''),
       thread_rev: key === ag.threadKey ? ag.threadRev : 0,
       tab: ag.tab,
     });
@@ -103,6 +122,7 @@ function merge(t: ThreadData) {
 
 /** Open a thread on the right. */
 export function openThread(key: string) {
+  ag.archived = null;
   if (ag.open !== key) {
     ag.open = key;
     ag.rows = [];
@@ -221,11 +241,124 @@ export function nodes(): Node[] {
     out.push({ type: 'unsorted', key: 'unsorted' });
     for (const s of loose) out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: true });
   }
+  if (q && ag.hits.length) {
+    const groups = ag.hits.filter((h) => h.kind === 'group').length;
+    out.push({ type: 'archived-head', key: 'archived', groups, sessions: ag.hits.length - groups, total: ag.hitsTotal });
+    let project: string | null = null;
+    let group: string | null = null;
+    for (const h of [...ag.hits].sort((a, b) => a.project.localeCompare(b.project))) {
+      const p = h.project || (h.group ? h.source === 'acp' ? 'local' : 'scion' : 'Unsorted');
+      if (p !== project) {
+        out.push({ type: 'archived-label', key: `ap:${p}:${h.id}`, label: p, project: true });
+        project = p;
+        group = null;
+      }
+      const g = h.kind === 'group' ? h.name : h.group;
+      if (h.kind === 'session' && g && g !== group) out.push({ type: 'archived-label', key: `ag:${h.id}`, label: g, project: false });
+      group = g;
+      out.push({ type: 'archived', key: `a:${h.id}`, item: h });
+    }
+  }
   return out;
 }
 
 /** Nodes j/k can land on. */
-export const selectable = (n: Node) => n.type === 'group' || n.type === 'room' || n.type === 'session';
+export const selectable = (n: Node) => n.type === 'group' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Look for archived items as the filter changes (they come back only through it). */
+export function searchArchived(q: string) {
+  if (searchTimer) clearTimeout(searchTimer);
+  if (!q.trim()) {
+    ag.hits = [];
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      const r = await call<{ items: ArchivedItem[]; total: number }>('agents.archived', { q });
+      if (ag.filter === q) {
+        ag.hits = r.items;
+        ag.hitsTotal = r.total;
+      }
+    } catch (e) {
+      ag.error = String((e as Error).message ?? e);
+    }
+  }, 150);
+}
+
+export async function openArchived(id: string) {
+  try {
+    ag.archived = await call<ArchivedOpen>('agents.archived_open', { id });
+    ag.archivedQ = ag.filter.trim();
+    ag.sel = `a:${id}`;
+  } catch (e) {
+    ag.error = String((e as Error).message ?? e);
+  }
+}
+
+export function closeArchived() {
+  ag.archived = null;
+}
+
+/** What `a` and the menu archive for a tree row: a room is its group. */
+function archiveTarget(key: string): string | null {
+  if (key.startsWith('r:')) {
+    const g = roomGroup(key.slice(2));
+    return g ? `g:${g.id}` : null;
+  }
+  return key.startsWith('g:') || key.startsWith('s:') ? key : null;
+}
+
+/** Open the archive confirm (02) for a tree row. */
+export async function askArchive(key: string | null) {
+  const target = key && archiveTarget(key);
+  if (!target || ag.pending.some((p) => p.target === target)) return;
+  try {
+    ag.plan = await call<Plan>('agents.archive_plan', { target });
+  } catch (e) {
+    ag.error = String((e as Error).message ?? e);
+  }
+}
+
+/** ⌘⏎ (or ⌘⌫, force): start the undo window; the archive goes through when it ends. */
+export function confirmArchive(force: boolean) {
+  const p = ag.plan;
+  if (!p || p.state === 'blocked' || (p.state === 'not_done') !== force) return;
+  ag.plan = null;
+  const label = p.hub ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}` : 'archiving';
+  ag.pending = [...ag.pending, { target: p.target, until: Date.now() + UNDO_MS, force, label }];
+  setTimeout(() => commitArchive(p.target), UNDO_MS);
+}
+
+function commitArchive(target: string) {
+  const p = ag.pending.find((x) => x.target === target);
+  if (!p) return;
+  ag.pending = ag.pending.filter((x) => x !== p);
+  act('archive', { target, force: p.force }).catch(() => {});
+}
+
+/** u: take back the newest archive still in its undo window. */
+export function undoArchive(): boolean {
+  if (!ag.pending.length) return false;
+  ag.pending = ag.pending.slice(0, -1);
+  return true;
+}
+
+export function pendingFor(key: string): Pending | undefined {
+  return ag.pending.find((p) => p.target === key);
+}
+
+/** Nothing running or waiting under a row: the menu's Archive is on. */
+export function archivable(key: string): boolean {
+  const target = archiveTarget(key);
+  if (!target || !ag.tree) return false;
+  const busy = (s: Session) => s.status === 'running' || s.status === 'waiting' || ag.tree!.requests.some((r) => r.session_id === s.id);
+  if (target.startsWith('g:')) return !ag.tree.sessions.some((s) => s.group_id === target.slice(2) && busy(s));
+  const under = (id: string): Session[] => ag.tree!.sessions.filter((s) => s.parent_id === id).flatMap((c) => [c, ...under(c.id)]);
+  const s = sessionById(target.slice(2));
+  return !!s && ![s, ...under(s.id)].some(busy);
+}
 
 /** "4s", "2m", "3h", "2d" since an instant. */
 export function age(ts: string, now: number): string {

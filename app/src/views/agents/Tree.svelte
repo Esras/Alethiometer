@@ -1,14 +1,21 @@
 <script lang="ts">
   import { ui } from '../../lib/app.svelte';
   import { agentColor } from './look';
-  import { act, ag, age, look, nodes, openThread, sessionById, type Node } from './state.svelte';
+  import { popover } from '../../lib/ui/popover';
+  import { chord } from '../../lib/keys.svelte';
+  import { act, ag, age, archivable, askArchive, groupById, look, nodes, openArchived, openThread, pendingFor, searchArchived, sessionById, type Node } from './state.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Group, Request, Session, Status } from './types';
 
   let { onNew, filterEl = $bindable() }: { onNew: () => void; filterEl?: HTMLInputElement } = $props();
 
-  const list = $derived(nodes());
+  const all = $derived(nodes());
+  const ARCH = new Set(['archived-head', 'archived-label', 'archived']);
+  const list = $derived(all.filter((n) => !ARCH.has(n.type)));
+  const archived = $derived(all.filter((n) => ARCH.has(n.type)));
+  const inArchive = $derived(!!ag.sel?.startsWith('a:'));
+  $effect(() => searchArchived(ag.filter));
   const requests = $derived(ag.tree?.requests ?? []);
   const counts = $derived(ag.tree?.counts ?? { running: 0, waiting: 0, failed: 0 });
 
@@ -43,6 +50,36 @@
     openThread(r.thread);
     ag.zone = 'thread';
   }
+
+  // The group a row belongs to, for the done frame (01) and the undo window (03).
+  function gidOf(n: Node): string | null {
+    if (n.type === 'group' || n.type === 'room') return n.group.id;
+    if (n.type === 'session') return n.s.group_id;
+    return null;
+  }
+  const nudges = $derived(ag.tree?.nudges ?? {});
+  const framed = (n: Node) => {
+    const g = gidOf(n);
+    return !!g && !!nudges[g];
+  };
+  const lastInFrame = (i: number) => framed(list[i]) && gidOf(list[i + 1] ?? list[i]) !== gidOf(list[i]) || (framed(list[i]) && i === list.length - 1);
+  const pendingOf = (n: Node) => pendingFor(n.key) ?? (gidOf(n) ? pendingFor(`g:${gidOf(n)}`) : undefined);
+  const secs = (until: number) => Math.max(0, Math.ceil((until - now) / 1000));
+
+  function menu(e: MouseEvent, n: Node) {
+    e.preventDefault();
+    ag.sel = n.key;
+    ag.zone = 'tree';
+    ag.menu = { key: n.key, x: e.clientX, y: e.clientY };
+  }
+  const menuNode = $derived(ag.menu ? list.find((n) => n.key === ag.menu!.key) : undefined);
+  const menuGroup = $derived(menuNode ? groupById(gidOf(menuNode)) : undefined);
+  function run(f: () => void) {
+    ag.menu = null;
+    f();
+  }
+
+  const fmtDay = (ts: string) => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
 
   function click(n: Node) {
     ag.sel = n.key;
@@ -126,35 +163,42 @@
   {/if}
 
   <div class="list">
-    {#each list as n (n.key)}
+    {#each list as n, idx (n.key)}
+      {@const fr = framed(n)}
+      {@const pend = pendingOf(n)}
+      <div class="slot" class:framed={fr} class:ftop={fr && n.type === 'group'} class:pending={!!pend}>
       {#if n.type === 'project'}
         <div class="project label">{n.label}</div>
       {:else if n.type === 'unsorted'}
         <div class="project unsorted label">Unsorted</div>
       {:else if n.type === 'group'}
         {@const f = folded(n.sessions)}
-        <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)}>
+        <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
           <i class="ph {n.open ? 'ph-caret-down' : 'ph-caret-right'} caret"></i>
           <span class="gname"><span class="name">{n.group.name}</span>{#if n.group.goal}<span class="goal">{n.group.goal}</span>{/if}</span>
           <span class="gright">
-            {#if !n.open && f}
-              <span class="fold" class:red={f.status === 'failed'}><StatusMark status={f.status} size={7} />{f.n}</span>
+            {#if pend && pend.target === n.key}
+              <span class="undo-note">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
+            {:else}
+              {#if !n.open && f}
+                <span class="fold" class:red={f.status === 'failed'}><StatusMark status={f.status} size={7} />{f.n}</span>
+              {/if}
+              <span class="host {hostClass(n.group)}">{n.group.host}</span>
             {/if}
-            <span class="host {hostClass(n.group)}">{n.group.host}</span>
           </span>
         </button>
       {:else if n.type === 'room'}
         {@const room = n.group.room!}
-        <button class="row" class:sel={ag.sel === n.key} onclick={() => click(n)}>
+        <button class="row" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
           <span class="mark"><i class="ph ph-hash hash"></i></span>
           <span class="name room">{room.name}</span>
           <span class="mono c2">room · {room.members}</span>
           <span class="mono msgc">{room.unread ? `${room.unread} new` : ''}</span>
           <span class="age" class:orange={requests.some((r) => r.thread === n.key)}>{age(room.active_at, now)}</span>
         </button>
-      {:else}
+      {:else if n.type === 'session'}
         {@const s = n.s}
-        <button class="row" class:sel={ag.sel === n.key} class:sub={n.depth > 0} class:loose={n.unsorted} onclick={() => click(n)} style:--indent="{14 * n.depth}px">
+        <button class="row" class:sel={ag.sel === n.key} class:sub={n.depth > 0} class:loose={n.unsorted} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)} style:--indent="{14 * n.depth}px">
           <span class="mark">
             {#if n.depth > 0}<span class="elbow"></span>{/if}
             <StatusMark status={s.status} />
@@ -162,9 +206,13 @@
           <span class="name" style:color={agentColor(look(), s)}
             >{s.name}{#if n.unsorted && s.cwd}<span class="cwd">{s.cwd.replace(/^\/(Users|home)\/[^/]+/, '~')}</span>{/if}</span
           >
-          <span class="mono" class:dim={s.status === 'done'}>{s.harness}</span>
-          <span class="mono" class:dim={s.status === 'done'}>{s.model}</span>
-          <span class="age" class:orange={s.status === 'waiting'}>{age(s.active_at, now)}</span>
+          {#if pend && pend.target === n.key}
+            <span class="undo-note wide">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
+          {:else}
+            <span class="mono" class:dim={s.status === 'done'}>{s.harness}</span>
+            <span class="mono" class:dim={s.status === 'done'}>{s.model}</span>
+            <span class="age" class:orange={s.status === 'waiting'}>{age(s.active_at, now)}</span>
+          {/if}
         </button>
         {#if n.unsorted && s.guess?.group_id}
           <div class="guess">
@@ -174,12 +222,71 @@
           </div>
         {/if}
       {/if}
+      </div>
+      {#if lastInFrame(idx)}
+        {@const gid = gidOf(n)!}
+        <div class="nudge" class:pending={!!pendingFor(`g:${gid}`)}>
+          <i class="ph ph-check-circle"></i>
+          <span class="ntext">Done · {nudges[gid]}</span>
+          <button class="btn" onclick={() => askArchive(`g:${gid}`)}>Archive group</button>
+          <button class="btn" onclick={() => act('nudge_snooze', { group: gid }).catch(() => {})}>Not now</button>
+        </div>
+      {/if}
     {:else}
       <div class="empty">
-        {#if ag.filter}Nothing matches "{ag.filter}".{:else}No sessions yet. <button class="link" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
+        {#if ag.filter}{archived.length ? 'Nothing live matches.' : `Nothing matches "${ag.filter}".`}{:else}No sessions yet. <button class="link" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
       </div>
     {/each}
+    {#if archived.length}
+      <div class="archive" class:lit={inArchive}>
+        {#each archived as n (n.key)}
+          {#if n.type === 'archived-head'}
+            <div class="ahead label"><i class="ph ph-archive"></i>Archived<span class="acount">{n.groups ? `${n.groups} group${n.groups === 1 ? '' : 's'} · ` : ''}{n.sessions} session{n.sessions === 1 ? '' : 's'} · of {n.total}</span></div>
+          {:else if n.type === 'archived-label'}
+            <div class="alabel" class:label={n.project} class:gl={!n.project}>{n.label}</div>
+          {:else if n.type === 'archived'}
+            {@const h = n.item}
+            <button class="arow" class:grp={h.kind === 'group'} class:sel={ag.sel === n.key} onclick={() => ((ag.sel = n.key), openArchived(h.id))}>
+              <span class="aname">{#if h.kind === 'group'}<span class="name">{h.name}</span>{#if h.goal}<span class="goal">{h.goal}</span>{/if}{:else}<span class="name">{h.name}</span>{/if}</span>
+              <span class="mono">{h.kind === 'group' ? (h.room ? `#${h.room}` : 'group') : [h.harness, h.model].filter(Boolean).join(' · ')}</span>
+              <span class="age">{fmtDay(h.at)}</span>
+              {#if h.line}<span class="aline"><span class="who">{h.who}</span> {h.line}</span>{/if}
+            </button>
+          {/if}
+        {/each}
+        <div class="afoot">Newest first in each project · <kbd>⏎</kbd> opens read-only</div>
+      </div>
+    {/if}
   </div>
+
+  {#if ag.menu && menuNode}
+    {@const k = ag.menu.key}
+    {@const s = menuNode.type === 'session' ? menuNode.s : undefined}
+    {@const isGroup = menuNode.type !== 'session'}
+    {@const room = menuGroup?.room}
+    {@const can = archivable(k)}
+    <div class="menu popover flush" role="menu" style:left="{ag.menu.x}px" style:top="{ag.menu.y}px" use:popover={{ onclose: () => (ag.menu = null) }}>
+      {#if !isGroup || room}
+        <button role="menuitem" onclick={() => run(() => { const key = isGroup && room ? `r:${room.id}` : k; ag.sel = key; openThread(key); ag.zone = 'thread'; })}
+          >{isGroup ? `Open #${room?.name}` : 'Open'}<kbd>⏎</kbd></button
+        >
+      {/if}
+      {#if s}
+        <button role="menuitem" disabled={s.status !== 'running' && !s.live} onclick={() => run(() => act('stop', { session: s.id }).catch(() => {}))}>Stop<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button>
+      {/if}
+      {#if menuGroup}
+        <button role="menuitem" onclick={() => run(onNew)}>New agent in {menuGroup.name}<kbd>n</kbd></button>
+      {/if}
+      <div class="divider"></div>
+      <button role="menuitem" disabled={!can} onclick={() => run(() => askArchive(k))}
+        >Archive {isGroup ? 'group' : 'session'}{can ? '…' : ''}{#if !can}<span class="off">stop it first</span>{/if}<kbd>a</kbd></button
+      >
+    </div>
+  {/if}
+
+  {#if (ag.tree?.hub_failed ?? 0) > 0}
+    <div class="hostline bad"><i class="ph ph-warning-circle"></i><span class="err broken">{ag.tree?.hub_failed} Hub delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord('⌘R', 'Ctrl+R')} in the sync status</span></div>
+  {/if}
 
   {#if host && (anyLocal || (host.state !== 'idle' && host.state !== ''))}
     <div class="hostline" class:bad={host.state === 'missing' || host.state === 'error' || host.state === 'unsupported'} title={host.error || host.binary}>
@@ -340,7 +447,7 @@
   .project {
     padding: 12px 14px 3px;
   }
-  .project:first-child {
+  .slot:first-child .project {
     padding-top: 10px;
   }
   .project.unsorted {
@@ -531,6 +638,174 @@
   }
   .hub-err i {
     color: var(--status-broken);
+  }
+  .slot {
+    display: flex;
+    flex-direction: column;
+  }
+  .slot.framed {
+    margin: 0 8px;
+    border-inline: 1px solid color-mix(in srgb, var(--status-done) 32%, transparent);
+    background: color-mix(in srgb, var(--status-done) 5%, transparent);
+  }
+  .slot.ftop {
+    margin-top: 2px;
+    border-top: 1px solid color-mix(in srgb, var(--status-done) 32%, transparent);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+  .nudge {
+    margin: 0 8px 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--status-done) 32%, transparent);
+    border-top-color: color-mix(in srgb, var(--status-done) 22%, transparent);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    background: color-mix(in srgb, var(--status-done) 5%, transparent);
+    font-size: 0.923rem;
+  }
+  .nudge i {
+    color: var(--status-done);
+  }
+  .ntext {
+    flex: 1;
+    min-width: 0;
+    color: var(--tx-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .slot.pending,
+  .nudge.pending {
+    background: var(--hatch);
+  }
+  .slot.pending .name,
+  .slot.pending .goal,
+  .slot.pending .mono {
+    text-decoration: line-through;
+    color: var(--tx-disabled);
+  }
+  .undo-note {
+    font: 0.846rem var(--font-mono);
+    color: var(--status-headsup);
+    white-space: nowrap;
+  }
+  .undo-note.wide {
+    grid-column: span 3;
+    text-align: right;
+  }
+  .archive {
+    margin-top: 10px;
+    opacity: 0.4;
+    transition: opacity 120ms;
+  }
+  .archive:hover,
+  .archive.lit {
+    opacity: 1;
+  }
+  .ahead {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin: 0 14px;
+    padding: 10px 0 3px;
+    border-top: 1px solid var(--bg-head);
+  }
+  .acount {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0;
+    font: 0.846rem var(--font-mono);
+  }
+  .alabel {
+    padding: 8px 14px 2px;
+  }
+  .alabel.gl {
+    padding: 4px 14px 0 28px;
+    color: var(--tx-label);
+    font-size: 0.923rem;
+  }
+  .arow {
+    width: 100%;
+    text-align: left;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 48px;
+    gap: 6px;
+    align-items: center;
+    padding: var(--row-pad-compact) 14px var(--row-pad-compact) 42px;
+    min-height: var(--row-min-compact);
+  }
+  .arow.grp {
+    padding-left: 28px;
+  }
+  .arow:hover {
+    background: var(--row-hover);
+  }
+  .arow.sel {
+    background: var(--aqua-tint);
+  }
+  .aname {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .arow .name {
+    color: var(--tx-body);
+  }
+  .arow.grp .name {
+    font-weight: 500;
+  }
+  .aline {
+    grid-column: 1 / -1;
+    font: 0.885rem var(--font-mono);
+    color: var(--tx-muted-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .aline .who {
+    color: var(--tx-2);
+  }
+  .afoot {
+    padding: 8px 14px;
+    font-size: 0.846rem;
+    color: var(--tx-label);
+  }
+  .menu {
+    position: fixed;
+    z-index: 50;
+    width: 230px;
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+  }
+  .menu button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 12px;
+    text-align: left;
+    color: var(--tx-2);
+  }
+  .menu button:hover:not(:disabled) {
+    background: var(--hover-tint);
+  }
+  .menu button:disabled {
+    color: var(--tx-disabled);
+    cursor: default;
+  }
+  .menu button kbd {
+    margin-left: auto;
+  }
+  .menu .off {
+    font-size: 0.846rem;
+    color: var(--tx-label);
+  }
+  .menu .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
   }
   .hostline {
     flex: none;

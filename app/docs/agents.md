@@ -136,10 +136,12 @@ Rows follow the row grammar (icon column coloured by kind, mono header, body). A
 | Where | Keys |
 |---|---|
 | Everywhere | `⌘K` search, `/` filter sessions, `g i` / `g a`, `⌘.` interrupt, `?` keys |
-| Tree | `j`/`k`, `h`/`l` fold or open, `⏎` open, `n` new agent (Scion group) or session (local) |
+| Tree | `j`/`k`, `h`/`l` fold or open, `⏎` open, `n` new agent (Scion group) or session (local), `a` archive, `u` undo an archive (10 s) |
 | Thread | `j`/`k`, `e` fold/open, `⏎` reply (`@name` in a room) or open a tool call, `c` copy, `g` latest, `t`/`m` tabs |
 | Needs you | `o` `s` `a` `d`, `1`–`3` pick an answer, `r` write a reply, `Esc` later |
 | Composer | `⌘⏎` send, `@` address one member (rooms), `↑` bring back your last message, `Esc` back |
+| Archive confirm | `⌘⏎` archive, `⌘⌫` archive anyway (not done), `Esc` cancel |
+| Archived (read-only) | `⌘G` / `⇧⌘G` next or previous match, `Esc` back |
 | Undelivered (08) | unreachable: `⏎` start it again and send, `f` another agent, `Esc` discard; failed: `⏎` retry, `e` edit, `Esc` cancel |
 
 Single-letter keys are off while typing.
@@ -157,6 +159,21 @@ Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept
 ```
 
 Recorded claude-agent-acp traffic for the mapping tests is in `src-tauri/tests/fixtures/acp/`.
+
+## Archive
+
+Design "Agents Archive" 01–05 (`project/Helm Agents Archive.dc.html`, spec in `project/design_handoff_helm/README.md` → Archiving agents). Code: `src-tauri/src/agents/archive.rs` (rules), `Store::archive` in `agents/store.rs`, the repository in `store/agents.rs` (table `agent_archive`, migration `0033`), `sync/connectors/scion.rs` (the Hub delete), and in the UI `ArchiveModal.svelte`, `ArchivedPane.svelte` and the tree (`Tree.svelte`).
+
+- **What:** `a`, or right-click › Archive, archives the selected row and only that row. A session takes its subagents with it and leaves its group. A group, or its room row, takes every member.
+- **When:** nothing running or waiting for you (an open approval or ask) can be archived; a group with such a member says Can't archive and names how many are going. A **Scion** group or session that stopped without finishing needs **Archive anyway** (`⌘⌫`, the one red button), since deleting its Hub agents loses their clones. Why it isn't done is listed: unpushed commits (from the branch fact; the Hub doesn't report them), PRs not merged, tickets not in Jira's done category, failed agents, agents that stopped before completing. **Local** sessions never ask (user, 2026-10-05: allowed to archive half-done work; there's no reliable "done" for them yet, see ISSUES.md).
+- **Confirm (02):** `agents.archive_plan { target }` returns the tree as it will change (rows lit and tagged), the reasons and the counts. `⌘⏎` archives, `Esc` cancels, `⏎` never archives.
+- **Undo (03):** the row stays struck through on the hatch for 10 s with "deleting N agents in 8s · u undo"; `u` takes back the newest. The window lives in the UI: only when it ends does `agents.archive { target, force }` run, and it checks the rules again.
+- **Archiving** stops local sessions (their process in the agent host), then in one unit of work: pending changes are flushed, each group and session moves from `agent_groups` / `agent_sessions` (and `agent_hosts`) into `agent_archive` as it is now, a Scion session's thread and a Scion group's room are copied into `agent_rows` from memory (they're never stored otherwise), and one `scion.delete_agent` per Hub agent goes into the outbox (`DELETE /api/v1/agents/{id}`, the Hub's defaults: clone and branch go too; a 404 counts as deleted, so it's safe to resend). It runs under the store's gate, so no event lands between the copy and the removal. Archived ids are kept in the store, and `put_group`, `put_session`, `put_request` and `set_rows` ignore them, so a Hub that still lists an agent can't bring it back.
+- **A failed Hub delete** leaves the item archived (user, 2026-10-05). The outbox row stays failed (`⌘R` in the sync status retries it) and the tree's footer says "N Hub deletes failed".
+- **Incoming:** an archived session's open signals leave Incoming (marked `auto_seen`, as for any signal whose cause is gone). Filed ones stay filed; replying to one fails, since an archived session can't be restarted.
+- **Done nudge (01):** a green frame around a Scion group whose every session completed and whose PR merged (or ticket is Done), with **Archive group** and **Not now** (hides it for 7 days, `agent_nudges`). Local groups never get one. Nothing is archived automatically.
+- **Finding archived items (04):** the tree filter (`/`) also searches the archive (`agents.archived { q }`: names, goals, titles, and the text, tool targets and tool results of their rows), shown under an "Archived" divider, faded until the pointer or the selection is in it. `⏎` opens one read-only (`agents.archived_open { id }`): an "archived <day>" chip, the rows with the filter's matches highlighted (CSS Custom Highlight API; `⌘G` / `⇧⌘G` next and previous), a group's members to open, and a footer with what was kept and Back (`Esc`). No restart, no reuse, no unarchive. ⌘K doesn't list archived items.
+- **Right-click (05):** selects the row and opens its menu: Open, Stop, New agent in <group>, then Archive session… / Archive group… (off with "stop it first" while something under it is going).
 
 ## Not built
 

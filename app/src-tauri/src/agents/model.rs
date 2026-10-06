@@ -154,6 +154,9 @@ pub struct Fact {
     pub label: String,
     pub detail: String,
     pub url: String,
+    /// A ticket in Jira's done category, a merged PR.
+    #[serde(default)]
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

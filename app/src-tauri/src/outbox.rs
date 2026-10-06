@@ -99,6 +99,7 @@ pub const SAFE_TO_RESEND: &[&str] = &[
     "gcal.hold",
     "obsidian.replace",
     "obsidian.toggle_task",
+    "scion.delete_agent",
 ];
 
 /// Take back rows whose sender died mid-send (`SAFE_TO_RESEND`).
@@ -140,6 +141,9 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
     })?;
     if result.is_ok() && source.kind == "obsidian" {
         crate::live::Live::vault_changed(app);
+    }
+    if row.op == crate::agents::archive::DELETE_OP {
+        crate::agents::archive::refresh_failed(app);
     }
     Ok(true)
 }

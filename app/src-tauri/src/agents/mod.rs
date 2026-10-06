@@ -11,6 +11,7 @@
 //! the app. The UI polls `agents.poll` with the last revision it saw (`store`).
 
 pub mod acp;
+pub mod archive;
 pub mod daemon;
 pub mod explain;
 pub mod facts;
@@ -55,6 +56,7 @@ pub fn start(app: Arc<App>) {
             }
         })
         .ok();
+    archive::refresh_failed(&app);
     daemon::start(app.clone());
     incoming::start(app.clone());
     scion::start(app);
@@ -85,12 +87,16 @@ fn tree(app: &App) -> Value {
     let mut requests: Vec<&Request> = i.requests.values().collect();
     requests.sort_by(|a, b| a.at.cmp(&b.at));
     let count = |st: Status| sessions.iter().filter(|s| s.status == st).count();
+    let now = app.clock.now();
+    let nudges: serde_json::Map<String, Value> = groups.iter().filter_map(|g| archive::nudge(&i, g, now).map(|t| (g.id.clone(), json!(t)))).collect();
     json!({
         "rev": i.tree_rev,
         "groups": groups,
         "sessions": sessions,
         "requests": requests,
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
+        "nudges": nudges,
+        "hub_failed": i.hub_failed,
         "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
         "hubs": scion::hubs(app),
         "agentd": daemon::status(app),
@@ -256,6 +262,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             app.agents.store.lock().remove_session(&id);
             Ok(json!({ "ok": true }))
         }
+        "archive_plan" => Ok(serde_json::to_value(archive::plan(&app.agents.store.lock(), &arg_str(args, "target")?)?)?),
+        "archive" => archive::archive(app, &arg_str(args, "target")?, args.get("force").and_then(Value::as_bool).unwrap_or(false)),
+        "nudge_snooze" => {
+            archive::snooze(app, &arg_str(args, "group")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "archived" => archive::search(app, args.get("q").and_then(Value::as_str).unwrap_or("")),
+        "archived_open" => archive::open(app, &arg_str(args, "id")?),
         "group_create" => {
             let name = arg_str(args, "name")?;
             let id = format!("local:{}", next_local_id(app));

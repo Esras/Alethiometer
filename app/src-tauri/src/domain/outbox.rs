@@ -25,6 +25,8 @@ pub trait OutboxViews {
     fn recent(&self, since: Ts, limit: usize) -> Result<Vec<OutboxEntry>>;
     /// The latest pending or failed `op` for the source whose payload's `path` is `path`.
     fn open_for_path(&self, source_id: i64, op: &str, path: &str) -> Result<Option<OutboxEntry>>;
+    /// How many `op` writes have failed and wait for a retry.
+    fn failed(&self, op: &str) -> Result<usize>;
 }
 
 pub trait Outbox {

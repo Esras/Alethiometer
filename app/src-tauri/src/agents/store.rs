@@ -6,6 +6,8 @@
 
 use super::model::{Group, Request, Row, Session};
 pub use crate::domain::agents::HostState;
+use crate::domain::agents::Archived;
+use crate::time::Ts;
 use crate::domain::ports::UnitOfWork;
 use crate::error::Result;
 use crate::store::Db;
@@ -44,6 +46,12 @@ pub struct Inner {
     dirty_rows: HashSet<(String, u64)>,
     gone_groups: HashSet<String>,
     gone_sessions: HashSet<String>,
+    /// Archived groups and sessions, never put back in the tree (the Hub lists an agent until its delete goes out).
+    pub archived: HashSet<String>,
+    /// Done nudges put off with Not now, until when.
+    pub snoozed: HashMap<String, Ts>,
+    /// Hub deletes that failed and wait for a retry (⌘R).
+    pub hub_failed: usize,
 }
 
 #[derive(Default)]
@@ -90,7 +98,7 @@ impl Inner {
     }
 
     pub fn put_group(&mut self, g: Group) {
-        if self.groups.get(&g.id) == Some(&g) {
+        if self.groups.get(&g.id) == Some(&g) || self.archived.contains(&g.id) {
             return;
         }
         if stored(&g.id) {
@@ -118,7 +126,7 @@ impl Inner {
     }
 
     pub fn put_session(&mut self, s: Session) {
-        if self.sessions.get(&s.id) == Some(&s) {
+        if self.sessions.get(&s.id) == Some(&s) || self.archived.contains(&s.id) {
             return;
         }
         if stored(&s.id) {
@@ -198,6 +206,9 @@ impl Inner {
     /// Replace a thread's rows wholesale (a Scion conversation re-read from the Hub).
     /// Rows keep their ids when `ext` matches, so the UI's selection survives.
     pub fn set_rows(&mut self, key: &str, rows: Vec<Row>) {
+        if key.strip_prefix("s:").is_some_and(|id| self.archived.contains(id)) {
+            return;
+        }
         let rev = self.bump();
         let t = self.thread(key);
         let old: HashMap<String, Row> = t.rows.drain(..).filter(|r| !r.ext.is_empty()).map(|r| (r.ext.clone(), r)).collect();
@@ -231,7 +242,7 @@ impl Inner {
     }
 
     pub fn put_request(&mut self, r: Request) {
-        if self.requests.get(&r.id) == Some(&r) {
+        if self.requests.get(&r.id) == Some(&r) || self.archived.contains(&r.session_id) {
             return;
         }
         self.requests.insert(r.id.clone(), r);
@@ -243,6 +254,11 @@ impl Inner {
             f(r);
             self.bump_tree();
         }
+    }
+
+    /// Something outside the tree's own data changed (a nudge, a failed delete).
+    pub fn touch_tree(&mut self) {
+        self.bump_tree();
     }
 
     pub fn remove_request(&mut self, id: &str) -> Option<Request> {
@@ -289,14 +305,7 @@ impl Store {
         }
         let r = db.write(|uow| write_changes(uow, &ch));
         if r.is_err() {
-            let mut i = self.lock();
-            i.dirty_hosts.extend(ch.hosts.into_iter().map(|(id, _)| id));
-            i.gone_hosts.extend(ch.gone_h);
-            i.dirty_groups.extend(ch.groups.into_iter().map(|g| g.id));
-            i.dirty_sessions.extend(ch.sessions.into_iter().map(|s| s.id));
-            i.dirty_rows.extend(ch.row_keys);
-            i.gone_groups.extend(ch.gone_g);
-            i.gone_sessions.extend(ch.gone_s);
+            self.retake(ch);
         }
         r
     }
@@ -304,32 +313,52 @@ impl Store {
     /// One snapshot of everything, between events.
     fn take_changes(&self) -> Changes {
         let _g = self.gate();
-        let mut i = self.lock();
-        let hosts = i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
-        let groups = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
-        let sessions = i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
-        let row_keys: Vec<(String, u64)> = i.dirty_rows.drain().collect();
-        let rows = row_keys
-            .iter()
-            .filter_map(|(k, id)| i.threads.get(k).and_then(|t| t.rows.iter().find(|r| r.id == *id)).map(|r| (k.clone(), r.clone())))
-            .collect();
-        Changes {
-            hosts,
-            gone_h: std::mem::take(&mut i.gone_hosts),
-            groups,
-            sessions,
-            row_keys,
-            rows,
-            gone_g: std::mem::take(&mut i.gone_groups),
-            gone_s: std::mem::take(&mut i.gone_sessions),
-        }
+        take(&mut self.lock())
     }
+
+    /// Mark a failed write's changes dirty again.
+    fn retake(&self, ch: Changes) {
+        let mut i = self.lock();
+        i.dirty_hosts.extend(ch.hosts.into_iter().map(|(id, _)| id));
+        i.gone_hosts.extend(ch.gone_h);
+        i.dirty_groups.extend(ch.groups.into_iter().map(|g| g.id));
+        i.dirty_sessions.extend(ch.sessions.into_iter().map(|s| s.id));
+        i.dirty_rows.extend(ch.row_keys);
+        i.gone_groups.extend(ch.gone_g);
+        i.gone_sessions.extend(ch.gone_s);
+    }
+}
+
+fn take(i: &mut Inner) -> Changes {
+    let hosts = i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
+    let groups = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
+    let sessions = i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
+    let row_keys: Vec<(String, u64)> = i.dirty_rows.drain().collect();
+    let rows = row_keys
+        .iter()
+        .filter_map(|(k, id)| i.threads.get(k).and_then(|t| t.rows.iter().find(|r| r.id == *id)).map(|r| (k.clone(), r.clone())))
+        .collect();
+    Changes {
+        hosts,
+        gone_h: std::mem::take(&mut i.gone_hosts),
+        groups,
+        sessions,
+        row_keys,
+        rows,
+        gone_g: std::mem::take(&mut i.gone_groups),
+        gone_s: std::mem::take(&mut i.gone_sessions),
+    }
+}
+
+impl Store {
 
     /// Local groups and sessions at startup. Transcripts load when opened.
     pub fn load(&self, db: &Db) -> Result<()> {
         let saved = db.read(|r| r.agents().saved())?;
         let (groups, sessions, hosts, last_ids) = (saved.groups, saved.sessions, saved.hosts, saved.last_row_ids);
         let mut i = self.lock();
+        i.archived = saved.archived;
+        i.snoozed = saved.snoozed;
         for (id, h) in hosts {
             i.hosts.insert(id, h);
         }
@@ -379,6 +408,88 @@ impl Store {
             t.rows = stored_rows;
             t.loaded = true;
         }
+        Ok(())
+    }
+}
+
+impl Store {
+    /// Archive groups and sessions with `also`'s writes in one unit of work, under the gate, then drop them from the tree.
+    pub fn archive(&self, db: &Db, groups: &[String], sessions: &[String], at: Ts, also: impl Fn(&dyn UnitOfWork, &[Archived]) -> Result<()>) -> Result<()> {
+        let _g = self.gate();
+        let (ch, items, rows) = {
+            let mut i = self.lock();
+            let ch = take(&mut i);
+            let place = |gid: Option<&String>| gid.and_then(|g| i.groups.get(g)).map(|g| (g.project.clone(), g.name.clone())).unwrap_or_default();
+            let mut items = vec![];
+            let mut rows: Vec<(String, Row)> = vec![];
+            let mut copy = |key: String| {
+                if !stored(&key) {
+                    rows.extend(i.threads.get(&key).into_iter().flat_map(|t| t.rows.iter().map(|r| (key.clone(), Row { open: false, ..r.clone() }))));
+                }
+            };
+            for g in groups.iter().filter_map(|id| i.groups.get(id)) {
+                if let Some(room) = &g.room {
+                    copy(format!("r:{}", room.id));
+                }
+                items.push(Archived {
+                    id: g.id.clone(),
+                    kind: "group".into(),
+                    source: g.source.clone(),
+                    project: g.project.clone(),
+                    group_name: g.name.clone(),
+                    group_id: None,
+                    at,
+                    data: serde_json::to_string(g).unwrap_or_default(),
+                });
+            }
+            for s in sessions.iter().filter_map(|id| i.sessions.get(id)) {
+                copy(super::session_thread(&s.id));
+                let (project, group_name) = place(s.group_id.as_ref());
+                items.push(Archived {
+                    id: s.id.clone(),
+                    kind: "session".into(),
+                    source: s.source.clone(),
+                    project,
+                    group_name,
+                    group_id: s.group_id.clone(),
+                    at,
+                    data: serde_json::to_string(&Session { live: false, queued: vec![], ..s.clone() }).unwrap_or_default(),
+                });
+            }
+            (ch, items, rows)
+        };
+        let r = db.write(|uow| {
+            write_changes(uow, &ch)?;
+            for a in &items {
+                uow.agents().archive(a)?;
+            }
+            for (k, row) in &rows {
+                uow.agents().put_row(k, row)?;
+            }
+            also(uow, &items)
+        });
+        if let Err(e) = r {
+            self.retake(ch);
+            return Err(e);
+        }
+        let mut i = self.lock();
+        for id in sessions {
+            i.sessions.remove(id);
+            i.threads.remove(&super::session_thread(id));
+            i.hosts.remove(id);
+            i.dirty_sessions.remove(id);
+            i.dirty_hosts.remove(id);
+            i.requests.retain(|_, r| &r.session_id != id);
+            i.archived.insert(id.clone());
+        }
+        for id in groups {
+            if let Some(room) = i.groups.remove(id).and_then(|g| g.room) {
+                i.threads.remove(&format!("r:{}", room.id));
+            }
+            i.dirty_groups.remove(id);
+            i.archived.insert(id.clone());
+        }
+        i.bump_tree();
         Ok(())
     }
 }
