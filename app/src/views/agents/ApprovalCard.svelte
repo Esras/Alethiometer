@@ -176,6 +176,11 @@
   }
   .btns {
     flex-wrap: wrap;
+    /* A long option wraps; the others take its height (as AskCard's choices do). */
+    align-items: stretch;
+  }
+  .btns .right {
+    align-self: center;
   }
   .btns,
   .deny {
