@@ -45,6 +45,8 @@ export interface ConfigChoice {
 export interface Session {
   id: string;
   seen_turns?: number | null;
+  /** A file its direnv environment came from has changed since it started. */
+  env_changed?: boolean;
   source: 'acp' | 'scion';
   group_id: string | null;
   parent_id: string | null;

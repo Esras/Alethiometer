@@ -301,6 +301,27 @@ fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
     vars.into_iter().filter_map(|(k, v)| Some((k, v.as_str()?.to_owned()))).collect()
 }
 
+/// What direnv watches for an environment it exported: `DIRENV_WATCHES`, zlib-compressed JSON in base64url.
+fn direnv_watches(env: &BTreeMap<String, String>) -> Vec<super::model::EnvWatch> {
+    use base64::Engine;
+    use std::io::Read;
+    let Some(raw) = env.get("DIRENV_WATCHES") else { return vec![] };
+    let Ok(zipped) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw.trim_end_matches('=')) else { return vec![] };
+    let mut json = String::new();
+    if flate2::read::ZlibDecoder::new(zipped.as_slice()).read_to_string(&mut json).is_err() {
+        return vec![];
+    }
+    serde_json::from_str(&json).unwrap_or_default()
+}
+
+/// One of the watched files changed (direnv's own test: existence, then mtime in seconds).
+pub fn env_changed(watches: &[super::model::EnvWatch]) -> bool {
+    watches.iter().any(|w| match std::fs::metadata(&w.path).and_then(|m| m.modified()) {
+        Ok(t) => !w.exists || t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0) != w.modtime,
+        Err(_) => w.exists,
+    })
+}
+
 /// Where `cmd` is on the login PATH, or None.
 fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
     if cmd.contains('/') {
@@ -562,6 +583,11 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     let conn = Arc::new(Conn::new(app, id, Turn::default(), true));
     app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), conn.clone());
     let mut env = direnv_env(&s.cwd, &path);
+    let watches = direnv_watches(&env);
+    app.agents.store.lock().update_session(id, |s| {
+        s.env_watches = watches;
+        s.env_changed = false;
+    });
     env.entry("PATH".into()).or_insert(path);
     env.extend(h.env.clone());
     let spawned = daemon::call(
@@ -2220,6 +2246,33 @@ pub(crate) mod tests {
         assert_eq!(env.get("IN_DEVSHELL").map(String::as_str), Some("none"));
         assert_eq!(env.get("PATH"), Some(&format!("/nix/bin:{path}")));
         assert!(!env.contains_key("GONE"));
+    }
+
+    #[test]
+    fn a_change_to_a_watched_file_is_seen() {
+        use base64::Engine;
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let envrc = dir.path().join(".envrc");
+        std::fs::write(&envrc, "use flake").unwrap();
+        let secs = |p: &std::path::Path| std::fs::metadata(p).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let missing = dir.path().join(".env");
+        let list = json!([
+            { "path": envrc.to_str().unwrap(), "modtime": secs(&envrc), "exists": true },
+            { "path": missing.to_str().unwrap(), "modtime": 0, "exists": false }
+        ]);
+        let mut z = flate2::write::ZlibEncoder::new(vec![], flate2::Compression::default());
+        z.write_all(list.to_string().as_bytes()).unwrap();
+        let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(z.finish().unwrap());
+        let watches = direnv_watches(&BTreeMap::from([("DIRENV_WATCHES".to_string(), raw)]));
+        assert_eq!(watches.len(), 2);
+        assert!(!env_changed(&watches));
+        std::fs::write(&missing, "A=1").unwrap();
+        assert!(env_changed(&watches), "a file that didn't exist now does");
+        std::fs::remove_file(&missing).unwrap();
+        let f = std::fs::File::options().write(true).open(&envrc).unwrap();
+        f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs(&envrc) + 5)).unwrap();
+        assert!(env_changed(&watches), "edited");
     }
 
     #[test]

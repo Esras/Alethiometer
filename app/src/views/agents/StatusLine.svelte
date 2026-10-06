@@ -63,6 +63,9 @@
     {/if}
     <span>{s.source === 'acp' ? (ag.tree?.host ?? s.host) : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
+    {#if s.env_changed && s.live}
+      <button class="envchg" title="Its .envrc or devshell changed since it started. Stopping it is safe: your next message resumes the conversation in the new environment." onclick={() => act('stop', { session: s.id })}>⚠ devshell changed · stop to reload</button>
+    {/if}
     <span class="right">
       {#if pct !== null}
         <span class="g">ctx <span class="v">{pct}%</span><span class="bar" style:background="linear-gradient(90deg,var(--tx-muted-2) {pct}%,var(--border) {pct}%)"></span><span class="dim">{k(s.stats.ctx_used)}/{k(s.stats.ctx_size)}</span></span>
@@ -133,6 +136,13 @@
   }
   .muted {
     color: var(--tx-disabled);
+  }
+  .envchg {
+    font: inherit;
+    color: var(--status-attention);
+  }
+  .envchg:hover {
+    text-decoration: underline;
   }
   .problem {
     color: var(--status-attention);

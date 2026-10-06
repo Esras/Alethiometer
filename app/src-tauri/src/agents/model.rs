@@ -110,6 +110,20 @@ pub struct Session {
     /// Turns you had seen the last time you looked (or the count before its first turn ended, for a session that never had one); `stats.turns` past it is an ended turn you haven't seen.
     #[serde(default)]
     pub seen_turns: Option<u64>,
+    /// What direnv watched for the environment it started in (local), and
+    /// whether one of those files has changed since: the agent still has the old one.
+    #[serde(default)]
+    pub env_watches: Vec<EnvWatch>,
+    #[serde(default)]
+    pub env_changed: bool,
+}
+
+/// One of direnv's watched files (`.envrc`, `flake.lock`…) as it was.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct EnvWatch {
+    pub path: String,
+    pub modtime: i64,
+    pub exists: bool,
 }
 
 impl Session {

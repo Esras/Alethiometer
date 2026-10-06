@@ -56,6 +56,22 @@ pub fn start(app: Arc<App>) {
             }
         })
         .ok();
+    // A live local session whose direnv files changed is flagged (the status
+    // line offers a restart); stat'ed outside the store's lock.
+    let a = app.clone();
+    std::thread::Builder::new()
+        .name("agents-env".into())
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let watched: Vec<(String, Vec<model::EnvWatch>)> =
+                a.agents.store.lock().sessions.values().filter(|s| s.live && !s.env_changed && !s.env_watches.is_empty()).map(|s| (s.id.clone(), s.env_watches.clone())).collect();
+            for (id, w) in watched {
+                if acp::env_changed(&w) {
+                    a.agents.store.lock().update_session(&id, |s| s.env_changed = true);
+                }
+            }
+        })
+        .ok();
     archive::refresh_failed(&app);
     daemon::start(app.clone());
     incoming::start(app.clone());

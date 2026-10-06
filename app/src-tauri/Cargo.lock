@@ -43,6 +43,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dirs",
+ "flate2",
  "fontdb",
  "glob",
  "jiff",
