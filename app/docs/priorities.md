@@ -1,6 +1,6 @@
 # Priorities
 
-The design for the Priorities tab, replacing 8b's urgent × important grid. Agreed with the user 2026-10-06; nothing here is built yet. Mock: the "Priorities · three orders" canvas (https://claude.ai/artifact/7idSzDcMgPFxTR1apMTM6r, private to the user until shared).
+The design for the Priorities tab, replacing 8b's urgent × important grid. Agreed with the user 2026-10-06; nothing here is built yet. Mock: `project/Priorities Three Orders.dc.html` (interactive; serve `project/` locally as for the other design files, e.g. `python3 -m http.server`), screenshot `project/design_handoff_helm/screenshots/priorities-three-orders.png`. The sample todos, scores and the Neglect weights in it are made up.
 
 Priorities ranks open todos and shows them in three orders side by side: **Priority**, **Quick wins** and **Neglect**. Every column holds every todo, so nothing is hidden by a collapsed quadrant; a todo showing up near the top of more than one column is the point.
 
