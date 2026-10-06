@@ -268,12 +268,12 @@
   </div>
 
   {#if ag.menu && menuNode}
-    {@const k = ag.menu.key}
-    {@const s = menuNode.type === 'session' ? menuNode.s : undefined}
-    {@const isGroup = menuNode.type !== 'session'}
+    {@const k = ag.menu?.key ?? ''}
+    {@const s = menuNode?.type === 'session' ? menuNode.s : undefined}
+    {@const isGroup = menuNode?.type !== 'session'}
     {@const room = menuGroup?.room}
     {@const can = archivable(k)}
-    <div class="menu popover flush" role="menu" style:left="{ag.menu.x}px" style:top="{ag.menu.y}px" use:popover={{ onclose: () => (ag.menu = null) }}>
+    <div class="menu popover flush" role="menu" style:left="{ag.menu?.x ?? 0}px" style:top="{ag.menu?.y ?? 0}px" use:popover={{ onclose: () => (ag.menu = null) }}>
       {#if !isGroup || room}
         <button role="menuitem" onclick={() => run(() => { const key = isGroup && room ? `r:${room.id}` : k; ag.sel = key; openThread(key); ag.zone = 'thread'; })}
           >{isGroup ? `Open #${room?.name}` : 'Open'}<kbd>⏎</kbd></button
