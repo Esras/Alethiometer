@@ -131,6 +131,7 @@
   .choices {
     margin: 8px 12px 0;
     display: grid;
+    grid-auto-rows: 1fr;
     gap: 10px;
   }
   .choice {
@@ -143,6 +144,7 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 2px 9px;
     align-items: baseline;
+    align-content: start;
   }
   .choice:hover {
     border-color: var(--border-strong);
