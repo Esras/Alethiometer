@@ -207,7 +207,7 @@
     const prevEntries = entries;
     const prevFlat = flat;
     const topicIdx = Math.max(0, prevEntries.findIndex((e) => e.key === selKey));
-    const itemIdx = Math.max(0, prevFlat.findIndex((s) => s.item_id === selItem));
+    let itemIdx = Math.max(0, prevFlat.findIndex((s) => s.item_id === selItem));
     // Keep the topic order stable while triaging: topics already listed stay put,
     // topics that just got their first new signal go at the end, above Unsorted.
     const known = queue?.topics.map((t) => t.id) ?? [];
@@ -227,6 +227,7 @@
     if (selKey === null || !keys.includes(selKey)) {
       selKey = keys[Math.min(topicIdx, keys.length - 1)];
       selItem = null;
+      itemIdx = 0;
     }
     const now = grouped(signalsFor(q, selKey), selKey).flatMap((g) => g.signals);
     if (!now.some((s) => s.item_id === selItem)) {
