@@ -24,6 +24,7 @@
         <span class="st">{s.text}</span>
         <span class="tags">{#each s.tags as t (t)}<span class="mono-tag {tagClass(t)}">{t}</span>{/each}</span>
       </div>
+      {#each s.notes ?? [] as note (note)}<div class="note" class:deep={s.depth > 0}>{note}</div>{/each}
     {/each}
     {#if req.parsed.checks.length}
       <div class="checks">
@@ -106,6 +107,14 @@
   }
   .step.deep {
     grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+  .note {
+    margin: 0 0 2px 28px;
+    font: 0.846rem var(--font-mono);
+    color: var(--tx-label);
+  }
+  .note.deep {
+    margin-left: 42px;
   }
   .n {
     font: 0.846rem var(--font-mono);

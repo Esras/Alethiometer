@@ -27,6 +27,9 @@ pub struct Step {
     /// From `TAGS`, in that order.
     pub tags: Vec<String>,
     pub depth: u8,
+    /// What surrounds it (`loop: for f in *.log`, `conditional: if …`) and what its wildcards match in the directory right now.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,6 +94,7 @@ fn parse_with(command: &str, cwd: &str, home: Option<&str>, local_bins: &[String
         home: home.map(normalize),
         bins: local_bins,
         nest: 0,
+        ctx: Vec::new(),
         steps: Vec::new(),
         outside: Vec::new(),
         net: Vec::new(),
@@ -110,7 +114,7 @@ fn parse_with(command: &str, cwd: &str, home: Option<&str>, local_bins: &[String
 fn failed(command: &str) -> Parsed {
     Parsed {
         verdict: "unknown".into(),
-        steps: vec![Step { n: "1".into(), text: command.trim().into(), tags: vec!["unknown command".into()], depth: 0 }],
+        steps: vec![Step { n: "1".into(), text: command.trim().into(), tags: vec!["unknown command".into()], depth: 0, notes: vec![] }],
         checks: vec![Check { ok: false, text: "Couldn't parse the command".into() }],
     }
 }
@@ -162,6 +166,7 @@ struct Raw {
     text: String,
     bits: u16,
     depth: u8,
+    notes: Vec<String>,
 }
 
 #[derive(Default)]
@@ -212,6 +217,8 @@ struct Run<'a> {
     home: Option<String>,
     bins: &'a [String],
     nest: usize,
+    /// Loops and conditionals around the node being walked, with what their wildcards match.
+    ctx: Vec<String>,
     steps: Vec<Raw>,
     outside: Vec<String>,
     net: Vec<String>,
@@ -296,7 +303,11 @@ impl Run<'_> {
             | "for_statement" | "c_style_for_statement" | "case_statement" | "case_item" | "function_definition" => {
                 let saved = (node.kind() == "subshell").then(|| self.cur.clone());
                 let before = self.steps.len();
-                self.seq(at, node, conn, None, idx)?;
+                let ctx_len = self.ctx.len();
+                self.enter(at.src, node);
+                let r = self.seq(at, node, conn, None, idx);
+                self.ctx.truncate(ctx_len);
+                r?;
                 if let Some(cur) = saved {
                     self.cur = cur;
                 }
@@ -325,6 +336,47 @@ impl Run<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// Notes for what the steps inside a loop or conditional are: the header as written, and what each wildcard in a `for` list matches.
+    fn enter(&mut self, src: &str, node: Node<'_>) {
+        let text = |n: Node<'_>| src.get(n.byte_range()).unwrap_or("").trim().to_owned();
+        let header = |end: Option<Node<'_>>| {
+            let to = end.map_or(node.end_byte(), |b| b.start_byte());
+            clip(src.get(node.start_byte()..to).unwrap_or("").trim().trim_end_matches(';').trim())
+        };
+        match node.kind() {
+            "for_statement" => {
+                self.ctx.push(format!("loop: {}", header(node.child_by_field_name("body"))));
+                let mut cursor = node.walk();
+                let values: Vec<Node> = node.children_by_field_name("value", &mut cursor).filter(|v| v.kind() == "word").collect();
+                for v in values {
+                    let note = self.expand(&text(v));
+                    self.ctx.extend(note);
+                }
+            }
+            "while_statement" | "c_style_for_statement" => self.ctx.push(format!("loop: {}", header(node.child_by_field_name("body")))),
+            "if_statement" => self.ctx.push(format!("conditional: if {}", clip(&node.child_by_field_name("condition").map(text).unwrap_or_default()))),
+            "case_statement" => self.ctx.push(format!("conditional: {}", header(children(node).into_iter().find(|k| k.kind() == "case_item")))),
+            _ => {}
+        }
+    }
+
+    /// What an unquoted wildcard matches in the directory now; bash passes a pattern that matches nothing through as is.
+    fn expand(&self, pat: &str) -> Option<String> {
+        if !pat.contains(['*', '?', '[']) || pat.contains(['$', '`', '{']) {
+            return None;
+        }
+        let full = if pat.starts_with('/') || pat.starts_with('~') { self.resolve(pat).unwrap_or_default() } else { format!("{}/{pat}", glob::Pattern::escape(&self.cur)) };
+        let opts = glob::MatchOptions { case_sensitive: true, require_literal_separator: true, require_literal_leading_dot: true };
+        let hits: Vec<String> = glob::glob_with(&full, opts).ok()?.filter_map(Result::ok).take(51).map(|p| p.to_string_lossy().trim_start_matches(&format!("{}/", self.cur)).to_owned()).collect();
+        Some(if hits.is_empty() {
+            format!("{pat} matches nothing in {}; the shell would pass it through as written", self.cur)
+        } else if hits.len() > 50 {
+            format!("{pat} matches 50+ paths in {}, starting {}", self.cur, hits[..8].join(", "))
+        } else {
+            format!("{pat} matches {}: {}{}", hits.len(), hits[..hits.len().min(8)].join(", "), if hits.len() > 8 { ", …" } else { "" })
+        })
     }
 
     fn command<'t>(&mut self, at: &At, node: Node<'t>, conn: Conn, mut redirs: Vec<Node<'t>>, tail_end: usize, idx: &mut usize) -> R {
@@ -398,7 +450,11 @@ impl Run<'_> {
             _ => "",
         };
         let me = self.steps.len();
-        self.steps.push(Raw { n: n.clone(), text: format!("{prefix}{}", text.trim()), bits: c.bits, depth: at.depth });
+        let mut notes = self.ctx.clone();
+        for a in p.args.iter().skip(1).filter(|a| !c.nopath.contains(&a.start) && !c.elide.contains(&a.start) && !matches!(at.src.as_bytes().get(a.start), Some(b'"' | b'\''))) {
+            notes.extend(self.expand(&a.val));
+        }
+        self.steps.push(Raw { n: n.clone(), text: format!("{prefix}{}", text.trim()), bits: c.bits, depth: at.depth, notes });
 
         if subs.is_empty() && c.scripts.is_empty() {
             return Ok(());
@@ -1243,6 +1299,7 @@ impl Run<'_> {
                 text: s.text,
                 tags: TAGS.iter().enumerate().filter(|(i, _)| s.bits & (1 << i) != 0).map(|(_, t)| t.to_string()).collect(),
                 depth: s.depth,
+                notes: s.notes,
             })
             .collect();
         Parsed { verdict: verdict.into(), steps, checks }
@@ -1507,6 +1564,24 @@ mod tests {
 
     fn has_check(p: &Parsed, ok: bool, text: &str) -> bool {
         p.checks.iter().any(|c| c.ok == ok && c.text == text)
+    }
+
+    #[test]
+    fn steps_in_a_loop_say_so_and_what_its_wildcard_matches() {
+        let d = tempfile::tempdir().unwrap();
+        for f in ["a.log", "b.log", ".hidden.log", "c.txt"] {
+            std::fs::write(d.path().join(f), "").unwrap();
+        }
+        let cwd = d.path().to_str().unwrap();
+        let out = parse_with("for f in *.log; do rm $f; done", cwd, None, &[]);
+        assert_eq!(out.steps[0].notes, vec!["loop: for f in *.log".to_string(), "*.log matches 2: a.log, b.log".to_string()]);
+
+        let out = parse_with("rm *.tmp && if test -f x; then echo hi; fi", cwd, None, &[]);
+        assert_eq!(out.steps[0].notes.len(), 1);
+        assert!(out.steps[0].notes[0].starts_with("*.tmp matches nothing"));
+        assert_eq!(out.steps.last().unwrap().notes, vec!["conditional: if test -f x".to_string()]);
+
+        assert!(parse_with("grep '*.log' x", cwd, None, &[]).steps[0].notes.is_empty());
     }
 
     #[test]
