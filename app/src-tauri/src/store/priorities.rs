@@ -7,19 +7,20 @@ use crate::error::Result;
 use crate::time::{Date, Due, Ts};
 use rusqlite::params;
 
-impl PriorityViews for Sql<'_> {
-    fn facts(&self) -> Result<Vec<TodoFacts>> {
-        Ok(self
-            .conn()
-            .prepare_cached(
-                "WITH todo AS (
+/// Your open todos: local and Obsidian tasks, Jira issues.
+const YOURS: &str = "i.owner = 'you' AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))";
+
+impl Sql<'_> {
+    /// The facts of open work items matching `which` (SQL over `items i` and `sources s`).
+    fn facts_where(&self, which: &str, args: &[&dyn rusqlite::ToSql]) -> Result<Vec<TodoFacts>> {
+        let sql = format!(
+            r#"WITH todo AS (
                    SELECT i.*, s.kind AS skind,
                           CASE s.kind WHEN 'jira' THEN i.id WHEN 'notes' THEN json_extract(i.raw_json, '$.from_item') END AS thread,
                           (SELECT tl.topic_id FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong'
                             ORDER BY tl.state = 'confirmed' DESC LIMIT 1) AS topic_id
                      FROM items i JOIN sources s ON s.id = i.source_id
-                    WHERE s.tag = 'work' AND i.owner = 'you' AND i.status = 'open'
-                      AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))
+                    WHERE s.tag = 'work' AND i.status = 'open' AND ({which})
                  ),
                  last AS (
                    -- The newest message on each thread by anyone but a bot.
@@ -61,9 +62,12 @@ impl PriorityViews for Sql<'_> {
                           ON asker.id = CASE t.skind WHEN 'notes' THEN json_extract(t.raw_json, '$.from_item') WHEN 'jira' THEN t.id END
                    LEFT JOIN people ap ON ap.id = asker.author_person_id
                    LEFT JOIN person_handles ah ON ah.person_id = asker.author_person_id AND ah.source_kind = asker.kind
-                  ORDER BY t.id",
-            )?
-            .query_map([], |r| {
+                  ORDER BY t.id"#
+        );
+        Ok(self
+            .conn()
+            .prepare_cached(&sql)?
+            .query_map(args, |r| {
                 let topic = match r.get::<_, Option<i64>>(11)? {
                     Some(id) => Some(TopicRef { id, name: r.get(12)?, category: r.get(13)? }),
                     None => None,
@@ -104,6 +108,20 @@ impl PriorityViews for Sql<'_> {
                 })
             })?
             .collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+impl PriorityViews for Sql<'_> {
+    fn facts(&self) -> Result<Vec<TodoFacts>> {
+        self.facts_where(YOURS, rusqlite::params![])
+    }
+
+    fn topic_facts(&self, topic_id: i64) -> Result<Vec<TodoFacts>> {
+        self.facts_where(
+            "i.owner IS NOT NULL AND i.kind IN ('task', 'issue', 'email')
+             AND EXISTS (SELECT 1 FROM topic_links x WHERE x.item_id = i.id AND x.topic_id = ?1 AND x.state = 'confirmed')",
+            rusqlite::params![topic_id],
+        )
     }
 
     fn next_meetings(&self, now: Ts, until: Ts) -> Result<Vec<(i64, Ts, Ts)>> {

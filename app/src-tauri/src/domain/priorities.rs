@@ -58,6 +58,9 @@ pub struct TodoFacts {
 pub trait PriorityViews {
     /// Open todos you own (local, Jira and Obsidian tasks), by item id.
     fn facts(&self) -> Result<Vec<TodoFacts>>;
+    /// Every open work item confirmed under a topic that someone owns (yours and
+    /// other people's: tasks, issues, emails), as a topic's Open panel lists them.
+    fn topic_facts(&self, topic_id: i64) -> Result<Vec<TodoFacts>>;
     /// The next meeting (not a life block) linked to each topic that isn't
     /// over at `now` and starts before `until`: (topic id, start, end).
     fn next_meetings(&self, now: Ts, until: Ts) -> Result<Vec<(i64, Ts, Ts)>>;

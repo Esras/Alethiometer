@@ -412,6 +412,21 @@ pub fn list(r: &dyn Reads, clock: &Clock, settings: &Settings) -> Result<List> {
     Ok(List { todos, orders, quick_max: p.quick_max_minutes, tags: p.tags.iter().map(|t| t.name.clone()).collect() })
 }
 
+/// The Priority score of every open item someone owns on a topic, yours and
+/// other people's alike (a topic's Open panel mixes them, user 2026-10-07),
+/// by the same factors and coefficients as the Priority column.
+pub fn topic_scores(r: &dyn Reads, clock: &Clock, settings: &Settings, topic_id: i64) -> Result<HashMap<i64, f64>> {
+    let now = clock.now();
+    let who = Resolver::load(r, &settings.people)?;
+    let meeting = r.priorities().next_meetings(now, now + SignedDuration::from_hours(8))?.into_iter().find(|m| m.0 == topic_id).map(|(_, s, e)| (s, e));
+    Ok(r
+        .priorities()
+        .topic_facts(topic_id)?
+        .iter()
+        .map(|t| (t.item_id, factors(t, &settings.priorities, clock, &who, meeting).iter().map(|f| f.points).sum()))
+        .collect())
+}
+
 /// Each open todo's place in the Priority column, from 1.
 pub fn ranks(r: &dyn Reads, clock: &Clock, settings: &Settings) -> Result<HashMap<i64, usize>> {
     Ok(list(r, clock, settings)?.orders.priority.into_iter().enumerate().map(|(i, id)| (id, i + 1)).collect())

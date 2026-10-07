@@ -441,9 +441,10 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     }
     upcoming.sort_by(|a, b| a.0.cmp(&b.0));
     chron.sort_by(|a, b| b.0.cmp(&a.0));
-    // Your todos in Priority order, then everything else in the order it came (user, 2026-10-06).
-    let ranks = super::priorities::ranks(reads, clock, ctx.settings)?;
-    open.sort_by_key(|o: &OpenItem| ranks.get(&o.item_id).copied().unwrap_or(usize::MAX));
+    // Yours and other people's mixed, by Priority score (user, 2026-10-07).
+    let scores = super::priorities::topic_scores(reads, clock, ctx.settings, id)?;
+    let prio = |o: &OpenItem| scores.get(&o.item_id).copied().unwrap_or(0.0);
+    open.sort_by(|a, b| prio(b).partial_cmp(&prio(a)).unwrap_or(std::cmp::Ordering::Equal).then(a.item_id.cmp(&b.item_id)));
 
     let mut filters: Vec<(String, i64)> = vec![];
     for (_, e) in &chron {
@@ -799,17 +800,19 @@ mod tests {
     }
 
     #[test]
-    fn the_open_panel_lists_your_todos_in_priority_order_then_the_rest() {
+    fn the_open_panel_mixes_everyones_items_by_priority_score() {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
+        // Kim's item gets a due date today: it outranks your undated todos.
+        app.db().execute("UPDATE items SET due_day = date('now') WHERE title = 'Legal redlines back to vendor'", []).unwrap();
         let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
-        let ranks = app.store().read(|r| crate::queries::priorities::ranks(r, &app.clock, &app.settings())).unwrap();
-        let open: Vec<Option<usize>> = v["open"].as_array().unwrap().iter().map(|o| ranks.get(&o["item_id"].as_i64().unwrap()).copied()).collect();
-        let ranked = open.iter().take_while(|r| r.is_some()).count();
-        assert!(ranked >= 3, "{open:?}");
-        assert!(open[..ranked].windows(2).all(|w| w[0] < w[1]), "{open:?}");
-        assert!(open[ranked..].iter().all(Option::is_none), "unranked items come after: {open:?}");
-        assert!(v["open"].as_array().unwrap().iter().any(|o| o["owner"] == "Kim"), "other people's items stay");
+        let scores = app.store().read(|r| crate::queries::priorities::topic_scores(r, &app.clock, &app.settings(), id)).unwrap();
+        let open = v["open"].as_array().unwrap();
+        let s: Vec<f64> = open.iter().map(|o| scores[&o["item_id"].as_i64().unwrap()]).collect();
+        assert!(s.windows(2).all(|w| w[0] >= w[1]), "{s:?}");
+        let kim = open.iter().position(|o| o["owner"] == "Kim").expect("other people's items stay");
+        let yours_after = open.iter().skip(kim + 1).any(|o| o["owner"] == "you");
+        assert!(yours_after, "Kim's dated item sits among yours, not after them");
     }
 
     #[test]
