@@ -1,6 +1,6 @@
 # Priorities
 
-The design for the Priorities tab, replacing 8b's urgent × important grid. Agreed with the user 2026-10-06; nothing here is built yet. Mock: `project/Priorities Three Orders.dc.html` (interactive; serve `project/` locally as for the other design files, e.g. `python3 -m http.server`), screenshot `project/design_handoff_helm/screenshots/priorities-three-orders.png`. The sample todos, scores and the Neglect weights in it are made up.
+The design for the Priorities tab, replacing 8b's urgent × important grid. Agreed with the user 2026-10-06; **built 2026-10-07** except heat and tag suggestions (see "Built" and "Decided while building" below). Mock: `project/Priorities Three Orders.dc.html` (interactive; serve `project/` locally as for the other design files, e.g. `python3 -m http.server`), screenshot `project/design_handoff_helm/screenshots/priorities-three-orders.png`. The sample todos, scores and the Neglect weights in it are made up.
 
 Priorities ranks open todos and shows them in three orders side by side: **Priority**, **Quick wins** and **Neglect**. Every column holds every todo, so nothing is hidden by a collapsed quadrant; a todo showing up near the top of more than one column is the point.
 
@@ -74,12 +74,57 @@ Every todo in a topic inherits the three topic rows. A hard due date ramps steep
     - A topic's Open panel lists its todos in Priority order.
     - In the design system: decision 14 moves Priorities to compact, and the Priorities exceptions in decisions 3 and 12 (chip ring cursor, raw-alpha selected bar) go away.
 
-## Not yet designed
+## Built (2026-10-07)
 
-- **Who asked** has no weights: nothing records that a manager or a customer outranks a peer. Needs a weight per person, or a tag on the person's note.
+Code: `store/priorities.rs` (each open todo's facts, one query), `queries/priorities.rs` (the curves, the score, the three orders, the sample todos), `views/Priorities.svelte`. Nothing is stored: every read scores afresh.
+
+- **Where the score is computed (user, 2026-10-07):** the database gives each todo's raw facts; Rust resolves people (the Resolver decides who is "you" and whose People note has which weight) and computes the curves, groups and score as pure functions. A plain view couldn't read the Clock (`fake_now`) or `settings.json`. Nothing is written, so AGENTS.md's "never written twice" holds.
+- **Settings:** `settings.json` › `priorities` (file only; not on a Settings screen yet): `coefficients`, `neglect` (`age`, `quiet`), `quick_max_minutes` (30), `tags` (`name`, `coefficient`, `feeds`: value / pressure / effort).
+- **Which todos:** open, owned by you, local / Jira / Obsidian tasks on work sources, as the Todos tab. Jira epics and `todo_exclude_projects` are left out.
+- **New inputs:** `items.sched_day` (local todos: `todos.schedule`, TodoForm's Scheduled field, a held todo's `sched`); `items.source_created_at` (Jira `created`); `topics.priority` (`topics.set_priority`); `people.weight` (a People note's `weight`, clamped to 0–1); Jira `issuelinks` in the sync's fields; `item_tags` / `topic_tags` (storage only).
+- **Every table has `created_at` and `updated_at`** (user, 2026-10-06), kept by the database (`store/timestamps.rs`, see `db-plan.md`).
+- **Screens for the new inputs** (user, 2026-10-07): `p` cycles a topic's priority (H → M → L → none) on the Topics index and on a topic page; the Todos tab has a Sched column for local todos, edited with `d`; TodoForm has a Scheduled field for local todos.
+- **Knock-on:** the Todos tab's Priority column is the todo's rank; a topic's Open panel lists your todos in Priority order, then everyone else's items as before, with no header (user, 2026-10-07); `/` on Priorities focuses its filter instead of opening search. Merging topics moves topic tags; the merged-away topic's priority is dropped (the target keeps its own).
+- **Sample data:** the mock's 34 todos (made up). Five titles differ from the mock so other tabs' sample data behave as before: PLAT-1204 (not 1201, which the Notes sample uses), "retry limits ADR", "renew staging webhook secret", "decide retry caps" (Notes' word matching) and "Thank Lee for covering the pager" (the Glean ask test's local evidence).
+
+## Decided while building (user, 2026-10-06/07)
+
+- **Scope:** build steps 1, 2, 5 and 6, plus tag storage. Heat (step 3) and tag suggestions and their Incoming section (step 4) wait for the work Mac; the tag UI is to be discussed.
+- **Scale:** the raw Taskwarrior sum (unbounded; a hard due date alone reaches 12). The Score filter is the top, middle and bottom third of the Priority column, over all open todos.
+- **Coefficients:** Taskwarrior's defaults only: due 12, scheduled 5, blocks 8, topic priority H 6.0 / M 3.9 / L 1.8, tags 1.0 each. The factors Taskwarrior doesn't have are built with the curves below and start at 0 until tuned: topic meeting, waiting on you, who asked, topic breadth, estimate (effort).
+- **Curves:** due is Taskwarrior's (0.2 at 14+ days out, linear to 1.0 at 7 days overdue; a day-only due counts whole days); scheduled is Taskwarrior's step (1 from its day on); blocks is 1 for any open outward Blocks link; topic meeting 1 within 15 minutes of the next meeting on the topic (or during it), linear to 0 at 8 hours out; waiting on you 0 → 1 over 3 days, only when someone else (not a bot) spoke last on the thread; who asked is the asker's People-note `weight`; breadth is 0.5·min(1, people/10) + 0.5·min(1, sources/5); estimate 1 at ≤5 min, 0 at ≥4 h, log scale.
+- **Topic meeting:** a Pressure factor (the mock's "meeting in 8m").
+- **Who asked:** a weight per person, `weight` in the People note (0 to 1).
+- **Topic priority:** H, M, L or none.
+- **Effort pills:** only "AI guess" / "your estimate" (coloured by size). The mock's "one click", "hand off", "needs a review meeting" were tags, not effort.
+- **Reason pills:** coloured by their share of the score: red for a third or more, yellow from a sixth, green below. Only factors that added to the score get a pill.
+- **Delegated asks:** not included yet (they're notes-source items owned by the delegate, so they were never todos).
+- **Neglect:** 0.4 × age days + 0.6 × quiet days, both weights settings. Age runs from the source's own created time where it gives one (Jira), else when Alethiometer stored the todo. Quiet time runs from the latest of: the newest non-bot message on its thread, the todo's `updated_at` (any change to the row), its topic link's `updated_at`, its creation.
+- **No estimate:** Jira epics are left out of Priorities; other unestimated todos sit at the bottom of Quick wins, faded, and Effort counts 0.
+- **Date filter:** Overdue, Today, Next 7 days, Later, No date (plain day counts, no week boundary). A row's date is its hard due date, else its soft one.
+
+**Calls made without asking (say if any is wrong):**
+- The Factor filter lists a factor when its fact exists (a date, an asker, an estimate, a meeting within 8 hours), even if it adds 0; breadth needs someone on the topic. A soft date that has passed is "Today" in the Date filter (it's never overdue).
+- A hard due date's text is brighter only when it's today; the mock also brightened Wednesday.
+- The columns fill the window's height (fixed by the window, not by their content) rather than the mock's 625px. The Assistant pane stays at the right, as on every tab.
+- Topic priority shows as a small mono tag (grey, not a status colour).
+
+**A consequence to know:** quiet time uses `items.updated_at`, so anything that changes a todo's row ends its quiet time, including a sync rewriting a Jira issue after a bot's comment (Jira's `updated` moves). The bot's comment itself isn't counted as a signal.
+
+## Not built yet
+
+- Heat (thread and topic) and its baseline; the early-days cap.
+- Tag suggestions (the small model's pass, the Incoming section) and any tag UI; the vocabulary is empty by default.
+- Delegated asks.
+- A Settings screen for the coefficients; a page for experimenting with sorts and coefficients.
+- In the design system artifact: decision 14 (Priorities compact) and dropping the Priorities exceptions in decisions 3 and 12. The code follows them; the artifact isn't updated.
+
+## Not yet designed (from the design pass)
+
+- ~~**Who asked** has no weights~~ Settled: a `weight` per person in their People note (its coefficient starts at 0).
 - **Delegated asks** are other people's work, so Value, Pressure and Effort mean something different. A guess: value from the topic, pressure from how far past due, effort tiny (a nudge).
 - **The heat baseline:** per topic, per channel, over what window. Best worked out on the work Mac against real signals.
-- **The 0-to-1 curves** for factors Taskwarrior doesn't have: who asked, waiting on you, breadth, neglect.
-- **Effort in the Priority score:** Taskwarrior has no such factor, so its coefficient is ours to pick.
-- **Screens for the new inputs:** setting a topic's priority, and a scheduled date on local todos.
+- **The 0-to-1 curves** for factors Taskwarrior doesn't have: first versions built ("Decided while building"), at coefficient 0 until tuned on real data.
+- **Effort in the Priority score:** built, coefficient 0 until picked.
+- ~~**Screens for the new inputs**~~ Built: `p` on topics, Sched (`d`) in the Todos tab, Scheduled in TodoForm.
 - Dividers (decision 15) at compact density; the column header descriptions (the user will revisit); a page for experimenting with sorts and coefficients (later).

@@ -24,3 +24,7 @@ Making a todo never writes to the topic's Obsidian note. A todo shows on its top
 ## Estimates
 
 Each todo can carry an estimate in minutes (`todo_estimates`), shown in the Todos tab's Est. column. The small AI tier guesses one for todos that have none (`ai/estimate.rs`: after each sync, and when the Todos tab opens), snapped to 5m, 10m, 15m, 30m, 45m, 1h, 1h30m, 2h, 3h, 4h or 8h, and shown in muted italics with a `~`. `e` (or a click) lets you type your own (`45m`, `1h30m`, `2h`, `1d` = 8h, or plain minutes; ↵ saves; over 2h shows a muted "split?"); yours is never overwritten, and saving it empty hands it back to the AI. Jira epics are never estimated (shown as `-`): you track them, the work is in their issues. Estimates stay in Alethiometer and are never sent to Jira; a future Marvin variant would send them as Marvin's time estimate.
+
+## Priority and scheduled day
+
+The Todos tab's Priority column is the todo's place in the Priorities tab's Priority column (`#3`), from `priorities.list`'s scoring (`app/docs/priorities.md`); Jira epics have none. A local todo can carry a scheduled day, a soft date (the day you mean to do it): `d` in the Todos tab, or the Scheduled field when making one (also on a todo held in Incoming). Jira and Obsidian todos have no scheduled day.
