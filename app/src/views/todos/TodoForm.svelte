@@ -22,7 +22,7 @@
     choose?: boolean;
     held?: boolean;
     gmail?: boolean;
-    initial?: { target: 'local' | 'jira'; text: string; due: string | null } | null;
+    initial?: { target: 'local' | 'jira'; text: string; due: string | null; sched?: string | null } | null;
     onsave: (d: Draft) => void;
     oncancel: () => void;
   } = $props();
@@ -31,6 +31,7 @@
   let target = $state<'local' | 'jira'>(init.target ?? 'local');
   let text = $state(init.text ?? '');
   let due = $state(init.due ?? '');
+  let sched = $state(init.sched ?? '');
   let picked = $state<TopicRef | null>(init.topic);
   let picking = $state(false);
   let input: HTMLInputElement;
@@ -50,7 +51,7 @@
 
   function save() {
     if (!text.trim()) return;
-    onsave({ target, text: text.trim(), due: due || null, topic_id: choose ? (picked?.id ?? null) : undefined });
+    onsave({ target, text: text.trim(), due: due || null, sched: target === 'local' ? sched || null : null, topic_id: choose ? (picked?.id ?? null) : undefined });
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -84,6 +85,13 @@
       <input class="input sm date" class:empty={!due} type="date" bind:value={due} />
       {#if due}<button class="btn" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
     </span>
+    {#if target === 'local'}
+      <span class="lbl">Scheduled</span>
+      <span class="due">
+        <input class="input sm date" class:empty={!sched} type="date" bind:value={sched} title="The day you mean to do it (a soft date)" />
+        {#if sched}<button class="btn" onclick={() => (sched = '')} title="Not scheduled">Clear</button>{:else}<span class="muted">none</span>{/if}
+      </span>
+    {/if}
     <span class="lbl">Topic</span>
     {#if choose}
       {#if picking}

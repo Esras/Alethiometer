@@ -11,7 +11,7 @@ impl PeopleViews for Sql<'_> {
     fn directory(&self) -> Result<Directory> {
         let c = self.conn();
         let people = c
-            .prepare_cached("SELECT id, display_name, note_path, role, color, aliases_json FROM people WHERE note_path IS NOT NULL ORDER BY note_path")?
+            .prepare_cached("SELECT id, display_name, note_path, role, color, aliases_json, weight FROM people WHERE note_path IS NOT NULL ORDER BY note_path")?
             .query_map([], |r| {
                 Ok(PersonRow {
                     id: r.get(0)?,
@@ -20,6 +20,7 @@ impl PeopleViews for Sql<'_> {
                     role: r.get(3)?,
                     color: r.get(4)?,
                     aliases: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                    weight: r.get(6)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -148,15 +149,15 @@ impl People for Sql<'_> {
             let id = match existing {
                 Some(id) => {
                     c.execute(
-                        "UPDATE people SET display_name = ?2, role = coalesce(?3, role), color = ?4, aliases_json = ?5 WHERE id = ?1",
-                        params![id, n.name, n.role, n.color, aliases],
+                        "UPDATE people SET display_name = ?2, role = coalesce(?3, role), color = ?4, aliases_json = ?5, weight = ?6 WHERE id = ?1",
+                        params![id, n.name, n.role, n.color, aliases, n.weight],
                     )?;
                     id
                 }
                 None => {
                     c.execute(
-                        "INSERT INTO people (display_name, role, note_path, color, aliases_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![n.name, n.role, n.path, n.color, aliases],
+                        "INSERT INTO people (display_name, role, note_path, color, aliases_json, weight) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![n.name, n.role, n.path, n.color, aliases, n.weight],
                     )?;
                     c.last_insert_rowid()
                 }
@@ -168,7 +169,7 @@ impl People for Sql<'_> {
         }
         let noted: Vec<i64> = c.prepare("SELECT id FROM people WHERE note_path IS NOT NULL")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         for id in noted.into_iter().filter(|id| !keep.contains(id)) {
-            c.execute("UPDATE people SET note_path = NULL, color = NULL WHERE id = ?1", [id])?;
+            c.execute("UPDATE people SET note_path = NULL, color = NULL, weight = NULL WHERE id = ?1", [id])?;
         }
         Ok(())
     }

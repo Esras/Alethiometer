@@ -3,6 +3,7 @@
 use super::Sql;
 use crate::domain::items::{ItemRef, ItemViews, Items, NewItem};
 use crate::error::Result;
+use crate::time::Date;
 use rusqlite::{params, OptionalExtension, Row};
 
 const REF: &str = "i.id, i.source_id, s.kind, i.external_id, i.kind, i.title, i.url, i.parent_id, i.seen, i.raw_json";
@@ -25,9 +26,9 @@ fn item_ref(r: &Row) -> rusqlite::Result<ItemRef> {
 impl Items for Sql<'_> {
     fn insert(&self, i: &NewItem) -> Result<i64> {
         self.conn().execute(
-            "INSERT INTO items (source_id, external_id, kind, title, summary, url, occurred_at, due_day, status, owner, seen, raw_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![i.source_id, i.external_id, i.kind, i.title, i.summary, i.url, i.occurred_at, i.due_day, i.status, i.owner, i.seen, i.raw_json],
+            "INSERT INTO items (source_id, external_id, kind, title, summary, url, occurred_at, due_day, sched_day, status, owner, seen, raw_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![i.source_id, i.external_id, i.kind, i.title, i.summary, i.url, i.occurred_at, i.due_day, i.sched_day, i.status, i.owner, i.seen, i.raw_json],
         )?;
         Ok(self.conn().last_insert_rowid())
     }
@@ -98,6 +99,11 @@ impl Items for Sql<'_> {
 
     fn set_status(&self, id: i64, status: &str) -> Result<()> {
         self.conn().execute("UPDATE items SET status = ?2 WHERE id = ?1", params![id, status])?;
+        Ok(())
+    }
+
+    fn set_sched_day(&self, id: i64, day: Option<Date>) -> Result<()> {
+        self.conn().execute("UPDATE items SET sched_day = ?2 WHERE id = ?1", params![id, day])?;
         Ok(())
     }
 

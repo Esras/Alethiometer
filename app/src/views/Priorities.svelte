@@ -1,289 +1,405 @@
 <script lang="ts">
-  // Priorities (8b): urgent × important in a fixed 2×2 grid. Quadrants never
-  // collapse away; the eye switches one between full rows and topic chips with
-  // counts (Can wait starts compact). Clicking or j/k/h/l *selects* (tinted row,
-  // aqua right edge) and fills the Selected bar; ↵ opens the topic, o opens the
-  // item in its app, p peeks, v toggles the selected quadrant's eye.
-  import { openExternal } from '../lib/api';
+  // Priorities (app/docs/priorities.md): open todos in three orders side by
+  // side, Priority, Quick wins and Neglect. Every column holds every todo; a
+  // filter removes a todo from all three. The cursor is one todo: aqua in the
+  // focused column, the open-row grey in the others, with splines between the
+  // columns (aqua for the cursor, dashed grey for the hovered todo) that pin to
+  // a column's edge, hollow, when the todo is scrolled out of it.
+  // j/k move in the focused column, [ ] move to the same todo in the next
+  // column, / filters, ↵ opens the topic, o opens the todo in its app, x completes it.
+  import { tick } from 'svelte';
+  import { call, openExternal } from '../lib/api';
   import { catColor, openTopic, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { live } from '../lib/live';
-  import { sourceLabel } from '../lib/sources';
   import AppIcon from '../lib/ui/AppIcon.svelte';
-  import { popover } from '../lib/ui/popover';
+  import FilterField from '../lib/ui/FilterField.svelte';
   import Pill from '../lib/ui/Pill.svelte';
+  import { popover } from '../lib/ui/popover';
   import AssistantPane from '../shell/AssistantPane.svelte';
-  import type { PrioritiesData, PriorityQuadrant, PriorityRow, QuadrantKey, TopicChip } from './priorities/types';
+  import type { ColumnKey, PrioritiesData, PriorityRow } from './priorities/types';
 
-  // Grid order: top-left, top-right, bottom-left, bottom-right.
-  const LABELS: Record<QuadrantKey, string> = {
-    now: 'Now-ish',
-    make_room: 'Make room for',
-    quick: 'Quick touch',
-    can_wait: 'Can wait',
+  const ICON = { local: 'notes', jira: 'jira', obsidian: 'obsidian' } as const;
+  const COLS: { key: ColumnKey; name: string }[] = [
+    { key: 'priority', name: 'Priority' },
+    { key: 'quick', name: 'Quick wins' },
+    { key: 'neglect', name: 'Neglect' },
+  ];
+  /** Row pitch (24px row and its 1px line), header height with the panel's top border, gutter width. */
+  const ROW = 25;
+  const HEAD = 31;
+  const GW = 56;
+
+  type Dim = 'topic' | 'score' | 'date' | 'effort' | 'source' | 'factor';
+  type Opt = { k: string; label: string; sq?: string } | { head: string };
+  const FACTORS: [string, string][] = [
+    ['due', 'Hard due date'],
+    ['sched', 'Soft date'],
+    ['meeting', 'Topic meeting soon'],
+    ['waiting', 'Waiting on you'],
+    ['blocks', 'Blocks others'],
+    ['topic_priority', 'Topic priority'],
+    ['who_asked', 'Someone asked'],
+    ['breadth', 'Topic breadth'],
+    ['estimate', 'Estimated'],
+  ];
+  const none = (): Record<Dim, string[]> => ({ topic: [], score: [], date: [], effort: [], source: [], factor: [] });
+
+  let data = $state<PrioritiesData | null>(null);
+  let picked = $state<Record<Dim, string[]>>(none());
+  let text = $state('');
+  let openDim = $state<Dim | null>(null);
+  let topicQ = $state('');
+  let focus = $state(0);
+  let selId = $state<number | null>(null);
+  let hover = $state<number | null>(null);
+  let scroll = $state([0, 0, 0]);
+  /** Each column's visible height; they're the same. */
+  let heights = $state([0, 0, 0]);
+  const viewH = $derived(heights[0]);
+  let err = $state<string | null>(null);
+  let filterEl = $state<HTMLInputElement | null>(null);
+  const colEls: (HTMLElement | undefined)[] = $state([]);
+  const chipEls: Partial<Record<Dim, HTMLElement>> = $state({});
+
+  $effect(() => live<PrioritiesData>('priorities.list', {}, (d) => (data = d)));
+
+  const all = $derived(data?.todos ?? []);
+  const byId = $derived(new Map(all.map((t) => [t.item_id, t])));
+  const quickMax = $derived(data?.quick_max ?? 30);
+
+  const effortBand = (t: PriorityRow) => (!t.estimate ? null : t.estimate.minutes <= 15 ? 's' : t.estimate.minutes <= 60 ? 'm' : 'l');
+  const keyOf: Record<Exclude<Dim, 'factor'>, (t: PriorityRow) => string | null> = {
+    topic: (t) => (t.topic ? String(t.topic.id) : ''),
+    score: (t) => t.band,
+    date: (t) => t.when,
+    effort: effortBand,
+    source: (t) => t.source,
   };
+  const matches = (t: PriorityRow, dim: Dim, keys: string[]) =>
+    dim === 'factor' ? keys.some((k) => t.factors.includes(k)) : keys.includes(keyOf[dim](t) ?? '\u0000');
+  const needle = $derived(text.trim().toLowerCase());
+  const ok = (t: PriorityRow) =>
+    (Object.keys(picked) as Dim[]).every((d) => !picked[d].length || matches(t, d, picked[d])) &&
+    (!needle || `${t.title} ${t.topic?.name ?? ''}`.toLowerCase().includes(needle));
+  const shown = $derived(all.filter(ok));
+  const anyFilter = $derived((Object.keys(picked) as Dim[]).some((d) => picked[d].length > 0) || !!needle);
 
-  let quads = $state<PriorityQuadrant[]>([]);
-  let compact = $state<Record<QuadrantKey, boolean>>({ now: false, make_room: false, quick: false, can_wait: true });
-  /** Selected quadrant index and row (or chip, when that quadrant is compact) index. */
-  let sel = $state({ q: 0, i: 0 });
-  let peek = $state(false);
-  let peekPos = $state<{ top: number; left: number } | null>(null);
-  let mainEl = $state<HTMLElement>();
-  const rowEls: Record<string, HTMLElement> = {};
+  const orders = $derived.by(() => {
+    const ids = new Set(shown.map((t) => t.item_id));
+    return COLS.map((c) => (data?.orders[c.key] ?? []).filter((id) => ids.has(id)).map((id) => byId.get(id)!));
+  });
+  const idx = $derived(orders.map((o) => new Map(o.map((t, i) => [t.item_id, i]))));
+  const sel = $derived(selId !== null && idx[0].has(selId) ? selId : (orders[focus][0]?.item_id ?? null));
+  const selT = $derived(sel === null ? null : (byId.get(sel) ?? null));
 
-  // A live query: re-run on writes, and once a minute (the "meeting in 8m"
-  // pill is computed from the time).
-  $effect(() =>
-    live<PrioritiesData>('priorities.list', {}, (d) => {
-      quads = d.quadrants;
-      clampSel();
-    }),
-  );
-
-  function chipsOf(items: PriorityRow[]): TopicChip[] {
-    const out: TopicChip[] = [];
-    for (const r of items) {
-      const c = out.find((x) => (x.topic?.id ?? null) === (r.topic?.id ?? null));
-      if (c) c.count++;
-      else out.push({ topic: r.topic, count: 1 });
-    }
-    return out.sort((a, b) => b.count - a.count);
-  }
-
-  const chips = $derived(quads.map((q) => chipsOf(q.items)));
-  const size = (q: number) => (quads[q] ? (compact[quads[q].key] ? chips[q].length : quads[q].items.length) : 0);
-
-  function clampSel() {
-    if (!quads.length) return;
-    if (size(sel.q) === 0) {
-      const q = [0, 1, 2, 3].find((x) => size(x) > 0);
-      sel = { q: q ?? 0, i: 0 };
-    } else if (sel.i >= size(sel.q)) sel = { q: sel.q, i: size(sel.q) - 1 };
-  }
-
-  const selQuad = $derived(quads[sel.q]);
-  const selCompact = $derived(selQuad ? compact[selQuad.key] : false);
-  const selRow = $derived(selQuad && !selCompact ? (selQuad.items[sel.i] ?? null) : null);
-  const selChip = $derived(selQuad && selCompact ? (chips[sel.q][sel.i] ?? null) : null);
-  const selTopic = $derived(selRow ? selRow.topic : (selChip?.topic ?? null));
-  const selId = $derived(selRow?.item_id ?? null);
-
-  // Light the selected item's topic meetings on the day strip.
+  // Light the selected todo's topic meetings on the day strip.
   $effect(() => {
-    ui.topicId = selTopic?.id ?? null;
+    ui.topicId = selT?.topic?.id ?? null;
   });
 
-  // Keep the selected row in view; close the peek when the selection changes.
-  $effect(() => {
-    const key = selId !== null ? `r${selId}` : `c${sel.q}-${sel.i}`;
-    rowEls[key]?.scrollIntoView({ block: 'nearest' });
+  const faded = (c: number, t: PriorityRow) => c === 1 && !(t.estimate && t.estimate.minutes <= quickMax);
+
+  // ---- filters
+
+  const dims = $derived.by((): { key: Dim; name: string; opts: Opt[] }[] => {
+    const topics = new Map<string, { label: string; sq: string; n: number }>();
+    for (const t of all) {
+      const k = t.topic ? String(t.topic.id) : '';
+      const x = topics.get(k);
+      if (x) x.n++;
+      else topics.set(k, { label: t.topic?.name ?? 'No topic', sq: t.topic ? catColor(t.topic.category) : 'var(--tx-label)', n: 1 });
+    }
+    const topicOpts = [...topics.entries()].sort((a, b) => b[1].n - a[1].n || a[1].label.localeCompare(b[1].label)).map(([k, v]) => ({ k, label: v.label, sq: v.sq }));
+    return [
+      { key: 'topic', name: 'Topic', opts: topicOpts },
+      { key: 'score', name: 'Score', opts: [{ k: 'hi', label: 'Top third' }, { k: 'mid', label: 'Middle third' }, { k: 'lo', label: 'Bottom third' }] },
+      {
+        key: 'date',
+        name: 'Date',
+        opts: [{ k: 'od', label: 'Overdue' }, { k: 'today', label: 'Today' }, { k: 'week', label: 'Next 7 days' }, { k: 'later', label: 'Later' }, { k: 'none', label: 'No date' }],
+      },
+      { key: 'effort', name: 'Effort', opts: [{ k: 's', label: '15 min or less' }, { k: 'm', label: '16 min to 1 h' }, { k: 'l', label: 'Over 1 h' }] },
+      { key: 'source', name: 'Source', opts: [{ k: 'local', label: 'Local' }, { k: 'jira', label: 'Jira' }, { k: 'obsidian', label: 'Obsidian' }] },
+      {
+        key: 'factor',
+        name: 'Factor',
+        opts: [
+          { head: 'Factors' },
+          ...FACTORS.map(([k, label]) => ({ k, label })),
+          ...((data?.tags.length ?? 0) > 0 ? [{ head: 'Tags' }, ...(data?.tags ?? []).map((t) => ({ k: `tag:${t}`, label: t }))] : []),
+        ],
+      },
+    ];
   });
-  $effect(() => {
-    void selId;
-    peek = false;
-  });
 
-  function select(q: number, i: number) {
-    if (size(q) === 0) return;
-    sel = { q, i: Math.max(0, Math.min(i, size(q) - 1)) };
+  function toggleOpt(dim: Dim, k: string) {
+    const cur = picked[dim];
+    picked = { ...picked, [dim]: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] };
   }
 
-  function move(dq: 'down' | 'up' | 'left' | 'right') {
-    const { q, i } = sel;
-    const col = q % 2;
-    const row = Math.floor(q / 2);
-    if (dq === 'down') {
-      if (i < size(q) - 1) select(q, i + 1);
-      else if (row === 0 && size(q + 2) > 0) select(q + 2, 0);
-    } else if (dq === 'up') {
-      if (i > 0) select(q, i - 1);
-      else if (row === 1 && size(q - 2) > 0) select(q - 2, size(q - 2) - 1);
-    } else if (dq === 'left' && col === 1 && size(q - 1) > 0) select(q - 1, i);
-    else if (dq === 'right' && col === 0 && size(q + 1) > 0) select(q + 1, i);
+  function clearAll() {
+    picked = none();
+    text = '';
+    openDim = null;
   }
 
-  /** Eye toggle. Keeps the selection on the same topic when it is the selected quadrant. */
-  function toggle(q: number) {
-    const key = quads[q].key;
-    const toCompact = !compact[key];
-    if (q === sel.q) {
-      const tid = selTopic?.id ?? null;
-      compact[key] = toCompact;
-      const i = toCompact
-        ? chips[q].findIndex((c) => (c.topic?.id ?? null) === tid)
-        : quads[q].items.findIndex((r) => (r.topic?.id ?? null) === tid);
-      sel = { q, i: Math.max(0, i) };
-    } else {
-      compact[key] = toCompact;
+  // ---- cursor and scrolling
+
+  async function reveal(c: number, id: number | null, center: boolean) {
+    await tick();
+    const el = colEls[c];
+    const i = id === null ? undefined : idx[c].get(id);
+    if (!el || i === undefined) return;
+    const top = i * ROW;
+    const view = el.clientHeight;
+    const out = top < el.scrollTop || top + ROW > el.scrollTop + view;
+    if (center) {
+      if (out) el.scrollTop = Math.max(0, top - (view - ROW) / 2);
+    } else if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + ROW > el.scrollTop + view) el.scrollTop = top + ROW - view;
+  }
+
+  function step(d: number) {
+    const o = orders[focus];
+    if (!o.length) return;
+    let i = o.findIndex((t) => t.item_id === sel);
+    i = i < 0 ? 0 : Math.max(0, Math.min(o.length - 1, i + d));
+    selId = o[i].item_id;
+    reveal(focus, selId, false);
+  }
+
+  function toCol(c: number) {
+    if (c < 0 || c >= COLS.length || sel === null) return;
+    focus = c;
+    reveal(c, sel, true);
+  }
+
+  function pick(c: number, t: PriorityRow) {
+    selId = t.item_id;
+    focus = c;
+  }
+
+  async function complete(t: PriorityRow | null) {
+    if (!t) return;
+    try {
+      await call('todos.complete', { item_id: t.item_id });
+      err = null;
+    } catch (e) {
+      err = String((e as Error).message ?? e);
     }
-  }
-
-  function open() {
-    if (selTopic) openTopic(selTopic.id);
-  }
-
-  function openInApp() {
-    if (selRow?.url) openExternal(selRow.url);
-  }
-
-  function togglePeek() {
-    if (!selRow) return;
-    if (peek) {
-      peek = false;
-      return;
-    }
-    const el = rowEls[`r${selRow.item_id}`];
-    if (el && mainEl) {
-      const r = el.getBoundingClientRect();
-      const m = mainEl.getBoundingClientRect();
-      const below = r.bottom - m.top + 4;
-      const fits = below + 200 < m.height;
-      peekPos = { top: fits ? below : Math.max(8, r.top - m.top - 204), left: Math.max(8, r.left - m.left + 36) };
-    }
-    peek = true;
   }
 
   useKeys((e) => {
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return move('down'), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return move('up'), true;
-    if (plain(e, 'h') || plain(e, 'ArrowLeft')) return move('left'), true;
-    if (plain(e, 'l') || plain(e, 'ArrowRight')) return move('right'), true;
-    if (plain(e, 'Enter')) return open(), true;
-    if (plain(e, 'o')) return openInApp(), true;
-    if (plain(e, 'p')) return togglePeek(), true;
-    if (plain(e, 'v')) return quads.length > 0 && toggle(sel.q), true;
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
+    if (plain(e, ']')) return toCol(focus + 1), true;
+    if (plain(e, '[')) return toCol(focus - 1), true;
+    if (plain(e, '/')) return filterEl?.focus(), true;
+    if (plain(e, 'Enter')) return selT?.topic && openTopic(selT.topic.id), true;
+    if (plain(e, 'o')) return selT?.url && openExternal(selT.url), true;
+    if (plain(e, 'x')) return complete(selT), true;
   });
 
-  const meta = $derived(
-    selRow ? [selRow.topic?.name, selRow.when, selRow.people].filter(Boolean).join(' · ') : selChip ? `${selChip.count} ${selChip.count === 1 ? 'item' : 'items'} in ${selQuad ? LABELS[selQuad.key] : ''}` : '',
+  // ---- splines
+
+  function yOf(c: number, id: number): number | null {
+    const i = idx[c].get(id);
+    if (i === undefined) return null;
+    const y = HEAD + i * ROW + 12 - scroll[c];
+    return Math.max(HEAD + 3, Math.min(HEAD + viewH - 3, y));
+  }
+  function where(c: number, id: number | null): 'above' | 'below' | 'in' | null {
+    const i = id === null ? undefined : idx[c].get(id);
+    if (i === undefined) return null;
+    const top = i * ROW - scroll[c];
+    return top < -12 ? 'above' : top + 13 > viewH ? 'below' : 'in';
+  }
+  const curve = (y1: number | null, y2: number | null) =>
+    y1 === null || y2 === null ? '' : `M0 ${y1} C${GW / 2} ${y1} ${GW / 2} ${y2} ${GW} ${y2}`;
+
+  // ---- display
+
+  const est = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? m % 60 : ''}`);
+  const metric = (c: number, t: PriorityRow) => (c === 0 ? t.score.toFixed(1) : c === 1 ? (t.estimate ? est(t.estimate.minutes) : '–') : `${t.age_days}d`);
+  const dateText = (c: number, t: PriorityRow) => (c === 2 ? (t.quiet_days === 0 ? 'today' : `quiet ${t.quiet_days}d`) : (t.date?.label ?? ''));
+  function dateColor(c: number, t: PriorityRow) {
+    if (c === 2 || !t.date) return 'var(--tx-label)';
+    if (t.date.overdue) return 'var(--red)';
+    if (t.date.kind === 'due') return t.when === 'today' ? 'var(--tx-2)' : 'var(--tx-muted-2)';
+    return 'var(--tx-label)';
+  }
+  const SORTS = $derived(['score: every factor', `up to ${quickMax} min by value per hour, then by length`, 'age and quiet time']);
+  const groups = $derived(
+    selT
+      ? [
+          { name: 'Value', val: selT.value.toFixed(1), pills: selT.reasons.value },
+          { name: 'Pressure', val: selT.pressure.toFixed(1), pills: selT.reasons.pressure },
+          { name: 'Effort', val: selT.estimate ? est(selT.estimate.minutes) : '–', pills: selT.reasons.effort },
+        ]
+      : [],
   );
 </script>
 
-{#snippet quadrant(qi: number)}
-  {@const q = quads[qi]}
-  {#if q}
-    <section class="quad">
-      <header class="panel-head">
-        {LABELS[q.key]}<span class="n tnum">{q.items.length}</span>
-        <button class="eye" onclick={() => toggle(qi)} title="{compact[q.key] ? 'Show rows' : 'Group by topic'} (v)">
-          <i class="ph ph-{compact[q.key] ? 'eye-slash' : 'eye'}"></i>
-        </button>
-      </header>
-      {#if compact[q.key]}
-        <div class="chips">
-          {#each chips[qi] as c, i}
-            <button
-              class="chip"
-              class:on={sel.q === qi && sel.i === i}
-              bind:this={rowEls[`c${qi}-${i}`]}
-              onclick={() => select(qi, i)}
-              ondblclick={() => c.topic && openTopic(c.topic.id)}
-            >
-              <span class="sq" style:background={c.topic ? catColor(c.topic.category) : 'var(--tx-label)'}></span>
-              {c.topic?.name ?? 'Unsorted'}<span class="n tnum">{c.count}</span>
-            </button>
+<div class="view">
+  <div class="main">
+    <header class="head">
+      <h1 class="page-title">Priorities</h1>
+    </header>
+
+    <section class="selected panel" aria-label="Selected todo">
+      {#if selT}
+        <div class="line">
+          <span class="label lab">Selected</span>
+          <AppIcon source={ICON[selT.source]} size={14} />
+          <span class="sel-title ellipsis">{selT.title}</span>
+          {#if selT.topic}<span class="sel-topic ellipsis">{selT.topic.name}</span>{/if}
+          <span class="sel-date tnum" style:color={selT.date ? dateColor(0, selT) : 'var(--tx-label)'}>{selT.date?.label ?? 'no date'}</span>
+          <span class="ranks">
+            {#each COLS as col, c}
+              <button class="btn" class:on={c === focus} onclick={() => toCol(c)}><span class="tnum">#{(idx[c].get(selT.item_id) ?? 0) + 1}</span> {col.name}</button>
+            {/each}
+          </span>
+        </div>
+        <div class="line why">
+          {#each groups as g, gi}
+            <span class="group">
+              <span class="gname">{g.name}</span>
+              <span class="gval tnum">{g.val}</span>
+              {#each g.pills as p}<Pill pill={p} />{/each}
+            </span>
+            {#if gi < groups.length - 1}<span class="sep"></span>{/if}
           {/each}
         </div>
       {:else}
-        <div class="rows scroll">
-          {#each q.items as r, i (r.item_id)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div
-              class="row"
-              class:sel={sel.q === qi && sel.i === i}
-              role="option"
-              tabindex="-1"
-              aria-selected={sel.q === qi && sel.i === i}
-              bind:this={rowEls[`r${r.item_id}`]}
-              onclick={() => select(qi, i)}
-              ondblclick={() => r.topic && openTopic(r.topic.id)}
-            >
-              <span class="bar" style:background={r.topic ? catColor(r.topic.category) : 'var(--tx-label)'}></span>
-              <AppIcon source={r.source} />
-              <div class="min0">
-                <div class="line">
-                  <span class="title">{r.title}</span>
-                  {#if r.topic}<span class="topic">{r.topic.name}</span>{/if}
-                </div>
-                {#if r.reasons.length}
-                  <div class="pills">{#each r.reasons as p}<Pill pill={p} />{/each}</div>
-                {/if}
-              </div>
-              <span class="score tnum">{r.score.toFixed(1)}</span>
-            </div>
-          {:else}
-            <div class="empty-row">Nothing here.</div>
-          {/each}
+        <div class="line">
+          <span class="label lab">Selected</span>
+          <span class="none">{all.length ? 'No todos match these filters.' : 'Nothing to prioritize.'}</span>
         </div>
       {/if}
     </section>
-  {/if}
-{/snippet}
 
-<div class="view">
-  <div class="main" bind:this={mainEl}>
-    <div class="head">
-      <span class="page-title h1">Priorities</span>
-      <span class="legend"><span class="dot" style:background="var(--red)"></span>adds a lot</span>
-      <span class="legend"><span class="dot" style:background="var(--yellow)"></span>adds some</span>
-      <span class="legend"><span class="dot" style:background="var(--green)"></span>adds a little</span>
-    </div>
-
-    <div class="grid">
-      <span></span>
-      <div class="label">Urgent</div>
-      <div class="label">Not urgent</div>
-      <div class="label vert">Important</div>
-      {@render quadrant(0)}
-      {@render quadrant(1)}
-      <div class="label vert">Less important</div>
-      {@render quadrant(2)}
-      {@render quadrant(3)}
-    </div>
-
-    <div class="selected">
-      <span class="label">Selected</span>
-      {#if selRow}
-        <AppIcon source={selRow.source} />
-        <span class="sel-title ellipsis">{selRow.title}</span>
-        <span class="sel-meta ellipsis tnum">{meta}</span>
-        <span class="hints">
-          <span><kbd>↵</kbd> open topic</span>
-          {#if selRow.url}<span><kbd>o</kbd> open in {sourceLabel(selRow.source)}</span>{/if}
-          <span><kbd>p</kbd> peek</span>
-          <span><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd> move</span>
-        </span>
-      {:else if selChip}
-        <span class="sq" style:background={selChip.topic ? catColor(selChip.topic.category) : 'var(--tx-label)'}></span>
-        <span class="sel-title ellipsis">{selChip.topic?.name ?? 'Unsorted'}</span>
-        <span class="sel-meta ellipsis">{meta}</span>
-        <span class="hints">
-          {#if selChip.topic}<span><kbd>↵</kbd> open topic</span>{/if}
-          <span><kbd>v</kbd> show rows</span>
-          <span><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd> move</span>
-        </span>
-      {:else}
-        <span class="sel-meta">Nothing to prioritize.</span>
-      {/if}
-    </div>
-
-    {#if peek && selRow && peekPos}
-      <div class="peek popover" use:popover={{ onclose: () => (peek = false), trigger: () => rowEls[`r${selRow.item_id}`] }} style:top="{peekPos.top}px" style:left="{peekPos.left}px" role="dialog" aria-label="Peek">
-        <div class="peek-head">
-          <AppIcon source={selRow.source} size={14} />{sourceLabel(selRow.source)}
-          {#if selRow.when}<span class="tnum">· {selRow.when}</span>{/if}
-          <span class="esc"><kbd>Esc</kbd></span>
+    <div class="filters">
+      <FilterField sm class="pfilter" bind:value={text} bind:el={filterEl} placeholder="Filter todos" aria-label="Filter todos by text" onkeydown={(e) => e.key === 'Escape' && filterEl?.blur()}>
+        <kbd>/</kbd>
+      </FilterField>
+      {#each dims as d (d.key)}
+        <div class="dim">
+          <button class="chip" class:on={picked[d.key].length > 0} bind:this={chipEls[d.key]} aria-expanded={openDim === d.key} onclick={() => ((openDim = openDim === d.key ? null : d.key), (topicQ = ''))}>
+            <span>{d.name}</span>
+            <span class="count on tnum n" style:visibility={picked[d.key].length ? 'visible' : 'hidden'}>{picked[d.key].length || 1}</span>
+            <i class="ph ph-caret-down"></i>
+          </button>
+          {#if openDim === d.key}
+            <div class="menu popover flush scroll" use:popover={{ onclose: () => (openDim = null), trigger: () => chipEls[d.key] }}>
+              {#if d.key === 'topic'}
+                <div class="find"><FilterField sm bind:value={topicQ} placeholder="Find a topic" aria-label="Find a topic" /></div>
+              {/if}
+              {#each d.opts.filter((o) => !(d.key === 'topic' && 'k' in o && topicQ.trim() && !o.label.toLowerCase().includes(topicQ.trim().toLowerCase()))) as o}
+                {#if 'head' in o}
+                  <div class="label mhead">{o.head}</div>
+                {:else}
+                  <button class="opt" aria-pressed={picked[d.key].includes(o.k)} onclick={() => toggleOpt(d.key, o.k)}>
+                    <span class="check">{#if picked[d.key].includes(o.k)}<i class="ph ph-check"></i>{/if}</span>
+                    {#if o.sq}<span class="sq" style:background={o.sq}></span>{/if}
+                    <span class="ellipsis olabel">{o.label}</span>
+                    <span class="tnum on-n">{all.filter((t) => matches(t, d.key, [o.k])).length}</span>
+                  </button>
+                {/if}
+              {/each}
+            </div>
+          {/if}
         </div>
-        <div class="peek-title">{selRow.title}</div>
-        {#if selRow.summary}<div class="peek-sum">{selRow.summary}</div>{/if}
-        {#if selRow.body}<div class="peek-body scroll">{selRow.body}</div>{/if}
-        {#if selRow.people}<div class="peek-people">{selRow.people}</div>{/if}
-      </div>
-    {/if}
+      {/each}
+      <span class="shown tnum">{shown.length === all.length ? '' : `${shown.length} of ${all.length}`}</span>
+      <button class="btn" style:visibility={anyFilter ? 'visible' : 'hidden'} onclick={clearAll}>Clear</button>
+    </div>
+
+    <div class="cols">
+      {#each COLS as col, c (col.key)}
+        <section class="panel col column">
+          <div class="colhead">
+            <span class="panel-head" class:focused={c === focus}>{col.name}</span>
+            <span class="count tnum" class:on={c === focus}>{orders[c].length}</span>
+            <span class="sort ellipsis">{SORTS[c]}</span>
+          </div>
+          <div class="body">
+            <div
+              class="rows scroll"
+              role="group"
+              aria-label={col.name}
+              bind:this={colEls[c]}
+              bind:clientHeight={heights[c]}
+              onscroll={(e) => (scroll[c] = e.currentTarget.scrollTop)}
+              onmouseleave={() => (hover = null)}
+            >
+              {@render rows(c)}
+            </div>
+            {#if where(c, sel) === 'above'}
+              <button class="count on tnum jump top" onclick={() => toCol(c)}>↑ #{(idx[c].get(sel!) ?? 0) + 1} selected</button>
+            {:else if where(c, sel) === 'below'}
+              <button class="count on tnum jump bottom" onclick={() => toCol(c)}>↓ #{(idx[c].get(sel!) ?? 0) + 1} selected</button>
+            {/if}
+          </div>
+        </section>
+        {#if c < COLS.length - 1}
+          {@const y1 = sel === null ? null : yOf(c, sel)}
+          {@const y2 = sel === null ? null : yOf(c + 1, sel)}
+          <svg class="gutter" width={GW} height={HEAD + viewH + 1} viewBox="0 0 {GW} {HEAD + viewH + 1}" aria-hidden="true">
+            {#if hover !== null && hover !== sel}<path class="hover" d={curve(yOf(c, hover), yOf(c + 1, hover))}></path>{/if}
+            {#if y1 !== null && y2 !== null}
+              <path class="cur" d={curve(y1, y2)}></path>
+              <circle cx="2.5" cy={y1} r="2.5" class:hollow={where(c, sel) !== 'in'}></circle>
+              <circle cx={GW - 2.5} cy={y2} r="2.5" class:hollow={where(c + 1, sel) !== 'in'}></circle>
+            {/if}
+          </svg>
+        {/if}
+      {/each}
+    </div>
+
+    <div class="keys">
+      <span><kbd>j</kbd> <kbd>k</kbd> move</span>
+      <span><kbd>[</kbd> <kbd>]</kbd> same todo, other column</span>
+      <span><kbd>↵</kbd> open topic</span>
+      <span><kbd>o</kbd> open in its app</span>
+      <span><kbd>x</kbd> done</span>
+      <span><kbd>/</kbd> filter</span>
+      <span><kbd>Esc</kbd> close</span>
+      {#if err}<span class="err">{err}</span>{/if}
+    </div>
   </div>
-  <AssistantPane topic={selTopic} />
+  <AssistantPane topic={selT?.topic ?? null} />
 </div>
+
+{#snippet rows(c: number)}
+  {#each orders[c] as t, i (t.item_id)}
+    {@const isSel = t.item_id === sel}
+    {@const isCur = isSel && c === focus}
+    {@const next = orders[c][i + 1]}
+    <button
+      class="prow"
+      class:cur={isCur}
+      class:open={isSel && !isCur}
+      class:hov={t.item_id === hover && !isSel}
+      class:faded={faded(c, t) && !isCur}
+      class:boundary={c === 1 && next && !faded(c, t) && faded(c, next)}
+      onclick={() => pick(c, t)}
+      onmouseenter={() => (hover = t.item_id)}
+    >
+      <span class="rank tnum" class:on={isSel}>{i + 1}</span>
+      <span class="bar" style:background={t.topic ? catColor(t.topic.category) : 'var(--tx-label)'}></span>
+      <AppIcon source={ICON[t.source]} size={14} />
+      <span class="tt">
+        <span class="title ellipsis">{t.title}</span>
+        {#if t.topic}<span class="topic ellipsis">{t.topic.name}</span>{/if}
+      </span>
+      <span class="date ellipsis tnum" style:color={dateColor(c, t)}>{dateText(c, t)}</span>
+      <span class="metric tnum">{metric(c, t)}</span>
+    </button>
+  {:else}
+    <div class="empty-row">Nothing matches.</div>
+  {/each}
+{/snippet}
 
 <style>
   .view {
@@ -292,251 +408,352 @@
     display: flex;
   }
   .main {
-    position: relative;
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 22px;
+    padding: 14px 22px 12px;
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 16px;
-    font-size: 0.8846rem;
-    color: var(--tx-muted-2);
-    white-space: nowrap;
+    min-height: 32px;
   }
-  .h1 {
-    margin-right: 8px;
+  .head h1 {
+    margin: 0;
   }
-  .legend {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-  .grid {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
-    gap: 10px;
-  }
-  .label {
-    white-space: nowrap;
-  }
-  .vert {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    text-align: center;
-  }
-  .quad {
-    min-height: 0;
+
+  /* Always 64px, so picking a todo never moves the page. */
+  .selected {
+    flex: none;
+    height: 64px;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-md);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    overflow: hidden;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 14px;
   }
-  /* Neutral header: darkest ground, never aqua, so it can't read as selected. */
-  header {
-    flex: none;
+  .line {
     display: flex;
-    gap: 8px;
     align-items: center;
-    padding: 7px 12px;
-    background: var(--bg-app);
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
+    gap: 10px;
+    min-width: 0;
   }
-  .eye {
+  .lab {
+    flex: none;
+    width: 64px;
+  }
+  .sel-title {
+    min-width: 0;
+    font-weight: 500;
+    color: var(--tx-title);
+  }
+  .sel-topic {
+    flex: none;
+    max-width: 200px;
+    font-size: 0.9231rem;
+    color: var(--tx-label);
+  }
+  .sel-date {
+    flex: none;
+    font-size: 0.9231rem;
+  }
+  .none {
+    font-size: 0.9231rem;
+    color: var(--tx-label);
+  }
+  .ranks {
     margin-left: auto;
     display: flex;
-    color: var(--tx-muted-2);
-    font-size: 1.0769rem;
-    border-radius: var(--radius-md);
-    transition: color 120ms;
+    gap: 6px;
+    flex: none;
   }
-  .eye:hover {
+  .why {
+    padding-left: 74px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .group {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+  }
+  .gname {
+    font-size: 0.8846rem;
+    color: var(--tx-label);
+  }
+  .gval {
+    font-size: 0.9231rem;
+    color: var(--tx-2);
+    margin-right: 2px;
+  }
+  .sep {
+    width: 1px;
+    height: 12px;
+    flex: none;
+    background: var(--border-strong);
+  }
+
+  .filters {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-height: 26px;
+  }
+  .filters :global(.pfilter) {
+    width: 200px;
+  }
+  .dim {
+    position: relative;
+  }
+  .dim .n {
+    min-width: 18px;
+    text-align: center;
+    box-sizing: border-box;
+    padding: 0 5px;
+  }
+  .dim .ph-caret-down {
+    font-size: 10px;
+  }
+  .menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    width: 252px;
+    max-height: 380px;
+    border-radius: var(--radius-md);
+  }
+  .find {
+    padding: 6px 8px 4px;
+  }
+  .mhead {
+    padding: 8px 12px 2px;
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 24px;
+    padding: 2px 12px;
+    box-sizing: border-box;
+    text-align: left;
+    font-size: 0.9231rem;
+  }
+  .opt:hover {
+    background: var(--row-hover);
+  }
+  .check {
+    width: 12px;
+    flex: none;
+    display: inline-flex;
+    color: var(--aqua);
+  }
+  .sq {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: var(--radius-sm);
+  }
+  .olabel {
+    flex: 1;
+    min-width: 0;
     color: var(--tx-body);
+  }
+  .on-n {
+    flex: none;
+    font-size: 0.8462rem;
+    color: var(--tx-label);
+  }
+  .shown {
+    min-width: 56px;
+    margin-left: 8px;
+    font-size: 0.9231rem;
+    color: var(--tx-label);
+  }
+
+  .cols {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+  }
+  .column {
+    flex: 1 1 0;
+    min-width: 280px;
+  }
+  .colhead {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 12px;
+    box-sizing: border-box;
+    background: var(--bg-head);
+  }
+  .colhead .panel-head {
+    color: var(--tx-label);
+  }
+  .colhead .panel-head.focused {
+    color: var(--tx-title);
+  }
+  .sort {
+    margin-left: auto;
+    font-size: 0.8846rem;
+    color: var(--tx-label);
+  }
+  .body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
   }
   .rows {
     flex: 1;
     min-height: 0;
   }
-  .row {
+  .jump {
+    position: absolute;
+    right: 14px;
+    background: var(--bg-head);
+    box-shadow: 0 0 0 1px var(--aqua-line), var(--popover);
+  }
+  .jump.top {
+    top: 5px;
+  }
+  .jump.bottom {
+    bottom: 5px;
+  }
+
+  /* Compact rows (decision 14: Priorities is compact). */
+  .prow {
     display: grid;
-    grid-template-columns: 4px 22px minmax(0, 1fr) auto;
-    gap: 10px;
+    grid-template-columns: 22px 3px 14px minmax(0, 1fr) 66px 34px;
+    gap: 8px;
     align-items: center;
-    padding: var(--row-pad-comfortable) 12px var(--row-pad-comfortable) 0;
-    min-height: var(--row-min-comfortable);
-    border-top: 1px solid var(--bg-head);
-    cursor: pointer;
-    outline: none;
-    transition: background 120ms;
+    width: 100%;
+    height: 25px;
+    box-sizing: border-box;
+    padding: 0 10px 0 4px;
+    text-align: left;
+    line-height: 24px;
+    border-bottom: 1px solid var(--border);
   }
-  .row:first-child {
-    border-top: 0;
+  .prow.boundary {
+    border-bottom: 1px dashed var(--tx-label);
   }
-  .row:hover:not(.sel) {
-    background: var(--row-hover);
+  .prow.hov {
+    background: var(--hover-tint);
+  }
+  .prow.open {
+    background: var(--bg-head);
+  }
+  .prow.cur {
+    background: var(--aqua-tint);
+  }
+  .prow.faded {
+    opacity: 0.42;
+  }
+  .rank {
+    text-align: right;
+    font-size: 0.8462rem;
+    color: var(--tx-label);
+  }
+  .rank.on {
+    color: var(--aqua);
   }
   .bar {
-    align-self: stretch;
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
   }
-  .min0 {
-    min-width: 0;
-  }
-  .line {
+  .tt {
     display: flex;
     gap: 8px;
     align-items: baseline;
     min-width: 0;
   }
   .title {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     flex: 0 1 auto;
-  }
-  .topic {
-    font-size: 0.9231rem;
-    color: var(--tx-label);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 0 1000 auto;
     min-width: 0;
+    color: var(--tx-body);
   }
-  .pills {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-    margin-top: 4px;
-  }
-  .score {
-    font-size: 0.8846rem;
-    color: var(--tx-2);
-  }
-  .empty-row {
-    padding: 10px 12px;
-    font: inherit;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: 6px;
-    padding: 10px 12px;
-    font-size: 0.9231rem;
-    color: var(--tx-muted);
-    overflow-y: auto;
-  }
-  .chip {
-    transition: background 120ms;
-  }
-  .chip:hover:not(.on) {
-    background: var(--row-hover);
-  }
-  .sq {
-    width: 6px;
-    height: 6px;
-    border-radius: 2px;
-    flex: none;
-  }
-  .n {
-    color: var(--tx-label);
-  }
-  .selected {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 14px;
-    border-radius: var(--radius-md);
-    background: rgba(142, 192, 124, 0.08);
-    border: 1px solid var(--aqua-line);
-    min-width: 0;
-    white-space: nowrap;
-  }
-  .selected .sq {
-    width: 8px;
-    height: 8px;
-    border-radius: 3px;
-  }
-  .sel-title {
-    font-weight: 500;
-    flex: 0 1 auto;
-  }
-  .sel-meta {
-    font-size: 0.9231rem;
-    color: var(--tx-label);
-    flex: 0 1000 auto;
-    min-width: 0;
-  }
-  .hints {
-    margin-left: auto;
-    display: flex;
-    gap: 14px;
-    font-size: 0.8846rem;
-    color: var(--tx-muted);
-    flex: none;
-  }
-  .peek {
-    position: absolute;
-    z-index: 10;
-    width: 380px;
-    border-radius: var(--radius-md);
-    animation: fade 120ms ease-out;
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
-  .peek-head {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    font-size: 0.8846rem;
-    color: var(--tx-muted-2);
-    white-space: nowrap;
-  }
-  .esc {
-    margin-left: auto;
-    font-size: 0.8462rem;
-    color: var(--tx-label);
-  }
-  .peek-title {
-    margin-top: 6px;
-    font-weight: 500;
+  .prow.cur .title {
     color: var(--tx-title);
   }
-  .peek-sum {
-    margin-top: 2px;
+  .topic {
+    flex: 0 1000 auto;
+    min-width: 0;
     font-size: 0.9231rem;
-    color: var(--tx-muted);
+    color: var(--tx-label);
   }
-  .peek-body {
-    margin-top: 8px;
-    max-height: 120px;
-    font-size: calc(var(--fs-read) * 12.5 / 14);
-    line-height: 1.55;
-    color: var(--tx-2);
+  .date {
+    text-align: right;
+    font-size: 0.8846rem;
   }
-  .peek-people {
-    margin-top: 8px;
+  .metric {
+    text-align: right;
+    font-size: 0.9231rem;
+    color: var(--tx-muted-2);
+  }
+
+  .gutter {
+    flex: none;
+    display: block;
+  }
+  .gutter path {
+    fill: none;
+  }
+  .gutter .hover {
+    stroke: var(--tx-muted-2);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .gutter .cur {
+    stroke: var(--aqua);
+    stroke-width: 1.5;
+  }
+  .gutter circle {
+    fill: var(--aqua);
+    stroke: var(--aqua);
+    stroke-width: 1;
+  }
+  .gutter circle.hollow {
+    fill: var(--bg-app);
+  }
+
+  .keys {
+    flex: none;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
     font-size: 0.8846rem;
     color: var(--tx-label);
+  }
+
+  /* Narrow: the columns stack and the splines go. */
+  @media (max-width: 900px) {
+    .cols {
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+    .column {
+      flex: none;
+      width: 100%;
+      min-width: 0;
+      height: 420px;
+    }
+    .gutter {
+      display: none;
+    }
   }
 </style>

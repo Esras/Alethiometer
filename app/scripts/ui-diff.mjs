@@ -68,7 +68,10 @@ const scenes = {
   'incoming-agents-open': [{ exact: 'Agents waiting' }, 'Enter'],
   'incoming-agents-approval': [{ exact: 'Agents waiting' }, 'j', 'Enter'],
   priorities: ['Control+2'],
-  'priorities-peek': ['Control+2', 'p'],
+  // The cursor two rows down, focus on Neglect: the splines and the open-row grey.
+  'priorities-moved': ['Control+2', 'j', 'j', ']', ']'],
+  // A topic picked (count badge, "n of m", Clear) and the Factor menu open.
+  'priorities-filter': ['Control+2', { exact: 'Topic' }, { exact: 'Webhook reliability', nth: 0 }, { exact: 'Factor' }],
   'topics-index': ['Control+3'],
   'topics-catpicker': ['Control+3', 'c'],
   'topics-categories': ['Control+3', { click: 'Manage categories' }],
@@ -118,14 +121,12 @@ const scenes = {
   // shows after a Glean answer, which the sample data can't give.
   'agents-ask-reply': ['Control+7', { exact: 'fakeask-agent' }, 'r'],
   // Counts and chips
-  // Priorities' compact quadrants are chips; the palette opened from a topic shows
-  // the anchor chip. The Todos Jira status chip needs a Jira todo the sample data lacks.
-  'priorities-compact': ['Control+2', 'v'],
+  // The palette opened from a topic shows the anchor chip.
   'palette-in-topic': ['Control+3', 'Enter', 'Control+k'],
   // Inputs
   // A focused field is the only aqua one: these scenes focus the filters, the new-name
   // field, Reflect's ask box and the agents' reply and deny fields. The todo ones make
-  // todos first (the sample data has none), so they come last of this group.
+  // a todo first, so they come last of this group.
   'todos-filter-focus': ['Control+4', '/'],
   'topics-filter-focus': ['Control+3', '/'],
   'topics-naming': ['Control+3', 'n'],
@@ -136,6 +137,8 @@ const scenes = {
   'daystrip-buffer': [{ exact: 'Life' }, 'b'],
   'settings-edit-number': ['Control+,', 'Enter'],
   'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e'],
+  // A local todo's scheduled day (the first row, due earliest, is local in the sample data).
+  'todos-sched': ['Control+4', 'd'],
   // Key hints
   // Keys written inside sentences and legends (decision 9): the legend under an
   // expanded Search result and Topics' chronology, and the note pane's editing line.
@@ -200,12 +203,14 @@ const scenes = {
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
   // Sharding keeps all of them in the last chunk: `todos-done` must stay the first of them.
-  // The sample data has no todos: make two from signals (n, type, ⌘↵, confirm), then do the first.
+  // Make two todos from signals (n, type, ⌘↵, confirm), then do the first row of the Todos tab.
   'todos-done': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'n', { type: 'Reply to Dana' }, 'Control+Enter', 'c', 'Control+4', 'x', 'j'],
   'incoming-dismissed': ['j', 'd', 'j'],
   'incoming-dismissed-selected': ['j', 'd'],
   // The cursor's fill hides the hatching, so move off the dismissed message.
   'incoming-split-dismissed-away': ['j', 's', 'd', 'j'],
+  // A topic's priority (Priorities): p on the Topics index sets the first topic's to H.
+  'topics-priority': ['Control+3', 'p'],
   'topics-merged': ['Control+3', 'm', 'ArrowDown', 'Enter'],
 };
 

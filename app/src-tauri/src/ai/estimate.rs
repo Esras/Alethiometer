@@ -116,7 +116,7 @@ mod tests {
         app.update_settings(|s| s.ai.small.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0".into());
         let conn = app.db();
         for title in ["Reply to Kim", "Review the retry PR"] {
-            todos::create(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), &todos::Draft { target: "local".into(), text: title.into(), due: None }, None, None).unwrap();
+            todos::create(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), &todos::Draft { target: "local".into(), text: title.into(), due: None, sched: None }, None, None).unwrap();
         }
         let kim: i64 = conn.query_row("SELECT id FROM items WHERE title = 'Reply to Kim'", [], |r| r.get(0)).unwrap();
         todos::set_estimate(&crate::store::over(&conn), kim, Some(20)).unwrap();

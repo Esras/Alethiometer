@@ -70,7 +70,7 @@ struct Named {
 }
 
 impl TodoExt {
-    fn parse(source: &str, raw: Value) -> Option<TodoExt> {
+    pub(crate) fn parse(source: &str, raw: Value) -> Option<TodoExt> {
         match source {
             "notes" => serde_json::from_value(raw).ok().map(TodoExt::Local),
             "jira" => serde_json::from_value::<JiraRaw>(raw).ok().map(|j| TodoExt::Jira(JiraExt { key: j.key, status: j.fields.status.name, issue_type: j.fields.issuetype.map(|t| t.name) })),
@@ -96,7 +96,11 @@ pub struct Todo {
     pub due_label: Option<String>,
     pub overdue: bool,
     pub topic: Option<TopicRef>,
-    pub priority: Option<String>,
+    /// Place in the Priorities tab's Priority column, from 1 (`priorities.rs`).
+    pub rank: Option<usize>,
+    /// A local todo's scheduled day, and its label ("Thu").
+    pub sched: Option<Date>,
+    pub sched_label: Option<String>,
     pub url: Option<String>,
     pub estimate: Option<Estimate>,
     pub ext: TodoExt,
@@ -104,7 +108,19 @@ pub struct Todo {
 
 pub fn route(name: &str) -> Option<Route> {
     Some(match name {
-        "list" => Route::Read(|r, ctx, _| Ok(json!({ "todos": list(r, ctx.clock)?, "jira": jira_target(r)? }))),
+        "list" => Route::Read(|r, ctx, _| {
+            let mut todos = list(r, ctx.clock)?;
+            let ranks = super::priorities::ranks(r, ctx.clock, ctx.settings)?;
+            for t in &mut todos {
+                t.rank = ranks.get(&t.item_id).copied();
+            }
+            Ok(json!({ "todos": todos, "jira": jira_target(r)? }))
+        }),
+        "schedule" => Route::Write(|uow, _, args| {
+            let day = args.get("sched").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(parse_date).transpose()?;
+            schedule(uow, arg_i64(args, "item_id")?, day)?;
+            Ok(json!({ "ok": true }))
+        }),
         "complete" | "reopen" => Route::Write(|uow, _, args| {
             complete(uow, arg_i64(args, "item_id")?, args.get("done").and_then(Value::as_bool).unwrap_or(true))?;
             Ok(json!({ "ok": true }))
@@ -115,7 +131,7 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         "hold" => Route::Write(|uow, _, args| {
             let d = Draft::from_args(args)?;
-            uow.todos().hold(arg_i64(args, "item_id")?, &Held { target: d.target, text: d.text, due: d.due })?;
+            uow.todos().hold(arg_i64(args, "item_id")?, &Held { target: d.target, text: d.text, due: d.due, sched: d.sched })?;
             Ok(json!({ "ok": true }))
         }),
         "estimate" => Route::Write(|uow, _, args| {
@@ -139,7 +155,7 @@ pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
     let mut out = vec![];
     for t in rows {
         let Some(ext) = TodoExt::parse(&t.source_kind, serde_json::from_str(&t.raw_json).unwrap_or_default()) else { continue };
-        if matches!(&ext, TodoExt::Jira(j) if j.key.split_once('-').is_some_and(|(p, _)| skip.iter().any(|s| s.eq_ignore_ascii_case(p)))) {
+        if matches!(&ext, TodoExt::Jira(j) if project_excluded(&j.key, &skip)) {
             continue;
         }
         let from = match &ext {
@@ -156,7 +172,9 @@ pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
             overdue: deadline.is_some_and(|d| d < now),
             due: deadline,
             topic: t.topic,
-            priority: t.priority,
+            rank: None,
+            sched_label: t.sched.map(|d| due_label(crate::time::Due::Day(d), clock)),
+            sched: t.sched,
             url: t.url,
             estimate: t.estimate.map(|(minutes, by)| Estimate { minutes, by }),
             ext,
@@ -165,8 +183,13 @@ pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
     Ok(out)
 }
 
+/// Whether a Jira key's project is one of `skip`.
+pub(crate) fn project_excluded(key: &str, skip: &[String]) -> bool {
+    key.split_once('-').is_some_and(|(p, _)| skip.iter().any(|s| s.eq_ignore_ascii_case(p)))
+}
+
 /// Jira projects whose issues aren't todos (`todo_exclude_projects`).
-fn excluded_projects(r: &dyn Reads) -> Result<Vec<String>> {
+pub(crate) fn excluded_projects(r: &dyn Reads) -> Result<Vec<String>> {
     Ok(r.sources()
         .of_kind("jira")?
         .iter()
@@ -204,6 +227,17 @@ pub fn complete(uow: &dyn UnitOfWork, item_id: i64, done: bool) -> Result<()> {
     Ok(())
 }
 
+/// A local todo's scheduled day (a soft date: Priorities counts it from that
+/// day on). Jira and Obsidian todos have none.
+pub fn schedule(uow: &dyn UnitOfWork, item_id: i64, day: Option<Date>) -> Result<()> {
+    let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
+    match TodoExt::parse(&item.source_kind, serde_json::from_str(&item.raw_json).unwrap_or_default()) {
+        Some(TodoExt::Local(_)) => uow.items().set_sched_day(item_id, day),
+        Some(_) => Err(msg("only local todos have a scheduled date")),
+        None => Err(msg("not a todo")),
+    }
+}
+
 pub fn set_estimate(uow: &dyn UnitOfWork, item_id: i64, minutes: Option<i64>) -> Result<()> {
     if minutes.is_some_and(|m| m <= 0) {
         return Err(msg("an estimate is a positive number of minutes"));
@@ -215,6 +249,8 @@ pub struct Draft {
     pub target: String,
     pub text: String,
     pub due: Option<String>,
+    /// The scheduled day, local todos only.
+    pub sched: Option<String>,
 }
 
 impl Draft {
@@ -227,11 +263,18 @@ impl Draft {
         if text.is_empty() {
             return Err(msg("a todo needs its text"));
         }
-        let due = args.get("due").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_owned);
-        if let Some(d) = &due {
-            parse_date(d)?;
+        let date = |k: &str| -> Result<Option<String>> {
+            let v = args.get(k).and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_owned);
+            if let Some(d) = &v {
+                parse_date(d)?;
+            }
+            Ok(v)
+        };
+        let (due, sched) = (date("due")?, date("sched")?);
+        if sched.is_some() && target != "local" {
+            return Err(msg("only local todos have a scheduled date"));
         }
-        Ok(Draft { target, text, due })
+        Ok(Draft { target, text, due, sched })
     }
 }
 
@@ -255,6 +298,7 @@ pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, f
         url,
         occurred_at: now,
         due_day: d.due.as_deref().map(parse_date).transpose()?,
+        sched_day: d.sched.as_deref().map(parse_date).transpose()?,
         status: "open".into(),
         owner: Some("you".into()),
         seen: true,
@@ -271,7 +315,7 @@ pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, f
 /// A todo held on a signal is made when the signal is filed under `topic_id`.
 pub fn settle(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64) -> Result<bool> {
     let Some(h) = uow.todos().held(item_id)? else { return Ok(false) };
-    create(uow, now, &Draft { target: h.target, text: h.text, due: h.due }, Some(topic_id), Some(item_id))?;
+    create(uow, now, &Draft { target: h.target, text: h.text, due: h.due, sched: h.sched }, Some(topic_id), Some(item_id))?;
     uow.todos().unhold(item_id)?;
     Ok(true)
 }

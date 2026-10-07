@@ -14,14 +14,18 @@ export interface Todo {
   due_label: string | null;
   overdue: boolean;
   topic: TopicRef | null;
-  priority: 'now' | 'make_room' | 'quick' | 'can_wait' | null;
+  /** Place in the Priorities tab's Priority column, from 1; null for epics. */
+  rank: number | null;
+  /** A local todo's scheduled day (YYYY-MM-DD) and its label ("Thu"). */
+  sched: string | null;
+  sched_label: string | null;
   url: string | null;
   /** Minutes; `by: 'ai'` is the small model's guess, `'you'` an override. Never sent to Jira. */
   estimate: { minutes: number; by: 'ai' | 'you' } | null;
   ext: TodoExt;
 }
 
-export type Draft = { target: 'local' | 'jira'; text: string; due: string | null; topic_id?: number | null };
+export type Draft = { target: 'local' | 'jira'; text: string; due: string | null; sched: string | null; topic_id?: number | null };
 
 export interface JiraTarget {
   project: string;

@@ -45,9 +45,9 @@ Built for now: ⌘K searches locally as you type; Glean only on ⌥↵ (also in 
 
 The model comes from `https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx` (and `tokenizer.json`). Hugging Face wasn't reachable from the build environment, so the URL, the file and its input/output names were checked only against a stand-in with the same interface. If the first run on the Mac fails, Settings → AI shows why and offers Retry. A work network that blocks huggingface.co needs the two files dropped into `<data dir>/models/bge-small-en-v1.5/` by hand.
 
-### Priorities: scoring isn't built, and needs design first
+### Priorities: built, not tuned (2026-10-07)
 
-The Priorities tab (8b) only ever shows sample data: nothing computes quadrants, scores or reason pills for real items, so with `demo_data: false` it's empty. The design never decided what makes something urgent or important. Inputs worth considering: due date, todo estimates (`todo_estimates`, built), who's asking, Jira status, mentions, an upcoming meeting on the topic. Also open: todos only, or every open signal (as 8b shows). Design pass first, then build.
+Built on real data (`app/docs/priorities.md`), but only Taskwarrior's factors count yet: due, scheduled, blocks, topic priority. Meeting, waiting on you, who asked, breadth and estimate are built at coefficient 0, heat isn't built, and tags have storage but no vocabulary or suggestions. To do on the work Mac: tune the coefficients (`settings.json` › `priorities`), work out the heat baseline, build the tag vocabulary from real data and design the tag UI (user, 2026-10-07: to discuss). Never run on real data yet: check the first load's time with the real todo count (the facts query is one pass, with correlated subqueries per todo).
 
 ### Todos: completing a Jira todo assumes a "Done" transition
 

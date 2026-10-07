@@ -3,7 +3,6 @@
 use super::Sql;
 use crate::domain::links::Links;
 use crate::error::Result;
-use crate::time::SQL_NOW;
 use rusqlite::{params, OptionalExtension};
 
 impl Links for Sql<'_> {
@@ -16,18 +15,16 @@ impl Links for Sql<'_> {
 
     fn set_state(&self, item_id: i64, topic_id: i64, state: &str) -> Result<bool> {
         Ok(self.conn().execute(
-            &format!("UPDATE topic_links SET state = ?3, updated_at = {SQL_NOW} WHERE item_id = ?1 AND topic_id = ?2"),
+            "UPDATE topic_links SET state = ?3 WHERE item_id = ?1 AND topic_id = ?2",
             params![item_id, topic_id, state],
         )? == 1)
     }
 
     fn confirm(&self, item_ids: &[i64], topic_id: i64, reason: &str) -> Result<()> {
         self.conn().execute(
-            &format!(
-                "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason)
                  SELECT value, ?2, 'confirmed', 1.0, ?3 FROM json_each(?1) WHERE true
-                 ON CONFLICT (item_id, topic_id) DO UPDATE SET state = 'confirmed', updated_at = {SQL_NOW}"
-            ),
+                 ON CONFLICT (item_id, topic_id) DO UPDATE SET state = 'confirmed'",
             params![serde_json::to_string(item_ids)?, topic_id, reason],
         )?;
         Ok(())
@@ -44,10 +41,8 @@ impl Links for Sql<'_> {
 
     fn pick(&self, item_id: i64, topic_id: i64, state: &str) -> Result<()> {
         self.conn().execute(
-            &format!(
-                "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
-                 ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3, confidence = 1.0, reason = 'picked by you', updated_at = {SQL_NOW}"
-            ),
+            "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
+                 ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3, confidence = 1.0, reason = 'picked by you'",
             params![item_id, topic_id, state],
         )?;
         Ok(())
@@ -57,10 +52,8 @@ impl Links for Sql<'_> {
         match state {
             None => self.conn().execute("DELETE FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![item_id, topic_id])?,
             Some(st) => self.conn().execute(
-                &format!(
-                    "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
-                     ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3, updated_at = {SQL_NOW}"
-                ),
+                "INSERT INTO topic_links (item_id, topic_id, state, confidence, reason) VALUES (?1, ?2, ?3, 1.0, 'picked by you')
+                     ON CONFLICT (item_id, topic_id) DO UPDATE SET state = ?3",
                 params![item_id, topic_id, st],
             )?,
         };

@@ -175,6 +175,117 @@ pub struct Settings {
     /// The Agents tab: local harnesses, colours, names and boxes.
     #[schemars(extend("x-section" = "agents"))]
     pub agents: AgentsSettings,
+    /// The Priorities tab's scoring (`app/docs/priorities.md`). In the file only for now.
+    #[schemars(extend("x-hidden" = true))]
+    pub priorities: PrioritySettings,
+}
+
+/// Taskwarrior-style scoring: each factor is 0 to 1, times its coefficient
+/// here, and the Priority score is the sum. Starts from Taskwarrior's urgency
+/// defaults (https://taskwarrior.org/docs/urgency/) for the factors it has; the
+/// factors it doesn't have start at 0 until tuned (user, 2026-10-06).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct PrioritySettings {
+    pub coefficients: Coefficients,
+    /// Neglect = age × `age` + quiet time × `quiet`, both in days.
+    pub neglect: NeglectWeights,
+    /// Quick wins: todos estimated at this many minutes or less, by value per hour.
+    pub quick_max_minutes: i64,
+    /// The tag vocabulary. The small model will only ever suggest from this list.
+    pub tags: Vec<TagDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct Coefficients {
+    /// Pressure. A hard due date (Taskwarrior `urgency.due`).
+    pub due: f64,
+    /// Pressure. A scheduled (soft) date that has come (Taskwarrior `urgency.scheduled`).
+    pub scheduled: f64,
+    /// Pressure. The next meeting on the todo's topic.
+    pub meeting: f64,
+    /// Pressure. Someone else spoke last on the todo's thread.
+    pub waiting: f64,
+    /// Value. Blocks at least one open Jira issue (Taskwarrior `urgency.blocking`).
+    pub blocks: f64,
+    /// Value. The topic's priority (Taskwarrior `urgency.uda.priority.H/M/L`).
+    pub topic_priority: TopicPriorityCoefficients,
+    /// Value. The asker's `weight` from their People note.
+    pub who_asked: f64,
+    /// Value. People and sources on the topic.
+    pub breadth: f64,
+    /// Effort. Short estimates score higher.
+    pub estimate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+#[allow(non_snake_case)]
+pub struct TopicPriorityCoefficients {
+    pub H: f64,
+    pub M: f64,
+    pub L: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct NeglectWeights {
+    pub age: f64,
+    pub quiet: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct TagDef {
+    pub name: String,
+    /// Added when the todo (or its topic) has the tag (Taskwarrior `urgency.user.tag.<tag>`).
+    #[serde(default = "one")]
+    pub coefficient: f64,
+    /// value | pressure | effort
+    #[serde(default = "value_group")]
+    pub feeds: String,
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+fn value_group() -> String {
+    "value".into()
+}
+
+impl Default for PrioritySettings {
+    fn default() -> Self {
+        PrioritySettings { coefficients: Coefficients::default(), neglect: NeglectWeights::default(), quick_max_minutes: 30, tags: vec![] }
+    }
+}
+
+impl Default for Coefficients {
+    fn default() -> Self {
+        Coefficients {
+            due: 12.0,
+            scheduled: 5.0,
+            meeting: 0.0,
+            waiting: 0.0,
+            blocks: 8.0,
+            topic_priority: TopicPriorityCoefficients::default(),
+            who_asked: 0.0,
+            breadth: 0.0,
+            estimate: 0.0,
+        }
+    }
+}
+
+impl Default for TopicPriorityCoefficients {
+    fn default() -> Self {
+        TopicPriorityCoefficients { H: 6.0, M: 3.9, L: 1.8 }
+    }
+}
+
+impl Default for NeglectWeights {
+    fn default() -> Self {
+        NeglectWeights { age: 0.4, quiet: 0.6 }
+    }
 }
 
 /// The Agents tab (`app/docs/agents.md`). Colours are a first pass: each is
@@ -355,6 +466,7 @@ impl Default for Settings {
             demo_data: true,
             people: PeopleSettings::default(),
             agents: AgentsSettings::default(),
+            priorities: PrioritySettings::default(),
         }
     }
 }
@@ -408,6 +520,19 @@ impl Settings {
         for h in &a.harnesses {
             if h.key.trim().is_empty() || h.command.trim().is_empty() || !keys.insert(h.key.as_str()) {
                 anyhow::bail!("agents.harnesses: each needs a unique key and a command");
+            }
+        }
+        let p = &self.priorities;
+        if p.quick_max_minutes <= 0 {
+            anyhow::bail!("priorities.quick_max_minutes must be a positive number of minutes");
+        }
+        let mut tags = std::collections::BTreeSet::new();
+        for t in &p.tags {
+            if t.name.trim().is_empty() || !tags.insert(t.name.trim().to_lowercase()) {
+                anyhow::bail!("priorities.tags: each needs a unique name");
+            }
+            if !matches!(t.feeds.as_str(), "value" | "pressure" | "effort") {
+                anyhow::bail!("priorities.tags ({}): feeds must be value, pressure or effort", t.name);
             }
         }
         if let Categories::List(rows) = &self.categories {

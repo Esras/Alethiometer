@@ -3,7 +3,7 @@
 //! app would have, so nothing here is used once real data exists.
 
 use crate::error::Result;
-use crate::time::{Due, Ts};
+use crate::time::{Date, Due, Ts};
 
 #[derive(Debug, Clone, Default)]
 pub struct SampleItem {
@@ -60,6 +60,21 @@ pub struct SampleEvent<'a> {
     pub life: bool,
 }
 
+/// What a sample todo carries beyond its item: fields the app or a sync
+/// would set, and its times as if it had been around a while.
+#[derive(Debug, Clone, Default)]
+pub struct TodoExtras<'a> {
+    pub raw_json: &'a str,
+    pub sched_day: Option<Date>,
+    pub source_created_at: Option<Ts>,
+    /// Minutes, and who estimated them (`you` or `ai`).
+    pub estimate: Option<(i64, &'a str)>,
+    /// When it was stored.
+    pub created_at: Ts,
+    /// Its last change; its topic link is dated the same.
+    pub updated_at: Ts,
+}
+
 pub trait SampleData {
     /// Whether any source exists (then the database isn't new).
     fn has_sources(&self) -> Result<bool>;
@@ -76,9 +91,12 @@ pub trait SampleData {
     fn item(&self, it: &SampleItem) -> Result<i64>;
     fn patch_item(&self, id: i64, p: &ItemPatch) -> Result<()>;
     fn link(&self, item_id: i64, topic_id: i64, state: &str) -> Result<()>;
+    /// A sample todo's extras. Last, after its link: it sets the times.
+    fn todo_extras(&self, item_id: i64, x: &TodoExtras) -> Result<()>;
+    /// H, M or L.
+    fn topic_priority(&self, topic_id: i64, level: &str) -> Result<()>;
     fn message(&self, m: &SampleMessage) -> Result<i64>;
     fn event(&self, e: &SampleEvent) -> Result<()>;
-    fn priority(&self, item_id: i64, quadrant: &str, score: f64, reasons_json: &str) -> Result<()>;
     fn note_line(&self, page_date: &str, position: i64, kind: &str, text: &str, target_json: &str, state: &str) -> Result<()>;
     fn carry(&self, item_id: i64, period: &str, action: Option<&str>) -> Result<()>;
     fn reflection(&self, scope: &str, period_start: &str, note_path: &str, summary: Option<&str>) -> Result<()>;

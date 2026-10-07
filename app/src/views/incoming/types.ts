@@ -69,6 +69,7 @@ export interface Held {
   target: "local" | "jira";
   text: string;
   due: string | null;
+  sched: string | null;
 }
 
 export interface TopicSignals extends TopicRef {

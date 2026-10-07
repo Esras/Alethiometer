@@ -46,11 +46,12 @@ impl Ingest for Sql<'_> {
         let (due_at, due_day) = Due::columns(it.due);
         self.conn().execute(
             "INSERT INTO items (source_id, external_id, kind, title, body, summary, url, author_person_id,
-               occurred_at, ended_at, due_at, due_day, status, msg_count, owner, seen, raw_json, remote_rev)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16, ?17)",
+               occurred_at, ended_at, due_at, due_day, status, msg_count, owner, seen, raw_json, remote_rev, source_created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, ?16, ?17, ?18)",
             params![
                 source_id, it.external_id, it.kind, it.title, it.body, it.summary, it.url, author,
-                it.occurred_at, it.ended_at, due_at, due_day, it.status, it.msg_count, it.owner, it.raw_json.to_string(), it.remote_rev
+                it.occurred_at, it.ended_at, due_at, due_day, it.status, it.msg_count, it.owner, it.raw_json.to_string(), it.remote_rev,
+                it.source_created_at
             ],
         )?;
         Ok(self.conn().last_insert_rowid())
@@ -65,11 +66,13 @@ impl Ingest for Sql<'_> {
         self.conn().execute(
             "UPDATE items SET kind = ?2, title = ?3, body = ?4, summary = ?5, url = ?6, author_person_id = ?7,
                occurred_at = ?8, ended_at = ?9, due_at = ?10, due_day = ?11, status = ?12, msg_count = ?13, owner = ?14,
-               raw_json = ?15, seen = CASE WHEN ?16 THEN 0 ELSE seen END, remote_rev = ?17
+               raw_json = ?15, seen = CASE WHEN ?16 THEN 0 ELSE seen END, remote_rev = ?17,
+               source_created_at = coalesce(?18, source_created_at)
              WHERE id = ?1",
             params![
                 id, it.kind, it.title, it.body, it.summary, it.url, author, it.occurred_at, it.ended_at,
-                due_at, due_day, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump, it.remote_rev
+                due_at, due_day, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump, it.remote_rev,
+                it.source_created_at
             ],
         )?;
         Ok(())
@@ -146,10 +149,8 @@ impl Ingest for Sql<'_> {
 
     fn put_profile(&self, p: &Profile) -> Result<()> {
         self.conn().execute(
-            &format!(
-                "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
-                 ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5, updated_at = {SQL_NOW}"
-            ),
+            "INSERT INTO account_profiles (kind, account, real_name, email, is_bot) VALUES (?1, ?2, ?3, lower(?4), ?5)
+                 ON CONFLICT (kind, account) DO UPDATE SET real_name = ?3, email = lower(?4), is_bot = ?5",
             params![p.kind, p.account, p.real_name, p.email, p.is_bot],
         )?;
         Ok(())

@@ -1,6 +1,6 @@
 // Popovers (lib/ui/popover.ts): Escape closes, a click outside closes, a click
-// inside doesn't. The day strip's block popover, the sync chip's popover, the
-// Priorities peek and the Composer's @ menu.
+// inside doesn't. The day strip's block popover, the sync chip's popover, a
+// Priorities filter menu and the Composer's @ menu.
 const outside = (t) => t.page.mouse.click(1, 1170);
 
 // One popover: how to open it, where it is, something to click inside it.
@@ -64,12 +64,6 @@ export const checks = {
     await t.page.waitForTimeout(300);
     await t.gone(t.page.locator('.popover'), 'reopened');
   },
-  'priorities peek: j moves on and closes it': async (t) => {
-    await t.steps('Control+2', 'p');
-    await t.visible(t.page.locator('.peek'));
-    await t.steps('j');
-    await t.gone(t.page.locator('.peek'));
-  },
   'composer menu: Esc closes the menu and keeps the focus, typing brings it back': async (t) => {
     await composerMenu(t);
     await t.steps('Escape');
@@ -92,10 +86,13 @@ export const checks = {
     pop: (t) => t.page.locator('.wrap .pop'),
     inside: (t) => t.page.locator('.wrap .pop .label').first(),
   }),
-  ...cases('priorities peek', {
-    open: (t) => t.steps('Control+2', 'p'),
-    pop: (t) => t.page.locator('.peek'),
-    inside: (t) => t.page.locator('.peek .peek-title'),
+  ...cases('priorities filter menu', {
+    open: async (t) => {
+      await t.steps('Control+2');
+      await t.page.locator('.dim .chip', { hasText: 'Factor' }).click();
+    },
+    pop: (t) => t.page.locator('.dim .menu'),
+    inside: (t) => t.page.locator('.dim .menu .mhead').first(),
   }),
   // Needs the Scion room from the fake hub (docs/agents.md): the menu is the @ completion in a room.
   ...cases('composer menu', {

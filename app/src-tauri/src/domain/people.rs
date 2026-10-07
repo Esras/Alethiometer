@@ -14,6 +14,8 @@ pub struct PersonRow {
     /// Set in the note; otherwise derived from the person's accounts.
     pub color: Option<u8>,
     pub aliases: Vec<String>,
+    /// How much a todo this person asked for matters, 0 to 1 (the note's `weight`).
+    pub weight: Option<f64>,
 }
 
 /// An account a People note lists.
@@ -92,7 +94,7 @@ pub trait PeopleViews {
 }
 
 /// A People note as read from the vault.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PersonNote {
     /// Vault-relative ("People/Kim Lee.md").
     pub path: String,
@@ -100,6 +102,8 @@ pub struct PersonNote {
     pub role: Option<String>,
     pub color: Option<u8>,
     pub aliases: Vec<String>,
+    /// `weight`, clamped to 0..=1.
+    pub weight: Option<f64>,
     /// (kind, account), normalized.
     pub accounts: Vec<(String, String)>,
 }

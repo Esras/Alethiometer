@@ -27,6 +27,8 @@ struct TopicRow {
     last_signal: Option<String>,
     quiet: bool,
     next_meeting: Option<Meeting>,
+    /// H, M or L (Priorities).
+    priority: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -87,6 +89,17 @@ pub fn route(name: &str) -> Option<Route> {
         "unarchive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, false)),
         "create" => Route::Write(|uow, _, args| create(uow, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str))),
         "rename" => Route::Write(|uow, _, args| rename(uow, arg_i64(args, "id")?, &arg_str(args, "name")?)),
+        // Priorities' topic priority: H, M, L, or null for none.
+        "set_priority" => Route::Write(|uow, _, args| {
+            let p = args.get("priority").and_then(Value::as_str);
+            if p.is_some_and(|p| !matches!(p, "H" | "M" | "L")) {
+                return Err(msg("a topic's priority is H, M, L or none"));
+            }
+            if !uow.topics().set_priority(arg_i64(args, "id")?, p)? {
+                return Err(msg("no such topic"));
+            }
+            Ok(json!({ "ok": true }))
+        }),
         _ => return None,
     })
 }
@@ -269,6 +282,7 @@ fn list(r: &dyn Reads, ctx: &crate::api::Ctx, archived: bool) -> Result<Value> {
             quiet: t.last_signal_at.is_none_or(|l| l < quiet_before),
             last_signal_at: t.last_signal_at,
             next_meeting: t.next_meeting.map(|(start, title)| Meeting { start, title }),
+            priority: t.priority,
         })
         .collect();
     // Active first (next meeting soonest, then most recent signal), then quiet.
@@ -332,7 +346,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let now = clock.now();
     let today = clock.today();
     let head = reads.topics().head(id)?.ok_or_else(|| crate::error::msg("no such topic"))?;
-    let (name, category, path, score) = (head.name, head.category, head.obsidian_path, head.score);
+    let (name, category, path, score, priority) = (head.name, head.category, head.obsidian_path, head.score, head.priority);
     let pills: Vec<Pill> = serde_json::from_str(&head.pills_json).unwrap_or_default();
 
     // All confirmed links; suggestions still waiting in Incoming are left out.
@@ -427,6 +441,10 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     }
     upcoming.sort_by(|a, b| a.0.cmp(&b.0));
     chron.sort_by(|a, b| b.0.cmp(&a.0));
+    // Yours and other people's mixed, by Priority score (user, 2026-10-07).
+    let scores = super::priorities::topic_scores(reads, clock, ctx.settings, id)?;
+    let prio = |o: &OpenItem| scores.get(&o.item_id).copied().unwrap_or(0.0);
+    open.sort_by(|a, b| prio(b).partial_cmp(&prio(a)).unwrap_or(std::cmp::Ordering::Equal).then(a.item_id.cmp(&b.item_id)));
 
     let mut filters: Vec<(String, i64)> = vec![];
     for (_, e) in &chron {
@@ -444,7 +462,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let path = path.unwrap_or_else(|| default_note_path(&name));
 
     Ok((json!({
-        "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills },
+        "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills, "priority": priority },
         "upcoming": upcoming.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
         "open": open,
         "chronology": chron.into_iter().map(|(_, e)| e).collect::<Vec<_>>(),
@@ -743,7 +761,7 @@ mod tests {
             })
             .collect();
         referring.sort();
-        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos"]);
+        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos", "topic_tags"]);
     }
 
     #[test]
@@ -779,6 +797,22 @@ mod tests {
         let conn = app.db();
         let stale: i64 = conn.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![dd, q4], |r| r.get(0)).unwrap();
         assert_eq!(stale, 0, "the surviving topic is re-embedded");
+    }
+
+    #[test]
+    fn the_open_panel_mixes_everyones_items_by_priority_score() {
+        let (app, _dir) = app();
+        let id = topic_id(&app, "Datadog renewal");
+        // Kim's item gets a due date today: it outranks your undated todos.
+        app.db().execute("UPDATE items SET due_day = ?1 WHERE title = 'Legal redlines back to vendor'", [app.clock.today().to_string()]).unwrap();
+        let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
+        let scores = app.store().read(|r| crate::queries::priorities::topic_scores(r, &app.clock, &app.settings(), id)).unwrap();
+        let open = v["open"].as_array().unwrap();
+        let s: Vec<f64> = open.iter().map(|o| scores[&o["item_id"].as_i64().unwrap()]).collect();
+        assert!(s.windows(2).all(|w| w[0] >= w[1]), "{s:?}");
+        let kim = open.iter().position(|o| o["owner"] == "Kim").expect("other people's items stay");
+        let yours_after = open.iter().skip(kim + 1).any(|o| o["owner"] == "you");
+        assert!(yours_after, "Kim's dated item sits among yours, not after them");
     }
 
     #[test]

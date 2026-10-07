@@ -45,6 +45,7 @@ const MIGRATIONS: &[Step] = &[
     Sql(include_str!("../../migrations/0032_fts_unchanged_text.sql")),
     Sql(include_str!("../../migrations/0033_agent_archive.sql")),
     Sql(include_str!("../../migrations/0034_item_done.sql")),
+    Sql(include_str!("../../migrations/0035_priorities.sql")),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.
@@ -100,6 +101,12 @@ fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
             Rust(f) => f(&tx)?,
         }
         tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.commit()?;
+    }
+    // Times on every table, from each table's columns as they now are.
+    if to == MIGRATIONS.len() {
+        let tx = conn.transaction()?;
+        super::timestamps::ensure(&tx)?;
         tx.commit()?;
     }
     let new: Vec<String> = broken_references(conn)?.difference(&before).cloned().collect();

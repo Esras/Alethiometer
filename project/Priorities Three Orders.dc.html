@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Priorities · three orders</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="_ds/alethiometer/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+:root {
+  --bg-app: #1d2021; --bg-panel: #282828; --bg-head: #32302f;
+  --border: #3c3836; --border-strong: #504945;
+  --tx-title: #fbf1c7; --tx-body: #ebdbb2; --tx-2: #d5c4a1; --tx-muted: #bdae93; --tx-muted-2: #a89984; --tx-label: #928374; --tx-disabled: #665c54;
+  --aqua: #8ec07c; --aqua-tint: rgba(142, 192, 124, 0.1); --aqua-tint-soft: rgba(142, 192, 124, 0.06); --aqua-fill: rgba(142, 192, 124, 0.14); --aqua-badge: rgba(142, 192, 124, 0.2); --aqua-line: rgba(142, 192, 124, 0.45);
+  --hover-tint: rgba(235, 219, 178, 0.05); --row-hover: rgba(235, 219, 178, 0.03);
+  --red: #fb4934; --green: #b8bb26; --yellow: #fabd2f; --blue: #83a598; --purple: #d3869b; --orange: #fe8019;
+  --pill-red-fill: rgba(251, 73, 52, 0.16); --pill-yellow-fill: rgba(250, 189, 47, 0.16); --pill-green-fill: rgba(184, 187, 38, 0.16);
+  --time-far: var(--green); --time-near: var(--yellow); --time-now: var(--red); --link-out: var(--blue);
+  --radius-sm: 2px; --radius-md: 6px; --radius-full: 999px;
+  --tab-underline: inset 0 -2px 0 #8ec07c; --popover: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --font-ui: 'Inter', system-ui, sans-serif; --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+body { margin: 0; background: #1d2021; }
+.kb:focus { outline: none; }
+.prow:focus-visible { outline: none; }
+@media (max-width: 900px) {
+  .cols { flex-direction: column !important; gap: 12px; }
+  .cols > section { flex: none !important; width: 100%; min-width: 0 !important; }
+  .gutter { display: none !important; }
+}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; background: var(--bg-app); color: var(--tx-body); font-family: var(--font-ui); font-size: 13px; font-feature-settings: 'cv11';">
+
+  <nav class="c-tabbar" style="border-bottom: 1px solid var(--border); flex-wrap: wrap;">
+    <button type="button" class="tab">Incoming <span class="count tnum">232</span></button>
+    <button type="button" class="tab on">Priorities</button>
+    <button type="button" class="tab">Todos <span class="count tnum">34</span></button>
+    <button type="button" class="tab">Topics</button>
+    <button type="button" class="tab">Notes</button>
+    <button type="button" class="tab">Reflect</button>
+    <button type="button" class="tab">Agents</button>
+    <span class="right">
+      <span class="search">
+        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" style="flex: none; fill: none; stroke: var(--tx-label); stroke-width: 1.5;"><circle cx="7" cy="7" r="4.75"></circle><path d="M10.5 10.5 L14 14"></path></svg>
+        Search everything
+        <span class="kbd">⌘K</span>
+      </span>
+    </span>
+  </nav>
+
+  <div style="display: flex; gap: 14px; padding: 10px 14px 8px; border-bottom: 1px solid var(--border);">
+    <div style="width: 156px; flex: none; box-sizing: border-box; padding: 8px 10px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 4px;">
+      <span class="ellipsis" style="font-size: 11px; color: var(--tx-label);">Next · Q4 headcount</span>
+      <span style="font-size: 17px; font-weight: 500; color: var(--time-near);">in 8 min</span>
+      <span style="display: block; height: 3px; border-radius: 2px; background: var(--border);"><span style="display: block; height: 3px; width: 72%; border-radius: 2px; background: var(--time-near);"></span></span>
+    </div>
+    <div style="flex: 1; min-width: 0; position: relative; height: 64px;">
+      <sc-for list="{{blocks}}" as="b" hint-placeholder-count="9">
+        <div class="ellipsis" style="position: absolute; top: 0; height: 44px; box-sizing: border-box; padding: 5px 7px; border-radius: var(--radius-sm); font-size: 11px; color: var(--tx-2); left: {{b.left}}; width: {{b.width}}; background: {{b.bg}}; border-top: 2px {{b.dash}} {{b.color}}; opacity: {{b.op}}; box-shadow: {{b.ring}};">{{b.label}}</div>
+      </sc-for>
+      <div style="position: absolute; top: -2px; height: 48px; width: 2px; background: var(--time-near); left: 26.06%;"></div>
+      <sc-for list="{{hours}}" as="h" hint-placeholder-count="11">
+        <span class="tnum" style="position: absolute; top: 48px; font-size: 10.5px; color: var(--tx-label); left: {{h.left}};">{{h.label}}</span>
+      </sc-for>
+    </div>
+  </div>
+
+  <main class="kb" tabIndex="0" onKeyDown="{{onKey}}" style="flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 14px 22px 12px;">
+    <sc-if value="{{anyOpen}}" hint-placeholder-val="{{false}}">
+      <button type="button" tabIndex="-1" aria-label="Close filter" onClick="{{closeAll}}" style="position: fixed; inset: 0; z-index: 10; background: transparent; cursor: default;"></button>
+    </sc-if>
+
+    <header style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-height: 32px;">
+      <h1 class="page-title" style="margin: 0;">Priorities</h1>
+    </header>
+
+    <section aria-label="Selected todo" style="height: 64px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 7px; padding: 0 14px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; flex: none;">
+      <sc-if value="{{has}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+          <span class="label" style="flex: none; width: 64px;">Selected</span>
+          <img src="{{s.icon}}" alt="{{s.app}}" style="display: block; flex: none; width: 14px; height: 14px; border-radius: var(--radius-sm);">
+          <span class="ellipsis" style="min-width: 0; font-weight: 500; color: var(--tx-title);">{{s.title}}</span>
+          <span class="ellipsis" style="flex: none; max-width: 200px; font-size: 12px; color: var(--tx-label);">{{s.topic}}</span>
+          <span class="tnum" style="flex: none; font-size: 12px; color: {{s.dateColor}};">{{s.date}}</span>
+          <span style="margin-left: auto; display: flex; gap: 6px; flex: none;">
+            <sc-for list="{{s.ranks}}" as="rk" hint-placeholder-count="3">
+              <button type="button" class="{{rk.cls}}" onClick="{{rk.go}}"><span class="tnum">#{{rk.n}}</span> {{rk.name}}</button>
+            </sc-for>
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding-left: 74px; min-width: 0; overflow: hidden; white-space: nowrap;">
+          <sc-for list="{{s.groups}}" as="g" hint-placeholder-count="3">
+            <span style="display: inline-flex; align-items: center; gap: 5px; flex: none;">
+              <span style="font-size: 11.5px; color: var(--tx-label);">{{g.name}}</span>
+              <span class="tnum" style="font-size: 12px; color: var(--tx-2); margin-right: 2px;">{{g.val}}</span>
+              <sc-for list="{{g.pills}}" as="p" hint-placeholder-count="2">
+                <span class="pill {{p.w}}">{{p.label}}</span>
+              </sc-for>
+            </span>
+            <sc-if value="{{g.sep}}" hint-placeholder-val="{{true}}">
+              <span style="width: 1px; height: 12px; flex: none; background: var(--border-strong);"></span>
+            </sc-if>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{none}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="label" style="flex: none; width: 64px;">Selected</span>
+          <span style="font-size: 12px; color: var(--tx-label);">No todos match these filters.</span>
+        </div>
+      </sc-if>
+    </section>
+
+    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 26px;">
+      <label class="input sm" style="display: flex; align-items: center; gap: 6px; width: 200px;">
+        <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="flex: none; fill: none; stroke: var(--tx-label); stroke-width: 1.5;"><circle cx="7" cy="7" r="4.75"></circle><path d="M10.5 10.5 L14 14"></path></svg>
+        <input id="pfilter" type="text" value="{{text}}" onChange="{{onText}}" placeholder="Filter todos" aria-label="Filter todos by text" style="flex: 1; min-width: 0; border: 0; background: transparent; outline: none; padding: 0; font: inherit; font-size: 12px; color: var(--tx-body);">
+        <span class="kbd">/</span>
+      </label>
+      <sc-for list="{{dims}}" as="d" hint-placeholder-count="6">
+        <div style="position: relative;">
+          <button type="button" class="{{d.cls}}" onClick="{{d.toggle}}" aria-expanded="{{d.expanded}}">
+            <span>{{d.label}}</span>
+            <span class="count on tnum" style="min-width: 18px; text-align: center; box-sizing: border-box; padding: 0 5px; visibility: {{d.nVis}};">{{d.n}}</span>
+            <svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="flex: none; fill: none; stroke: var(--yellow); stroke-width: 2;"><path d="M4 6 L8 10 L12 6"></path></svg>
+          </button>
+          <sc-if value="{{d.open}}" hint-placeholder-val="{{false}}">
+            <div class="popover flush" style="position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; width: 252px; max-height: 380px; overflow-y: auto;">
+              <sc-if value="{{d.search}}" hint-placeholder-val="{{false}}">
+                <div style="padding: 6px 8px 4px;">
+                  <label class="input sm" style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="flex: none; fill: none; stroke: var(--tx-label); stroke-width: 1.5;"><circle cx="7" cy="7" r="4.75"></circle><path d="M10.5 10.5 L14 14"></path></svg>
+                    <input type="text" value="{{topicQ}}" onChange="{{onTopicQ}}" placeholder="Find a topic" aria-label="Find a topic" style="flex: 1; min-width: 0; border: 0; background: transparent; outline: none; padding: 0; font: inherit; font-size: 12px; color: var(--tx-body);">
+                  </label>
+                </div>
+              </sc-if>
+              <sc-for list="{{d.opts}}" as="o" hint-placeholder-count="4">
+                <sc-if value="{{o.head}}" hint-placeholder-val="{{false}}">
+                  <div class="label" style="padding: 8px 12px 2px;">{{o.label}}</div>
+                </sc-if>
+                <sc-if value="{{o.item}}" hint-placeholder-val="{{true}}">
+                  <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" style="display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px; padding: 2px 12px; box-sizing: border-box; text-align: left; font-size: 12px;">
+                    <span style="width: 12px; flex: none; display: inline-flex;">
+                      <sc-if value="{{o.checked}}" hint-placeholder-val="{{false}}">
+                        <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: var(--aqua); stroke-width: 2;"><path d="M3 8.5 L6.5 12 L13 4.5"></path></svg>
+                      </sc-if>
+                    </span>
+                    <span style="display: {{o.sqd}}; width: 8px; height: 8px; flex: none; border-radius: var(--radius-sm); background: {{o.sq}};"></span>
+                    <span class="ellipsis" style="flex: 1; min-width: 0; color: var(--tx-body);">{{o.label}}</span>
+                    <span class="tnum" style="flex: none; font-size: 11px; color: var(--tx-label);">{{o.n}}</span>
+                  </button>
+                </sc-if>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <span class="tnum" style="min-width: 56px; margin-left: 8px; font-size: 12px; color: var(--tx-label);">{{shownText}}</span>
+      <button type="button" class="btn" onClick="{{clearAll}}" style="visibility: {{clearVis}};">Clear</button>
+    </div>
+    <div class="cols" style="display: flex; align-items: flex-start;">
+      <sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+        <section class="panel" style="flex: 1 1 0; min-width: 280px;">
+          <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; box-sizing: border-box; background: var(--bg-head);">
+            <span class="panel-head" style="color: {{col.headColor}};">{{col.name}}</span>
+            <span class="{{col.countCls}}">{{col.n}}</span>
+            <span class="ellipsis" style="margin-left: auto; font-size: 11.5px; color: var(--tx-label);">{{col.sort}}</span>
+          </div>
+          <div style="position: relative;">
+            <div id="{{col.domId}}" class="scroll" onScroll="{{col.onScroll}}" onMouseLeave="{{unhover}}" style="height: 625px; overflow-y: auto;">
+              <sc-for list="{{col.rows}}" as="r" hint-placeholder-count="26">
+                <button type="button" class="prow" onClick="{{r.pick}}" onMouseEnter="{{r.enter}}" style="display: grid; grid-template-columns: 22px 3px 14px minmax(0, 1fr) 66px 34px; gap: 8px; align-items: center; width: 100%; height: 25px; box-sizing: border-box; padding: 0 10px 0 4px; text-align: left; line-height: 24px; border-bottom: 1px {{r.bstyle}} {{r.bcolor}}; background: {{r.bg}}; opacity: {{r.op}};">
+                  <span class="tnum" style="text-align: right; font-size: 11px; color: {{r.rankColor}};">{{r.rank}}</span>
+                  <span style="width: 3px; height: 14px; border-radius: 2px; background: {{r.cat}};"></span>
+                  <img src="{{r.icon}}" alt="{{r.app}}" style="display: block; width: 14px; height: 14px; border-radius: var(--radius-sm);">
+                  <span style="display: flex; gap: 8px; align-items: baseline; min-width: 0;">
+                    <span class="ellipsis" style="flex: 0 1 auto; min-width: 0; color: {{r.titleColor}};">{{r.title}}</span>
+                    <span class="ellipsis" style="flex: 0 1000 auto; min-width: 0; font-size: 12px; color: var(--tx-label);">{{r.topic}}</span>
+                  </span>
+                  <span class="ellipsis tnum" style="text-align: right; font-size: 11.5px; color: {{r.dateColor}};">{{r.date}}</span>
+                  <span class="tnum" style="text-align: right; font-size: 12px; color: var(--tx-muted-2);">{{r.metric}}</span>
+                </button>
+              </sc-for>
+              <sc-if value="{{col.empty}}" hint-placeholder-val="{{false}}">
+                <div class="empty-row" style="padding-top: 6px;">Nothing matches.</div>
+              </sc-if>
+            </div>
+            <sc-if value="{{col.above}}" hint-placeholder-val="{{false}}">
+              <button type="button" class="count on tnum" onClick="{{col.reveal}}" style="position: absolute; top: 5px; right: 14px; background: var(--bg-head); box-shadow: 0 0 0 1px var(--aqua-line), var(--popover);">↑ #{{col.selRank}} selected</button>
+            </sc-if>
+            <sc-if value="{{col.below}}" hint-placeholder-val="{{false}}">
+              <button type="button" class="count on tnum" onClick="{{col.reveal}}" style="position: absolute; bottom: 5px; right: 14px; background: var(--bg-head); box-shadow: 0 0 0 1px var(--aqua-line), var(--popover);">↓ #{{col.selRank}} selected</button>
+            </sc-if>
+          </div>
+        </section>
+        <sc-if value="{{col.hasGutter}}" hint-placeholder-val="{{true}}">
+          <svg class="gutter" width="56" height="657" viewBox="0 0 56 657" aria-hidden="true" style="flex: none; display: block;">
+            <path d="{{col.g.all}}" style="fill: none; stroke: var(--border-strong); stroke-width: 0.75;"></path>
+            <path d="{{col.g.hover}}" style="fill: none; stroke: var(--tx-muted-2); stroke-width: 1; stroke-dasharray: 3 3;"></path>
+            <path d="{{col.g.sel}}" style="fill: none; stroke: var(--aqua); stroke-width: 1.5;"></path>
+            <circle cx="2.5" cy="{{col.g.y1}}" r="2.5" style="fill: {{col.g.f1}}; stroke: var(--aqua); stroke-width: 1;"></circle>
+            <circle cx="53.5" cy="{{col.g.y2}}" r="2.5" style="fill: {{col.g.f2}}; stroke: var(--aqua); stroke-width: 1;"></circle>
+          </svg>
+        </sc-if>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--tx-label);">
+      <span><span class="kbd">j</span> <span class="kbd">k</span> move</span>
+      <span><span class="kbd">[</span> <span class="kbd">]</span> same todo, other column</span>
+      <span><span class="kbd">↵</span> open topic</span>
+      <span><span class="kbd">o</span> open in its app</span>
+      <span><span class="kbd">x</span> done</span>
+      <span><span class="kbd">/</span> filter</span>
+      <span><span class="kbd">Esc</span> close</span>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"quickMax":{"editor":"enum","options":["15 min","30 min","60 min"],"default":"30 min","section":"Cut-offs"},"allSplines":{"editor":"boolean","default":false,"section":"Splines"},"$preview":{"width":1530,"height":1022}}'>
+class Component extends DCLogic {
+  state = { sel: null, focus: 0, hover: null, scroll: [0, 0, 0], open: null, f: { topic: [], score: [], date: [], est: [], src: [], factor: [] }, text: '', topicQ: '' };
+
+  componentDidUpdate() {
+    const p = this.pendingScroll;
+    if (!p) return;
+    this.pendingScroll = null;
+    const el = document.getElementById('pcol-' + p.c);
+    const m = this._idx && this._idx[p.c];
+    if (!el || !m || m[p.id] === undefined) return;
+    const top = m[p.id] * 25, view = el.clientHeight;
+    const out = top < el.scrollTop || top + 25 > el.scrollTop + view;
+    if (p.center) {
+      if (out) el.scrollTop = Math.max(0, top - (view - 25) / 2);
+    } else if (top < el.scrollTop) {
+      el.scrollTop = top;
+    } else if (top + 25 > el.scrollTop + view) {
+      el.scrollTop = top + 25 - view;
+    }
+  }
+
+  onKey(e) {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    if (e.key === 'Escape') {
+      if (this.state.open) { this.setState({ open: null }); e.preventDefault(); }
+      else if (typing) t.blur();
+      return;
+    }
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'j' || e.key === 'ArrowDown') { this.step(1); e.preventDefault(); }
+    else if (e.key === 'k' || e.key === 'ArrowUp') { this.step(-1); e.preventDefault(); }
+    // [ ] in the app. The canvas editor may keep [ ] for itself, so h/l and the arrows work here too.
+    else if (e.key === ']' || e.code === 'BracketRight' || e.key === 'l' || e.key === 'ArrowRight') { this.toCol(this.state.focus + 1); e.preventDefault(); }
+    else if (e.key === '[' || e.code === 'BracketLeft' || e.key === 'h' || e.key === 'ArrowLeft') { this.toCol(this.state.focus - 1); e.preventDefault(); }
+    else if (e.key === '/') { const el = document.getElementById('pfilter'); if (el) el.focus(); e.preventDefault(); }
+  }
+
+  step(d) {
+    const o = this._orders && this._orders[this.state.focus];
+    if (!o || !o.length) return;
+    let i = o.findIndex((t) => t.id === this._sel);
+    i = i < 0 ? 0 : Math.max(0, Math.min(o.length - 1, i + d));
+    this.pendingScroll = { c: this.state.focus, id: o[i].id };
+    this.setState({ sel: o[i].id });
+  }
+
+  toCol(c) {
+    if (c < 0 || c > 2 || this._sel == null) return;
+    this.pendingScroll = { c, id: this._sel, center: true };
+    this.setState({ focus: c });
+  }
+
+  fmtEst(m) {
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60), r = m % 60;
+    return r ? h + 'h' + r : h + 'h';
+  }
+
+  dateText(t) {
+    if (t.dk === 'due') return 'due ' + t.dd;
+    if (t.dk === 'sched') return 'sched ' + t.dd;
+    return '';
+  }
+
+  dateColor(t) {
+    if (t.tone === 'od') return 'var(--red)';
+    if (t.dk === 'due') return t.tone === 'soon' ? 'var(--tx-2)' : 'var(--tx-muted-2)';
+    return 'var(--tx-label)';
+  }
+
+  renderVals() {
+    const ICON = { jira: 'icons/jira.png', obsidian: 'icons/obsidian.png', local: 'icons/notes.png' };
+    const APP = { jira: 'Jira', obsidian: 'Obsidian', local: 'Alethiometer' };
+    const CAT = { work: 'var(--yellow)', jobs: 'var(--green)', alert: 'var(--red)' };
+    const R = 'red', Y = 'yellow', G = 'green', V = 'v', P = 'p', E = 'e';
+    // Estimates you set yourself; the rest are the small model's guess.
+    const MINE = [1, 6, 7, 9, 17, 32];
+    // Days since created, and days since the last signal on it (no thread: since created).
+    const AGE = { 1: [2, 0], 2: [1, 0], 3: [5, 1], 4: [3, 2], 5: [6, 4], 6: [21, 9], 7: [64, 64], 8: [9, 0], 9: [18, 11], 10: [8, 1], 11: [12, 12], 12: [15, 15], 13: [4, 4], 14: [10, 6], 15: [3, 0], 16: [47, 30], 17: [35, 22], 18: [6, 1], 19: [40, 40], 20: [88, 53], 21: [1, 1], 22: [14, 14], 23: [7, 7], 24: [52, 41], 25: [3, 3], 26: [71, 71], 27: [120, 34], 28: [2, 0], 29: [30, 30], 30: [4, 1], 31: [26, 19], 32: [58, 58], 33: [11, 11], 34: [9, 9] };
+    // f: b blocks others · w waiting on you · h active thread · a someone asked
+    const TODOS = [
+      { id: 1, src: 'local', title: 'Send Platform vs Data split to Priya', topic: 'Q4 headcount', cat: 'work', est: 30, v: 9.2, p: 9.0, dk: 'due', dd: 'today', tone: 'soon', f: 'ah', tags: ['flagged'], why: [['meeting in 8m', R, P], ['your decision', R, V], ['flagged', Y, V]] },
+      { id: 2, src: 'local', title: 'Reply to Dana with the outage timeline', topic: 'Acme outage', cat: 'work', est: 20, v: 8.1, p: 8.6, dk: 'due', dd: 'today', tone: 'soon', f: 'awh', tags: ['customer'], why: [['customer asking', R, V], ['Sev 2', Y, V], ['due today', Y, P], ['waiting 3h', Y, P]] },
+      { id: 3, src: 'local', title: 'Approve Sr. EM offer', topic: 'Sr. EM offer', cat: 'work', est: 10, v: 7.8, p: 8.2, dk: 'due', dd: 'Wed', tone: 'soon', f: 'a', tags: ['hiring'], why: [['hiring', G, V], ['expires Wed', Y, P]] },
+      { id: 4, src: 'jira', title: 'PLAT-1201 review webhook retry PR', topic: 'Webhook reliability', cat: 'work', est: 15, v: 5.2, p: 6.4, dk: 'sched', dd: 'today', tone: '', f: 'aw', tags: [], why: [['others can review', G, E], ['waiting 2d', Y, P]] },
+      { id: 5, src: 'jira', title: 'PROC-412 sign off the Datadog PO', topic: 'Datadog renewal', cat: 'work', est: 5, v: 5.9, p: 7.1, dk: 'due', dd: 'Thu', tone: '', f: 'ba', tags: ['money'], why: [['blocking Finance', Y, V], ['due Thu', G, P], ['one click', G, E]] },
+      { id: 6, src: 'obsidian', title: 'Q4 strategy doc, first draft', topic: 'Q4 planning', cat: 'work', est: 240, v: 9.0, p: 3.2, dk: 'sched', dd: 'Fri', tone: '', f: 'h', tags: ['flagged'], why: [['flagged', R, V], ['6 people', Y, V], ['sched Fri', G, P]] },
+      { id: 7, src: 'obsidian', title: 'Director narrative, one page', topic: 'Career', cat: 'jobs', est: 120, v: 8.3, p: 1.2, dk: '', dd: '', tone: '', f: '', tags: ['career'], why: [['career', Y, V]] },
+      { id: 8, src: 'local', title: 'Hand off disk-pressure tuning to Jordan', topic: 'Alerting · P2', cat: 'alert', est: 10, v: 5.8, p: 5.3, dk: '', dd: '', tone: '', f: 'h', tags: [], why: [['fires every 20m', Y, P], ['hand off', G, E]] },
+      { id: 9, src: 'jira', title: 'PLAT-1173 retry budget ADR', topic: 'Webhook reliability', cat: 'work', est: 90, v: 8.2, p: 2.4, dk: 'sched', dd: 'Mon', tone: '', f: 'b', tags: [], why: [['blocks 3 issues', R, V], ['sched Mon', G, P], ['needs a review meeting', Y, E]] },
+      { id: 10, src: 'local', title: 'Datadog counter-offer numbers', topic: 'Datadog renewal', cat: 'work', est: 45, v: 7.4, p: 6.6, dk: 'due', dd: 'Wed', tone: 'soon', f: 'h', tags: ['money'], why: [['$ at stake', R, V], ['due Wed', Y, P]] },
+      { id: 11, src: 'local', title: 'Book the Q4 offsite room', topic: 'Q4 planning', cat: 'work', est: 10, v: 2.6, p: 4.1, dk: 'due', dd: 'Fri', tone: '', f: '', tags: [], why: [['due Fri', G, P]] },
+      { id: 12, src: 'jira', title: 'PLAT-1219 rotate staging webhook secret', topic: 'Webhook reliability', cat: 'work', est: 15, v: 3.9, p: 3.4, dk: 'sched', dd: 'Thu', tone: '', f: '', tags: ['security'], why: [['security', Y, V], ['sched Thu', G, P]] },
+      { id: 13, src: 'local', title: 'Thank Lee for on-call cover', topic: 'Acme outage', cat: 'work', est: 5, v: 3.1, p: 2.0, dk: '', dd: '', tone: '', f: '', tags: ['people'], why: [['people', G, V]] },
+      { id: 14, src: 'obsidian', title: 'Interview rubric for the EM loop', topic: 'Sr. EM offer', cat: 'work', est: 60, v: 7.1, p: 3.0, dk: 'sched', dd: 'Wed', tone: '', f: '', tags: ['hiring'], why: [['hiring', G, V], ['4 people', G, V], ['sched Wed', G, P]] },
+      { id: 15, src: 'local', title: 'Ask Kim for the Acme RCA draft', topic: 'Acme outage', cat: 'work', est: 5, v: 6.0, p: 6.2, dk: 'due', dd: 'Thu', tone: '', f: 'h', tags: ['customer'], why: [['customer', G, V], ['RCA due Fri', Y, P]] },
+      { id: 16, src: 'jira', title: 'DEVOPS-88 retire the v1 ingest cron', topic: 'v1 ingest deprecation', cat: 'work', est: 30, v: 6.2, p: 2.1, dk: '', dd: '', tone: '', f: 'b', tags: [], why: [['blocks deprecation', Y, V], ['4 teams', G, V]] },
+      { id: 17, src: 'obsidian', title: 'Alert-noise baseline write-up', topic: 'Alerting · P2', cat: 'alert', est: 120, v: 8.0, p: 1.5, dk: '', dd: '', tone: '', f: 'h', tags: [], why: [['9 people', Y, V], ['5 sources', Y, V]] },
+      { id: 18, src: 'local', title: 'Reply to the CFP co-author', topic: 'Conference CFP', cat: 'jobs', est: 10, v: 3.0, p: 2.6, dk: 'sched', dd: 'Thu', tone: '', f: 'aw', tags: ['career'], why: [['career', G, V], ['waiting 1d', G, P]] },
+      { id: 19, src: 'obsidian', title: 'Talk abstract outline', topic: 'Conference CFP', cat: 'jobs', est: 60, v: 4.2, p: 1.8, dk: 'due', dd: 'Nov 15', tone: '', f: '', tags: ['career'], why: [['career', G, V], ['7 weeks out', G, P]] },
+      { id: 20, src: 'jira', title: 'PLAT-1240 retry queue depth dashboard', topic: 'Webhook reliability', cat: 'work', est: 180, v: 6.1, p: 1.2, dk: '', dd: '', tone: '', f: '', tags: [], why: [['3 people', G, V]] },
+      { id: 21, src: 'local', title: 'Tell the team the headcount outcome', topic: 'Q4 headcount', cat: 'work', est: 15, v: 6.0, p: 4.8, dk: 'sched', dd: 'Thu', tone: '', f: '', tags: ['people'], why: [['people', G, V], ['after the 11:00', Y, P]] },
+      { id: 22, src: 'local', title: 'Expense the Datadog workshop', topic: 'Datadog renewal', cat: 'work', est: 10, v: 1.2, p: 3.6, dk: 'due', dd: 'Oct 5', tone: 'od', f: '', tags: ['money'], why: [['overdue 1d', Y, P]] },
+      { id: 23, src: 'obsidian', title: 'Skip-level notes for Priya', topic: 'Staff loop', cat: 'work', est: 20, v: 5.1, p: 4.2, dk: 'sched', dd: 'Wed', tone: '', f: '', tags: ['people'], why: [['people', G, V], ['1:1 Wed', Y, P]] },
+      { id: 24, src: 'jira', title: 'DEVOPS-91 ingest cutover runbook', topic: 'v1 ingest deprecation', cat: 'work', est: 120, v: 7.2, p: 2.2, dk: '', dd: '', tone: '', f: 'b', tags: [], why: [['blocks DEVOPS-88', Y, V]] },
+      { id: 25, src: 'local', title: 'Approve PTO requests', topic: 'Staff loop', cat: 'work', est: 5, v: 2.9, p: 5.0, dk: 'due', dd: 'Wed', tone: 'soon', f: 'aw', tags: ['people'], why: [['people', G, V], ['due Wed', Y, P]] },
+      { id: 26, src: 'obsidian', title: 'Mentoring plan for Sam', topic: 'Team growth', cat: 'work', est: 45, v: 7.9, p: 0.6, dk: '', dd: '', tone: '', f: '', tags: ['people'], why: [['people', Y, V], ['quiet 3w', G, P]] },
+      { id: 27, src: 'jira', title: 'PLAT-1251 fix the flaky webhook test', topic: 'Webhook reliability', cat: 'work', est: 30, v: 3.2, p: 2.3, dk: '', dd: '', tone: '', f: '', tags: [], why: [['fails 1 in 8', G, V]] },
+      { id: 28, src: 'local', title: 'Board-prep numbers to Finance', topic: 'Board prep', cat: 'work', est: 20, v: 7.0, p: 7.2, dk: 'due', dd: 'Thu', tone: '', f: 'ah', tags: ['money'], why: [['Finance asked', Y, V], ['board Fri', R, P]] },
+      { id: 29, src: 'obsidian', title: 'Reading group, SRE ch. 6', topic: 'Team growth', cat: 'work', est: 45, v: 1.8, p: 1.4, dk: 'sched', dd: 'Fri', tone: '', f: '', tags: [], why: [['sched Fri', G, P]] },
+      { id: 30, src: 'local', title: 'Reply to the recruiter about the panel', topic: 'Sr. EM offer', cat: 'work', est: 5, v: 4.0, p: 4.4, dk: '', dd: '', tone: '', f: 'aw', tags: ['hiring'], why: [['hiring', G, V], ['waiting 1d', Y, P]] },
+      { id: 31, src: 'jira', title: 'PLAT-1199 decide retry backoff caps', topic: 'Webhook reliability', cat: 'work', est: 20, v: 7.3, p: 4.0, dk: '', dd: '', tone: '', f: 'b', tags: [], why: [['blocks 2 issues', R, V]] },
+      { id: 32, src: 'obsidian', title: 'Delegation map for Q1', topic: 'Q4 planning', cat: 'work', est: 90, v: 9.1, p: 1.0, dk: '', dd: '', tone: '', f: '', tags: ['flagged', 'people'], why: [['flagged', R, V], ['8 people', Y, V]] },
+      { id: 33, src: 'local', title: 'Check alert routing after the Opsgenie change', topic: 'Alerting · P2', cat: 'alert', est: 15, v: 5.0, p: 3.9, dk: '', dd: '', tone: '', f: '', tags: ['security'], why: [['security', G, V], ['3 sources', G, V]] },
+      { id: 34, src: 'local', title: 'Order team dinner for the offsite', topic: 'Q4 planning', cat: 'work', est: 10, v: 2.0, p: 2.2, dk: 'sched', dd: 'Fri', tone: '', f: '', tags: [], why: [['sched Fri', G, P]] }
+    ];
+
+    const quickMax = parseInt(this.props.quickMax ?? '30 min', 10) || 30;
+    const allSplines = this.props.allSplines ?? false;
+    const VIEW = 625, ROW = 25, HEAD = 31, GW = 56;
+
+    // The score is every factor times its coefficient. Here: value and pressure, plus a small pull from effort (5 min = 10, 4 h ≈ 0).
+    const effortPts = (m) => Math.max(0, Math.min(10, 10 - 2 * Math.log2(m / 5)));
+    const all = TODOS.map((t) => ({ ...t, age: AGE[t.id][0], quiet: AGE[t.id][1], s: Math.round((0.5 * t.v + 0.4 * t.p + 0.1 * effortPts(t.est)) * 10) / 10 }));
+    // Neglect: placeholder weights, quiet time counting more than age.
+    const neglect = (t) => 0.4 * t.age + 0.6 * t.quiet;
+
+    // ---- Filters: any option within a dimension, every dimension at once ----
+    const F = this.state.f;
+    const q = (this.state.text || '').trim().toLowerCase();
+    const band = (s) => (s >= 7 ? 'hi' : s >= 4 ? 'mid' : 'lo');
+    const WHEN = { today: 'today', Wed: 'week', Thu: 'week', Fri: 'week', Mon: 'later', 'Nov 15': 'later', 'Oct 5': 'od' };
+    const dateB = (t) => (t.dk ? WHEN[t.dd] || 'later' : 'none');
+    const estB = (m) => (m <= 15 ? 's' : m <= 60 ? 'm' : 'l');
+    const hasF = (t, k) => (k === 'due' ? t.dk === 'due' : k === 'sched' ? t.dk === 'sched' : k.indexOf('tag:') === 0 ? t.tags.indexOf(k.slice(4)) >= 0 : t.f.indexOf(k) >= 0);
+    const KEY = { topic: (t) => t.topic, score: (t) => band(t.s), date: dateB, est: (t) => estB(t.est), src: (t) => t.src };
+    const matches = (t, dim, keys) => (dim === 'factor' ? keys.some((k) => hasF(t, k)) : keys.indexOf(KEY[dim](t)) >= 0);
+    const ok = (t) => Object.keys(F).every((dim) => !F[dim].length || matches(t, dim, F[dim])) && (!q || (t.title + ' ' + t.topic).toLowerCase().indexOf(q) >= 0);
+    const items = all.filter(ok);
+
+    const topicList = [];
+    all.forEach((t) => { const x = topicList.find((y) => y.name === t.topic); if (x) x.n++; else topicList.push({ name: t.topic, cat: t.cat, n: 1 }); });
+    topicList.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+    const DIMS = [
+      { key: 'topic', name: 'Topic', opts: topicList.map((tp) => ({ k: tp.name, label: tp.name, sq: CAT[tp.cat] })) },
+      { key: 'score', name: 'Score', opts: [{ k: 'hi', label: '7 and up' }, { k: 'mid', label: '4 to 7' }, { k: 'lo', label: 'Under 4' }] },
+      { key: 'date', name: 'Date', opts: [{ k: 'od', label: 'Overdue' }, { k: 'today', label: 'Today' }, { k: 'week', label: 'Rest of this week' }, { k: 'later', label: 'Later' }, { k: 'none', label: 'No date' }] },
+      { key: 'est', name: 'Effort', opts: [{ k: 's', label: '15 min or less' }, { k: 'm', label: '16 min to 1 h' }, { k: 'l', label: 'Over 1 h' }] },
+      { key: 'src', name: 'Source', opts: [{ k: 'local', label: 'Local' }, { k: 'jira', label: 'Jira' }, { k: 'obsidian', label: 'Obsidian' }] },
+      { key: 'factor', name: 'Factor', opts: [
+        { head: 'Factors' },
+        { k: 'due', label: 'Hard due date' }, { k: 'sched', label: 'Soft date' }, { k: 'b', label: 'Blocks others' },
+        { k: 'w', label: 'Waiting on you' }, { k: 'h', label: 'Active thread' }, { k: 'a', label: 'Someone asked' },
+        { head: 'Tags' },
+        { k: 'tag:flagged', label: 'flagged' }, { k: 'tag:customer', label: 'customer' }, { k: 'tag:hiring', label: 'hiring' },
+        { k: 'tag:money', label: 'money' }, { k: 'tag:security', label: 'security' }, { k: 'tag:people', label: 'people' }, { k: 'tag:career', label: 'career' }
+      ] }
+    ];
+    const toggleOpt = (dim, k) => {
+      const cur = this.state.f[dim];
+      const next = cur.indexOf(k) >= 0 ? cur.filter((x) => x !== k) : cur.concat([k]);
+      this.setState({ f: { ...this.state.f, [dim]: next } });
+    };
+    const open = this.state.open;
+    const tq = (this.state.topicQ || '').trim().toLowerCase();
+    const dims = DIMS.map((d) => {
+      const picked = F[d.key];
+      const first = d.opts.find((o) => o.k === picked[0]);
+      const opts = d.opts
+        .filter((o) => !(d.key === 'topic' && tq && o.label.toLowerCase().indexOf(tq) < 0))
+        .map((o) => (o.head
+          ? { head: true, item: false, label: o.head }
+          : {
+              head: false, item: true, label: o.label,
+              n: all.filter((t) => matches(t, d.key, [o.k])).length,
+              checked: picked.indexOf(o.k) >= 0,
+              pressed: picked.indexOf(o.k) >= 0 ? 'true' : 'false',
+              sq: o.sq || 'transparent', sqd: o.sq ? 'inline-block' : 'none',
+              pick: () => toggleOpt(d.key, o.k)
+            }));
+      return {
+        label: d.name,
+        n: picked.length || 1,
+        nVis: picked.length ? 'visible' : 'hidden',
+        cls: picked.length ? 'chip on' : 'chip',
+        open: open === d.key,
+        expanded: open === d.key ? 'true' : 'false',
+        search: d.key === 'topic',
+        opts,
+        toggle: () => this.setState({ open: this.state.open === d.key ? null : d.key, topicQ: '' })
+      };
+    });
+    const anyFilter = Object.keys(F).some((k) => F[k].length > 0) || !!q;
+
+    // ---- Three orders of the same (filtered) list ----
+    const pri = [...items].sort((a, b) => b.s - a.s || a.est - b.est);
+    const priRank = {};
+    pri.forEach((t, i) => { priRank[t.id] = i; });
+    // Quick wins ignore deadlines: value per hour under the cut-off.
+    const vph = (t) => t.v / (t.est / 60);
+    const quickIn = items.filter((t) => t.est <= quickMax).sort((a, b) => vph(b) - vph(a) || a.est - b.est);
+    const quickOut = items.filter((t) => t.est > quickMax).sort((a, b) => a.est - b.est || b.s - a.s);
+    const quick = quickIn.concat(quickOut);
+    const neg = [...items].sort((a, b) => neglect(b) - neglect(a) || b.age - a.age);
+    const orders = [pri, quick, neg];
+    const idx = orders.map((o) => { const m = {}; o.forEach((t, i) => { m[t.id] = i; }); return m; });
+    const fadeOf = [() => false, (t) => t.est > quickMax, () => false];
+
+    const focus = this.state.focus ?? 0;
+    let sel = this.state.sel;
+    if (!items.some((t) => t.id === sel)) sel = orders[focus][0] ? orders[focus][0].id : null;
+    const hover = this.state.hover;
+    const selT = sel == null ? null : items.find((t) => t.id === sel);
+    this._orders = orders;
+    this._idx = idx;
+    this._sel = sel;
+
+    const sc = this.state.scroll;
+    const yOf = (c, id) => {
+      const i = idx[c][id];
+      if (i === undefined) return null;
+      const y = HEAD + i * ROW + 12 - (sc[c] || 0);
+      return Math.max(HEAD + 3, Math.min(HEAD + VIEW - 3, y));
+    };
+    const where = (c, id) => {
+      const i = idx[c][id];
+      const top = i * ROW - (sc[c] || 0);
+      return top < -12 ? 'above' : top + 13 > VIEW ? 'below' : 'in';
+    };
+    const curve = (y1, y2) => 'M0 ' + y1 + ' C' + GW / 2 + ' ' + y1 + ' ' + GW / 2 + ' ' + y2 + ' ' + GW + ' ' + y2;
+
+    const metric = [(t) => t.s.toFixed(1), (t) => this.fmtEst(t.est), (t) => t.age + 'd'];
+    const quietText = (t) => (t.quiet === 0 ? 'today' : 'quiet ' + t.quiet + 'd');
+    const names = ['Priority', 'Quick wins', 'Neglect'];
+    const sorts = [
+      'score: every factor',
+      'up to ' + quickMax + ' min by value per hour, then by length',
+      'age and quiet time'
+    ];
+
+    const cols = orders.map((o, c) => {
+      const fade = fadeOf[c];
+      const rows = o.map((t, i) => {
+        const isSel = t.id === sel;
+        const isCur = isSel && c === focus;
+        const isHov = t.id === hover && !isSel;
+        const next = o[i + 1];
+        const boundary = c === 1 && next && !fade(t) && fade(next);
+        return {
+          rank: i + 1,
+          title: t.title,
+          topic: t.topic,
+          cat: CAT[t.cat],
+          icon: ICON[t.src],
+          app: APP[t.src],
+          date: c === 2 ? quietText(t) : this.dateText(t),
+          dateColor: c === 2 ? 'var(--tx-label)' : this.dateColor(t),
+          metric: metric[c](t),
+          bg: isCur ? 'var(--aqua-tint)' : isSel ? 'var(--bg-head)' : isHov ? 'var(--hover-tint)' : 'transparent',
+          op: fade(t) && !isCur ? '0.42' : '1',
+          rankColor: isSel ? 'var(--aqua)' : 'var(--tx-label)',
+          titleColor: isCur ? 'var(--tx-title)' : 'var(--tx-body)',
+          bstyle: boundary ? 'dashed' : 'solid',
+          bcolor: boundary ? 'var(--tx-label)' : 'var(--border)',
+          pick: () => this.setState({ sel: t.id, focus: c }),
+          enter: () => { if (this.state.hover !== t.id) this.setState({ hover: t.id }); }
+        };
+      });
+      const w = sel == null ? 'none' : where(c, sel);
+      let g = { all: '', hover: '', sel: '', y1: -10, y2: -10, f1: 'none', f2: 'none' };
+      if (c < 2) {
+        g.all = allSplines ? items.map((t) => curve(yOf(c, t.id), yOf(c + 1, t.id))).join(' ') : '';
+        g.hover = hover != null && hover !== sel && idx[c][hover] !== undefined ? curve(yOf(c, hover), yOf(c + 1, hover)) : '';
+        if (sel != null) {
+          g.sel = curve(yOf(c, sel), yOf(c + 1, sel));
+          g.y1 = yOf(c, sel);
+          g.y2 = yOf(c + 1, sel);
+          g.f1 = where(c, sel) === 'in' ? 'var(--aqua)' : 'var(--bg-app)';
+          g.f2 = where(c + 1, sel) === 'in' ? 'var(--aqua)' : 'var(--bg-app)';
+        }
+      }
+      return {
+        name: names[c],
+        n: o.length,
+        countCls: c === focus ? 'count on tnum' : 'count tnum',
+        headColor: c === focus ? 'var(--tx-title)' : 'var(--tx-label)',
+        sort: sorts[c],
+        rows,
+        empty: o.length === 0,
+        domId: 'pcol-' + c,
+        onScroll: (e) => {
+          const v = e.currentTarget.scrollTop;
+          this.setState((st) => { const s = st.scroll.slice(); s[c] = v; return { scroll: s }; });
+        },
+        above: w === 'above',
+        below: w === 'below',
+        selRank: sel == null ? 0 : idx[c][sel] + 1,
+        reveal: () => { this.pendingScroll = { c, id: sel, center: true }; this.setState({ focus: c }); },
+        hasGutter: c < 2,
+        g
+      };
+    });
+
+    const BLOCKS = [
+      [8.5, 9, 'Standup', 'Staff loop', 'work', false],
+      [9.5, 10.5, 'Eng leads', 'Q4 planning', 'work', false],
+      [11, 11.75, 'Q4 headcount', 'Q4 headcount', 'work', false],
+      [12, 13, 'Life', null, 'life', false],
+      [13, 13.5, 'Staff loop', 'Staff loop', 'work', false],
+      [14, 14.5, 'VP sync', null, 'work', false],
+      [15, 15.75, 'Webhook review', 'Webhook reliability', 'work', false],
+      [16.25, 17, 'Acme exec call', 'Acme outage', 'work', true],
+      [17.5, 18.5, 'Life', null, 'life', false]
+    ];
+    const blocks = BLOCKS.map(([s0, e0, label, topic, cat, tentative]) => {
+      const lit = topic !== null && selT && topic === selT.topic;
+      const life = cat === 'life';
+      return {
+        label,
+        left: ((s0 - 8) / 11 * 100).toFixed(2) + '%',
+        width: ((e0 - s0) / 11 * 100 - 0.3).toFixed(2) + '%',
+        bg: life ? 'rgba(131, 165, 152, 0.16)' : 'var(--bg-head)',
+        color: life ? 'var(--blue)' : CAT[cat],
+        dash: tentative ? 'dashed' : 'solid',
+        op: lit ? '1' : '0.5',
+        ring: lit ? '0 0 0 1.5px var(--aqua)' : 'none'
+      };
+    });
+    const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((h) => ({ label: (h < 10 ? '0' : '') + h, left: ((h - 8) / 11 * 100).toFixed(2) + '%' }));
+
+    const pills = (kind) => (selT ? selT.why.filter((w) => w[2] === kind).map((w) => ({ label: w[0], w: w[1] })) : []);
+    const s = selT ? {
+      icon: ICON[selT.src],
+      app: APP[selT.src],
+      title: selT.title,
+      topic: selT.topic,
+      date: this.dateText(selT) || 'no date',
+      dateColor: this.dateText(selT) ? this.dateColor(selT) : 'var(--tx-label)',
+      ranks: names.map((nm, c) => ({
+        n: idx[c][sel] + 1,
+        name: nm,
+        cls: c === focus ? 'btn on' : 'btn',
+        go: () => { this.pendingScroll = { c, id: sel, center: true }; this.setState({ focus: c }); }
+      })),
+      groups: [
+        { name: 'Value', val: selT.v.toFixed(1), pills: pills('v'), sep: true },
+        { name: 'Pressure', val: selT.p.toFixed(1), pills: pills('p'), sep: true },
+        { name: 'Effort', val: this.fmtEst(selT.est), pills: [{ label: MINE.indexOf(selT.id) >= 0 ? 'your estimate' : 'AI guess', w: selT.est <= 15 ? 'green' : selT.est <= 60 ? 'yellow' : 'red' }].concat(pills('e')), sep: false }
+      ]
+    } : { icon: '', app: '', title: '', topic: '', date: '', dateColor: '', ranks: [], groups: [] };
+
+    return {
+      cols,
+      blocks,
+      hours,
+      s,
+      has: !!selT,
+      none: !selT,
+      dims,
+      anyOpen: !!open,
+      anyFilter,
+      clearVis: anyFilter ? 'visible' : 'hidden',
+      text: this.state.text,
+      topicQ: this.state.topicQ,
+      shownText: items.length === all.length ? '' : items.length + ' of ' + all.length,
+      onText: (e) => this.setState({ text: e.currentTarget.value }),
+      onTopicQ: (e) => this.setState({ topicQ: e.currentTarget.value }),
+      clearAll: () => this.setState({ f: { topic: [], score: [], date: [], est: [], src: [], factor: [] }, text: '', open: null }),
+      closeAll: () => this.setState({ open: null }),
+      onKey: (e) => this.onKey(e),
+      unhover: () => { if (this.state.hover != null) this.setState({ hover: null }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@
   // soon), Open, Chronology, People. Right: the topic's Obsidian note. The two
   // columns scroll independently; z folds the left column. e edits the note in
   // place (topics/NotePane), o opens it in Obsidian.
+  import { cyclePriority, PRIORITY_NAME } from '../lib/topicPriority';
   import { call } from '../lib/api';
   import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
@@ -132,6 +133,7 @@
     }
     if (plain(e, 'Escape')) return toIndex(), true;
     if (plain(e, 'c')) return (picking = true), true;
+    if (plain(e, 'p')) return d && cyclePriority(d.topic.id, d.topic.priority), true;
     if (plain(e, 'z')) return fold(), true;
     if (plain(e, '[')) return step(-1), true;
     if (plain(e, ']')) return step(1), true;
@@ -174,6 +176,9 @@
             {/if}
           </div>
           <div class="pills">
+            <button class="mono-tag prio" class:unset={!d.topic.priority} onclick={() => d && cyclePriority(d.topic.id, d.topic.priority)} title="Priority, for the Priorities tab (p)">
+              {d.topic.priority ? `priority ${PRIORITY_NAME[d.topic.priority]}` : 'no priority'}
+            </button>
             {#each d.topic.pills as p}<Pill pill={p} />{/each}
             {#if d.topic.score !== null}<span class="score tnum">{d.topic.score.toFixed(1)}</span>{/if}
           </div>
@@ -526,5 +531,11 @@
     display: flex;
     flex-direction: column;
     padding-bottom: 16px;
+  }
+  .prio {
+    color: var(--tx-2);
+  }
+  .prio.unset {
+    color: var(--tx-label);
   }
 </style>

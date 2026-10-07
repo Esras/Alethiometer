@@ -15,6 +15,8 @@ pub struct NewItem {
     pub url: Option<String>,
     pub occurred_at: Ts,
     pub due_day: Option<Date>,
+    /// A local todo's scheduled day.
+    pub sched_day: Option<Date>,
     pub status: String,
     pub owner: Option<String>,
     /// False: a new signal in Incoming.
@@ -59,6 +61,8 @@ pub trait Items {
     fn mark_unread(&self, id: i64, keys: &[String]) -> Result<()>;
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()>;
     fn set_status(&self, id: i64, status: &str) -> Result<()>;
+    /// A local todo's scheduled day; None clears it.
+    fn set_sched_day(&self, id: i64, day: Option<Date>) -> Result<()>;
     fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()>;
     /// Open tasks of a source whose external id starts with `prefix`: (id, external id).
     fn open_tasks(&self, source_id: i64, prefix: &str) -> Result<Vec<(i64, String)>>;

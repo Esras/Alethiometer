@@ -506,7 +506,8 @@ mod tests {
         let (app, _dir, ai, glean) = setup();
         let dd = topic_id(&app, "Datadog renewal");
         let deps = Deps { http: &ai, creds: &fake_creds, time: SystemTime::now() };
-        let r = ask(&app, &deps, &glean, "What's still open before the terms call?", Some(dd), &[], &[]).unwrap();
+        // Few local items match these words, so local evidence leaves room under the cap for Glean's.
+        let r = ask(&app, &deps, &glean, "What is left before signing?", Some(dd), &[], &[]).unwrap();
         assert_eq!(glean.requests().len(), 2, "one Glean call per query");
         let sent: Value = serde_json::from_str(glean.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(sent["query"], "datadog renewal from:\"Kim Lee\"");

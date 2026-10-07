@@ -1662,7 +1662,7 @@ mod tests {
             .unwrap();
         let sql = crate::store::over(&conn);
         let uow: &dyn UnitOfWork = &sql;
-        let todo = crate::domain::todos::Held { target: "local".into(), text: "Reply to Legal".into(), due: None };
+        let todo = crate::domain::todos::Held { target: "local".into(), text: "Reply to Legal".into(), due: None, sched: None };
         uow.todos().hold(item, &todo).unwrap();
         trash(uow, item).unwrap();
         assert!(uow.todos().held(item).unwrap().is_none(), "a trashed thread's held todo is set aside");
