@@ -74,6 +74,20 @@ impl Items for Sql<'_> {
         Ok(())
     }
 
+    fn unread_keys(&self, id: i64) -> Result<Vec<String>> {
+        let mut st = self.conn().prepare_cached("SELECT ext_key FROM item_messages WHERE item_id = ?1 AND read = 0 AND ext_key IS NOT NULL")?;
+        let keys = st.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(keys)
+    }
+
+    fn mark_unread(&self, id: i64, keys: &[String]) -> Result<()> {
+        self.conn().execute(
+            "UPDATE item_messages SET read = 0 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
+            params![id, serde_json::to_string(keys)?],
+        )?;
+        Ok(())
+    }
+
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()> {
         self.conn().execute(
             "UPDATE items SET seen = ?2 WHERE id IN (SELECT value FROM json_each(?1))",

@@ -206,8 +206,7 @@
   function apply(q: Queue) {
     lastList = structuredClone(q);
     const prevEntries = entries;
-    const prevFlat = flat;
-    let itemIdx = Math.max(0, prevFlat.findIndex((s) => s.item_id === selItem));
+    let prevFlat = flat;
     // Keep the topic order stable while triaging: topics already listed stay put,
     // topics that just got their first new signal go at the end, above Unsorted.
     const known = queue?.topics.map((t) => t.id) ?? [];
@@ -227,11 +226,13 @@
     if (selKey === null || !keys.includes(selKey)) {
       selKey = nextKey(prevEntries.map((e) => e.key), selKey, keys)!;
       selItem = null;
-      itemIdx = 0;
+      prevFlat = [];
     }
     const now = grouped(signalsFor(q, selKey), selKey).flatMap((g) => g.signals);
     if (!now.some((s) => s.item_id === selItem)) {
-      selItem = now[Math.min(itemIdx, now.length - 1)]?.item_id ?? null;
+      const before = prevFlat.map((s) => s.item_id);
+      const left = now.map((s) => s.item_id).filter((id) => before.includes(id));
+      selItem = (prevFlat.length ? nextKey(before, selItem, left) : now[0]?.item_id) ?? now[now.length - 1]?.item_id ?? null;
     }
     // A sync may have changed the messages under an open selection.
     const sig = now.find((s) => s.item_id === selItem);
@@ -481,6 +482,9 @@
     if (untrack(() => [...dismissed].some((d) => d !== id))) untrack(refresh);
   });
 
+  // The unread messages a dismissal marked read, so `u` makes the same ones unread.
+  const unreadBefore = new Map<number, string[]>();
+
   async function dismiss(s: Signal | null, on = true, trash = false) {
     if (!s || dismissed.has(s.item_id) === on || (trash && s.source !== 'gmail')) return;
     selItem = s.item_id;
@@ -497,7 +501,8 @@
     };
     flip(on);
     try {
-      await call(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id, ...(on ? saw(s) : {}) });
+      const r = await call<{ unread?: string[] }>(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id, ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [] }) });
+      if (on) unreadBefore.set(s.item_id, r.unread ?? []);
       err = null;
     } catch (e) {
       flip(!on);

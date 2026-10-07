@@ -53,6 +53,10 @@ pub trait Items {
     fn rev(&self, id: i64) -> Result<Option<i64>>;
     /// Mark these of the item's messages (and replies) read, by key.
     fn mark_read(&self, id: i64, keys: &[String]) -> Result<()>;
+    /// Keys of the item's unread messages (and replies).
+    fn unread_keys(&self, id: i64) -> Result<Vec<String>>;
+    /// Mark these of the item's messages unread again, by key (`u`).
+    fn mark_unread(&self, id: i64, keys: &[String]) -> Result<()>;
     fn set_seen_many(&self, ids: &[i64], seen: bool) -> Result<()>;
     fn set_status(&self, id: i64, status: &str) -> Result<()>;
     fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()>;

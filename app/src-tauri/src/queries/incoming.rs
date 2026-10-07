@@ -203,16 +203,23 @@ pub fn route(name: &str) -> Option<Route> {
             Ok(json!({ "ok": true }))
         }),
         "dismiss" => Route::Write(|uow, _, args| {
-            let changed = dismiss_seen(uow, arg_i64(args, "item_id")?, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed }))
+            let item = arg_i64(args, "item_id")?;
+            let unread = uow.items().unread_keys(item)?;
+            let changed = dismiss_seen(uow, item, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed, "unread": unread }))
         }),
         "undismiss" => Route::Write(|uow, _, args| {
-            dismiss(uow, arg_i64(args, "item_id")?, false)?;
+            let item = arg_i64(args, "item_id")?;
+            dismiss(uow, item, false)?;
+            let unread: Vec<String> = args.get("unread").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+            uow.items().mark_unread(item, &unread)?;
             Ok(json!({ "ok": true }))
         }),
         "trash" => Route::Write(|uow, _, args| {
-            let changed = trash_seen(uow, arg_i64(args, "item_id")?, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed }))
+            let item = arg_i64(args, "item_id")?;
+            let unread = uow.items().unread_keys(item)?;
+            let changed = trash_seen(uow, item, saw_arg(args).as_ref())?;
+            Ok(json!({ "ok": true, "changed": changed, "unread": unread }))
         }),
         "split" => Route::Write(|uow, ctx, args| {
             let child = split_to(uow, ctx.clock.now(), arg_i64(args, "item_id")?, &ids_arg(args), arg_i64(args, "topic_id")?)?;
@@ -1004,6 +1011,9 @@ pub struct Moved {
     pub from_state: Option<String>,
     pub to_state: Option<String>,
     pub seen: bool,
+    /// Its unread messages, so `u` makes the same ones unread again.
+    #[serde(default)]
+    pub unread: Vec<String>,
 }
 
 /// The items moving together: a recurring event's whole series, else the item.
@@ -1053,7 +1063,7 @@ pub fn reclassify(uow: &dyn UnitOfWork, now: Ts, item_id: i64, from: Option<i64>
     let mut moved = vec![];
     for id in series_of(uow, item_id)? {
         let seen = uow.items().get(id)?.ok_or_else(|| msg("no such item"))?.seen;
-        let m = Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen };
+        let m = Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen, unread: uow.items().unread_keys(id)? };
         if let (Some(f), Some(_)) = (from, &m.from_state) {
             uow.links().restore(id, f, Some("wrong"))?;
         }
@@ -1079,7 +1089,7 @@ fn snapshot(uow: &dyn UnitOfWork, item_id: i64, from: Option<i64>, to: i64) -> R
         .into_iter()
         .map(|id| {
             let seen = uow.items().get(id)?.ok_or_else(|| msg("no such item"))?.seen;
-            Ok(Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen })
+            Ok(Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen, unread: uow.items().unread_keys(id)? })
         })
         .collect()
 }
@@ -1102,6 +1112,7 @@ pub fn unreclassify(uow: &dyn UnitOfWork, moved: &[Moved], from: Option<i64>, to
             uow.links().restore(m.item_id, f, m.from_state.as_deref())?;
         }
         uow.items().set_seen(m.item_id, m.seen)?;
+        uow.items().mark_unread(m.item_id, &m.unread)?;
     }
     if let (Some(first), Some(f)) = (moved.first(), from) {
         let from_cat = category_of(uow, f)?;
@@ -1627,6 +1638,23 @@ mod tests {
     }
 
     #[test]
+    fn undoing_a_dismiss_leaves_the_same_messages_unread() {
+        let (conn, now, _d) = setup();
+        let item = slack_run(&conn, &["100.1", "100.2", "100.3"]);
+        conn.execute("UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND ext_key = '100.1'", [item]).unwrap();
+        let sql = crate::store::over(&conn);
+        let uow: &dyn UnitOfWork = &sql;
+        let before = uow.items().unread_keys(item).unwrap();
+        assert_eq!(before.len(), 2);
+        let saw = listed(&conn, &now, item);
+        dismiss_seen(uow, item, Some(&saw)).unwrap();
+        assert!(uow.items().unread_keys(item).unwrap().is_empty());
+        dismiss(uow, item, false).unwrap();
+        uow.items().mark_unread(item, &before).unwrap();
+        assert_eq!(uow.items().unread_keys(item).unwrap(), before);
+    }
+
+    #[test]
     fn trash_sets_a_held_todo_aside_like_dismiss_and_undo_holds_it_again() {
         let (conn, _now, _d) = setup();
         let item: i64 = conn
@@ -1790,7 +1818,7 @@ mod tests {
             .unwrap();
         conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![item, webhook]).unwrap();
         let moved = reclassify(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, Some(acme), webhook).unwrap();
-        assert_eq!(moved, [Moved { item_id: item, from_state: Some("confirmed".into()), to_state: Some("wrong".into()), seen: true }]);
+        assert_eq!(moved, [Moved { item_id: item, from_state: Some("confirmed".into()), to_state: Some("wrong".into()), seen: true, unread: vec![] }]);
         assert_eq!(link_state(&conn, item, acme).unwrap().as_deref(), Some("wrong"), "one topic per signal");
         assert_eq!(link_state(&conn, item, webhook).unwrap().as_deref(), Some("confirmed"), "filed straight away");
         unreclassify(&crate::store::over(&conn), &moved, Some(acme), webhook).unwrap();
