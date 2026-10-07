@@ -115,8 +115,15 @@ pub struct Signal {
     author_handle: Option<String>,
     #[serde(skip)]
     author_name: Option<String>,
-    #[serde(skip)]
+    /// A Slack thread item: a reply goes in its thread by default.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     thread: bool,
+    /// An invite's Accept/Decline line (14a).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rsvp: Option<super::respond::Rsvp>,
+    /// The latest Slack reply sent from this signal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<super::respond::Answer>,
     /// The item's revision as listed. Triage sends it back with `keys`.
     pub rev: i64,
     /// The split family it belongs to (its first part's item).
@@ -301,6 +308,8 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         author_handle: row.author_handle,
         author_name: row.author_name,
         thread: row.thread,
+        rsvp: None,
+        reply: None,
         rev: row.rev,
         root: row.root,
         keys: vec![],
@@ -308,7 +317,7 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
 }
 
 /// "HH:MM" today, otherwise "Thu 14:00" / "Sep 25" (here).
-fn time_label(t: Ts, clock: &Clock) -> String {
+pub(crate) fn time_label(t: Ts, clock: &Clock) -> String {
     let (t, now) = (clock.local(t), clock.local_now());
     if t.date() == now.date() {
         t.strftime("%H:%M").to_string()
@@ -511,6 +520,10 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
     let mut messages = messages_by_item(r, &with_text.iter().map(|s| s.item_id).collect::<Vec<_>>())?;
     messages.extend(by_item(r.incoming().message_heads(&heads.iter().map(|s| s.item_id).collect::<Vec<_>>())?));
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
+    let events: Vec<i64> = sigs.iter().filter(|s| s.kind == "event").map(|s| s.item_id).collect();
+    let mut rsvps = super::respond::rsvps(r, &events, &look.clock)?;
+    let slack: Vec<i64> = sigs.iter().filter(|s| s.source == "slack").map(|s| s.item_id).collect();
+    let mut replies = super::respond::replies(r, &slack, &look.clock)?;
     for s in sigs {
         let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
         s.keys = raw_rows.iter().filter_map(|m| m.ext_key.clone()).collect();
@@ -533,6 +546,8 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
             s.context.clear();
         }
         s.held = held.remove(&s.item_id);
+        s.rsvp = rsvps.remove(&s.item_id);
+        s.reply = replies.remove(&s.item_id);
         s.new_person = new_person(look, s, &author_ids);
         s.author = item_author(look, s);
     }
@@ -1178,14 +1193,18 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         },
         acme,
     );
-    for (t, who, text) in [
+    for (i, (t, who, text)) in [
         ("09:05", "Jordan", "Root cause looks like a retry storm from the v2 delivery workers."),
         ("09:31", "Marco R.", "Backoff patch is up, needs a second reviewer."),
         ("10:02", "Sam", "Acme is asking for an exec on a call today."),
         ("10:40", "Jordan", "Fix ETA 14:00. Backlog is draining."),
-    ] {
-        ctx.slack(inc, ctx.at(0, t), who, text);
+    ]
+    .iter()
+    .enumerate()
+    {
+        ctx.slack_keyed(inc, ctx.at(0, t), who, text, Some(&format!("C2291.{i}")), None);
     }
+    ctx.sample().patch_item(inc, &crate::domain::sample::ItemPatch { raw_json: Some(&json!({ "channel": "C2291" }).to_string()), ..Default::default() })?;
     seed_splits(ctx)?;
     suggest(
         ItemSeed {
@@ -1200,19 +1219,33 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         },
         acme,
     );
-    suggest(
+    // An invite you haven't answered, overlapping DD prep and a Life block (14a).
+    let invite = suggest(
         ItemSeed {
             source: "gcal",
             kind: "event",
-            title: "Invite · Acme exec call, 16:15–16:45".into(),
-            summary: Some("Sam, Dana · tentative on your calendar".into()),
+            title: "Acme postmortem review".into(),
+            summary: Some("Sam, Dana · needs your response".into()),
             url: Some("https://calendar.google.com/calendar/r/day".into()),
             author: Some("Sam"),
-            occurred_at: ctx.at(0, "10:41"),
+            occurred_at: ctx.at(0, "17:00"),
+            ended_at: Some(ctx.at(0, "18:00")),
             ..Default::default()
         },
         acme,
     );
+    ctx.invite(invite)?;
+    ctx.sample().event(&crate::domain::sample::SampleEvent {
+        item_id: Some(invite),
+        source_id: ctx.source("gcal"),
+        start: ctx.at(0, "17:00"),
+        end: ctx.at(0, "18:00"),
+        title: Some("Acme postmortem review"),
+        category: "work",
+        tentative: true,
+        attendees: Some("Sam, Dana"),
+        life: false,
+    })?;
 
     // Alerting · P2: the alert mail, grouped per alert rule. Each group is one
     // signal whose msg_count is the number of alert mails behind it (214 total).
@@ -1555,7 +1588,11 @@ mod tests {
         assert_eq!(slack.meta, "42 new · 09:05–10:40");
         assert_eq!(slack.messages.len(), 4);
         let cal = acme.signals.iter().find(|s| s.source == "gcal").unwrap();
-        assert_eq!(cal.meta, "Sam · Today 10:41");
+        assert_eq!(cal.meta, "Sam · Today 17:00–18:00");
+        let rsvp = cal.rsvp.as_ref().expect("an unanswered invite offers Accept/Decline");
+        assert_eq!(rsvp.status, "needs_action");
+        assert_eq!(rsvp.overlaps, ["DD prep 16:45–17:15", "Life 17:30–18:00"], "Life blocks never show a title");
+        assert!(rsvp.answer.is_none());
         let mail = acme.signals.iter().find(|s| s.source == "gmail").unwrap();
         assert_eq!(mail.meta, "10:22");
         let alerts: i64 = q.topics[1].signals.iter().filter_map(|s| s.msg_count).sum();

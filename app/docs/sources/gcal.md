@@ -134,7 +134,9 @@ Every write goes through the outbox and is confirmed only after Google answers.
 
 ### `gcal.rsvp`
 
-Payload: `{"event_id": "<Google event id = item external_id>", "response": "accepted" | "declined" | "tentative"}`
+Payload: `{"event_id": "<Google event id>", "response": "accepted" | "declined" | "tentative", "comment"?: "<note>"}`
+
+Queued by `respond.rsvp` (Incoming 14a, a topic's Upcoming and Chronology 14b), which only offers accepted and declined, and `comment` only with a decline ("Decline with note"; Google shows it to the organiser next to your answer). `event_id` is the series (`recurringEventId`) for a recurring invite, so the answer covers every instance (user, 2026-10-07), else the item's external id.
 
 Alethiometer fetches the event to find your own attendee entry (`self: true`). It then sends a `PATCH` with `attendeesOmitted: true` and just that one entry, so no other guest can be touched. It uses `If-Match` on the event's etag, so an event that changed in the meantime fails visibly (retry with ⌘R). Receipt: `{event_id, response, etag}`. The next poll updates the strip (the dashed border goes away).
 

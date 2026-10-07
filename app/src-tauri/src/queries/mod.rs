@@ -8,6 +8,7 @@ pub mod notes;
 pub mod people;
 pub mod priorities;
 pub mod reflect;
+pub mod respond;
 pub mod search;
 pub mod split;
 pub mod todos;

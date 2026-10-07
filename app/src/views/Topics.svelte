@@ -6,7 +6,7 @@
   import { cyclePriority, PRIORITY_NAME } from '../lib/topicPriority';
   import { call } from '../lib/api';
   import { catColor, category, refresh, setTab, TABS, ui } from '../lib/app.svelte';
-  import { plain, useKeys } from '../lib/keys.svelte';
+  import { alt, plain, useKeys } from '../lib/keys.svelte';
   import { live } from '../lib/live';
   import { cancelMerge, commitMerges, mergingAway, merges, pendingMerge, stageMerge } from '../lib/merges.svelte';
   import { untrack } from 'svelte';
@@ -27,11 +27,16 @@
   import CategoryPicker from './topics/CategoryPicker.svelte';
   import Chronology from './topics/Chronology.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
+  import RsvpLine, { answerable } from './incoming/RsvpLine.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
   let filter = $state<string | null>(null);
   let open = $state({ up: true, open: true, chron: true, people: true });
+  // Which panel j/k and the RSVP keys act on; Tab switches (user, 2026-10-07).
+  let section = $state<'up' | 'chron'>('chron');
+  let upSel = $state<number | null>(null);
+  let upLine = $state<RsvpLine>();
   let picking = $state(false);
   // Link to person (17b) for someone in the People panel without a note.
   let linking = $state<TopicPerson | null>(null);
@@ -141,7 +146,34 @@
     if (plain(e, 'm')) return (merging = true), true;
     if (plain(e, 'r')) return d && (renaming = d.topic.name), true;
     if (plain(e, 'u') && d && pendingMerge(d.topic.id)) return cancelMerge(d.topic.id), true;
+    if (plain(e, 'Tab') || (e.key === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+      if (!d?.upcoming.length || !open.up) return;
+      section = section === 'up' ? 'chron' : 'up';
+      if (section === 'up' && !d.upcoming.some((u) => u.item_id === upSel)) upSel = d.upcoming[0].item_id;
+      return true;
+    }
+    if (section === 'up' && d?.upcoming.length && open.up) {
+      if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepUp(1), true;
+      if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepUp(-1), true;
+      const r = d.upcoming.find((u) => u.item_id === upSel)?.rsvp;
+      if (r && answerable(r) && upLine) {
+        if (alt(e, 'y')) return upLine.accept(), true;
+        if (alt(e, 'n')) return upLine.decline(), true;
+        if (alt(e, 'n', true)) return upLine.declineWithNote(), true;
+      }
+    }
   });
+
+  function stepUp(dir: number) {
+    const ups = d?.upcoming ?? [];
+    const i = ups.findIndex((u) => u.item_id === upSel);
+    upSel = ups[Math.max(0, Math.min(ups.length - 1, i < 0 ? 0 : i + dir))]?.item_id ?? null;
+  }
+  // Upcoming has nothing to select: back to Chronology.
+  $effect(() => {
+    if (section === 'up' && (!d?.upcoming.length || !open.up)) untrack(() => (section = 'chron'));
+  });
+  const needsReply = $derived(d ? d.upcoming.filter((u) => u.rsvp?.status === 'needs_action' && answerable(u.rsvp)).length : 0);
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
   const origin = $derived(ui.openedFrom === 'search' ? 'Search' : (TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics'));
@@ -189,16 +221,29 @@
         <DockHost bottom={16} left={16} />
         <div class="left scroll">
           {#if d.upcoming.length}
-            <Panel icon="clock-countdown" iconColor="var(--aqua)" label="Upcoming" count={d.upcoming.length} bind:open={open.up} accent={d.upcoming.some((u) => u.today)}>
-              {#each d.upcoming as u, i}
-                <div class="up-row" class:today={u.today} class:rule={i > 0}>
+            <Panel
+              icon="clock-countdown"
+              iconColor="var(--aqua)"
+              label="Upcoming"
+              count={needsReply ? `${d.upcoming.length} · ${needsReply} needs a reply` : d.upcoming.length}
+              bind:open={open.up}
+              accent={d.upcoming.some((u) => u.today)}
+            >
+              {#each d.upcoming as u, i (u.item_id)}
+                {@const on = section === 'up' && upSel === u.item_id}
+                <div class="up-row" class:today={u.today} class:sel={on} class:rule={i > 0} onclick={() => ((section = 'up'), (upSel = u.item_id))} role="presentation">
                   <span class="when nowrap" class:today={u.today}>{u.when}</span>
                   <AppIcon source={u.source} />
                   <div class="min0">
                     <div class="strong">{u.title}</div>
                     {#if u.sub}<div class="sub">{u.sub}</div>{/if}
+                    {#if u.rsvp && on}<RsvpLine bind:this={upLine} itemId={u.item_id} rsvp={u.rsvp} small />{/if}
                   </div>
-                  <span class="src">{sourceLabel(u.source)}</span>
+                  {#if u.rsvp?.status === 'needs_action' && answerable(u.rsvp)}
+                    <span class="pill quiet">no reply</span>
+                  {:else}
+                    <span class="src">{sourceLabel(u.source)}</span>
+                  {/if}
                 </div>
               {/each}
             </Panel>
@@ -230,7 +275,7 @@
                 {/each}
               </span>
             {/snippet}
-            <Chronology topicId={d.topic.id} {entries} active={open.chron && !linking && !picking} />
+            <Chronology topicId={d.topic.id} {entries} active={open.chron && !linking && !picking && section === 'chron'} />
           </Panel>
 
           <Panel icon="users" iconColor="var(--purple)" label="People" count={d.people.length} bind:open={open.people}>
@@ -451,6 +496,16 @@
   }
   .up-row.today {
     background: var(--aqua-tint-soft);
+  }
+  .up-row.sel {
+    background: var(--aqua-tint);
+  }
+  .up-row .min0 :global(.rsvp) {
+    margin-top: 6px;
+  }
+  .pill.quiet {
+    background: var(--bg-head);
+    color: var(--tx-muted-2);
   }
   .up-row .when {
     font-size: 0.9231rem;

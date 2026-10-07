@@ -45,6 +45,9 @@ struct Upcoming {
     source: String,
     title: String,
     sub: Option<String>,
+    /// An invite's Accept/Decline line (14b).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rsvp: Option<super::respond::Rsvp>,
 }
 
 #[derive(Serialize)]
@@ -69,6 +72,9 @@ struct Entry {
     right: String,
     /// Open dot: upcoming or not done. Solid dot: happened.
     open: bool,
+    /// An invite's Accept/Decline line (14b).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rsvp: Option<super::respond::Rsvp>,
 }
 
 pub fn route(name: &str) -> Option<Route> {
@@ -361,6 +367,8 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
         }
     }
 
+    let events: Vec<i64> = rows.iter().filter(|r| r.kind == "event").map(|r| r.id).collect();
+    let rsvps = super::respond::rsvps(reads, &events, clock)?;
     let mut upcoming = vec![];
     let mut open = vec![];
     let mut chron: Vec<(Ts, Entry)> = vec![];
@@ -380,6 +388,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
                     (Some(m), None) => Some(dur_label(m)),
                     (None, s) => s.clone(),
                 },
+                rsvp: rsvps.get(&r.id).cloned(),
             }));
         }
         let is_task = matches!(r.kind.as_str(), "task" | "issue" | "email") && r.owner.is_some();
@@ -437,6 +446,7 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
             sub,
             right,
             open: t > now || (is_task && r.status == "open"),
+            rsvp: rsvps.get(&r.id).cloned(),
         }));
     }
     upcoming.sort_by(|a, b| a.0.cmp(&b.0));
@@ -499,7 +509,11 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
     patch(ctx.meeting_id(0, "DD prep"), Some("Prep with Kim before Thursday"), "agree walk-away number")?;
 
     let link = |id: i64| ctx.link(id, dd, "confirmed");
-    link(ctx.meeting(3, "14:00", "14:45", "Final terms call", "work", "Ravi, Kim", false));
+    // An invite you haven't answered yet, overlapping another meeting (14b).
+    let terms = ctx.meeting(3, "14:00", "14:45", "Final terms call", "work", "Ravi, Kim", true);
+    ctx.invite(terms)?;
+    link(terms);
+    ctx.meeting(3, "14:00", "14:30", "Staff sync", "work", "Directors", false);
     let negotiation = ctx.meeting(-4, "15:00", "15:45", "Negotiation call", "work", "Ravi, Kim", false);
     link(negotiation);
     patch(negotiation, None, "they offered 12% off for 3 years")?;

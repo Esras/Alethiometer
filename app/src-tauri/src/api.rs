@@ -50,6 +50,7 @@ pub fn route_of(cmd: &str) -> Option<Route> {
         "outbox" => crate::outbox::route(name),
         "todos" => queries::todos::route(name),
         "reflect" => queries::reflect::route(name),
+        "respond" => queries::respond::route(name),
         _ => None,
     }
 }

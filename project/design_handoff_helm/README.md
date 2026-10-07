@@ -414,7 +414,7 @@ Reference: 15g is a DM grouped by topic, and 15h is a channel with a thread. 15f
 
 **Row (Incoming):**
 - The title line keeps Confirm, Wrong topic and Dismiss.
-- A second line holds a `no reply` pill, **Accept** `y`, **Decline** `n` and **Decline with note…** `⇧N`, followed by the overlap line.
+- A second line holds a `no reply` pill, **Accept** `⌥Y`, **Decline** `⌥N` and **Decline with note…** `⌥⇧N`, followed by the overlap line. (User, 2026-10-07: `n` already holds a todo in Incoming, so the keys moved to ⌥; the same keys in a topic.)
 - The Google Cal group count includes invites.
 
 **Overlap line:** yellow `--yellow` with a warning-circle icon, reading "Overlaps {title} {HH:MM–HH:MM}". Life blocks read "Life" plus the time, never a title (boundary rule). Leave the line out when nothing overlaps.
@@ -435,6 +435,7 @@ Reference: 15g is a DM grouped by topic, and 15h is a channel with a thread. 15f
 - The item stores the reply as `rsvp` (`needs_action|accepted|declined`) from the event's `attendees[self].responseStatus`.
 - Overlaps come from `events` on the same day, Life blocks included.
 - Only accept and decline are offered; tentative and propose-new-time are left out on purpose.
+- (User, 2026-10-07) A recurring invite answers the whole series. A tentative invite (answered Maybe elsewhere) gets no buttons. The overlap line lists every overlap. In a topic, Tab moves j/k between Upcoming and Chronology.
 
 ### Incoming · Dismiss (13a)
 Resolves the ISSUES.md item "No way to dismiss a signal in Incoming".

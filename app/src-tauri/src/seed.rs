@@ -138,6 +138,20 @@ impl<'a> Ctx<'a> {
         item
     }
 
+    /// Make a calendar item an invite you haven't answered (14a/14b).
+    pub fn invite(&self, item_id: i64) -> anyhow::Result<()> {
+        let raw = serde_json::json!({
+            "change": "invite",
+            "attendees": [
+                { "email": "alex.morgan@acme.com", "self": true, "responseStatus": "needsAction" },
+                { "email": "sam.ortiz@acme.com", "organizer": true, "responseStatus": "accepted" },
+            ],
+        })
+        .to_string();
+        self.sample().patch_item(item_id, &crate::domain::sample::ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
+        Ok(())
+    }
+
     /// Untitled busy block from a Proton "Limited view" link.
     pub fn life_block(&self, days: i64, start: &str, end: &str) {
         self.sample()
