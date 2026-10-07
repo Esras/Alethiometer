@@ -71,7 +71,7 @@ const scenes = {
   // The cursor two rows down, focus on Neglect: the splines and the open-row grey.
   'priorities-moved': ['Control+2', 'j', 'j', ']', ']'],
   // A topic picked (count badge, "n of m", Clear) and the Factor menu open.
-  'priorities-filter': ['Control+2', { exact: 'Topic' }, { exact: 'Webhook reliability', nth: 1 }, { exact: 'Factor' }],
+  'priorities-filter': ['Control+2', { exact: 'Topic' }, { exact: 'Webhook reliability', nth: 0 }, { exact: 'Factor' }],
   'topics-index': ['Control+3'],
   'topics-catpicker': ['Control+3', 'c'],
   'topics-categories': ['Control+3', { click: 'Manage categories' }],
