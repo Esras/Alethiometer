@@ -2,10 +2,17 @@
 // by scripts/ui-diff.sh (same UI_DIFF_SLOT). Each scene is a fresh page with
 // the same clock and the same key presses; any differing pixel is a DIFF, and
 // the diff image is left next to the two shots.
-// usage: [UI_DIFF_SLOT=n] node scripts/ui-diff.mjs [scene…]   (shots in <work>/<slot>/out)
+// usage: [UI_DIFF_SLOT=n] [UI_DIFF_SHARDS=n] node scripts/ui-diff.mjs [scene…]   (shots in <work>/<slot>/out)
+// With UI_DIFF_SHARDS=n (default: what ui-diff.sh started, from <work>/<slot>/shards)
+// the scenes are split into n contiguous chunks that run at once, each on its own pair
+// of servers (ports in ui-diff.sh's header). The scenes that change the sample data
+// (`// Done and dismissed`) always stay in the last chunk, in order. Each line is
+// printed when its scene finishes, so with n > 1 not in scene order; the summary and the
+// exit code are the same, and when scenes differ they are listed again in scene order.
 // Needs Playwright (global is fine) and ImageMagick's `compare`.
 import { createRequire } from 'node:module';
-import { execSync, execFileSync } from 'node:child_process';
+import { execSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,8 +26,18 @@ try {
 }
 // Same slot as scripts/ui-diff.sh: its ports and folder.
 const SLOT = Number(process.env.UI_DIFF_SLOT ?? 0);
-const [PB, PA] = SLOT === 0 ? [1420, 1430] : [1600 + 10 * SLOT, 1601 + 10 * SLOT];
+// [B, A] ports of shard s; shard 0 is the slot's own pair.
+const shardPorts = (s) => {
+  if (s > 0) return [2000 + 100 * SLOT + 10 * s, 2001 + 100 * SLOT + 10 * s];
+  return SLOT === 0 ? [1420, 1430] : [1600 + 10 * SLOT, 1601 + 10 * SLOT];
+};
 const WORK = path.join(process.env.UI_DIFF_DIR ?? path.join(process.env.TMPDIR ?? os.tmpdir(), 'alethiometer-ui-diff'), String(SLOT));
+// How many shards ui-diff.sh started (1 if it didn't say); UI_DIFF_SHARDS may use fewer.
+const STARTED = Number(fs.existsSync(path.join(WORK, 'shards')) ? fs.readFileSync(path.join(WORK, 'shards'), 'utf8') : 1);
+const SHARDS = Number(process.env.UI_DIFF_SHARDS ?? STARTED);
+if (!Number.isInteger(SHARDS) || SHARDS < 1 || SHARDS > STARTED) {
+  throw new Error(`UI_DIFF_SHARDS=${process.env.UI_DIFF_SHARDS}: ui-diff.sh started ${STARTED} shard(s) for slot ${SLOT}`);
+}
 const OUT = path.join(WORK, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -182,6 +199,7 @@ const scenes = {
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
+  // Sharding keeps all of them in the last chunk: `todos-done` must stay the first of them.
   // The sample data has no todos: make two from signals (n, type, ⌘↵, confirm), then do the first.
   'todos-done': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'n', { type: 'Reply to Dana' }, 'Control+Enter', 'c', 'Control+4', 'x', 'j'],
   'incoming-dismissed': ['j', 'd', 'j'],
@@ -231,18 +249,20 @@ const COUNT_FETCH = `(() => {
 // A scene's window when it isn't the usual one.
 const VIEWPORT = { 'agents-approval-pi-short': { width: 1760, height: 800 } };
 
-async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }) {
+async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }, fixed = FIXED) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
-  await page.clock.setFixedTime(FIXED);
+  await page.clock.setFixedTime(fixed);
   await page.addInitScript(COUNT_FETCH);
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message.split('\n')[0]));
+  let lastStep = Date.now();
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
   // A transition caught half-way is timing, not a change.
   await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
   await settle(page, 400, 1500);
   for (const k of steps) {
+    lastStep = Date.now();
     try {
       if (typeof k === 'string') await page.keyboard.press(k);
       else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
@@ -256,7 +276,11 @@ async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }
     }
     await settle(page, 250, 450);
   }
-  await settle(page, 600, 900);
+  // Some views tick once a second: the Agents tree's ages jump from 5d to 6d at its first tick,
+  // which reads the clock's offset. Shoot after that tick, not racing it: on a busy machine
+  // (several shards at once) the shot lands right at it and the two sides split.
+  await Promise.all([page.waitForTimeout(Math.max(0, 1100 - (Date.now() - lastStep))), settle(page, 600, 900)]);
+  await settle(page, 150, 300);
   await page.mouse.move(1, viewport.height - 5); // no hover states
   await page.addStyleTag({ content: '*, *::before, *::after { caret-color: transparent !important; }' });
   await page.evaluate(() => document.fonts.ready);
@@ -265,37 +289,83 @@ async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }
   return errs;
 }
 
-function differing(a, b, d) {
+// Async: a blocking compare would stall every other shard's browser commands.
+const run = promisify(execFile);
+async function differing(a, b, d) {
   try {
-    execFileSync('compare', ['-metric', 'AE', a, b, d], { stdio: 'pipe' });
+    await run('compare', ['-metric', 'AE', a, b, d]);
     return 0;
   } catch (e) {
     return Number(String(e.stderr).trim().split(/\s/)[0]);
   }
 }
 
+// The scenes under `// Done and dismissed` change the sample data: they stay last in a
+// run and in the last chunk. (`todos-done` is the first of them.)
 const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(scenes);
-let bad = 0;
-for (const name of names) {
-  if (!scenes[name]) throw new Error(`no scene "${name}"`);
+for (const name of names) if (!scenes[name]) throw new Error(`no scene "${name}"`);
+const all = Object.keys(scenes);
+const DONE = new Set(all.slice(all.indexOf('todos-done')));
+
+// Roughly how long a scene takes, in seconds: the page load and settles, a settle per step,
+// and 30 ms per typed character. Only for balancing the chunks.
+const cost = (name) => 2.2 + scenes[name].reduce((t, k) => t + 0.35 + (k.type ? k.type.length * 0.03 : 0), 0);
+
+// Contiguous chunks of about the same cost, with no cut after the first scene that changes
+// the data, so that scene and the ones after it share the last chunk.
+function chunked(names, n) {
+  const firstDone = names.findIndex((x) => DONE.has(x));
+  const last = firstDone < 0 ? names.length : firstDone;
+  const total = names.reduce((t, x) => t + cost(x), 0);
+  const cuts = [0];
+  let sum = 0;
+  for (let i = 0; i < names.length && cuts.length < n; i++) {
+    if (sum >= (cuts.length * total) / n || i >= last) cuts.push(Math.min(i, last));
+    sum += cost(names[i]);
+  }
+  cuts.push(names.length);
+  return cuts.slice(0, -1).map((c, i) => names.slice(c, cuts[i + 1])).filter((c) => c.length);
+}
+
+// One scene on shard s: both sides at once, since they have servers of their own.
+async function scene(name, s) {
+  const [PB, PA] = shardPorts(s);
   const [a, b, d] = ['a', 'b', 'diff'].map((x) => path.join(OUT, `${name}.${x}.png`));
   let px = 0;
   let errs = [];
-  // One retry: a scene that crosses a minute boundary between the two shots differs.
+  // One retry: a scene that crosses a minute boundary between the two shots differs. So
+  // can one with an age in seconds (the Agents tree): the two sides started their agents a
+  // few ms apart, and a clock that sits right at a rounding edge reads "18s" on one and
+  // "19s" on the other. The retry's clock is half a second later, which clears the edge.
   for (let attempt = 0; attempt < 2; attempt++) {
-    // The two sides have their own servers and data, so they're shot at once.
+    const fixed = new Date(FIXED.getTime() + attempt * 500);
     const [ea, eb] = await Promise.all([
-      shoot(`http://localhost:${PA}/`, scenes[name], a, VIEWPORT[name]),
-      shoot(`http://localhost:${PB}/`, scenes[name], b, VIEWPORT[name]),
+      shoot(`http://localhost:${PA}/`, scenes[name], a, VIEWPORT[name], fixed),
+      shoot(`http://localhost:${PB}/`, scenes[name], b, VIEWPORT[name], fixed),
     ]);
     errs = [...new Set([...ea.map((x) => 'ref: ' + x), ...eb.map((x) => 'this: ' + x)])];
-    px = differing(a, b, d);
+    px = await differing(a, b, d);
     if (px === 0) break;
   }
-  if (px) bad++;
-  else fs.rmSync(d, { force: true });
-  console.log(`${px ? 'DIFF' : 'same'} ${name}${px ? ` (${px} px)` : ''}${errs.length ? ' · ' + errs.join(' | ') : ''}`);
+  if (!px) fs.rmSync(d, { force: true });
+  const line = `${px ? 'DIFF' : 'same'} ${name}${px ? ` (${px} px)` : ''}${errs.length ? ' · ' + errs.join(' | ') : ''}`;
+  console.log(line);
+  return { px, line };
+}
+
+const chunks = chunked(names, SHARDS);
+const results = new Map();
+await Promise.all(
+  chunks.map(async (chunk, s) => {
+    for (const name of chunk) results.set(name, await scene(name, s));
+  }),
+);
+const differ = names.filter((x) => results.get(x).px);
+if (chunks.length > 1 && differ.length) {
+  console.log('differing, in scene order:');
+  for (const x of differ) console.log('  ' + results.get(x).line);
 }
 await browser.close();
+const bad = differ.length;
 console.log(bad ? `${bad} scene(s) differ; shots in ${OUT}` : 'all scenes identical');
 process.exit(bad ? 1 : 0);

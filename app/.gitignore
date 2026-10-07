@@ -6,5 +6,5 @@ src-tauri/gen/
 
 # scripts/ui-diff.sh: a worktree's node_modules symlink and its Vite config
 node_modules
-vite.ui-diff.config.ts
-.vite-ui-diff
+vite.ui-diff*.config.ts
+.vite-ui-diff*
