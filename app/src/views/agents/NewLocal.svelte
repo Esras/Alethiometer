@@ -9,6 +9,7 @@
   import Joins from './Joins.svelte';
   import type { ConfigChoice } from './types';
   import NewModal from './NewModal.svelte';
+  import Where from './Where.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
 
   let { group = null, onClose }: { group?: string | null; onClose: () => void } = $props();
@@ -115,6 +116,7 @@
     {members}
     newName={name.trim() || `${harness || 'agent'}-…`}
   />
+  <Where />
   <div class="fields">
     <span class="lab label">Harness</span>
     <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>

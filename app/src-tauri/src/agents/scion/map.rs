@@ -503,6 +503,11 @@ impl<'a> Ix<'a> {
         let started = [s(a, "template"), broker].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(" · ");
         let created = s(a, "created");
         rows.push((ms(created), Row { at: local(created), kind: Kind::State, text: format!("started · {started}").trim_end_matches(" · ").into(), ext: "created".into(), ..Default::default() }));
+        // The task it was started with isn't a message on the Hub; it opens the thread as yours, unless the Hub also sent it as one.
+        let task = s(&a["appliedConfig"], "task");
+        if !task.is_empty() && !rows.iter().any(|(_, r)| r.kind == Kind::You && r.text.trim() == task.trim()) {
+            rows.push((ms(created), Row { at: local(created), kind: Kind::You, label: "task".into(), text: task.into(), ext: "task".into(), ..Default::default() }));
+        }
         for (at, text) in self.st.transitions.get(id).into_iter().flatten() {
             rows.push((ms(at), Row { at: local(at), kind: Kind::State, text: text.clone(), ext: format!("st:{at}"), ..Default::default() }));
         }
@@ -917,6 +922,8 @@ pub(crate) mod tests {
         assert_eq!((sent.who.clone(), sent.to.as_ref().unwrap().name.as_str(), sent.note.as_str()), (None, "planner", "in #migration"));
         assert_eq!(r.iter().filter(|x| x.ext == "f0000000-0000-4000-8000-000000000003").count(), 1, "room and agent mail overlap once");
         assert_eq!(r[0].ext, "created");
+        let task = r.iter().position(|x| x.ext == "task").expect("the start task is in the thread");
+        assert_eq!((task, r[task].kind, r[task].text.as_str()), (1, Kind::You, "Diff the staging schema against prod"));
         assert!(r.iter().any(|x| x.kind == Kind::Ask), "its ask in the room is in its transcript too");
     }
 

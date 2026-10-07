@@ -10,6 +10,7 @@
   import { chord } from '../../lib/keys.svelte';
   import Joins from './Joins.svelte';
   import NewModal from './NewModal.svelte';
+  import Where from './Where.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
 
   type Catalog = {
@@ -100,6 +101,7 @@
 
 <NewModal sub="Scion Hub · project {g?.project ?? ''}" onStart={start} {onClose}>
   <Joins project={g?.project ?? ''} name={g?.name ?? ''} goal={g?.goal} host={g?.host} room={room && addToRoom ? (g?.room?.name ?? null) : null} {members} newName={name.trim()} />
+  <Where />
   {#if !cat && !err}<span class="sub">Reading templates from the Hub…</span>{/if}
   <div class="fields">
     <span class="lab label">Name</span>

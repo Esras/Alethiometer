@@ -132,7 +132,7 @@
       <i class="ph {ICON.state} ic" style:color="var(--tx-label)"></i>
       <div class="mid">
         <div class="head line">
-          <span class="line-text">{#if row.who}<span style:color={color(row.who)}>{row.who.name}</span> {/if}{row.text}</span>
+          <span class="line-text">{#if row.who}<span style:color={color(row.who)}>{row.who.name}</span>{' '}{/if}{row.text}</span>
           <span class="right">{@render deliveryMark()}<span class="time">{hm(row.at)}</span></span>
         </div>
       </div>

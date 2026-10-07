@@ -148,6 +148,19 @@ export function openThread(key: string) {
   }
 }
 
+/** Open the new-agent form for a Hub project's group, or a local one (`null`). */
+export function openForm(g: Group | null, localGroup: string | null = null) {
+  if (g?.source === 'scion') {
+    if (g.room) {
+      ag.sel = `r:${g.room.id}`;
+      openThread(`r:${g.room.id}`);
+    }
+    ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null };
+  } else {
+    ag.form = { kind: 'local', group: localGroup };
+  }
+}
+
 function formFits(key: string): boolean {
   const f = ag.form;
   if (!f) return false;

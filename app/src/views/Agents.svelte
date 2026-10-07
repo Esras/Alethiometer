@@ -13,7 +13,7 @@
   import Pane from './agents/Pane.svelte';
   import ArchiveModal from './agents/ArchiveModal.svelte';
   import ArchivedPane from './agents/ArchivedPane.svelte';
-  import { act, ag, askArchive, closeArchived, look, nodes, openArchived, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf, turnEnded, undoArchive } from './agents/state.svelte';
+  import { act, ag, askArchive, closeArchived, look, nodes, openArchived, openForm, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf, turnEnded, undoArchive } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
 
   $effect(() => {
@@ -80,15 +80,7 @@
     const { group, session } = threadOf(ag.sel?.startsWith('g:') ? null : ag.sel);
     const gid = ag.sel?.startsWith('g:') ? ag.sel.slice(2) : (group?.id ?? session?.group_id ?? null);
     const g = ag.tree?.groups.find((x) => x.id === gid);
-    if (g?.source === 'scion') {
-      if (g.room) {
-        ag.sel = `r:${g.room.id}`;
-        openThread(`r:${g.room.id}`);
-      }
-      ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null };
-    } else {
-      ag.form = { kind: 'local', group: gid };
-    }
+    openForm(g ?? null, gid);
     ag.zone = 'thread';
   }
 
