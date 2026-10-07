@@ -19,7 +19,7 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 
 ### Agents: unverified against real agents and a live Scion Hub
 
-The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client is built from Scion's Go source and hand-written fixtures; it has never talked to a Hub. The list of things to confirm is in `app/docs/agents.md` ("To check against a live Hub"). Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
+The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client was checked against the sandbox Hub on 2026-10-06; what was confirmed and what's left is in `app/docs/agents.md` ("Checked against a live Hub"). The New agent form can't set a model or env, so an agent that talks to agentgateway needs a template that sets `ANTHROPIC_BASE_URL`. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
 
 ### AI prices: where they come from (user, 2026-10-02: open, come back to it)
 
