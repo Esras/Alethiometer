@@ -2,6 +2,7 @@
 name = "alethiometer-agentd"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 description = "Hosts Alethiometer's local ACP agents so they outlive the app"
 
 # Kept small on purpose: the daemon runs from a copy in the data directory and
