@@ -20,6 +20,7 @@ use super::outbox::{Outbox, OutboxViews};
 use super::people::{People, PeopleViews};
 use super::priorities::PriorityViews;
 use super::reflect::{ReflectViews, Reflections};
+use super::respond::RespondViews;
 use super::sample::SampleData;
 use super::search::SearchViews;
 use super::sources::{SourceViews, Sources};
@@ -43,6 +44,7 @@ pub trait Reads {
     fn people(&self) -> &dyn PeopleViews;
     fn priorities(&self) -> &dyn PriorityViews;
     fn reflect(&self) -> &dyn ReflectViews;
+    fn respond(&self) -> &dyn RespondViews;
     fn search(&self) -> &dyn SearchViews;
     fn sources(&self) -> &dyn SourceViews;
     fn suggest(&self) -> &dyn SuggestViews;

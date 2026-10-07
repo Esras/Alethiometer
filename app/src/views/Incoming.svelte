@@ -18,11 +18,15 @@
   // after GitHub, oldest first; Agents waiting lists the ones waiting on you
   // across topics. Open, 1–9 pick the agent's answers, r replies, o opens it
   // in Agents. An answered row keeps a check until you move off it.
+  // Answering (app/src-tauri/src/queries/respond.rs) never triages: an
+  // invite's second line answers it (⌥Y accept, ⌥N decline, ⌥⇧N decline with
+  // a note; 14a), and `r` on a Slack signal writes a reply (⌥T thread or
+  // conversation, ⌘↵ sends).
   import { call, openExternal } from '../lib/api';
   import { live as liveQuery } from '../lib/live';
   import { onDestroy, tick, untrack } from 'svelte';
   import { catColor, category, refresh, setTab, ui } from '../lib/app.svelte';
-  import { plain, useKeys } from '../lib/keys.svelte';
+  import { alt, chord, plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { sourceLabel } from '../lib/sources';
   import { messageUrl } from '../lib/slackLink';
@@ -39,6 +43,8 @@
   import type { Request as AgentRequest, Session as AgentSession, Tree as AgentTree } from './agents/types';
   import AgentPart from './incoming/AgentPart.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
+  import RsvpLine, { answerable as canAnswer } from './incoming/RsvpLine.svelte';
+  import SlackReply from './incoming/SlackReply.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
@@ -76,6 +82,10 @@
   let live = $state<{ sessions: AgentSession[]; requests: AgentRequest[] } | null>(null);
   let answered = $state<Map<number, string>>(new Map());
   let parts = $state<Record<number, AgentPart>>({});
+  let rsvpLines = $state<Record<number, RsvpLine>>({});
+  let replies = $state<Record<number, SlackReply>>({});
+  /** An invite that can still be answered here. */
+  const answerable = (s: Signal | null) => !!s && !dismissed.has(s.item_id) && canAnswer(s.rsvp);
 
   type Entry = { key: QueueKey; name: string; category: string | null; count: number };
   const entries = $derived<Entry[]>(
@@ -559,6 +569,13 @@
     return [s.meta, ...extra].filter(Boolean).join(' · ');
   }
 
+  /** `r` on a Slack signal: its messages open, the reply field under them. */
+  function replyTo(s: Signal) {
+    selItem = s.item_id;
+    if (!expanded.has(s.item_id)) toggle(s.item_id);
+    tick().then(() => replies[s.item_id]?.open());
+  }
+
   function open(s: Signal | null) {
     if (!s?.url) return;
     const m = inMsgs ? s.messages[msgIdx] : s.messages[s.messages.length - 1];
@@ -593,6 +610,14 @@
       }
       if (plain(e, 'o')) return openInAgents(current), true;
     }
+    // Answering, which never triages.
+    if (current && answerable(current)) {
+      const line = rsvpLines[current.item_id];
+      if (alt(e, 'y')) return line?.accept(), true;
+      if (alt(e, 'n')) return line?.decline(), true;
+      if (alt(e, 'n', true)) return line?.declineWithNote(), true;
+    }
+    if (current?.source === 'slack' && !dismissed.has(current.item_id) && plain(e, 'r')) return replyTo(current), true;
     if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return toggle(current.item_id), true;
     if (plain(e, 'c')) return confirm(current), true;
     if (plain(e, 'x')) return wrong(current), true;
@@ -703,6 +728,9 @@
                       {#if ag_?.kind === 'done' && ag_.facts?.pr}
                         <button class="btn" onclick={(e) => (e.stopPropagation(), ag_.facts?.pr?.url && openExternal(ag_.facts.pr.url))}><i class="ph ph-git-pull-request"></i>{ag_.facts.pr.label}</button>
                       {/if}
+                      {#if s.source === 'slack'}
+                        <button class="btn" onclick={(e) => (e.stopPropagation(), replyTo(s))}>Reply <kbd>r</kbd></button>
+                      {/if}
                       <button class="btn" onclick={() => openTodo(s)}>Todo… <kbd>n</kbd></button>
                       {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
                     </span>
@@ -719,6 +747,9 @@
                   {/if}
                 </div>
               </div>
+              {#if s.rsvp && !gone}
+                <div class="answer"><RsvpLine bind:this={rsvpLines[s.item_id]} itemId={s.item_id} rsvp={s.rsvp} /></div>
+              {/if}
               {#if todoFor === s.item_id}
                 <div class="todo-form">
                   <TodoForm
@@ -828,6 +859,9 @@
                   {/if}
                 </div>
               {/if}
+              {#if s.source === 'slack' && !gone}
+                <div class="answer"><SlackReply bind:this={replies[s.item_id]} {s} msg={sel && inMsgs ? s.messages[msgIdx] : undefined} /></div>
+              {/if}
               {/if}
             </div>
           {/each}
@@ -876,6 +910,10 @@
         {/if}
         {#if current?.agent && reviewing === null}
           {#if expanded.has(current.item_id) && current.agent.waiting}<span><kbd>1–9</kbd> answer</span>{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span><kbd>r</kbd> reply</span>{/if}<span><kbd>o</kbd> open in Agents</span>
+        {/if}
+        {#if reviewing === null && current?.source === 'slack' && !dismissed.has(current.item_id)}<span><kbd>r</kbd> reply</span>{/if}
+        {#if reviewing === null && answerable(current)}
+          <span><kbd>{chord('⌥Y', 'Alt+Y')}</kbd> accept</span><span><kbd>{chord('⌥N', 'Alt+N')}</kbd> decline</span><span><kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd> decline with note</span>
         {/if}
         {#if reviewing === null}
           {#if current?.split}<span><kbd>s</kbd> review split</span>{:else if reviewable(current)}<span><kbd>s</kbd> split</span>{/if}
@@ -1102,6 +1140,12 @@
   }
   .todo-form {
     padding: 0 16px 4px 38px;
+  }
+  .answer {
+    padding: 0 16px 0 38px;
+  }
+  .answer:has(> :global(*)) {
+    padding-bottom: 10px;
   }
   .held {
     display: flex;

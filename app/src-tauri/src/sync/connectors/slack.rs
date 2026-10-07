@@ -188,7 +188,8 @@ impl Connector for Slack {
 ///   the op may sit in the outbox for a while. With a `thread_ts` it fails:
 ///   Slack's public API has no way to mark a thread read (thread items carry no
 ///   `mark_ts`, so Incoming never queues one).
-/// - `slack.reply` `{channel, thread_ts, text}`: chat.postMessage as the user.
+/// - `slack.reply` `{channel, thread_ts?, text}`: chat.postMessage as the user,
+///   in the thread when `thread_ts` is given, else in the conversation itself.
 ///   `text` is exactly what the user typed; nothing here writes words for them.
 /// - `slack.react` `{channel, ts, name}`: reactions.add (`name` without colons).
 fn send(ctx: &Ctx, cfg: &Config, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -219,8 +220,14 @@ fn send(ctx: &Ctx, cfg: &Config, op: &str, payload: &Value) -> anyhow::Result<Va
             Ok(json!({ "channel": channel, "ts": ts }))
         }
         "slack.reply" => {
-            let (channel, thread_ts, text) = (field("channel")?, field("thread_ts")?, field("text")?);
-            let v = client.post("chat.postMessage", &[("channel", &channel), ("thread_ts", &thread_ts), ("text", &text)])?;
+            let (channel, text) = (field("channel")?, field("text")?);
+            let thread_ts = field("thread_ts").ok();
+            let mut form = vec![("channel", channel.as_str())];
+            if let Some(t) = &thread_ts {
+                form.push(("thread_ts", t.as_str()));
+            }
+            form.push(("text", text.as_str()));
+            let v = client.post("chat.postMessage", &form)?;
             let ts = v.get("ts").and_then(Value::as_str).unwrap_or_default();
             Ok(json!({ "channel": v.get("channel").cloned().unwrap_or(json!(channel)), "ts": ts }))
         }

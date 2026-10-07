@@ -53,6 +53,14 @@ The Priorities tab (8b) only ever shows sample data: nothing computes quadrants,
 
 `x` on a Jira todo queues `jira.transition` to "Done" (matched by transition name or target status). The DEVOPS project's done status is "Closed", reached only through a couple of intermediate steps, so completing a DEVOPS todo fails in the outbox. Needs a per-project done status and a way to walk the workflow (or open the issue in Jira instead). Creating issues is fine as is.
 
+### Answering (RSVP, Slack reply): unverified against real accounts (2026-10-07)
+
+Built and tested with fixtures only (`queries/respond.rs`). To check on the Mac: an RSVP on a recurring invite patches the series and every instance shows it after the next poll; whether Google keeps an earlier note (`comment`) when a later answer patches the entry without one; a Slack reply in a thread and in a DM; ⌥N on the Mac keyboard (a dead key on the US layout: the keydown arrives with `e.code` `KeyN`, but check nothing leaks into the next field). "Accepted · HH:MM" uses the outbox's `confirmed_at`, which is the system clock, so `fake_now` doesn't move it. An answer from here keeps showing after you change it in Google Calendar; the row says what was sent from here, not what Google says now.
+
+### UI key checks: the font picker fails on `main` in the cloud container
+
+`scripts/ui-keys.mjs picker` fails one or both font picker checks (cursor not on row 0; ↓ ↵ doesn't change the setting), on HEAD as well as with the 2026-10-07 changes, varying run to run. Probably the container's installed fonts; not checked on the Mac.
+
 ### Gmail: what's left
 
 Built: Incoming mirrors the whole Inbox (read or not), filing labels by category (`config.category_labels`), marks read and archives (todo or not), Dismiss archives, `#` trashes, `u` restores, moving a filed thread to a topic in another category relabels it (docs/sources/gmail.md), a chip showing the thread's own current Gmail label matched to a category. Still open: Unsubscribe (19a), assistant help writing Gmail filters (needs `gmail.settings.basic`).

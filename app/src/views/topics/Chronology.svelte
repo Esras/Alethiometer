@@ -6,14 +6,17 @@
   // and s opens the split review for this one signal, to move some of its
   // messages (only with more than one). A moved signal leaves one quiet line,
   // "moved to X · u undo", where it was until you leave the topic.
+  // An unanswered invite shows a `no reply` pill; selected, it gets the RSVP
+  // line (⌥Y accept, ⌥N decline, ⌥⇧N decline with a note; 14b).
   import { untrack } from 'svelte';
   import { refresh } from '../../lib/app.svelte';
-  import { plain, useKeys } from '../../lib/keys.svelte';
+  import { alt, plain, useKeys } from '../../lib/keys.svelte';
   import { moveSignal, undoMove, type Detail, type Move } from '../../lib/reclassify';
   import { SOURCES } from '../../lib/sources';
   import type { TopicDetail } from '../../lib/types';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import Dock from '../../lib/ui/Dock.svelte';
+  import RsvpLine, { answerable } from '../incoming/RsvpLine.svelte';
   import SplitReview from '../incoming/SplitReview.svelte';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import SignalDetail from '../shared/SignalDetail.svelte';
@@ -28,6 +31,7 @@
   let picking = $state(false);
   let reviewing = $state<number | null>(null);
   let err = $state<string | null>(null);
+  let line = $state<RsvpLine>();
   // Moved signals keep their line (and place) until the topic changes.
   let moves = $state<{ move: Move; entry: Entry; index: number }[]>([]);
 
@@ -121,6 +125,12 @@
     if (plain(e, 't') && expanded !== null) return (picking = true), true;
     if (plain(e, 's') && expanded !== null && multi) return (reviewing = expanded), true;
     if (plain(e, 'u') && moves.length) return undo(), true;
+    const r = entries.find((x) => x.item_id === sel)?.rsvp;
+    if (r && answerable(r) && line) {
+      if (alt(e, 'y')) return line.accept(), true;
+      if (alt(e, 'n')) return line.decline(), true;
+      if (alt(e, 'n', true)) return line.declineWithNote(), true;
+    }
   });
 </script>
 
@@ -158,8 +168,9 @@
               {e.title}{#if expanded === e.item_id}<i class="ph ph-caret-up caret"></i>{/if}{#if e.range}<span class="range">{e.range}</span>{/if}
             </div>
             {#if e.sub}<div class="sub">{e.sub}</div>{/if}
+            {#if e.rsvp && sel === e.item_id && expanded !== e.item_id}<RsvpLine bind:this={line} itemId={e.item_id} rsvp={e.rsvp} small />{/if}
           </div>
-          <span class="right nowrap">{e.right}</span>
+          <span class="right nowrap">{#if e.rsvp && answerable(e.rsvp) && e.rsvp.status === 'needs_action'}<span class="pill quiet">no reply</span>{/if}{e.right}</span>
           {#if expanded === e.item_id}
             <div class="expanded" onclick={(ev) => ev.stopPropagation()} role="presentation">
               <SignalDetail itemId={e.item_id} ondetail={(d) => (detail = d)}>
@@ -213,6 +224,11 @@
   }
   .entry.sel {
     background: var(--aqua-tint);
+  }
+  .pill.quiet {
+    background: var(--bg-head);
+    color: var(--tx-muted-2);
+    margin-right: 8px;
   }
   .entry.moved {
     cursor: default;

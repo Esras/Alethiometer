@@ -1,4 +1,5 @@
 // Shapes returned by the Rust core (see src-tauri/src/queries/*). snake_case on purpose.
+import type { Rsvp } from '../views/incoming/types';
 
 export type Weight = 'red' | 'yellow' | 'green';
 export interface Pill {
@@ -95,7 +96,7 @@ export type SourceKind =
 
 export interface TopicDetail {
   topic: TopicRef & { score: number | null; pills: Pill[] };
-  upcoming: { item_id: number; when: string; today: boolean; source: SourceKind; title: string; sub: string | null }[];
+  upcoming: { item_id: number; when: string; today: boolean; source: SourceKind; title: string; sub: string | null; rsvp?: Rsvp }[];
   open: { item_id: number; source: SourceKind; title: string; due: Pill | null; owner: string | null }[];
   chronology: {
     item_id: number;
@@ -107,6 +108,8 @@ export interface TopicDetail {
     sub: string | null;
     right: string;
     open: boolean;
+    /** An invite's Accept/Decline line (14b). */
+    rsvp?: Rsvp;
   }[];
   filters: { source: SourceKind; count: number }[];
   /** Whoever wrote in its confirmed signals, plus anyone linked by hand (`people::for_topic`). */

@@ -687,7 +687,7 @@ fn live_mode_runs_a_full_catch_up_every_catchup_hours() {
 }
 
 #[test]
-fn reply_posts_the_users_text_in_the_thread() {
+fn reply_posts_the_users_text_in_the_thread_or_the_conversation() {
     let http = FakeHttp::default();
     http.on(
         "POST",
@@ -698,6 +698,10 @@ fn reply_posts_the_users_text_in_the_thread() {
     let r = send_op(&http, "slack.reply", json!({ "channel": "C0INC", "thread_ts": "1789990000.000200", "text": "On it & looking" })).unwrap();
     assert_eq!(r, json!({ "channel": "C0INC", "ts": "1790000100.000100" }));
     assert_eq!(last_body(&http).1, "channel=C0INC&thread_ts=1789990000.000200&text=On%20it%20%26%20looking");
+
+    // No thread: the message goes to the conversation itself.
+    send_op(&http, "slack.reply", json!({ "channel": "D0PRIYA", "text": "sure" })).unwrap();
+    assert_eq!(last_body(&http).1, "channel=D0PRIYA&text=sure");
 
     // Nothing to send without the user's words.
     let err = send_op(&http, "slack.reply", json!({ "channel": "C0INC", "thread_ts": "1", "text": "  " })).unwrap_err();

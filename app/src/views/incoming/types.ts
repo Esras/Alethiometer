@@ -61,6 +61,35 @@ export interface Signal {
    * Triage sends both back so it applies to what you saw. */
   rev: number;
   keys: string[];
+  /** A Slack thread item: a reply goes in its thread by default. */
+  thread?: boolean;
+  /** An invite's Accept/Decline line (14a). */
+  rsvp?: Rsvp;
+  /** The latest Slack reply sent from this signal. */
+  reply?: Answer;
+}
+
+/** `queries/respond.rs`: an invite's RSVP line. */
+export interface Rsvp {
+  /** Your answer in Google as last synced. */
+  status: 'needs_action' | 'accepted' | 'declined' | 'tentative';
+  /** The answer sent from here. */
+  answer?: Answer;
+  /** "DD prep 16:45–17:15", "Life 17:30–18:00". */
+  overlaps: string[];
+  /** The event in Google Calendar, where an answer can be changed. */
+  url: string | null;
+}
+
+/** An answer (RSVP or Slack reply) as its outbox row stands. */
+export interface Answer {
+  outbox_id: number;
+  state: 'pending' | 'sent' | 'confirmed' | 'failed';
+  response?: 'accepted' | 'declined';
+  text?: string;
+  /** "10:58", "Thu 14:00". */
+  at: string;
+  error?: string;
 }
 
 export interface Held {

@@ -1,6 +1,8 @@
 //! Writes to Google Calendar, only ever called by the outbox.
 //!
-//! - `gcal.rsvp {event_id, response}`: changes only your own attendee entry.
+//! - `gcal.rsvp {event_id, response, comment?}`: changes only your own attendee
+//!   entry. `comment` is the note Google shows the organiser next to your
+//!   answer ("Decline with note"); it's exactly what the user typed.
 //! - `gcal.hold {item_id, title, carried_from, start?, end?}`: Reflect's "<
 //!   schedule". Inserts a private, busy hold in the first free slot of the next
 //!   workdays (or at `start`/`end` when given). The event id is derived from
@@ -32,7 +34,11 @@ pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
 
     // `attendeesOmitted` tells Google this list holds only the entries to change,
     // so nobody else's entry is touched even if the event has hundreds of guests.
-    let body = json!({ "attendeesOmitted": true, "attendees": [{ "email": me, "responseStatus": response }] });
+    let mut mine = json!({ "email": me, "responseStatus": response });
+    if let Some(c) = payload.get("comment").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()) {
+        mine["comment"] = json!(c);
+    }
+    let body = json!({ "attendeesOmitted": true, "attendees": [mine] });
     let patch_url = match &cfg.rsvp_send_updates {
         Some(s) => format!("{url}?sendUpdates={}", enc(s)),
         None => url,
@@ -253,6 +259,22 @@ mod tests {
             patches[0].1,
             json!({ "attendeesOmitted": true, "attendees": [{ "email": "alex.morgan@acme.com", "responseStatus": "accepted" }] })
         );
+    }
+
+    #[test]
+    fn rsvp_sends_the_note_with_a_decline() {
+        let http = http();
+        http.on("GET", "/events/5fh2acmeqbr", 200, fixture!("event_invite.json"));
+        http.on("PATCH", "/events/5fh2acmeqbr", 200, &fixture!("event_invite_accepted.json").replace("\"accepted\"", "\"declined\""));
+        let payload = json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": "  Kim has signing authority  " });
+        send(&http, json!({}), "rsvp", payload).unwrap();
+        assert_eq!(
+            sent(&http, "PATCH")[0].1["attendees"],
+            json!([{ "email": "alex.morgan@acme.com", "responseStatus": "declined", "comment": "Kim has signing authority" }])
+        );
+        // A blank note sends no comment at all.
+        send(&http, json!({}), "rsvp", json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": " " })).unwrap();
+        assert!(sent(&http, "PATCH")[1].1["attendees"][0].get("comment").is_none());
     }
 
     #[test]

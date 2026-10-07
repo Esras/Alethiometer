@@ -32,6 +32,7 @@ pub mod outbox;
 pub mod people;
 pub mod priorities;
 pub mod reflect;
+pub mod respond;
 pub mod sample;
 pub mod schema;
 pub mod search;
@@ -310,6 +311,7 @@ ports!(Reads {
     people: crate::domain::people::PeopleViews,
     priorities: crate::domain::priorities::PriorityViews,
     reflect: crate::domain::reflect::ReflectViews,
+    respond: crate::domain::respond::RespondViews,
     search: crate::domain::search::SearchViews,
     sources: crate::domain::sources::SourceViews,
     suggest: crate::domain::suggest::SuggestViews,
