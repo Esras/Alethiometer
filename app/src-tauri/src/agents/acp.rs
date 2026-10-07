@@ -278,18 +278,17 @@ fn login_path() -> String {
 }
 
 /// The project's direnv environment (its `.envrc`, a Nix devshell say), as Zed
-/// loads one for the agents it starts: `direnv export json` in `cwd`, run as if
-/// nothing were loaded yet (the app may itself run inside another project's
-/// devshell). Variables it unsets aren't carried: the agent host only sets.
-/// No direnv, a blocked `.envrc` or none: nothing. A devshell that's still
-/// building after two minutes is given up on, and the agent starts without it.
+/// loads one for the agents it starts: `direnv export json` in `cwd`, from the
+/// app's own environment. The app may itself run inside a devshell (`tauri
+/// dev`), perhaps an older one or another project's: direnv unloads that first
+/// (its `DIRENV_DIFF`), so none of it leaks into PATH. Variables it unsets
+/// aren't carried: the agent host only sets. No direnv, a blocked `.envrc` or
+/// none: nothing. A devshell that's still building after two minutes is given
+/// up on, and the agent starts without it.
 fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
     let Some(direnv) = which("direnv", path).filter(|_| !cwd.is_empty()) else { return BTreeMap::new() };
     let mut c = Command::new(direnv);
     c.args(["export", "json"]).current_dir(cwd).env("PATH", path).stdin(Stdio::null()).stderr(Stdio::null());
-    for (k, _) in std::env::vars().filter(|(k, _)| k.starts_with("DIRENV_")) {
-        c.env_remove(k);
-    }
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(c.output());
@@ -297,8 +296,21 @@ fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
     let Some(out) = rx.recv_timeout(Duration::from_secs(120)).ok().and_then(|o| o.ok()).filter(|o| o.status.success()) else {
         return BTreeMap::new();
     };
-    let vars: BTreeMap<String, Value> = serde_json::from_slice(&out.stdout).unwrap_or_default();
-    vars.into_iter().filter_map(|(k, v)| Some((k, v.as_str()?.to_owned()))).collect()
+    direnv_vars(&out.stdout, std::env::var("DIRENV_WATCHES").ok())
+}
+
+/// `direnv export json`'s output as variables to set. Nothing to change (the
+/// app already has this directory's environment, up to date) leaves out
+/// `DIRENV_WATCHES`; the app's own is the one that applies.
+fn direnv_vars(out: &[u8], own_watches: Option<String>) -> BTreeMap<String, String> {
+    let vars: BTreeMap<String, Value> = serde_json::from_slice(out).unwrap_or_default();
+    let mut env: BTreeMap<String, String> = vars.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
+    if !vars.contains_key("DIRENV_WATCHES") {
+        if let Some(w) = own_watches {
+            env.insert("DIRENV_WATCHES".into(), w);
+        }
+    }
+    env
 }
 
 /// What direnv watches for an environment it exported: `DIRENV_WATCHES`, zlib-compressed JSON in base64url.
@@ -2233,19 +2245,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_projects_direnv_environment_is_read_as_if_nothing_were_loaded() {
+    fn a_projects_direnv_environment_is_read() {
         use std::os::unix::fs::PermissionsExt;
         let bin = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
-        // Stands in for direnv: prints what `export json` would, and whether it saw a loaded env.
+        // Stands in for direnv: prints what `export json` would.
         let fake = bin.path().join("direnv");
-        std::fs::write(&fake, "#!/bin/sh\nprintf '{\"IN_DEVSHELL\":\"%s\",\"GONE\":null,\"PATH\":\"/nix/bin:%s\"}' \"${DIRENV_DIR:-none}\" \"$PATH\"\n").unwrap();
+        std::fs::write(&fake, "#!/bin/sh\nprintf '{\"GONE\":null,\"PATH\":\"/nix/bin:%s\"}' \"$PATH\"\n").unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:/usr/bin:/bin", bin.path().display());
         let env = direnv_env(project.path().to_str().unwrap(), &path);
-        assert_eq!(env.get("IN_DEVSHELL").map(String::as_str), Some("none"));
         assert_eq!(env.get("PATH"), Some(&format!("/nix/bin:{path}")));
         assert!(!env.contains_key("GONE"));
+    }
+
+    #[test]
+    fn an_up_to_date_environment_keeps_the_apps_watches() {
+        let own = Some("app-watches".to_string());
+        assert_eq!(direnv_vars(b"", own.clone()).get("DIRENV_WATCHES").map(String::as_str), Some("app-watches"), "nothing changed");
+        assert_eq!(direnv_vars(br#"{"DIRENV_WATCHES":"new"}"#, own.clone()).get("DIRENV_WATCHES").map(String::as_str), Some("new"));
+        assert!(!direnv_vars(br#"{"DIRENV_WATCHES":null}"#, own).contains_key("DIRENV_WATCHES"), "unloaded: none");
     }
 
     #[test]

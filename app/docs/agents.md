@@ -15,7 +15,7 @@ The core keeps the tab's state in memory (`agents/store.rs`) with a revision cou
 
 `agents/acp.rs` speaks ACP v1 (JSON-RPC, one message per line, through the agent host to the adapter's stdio), hand-written on std threads: the official `agent-client-protocol` crate needs an async runtime the core doesn't have.
 
-- **Harnesses** (`agents.harnesses`, settings.json only): `claude` runs `npx -y @agentclientprotocol/claude-agent-acp`, `pi` runs `npx -y pi-acp`. Both need Node 22+; Pi also needs `pi` on the PATH. The command is looked up on the login shell's PATH (`$SHELL -ilc`), since apps started from the Dock get a minimal one. A session starts with its directory's direnv environment (`.envrc`, e.g. a Nix devshell), as Zed does: `direnv export json` in the session's directory, as if nothing were loaded (variables it unsets aren't carried; given up after 2 minutes). A harness's own `env` wins over both. The files direnv watches (`DIRENV_WATCHES`) are kept on the session and checked every 5 s while it's live; when one changes, the status line shows ⚠ devshell changed · stop to reload. Stopping is the restart: the next message resumes the conversation in the new environment. Each harness signs in its own way (Claude's login, Pi's providers); Alethiometer passes no credentials. A not-signed-in agent fails the first prompt; the transcript says so.
+- **Harnesses** (`agents.harnesses`, settings.json only): `claude` runs `npx -y @agentclientprotocol/claude-agent-acp`, `pi` runs `npx -y pi-acp`. Both need Node 22+; Pi also needs `pi` on the PATH. The command is looked up on the login shell's PATH (`$SHELL -ilc`), since apps started from the Dock get a minimal one. A session starts with its directory's direnv environment (`.envrc`, e.g. a Nix devshell), as Zed does: `direnv export json` in the session's directory, from the app's own environment, so a devshell the app itself runs in (`tauri dev`) is unloaded first and doesn't leak into PATH (variables it unsets aren't carried; given up after 2 minutes). A harness's own `env` wins over both. The files direnv watches (`DIRENV_WATCHES`) are kept on the session and checked every 5 s while it's live; when one changes, the status line shows ⚠ devshell changed · stop to reload. Stopping is the restart: the next message resumes the conversation in the new environment. Each harness signs in its own way (Claude's login, Pi's providers); Alethiometer passes no credentials. A not-signed-in agent fails the first prompt; the transcript says so.
 - **Thinking:** the agent's ACP config option of category `thought_level` (Claude's `effort`, pi's `thought_level`) is kept on the session (`Session.thinking`, refreshed by `config_option_update`). The new-agent form offers its levels (as the harness lists them for its default model) and sets one after the model; the status line's picker changes it on a live session (`agents.set_thinking`, `session/set_config_option`). Agents without one show neither.
 - **Client capabilities:** form elicitation only. No `fs/*` or `terminal/*`, so agents use their own tools (both adapters work this way). Agent requests other than `session/request_permission` and `elicitation/create` get "method not found".
 - **Mapping** (`apply`): `agent_message_chunk` → Output (chunks join until something else happens), `agent_thought_chunk` → Thinking (tokens are a ~4-chars estimate; ACP doesn't count them), `tool_call`/`tool_call_update` → one Tool row updated in place (name and target from claude-agent-acp's `_meta.claudeCode.toolName` and `rawInput`, or pi-acp's bare titles; a read shows "N lines", an edit "+a −r" and "applied"; pi's terminal output streams into the result), `plan` → one State row updated in place, `usage_update` → context %, model, cost (claude-agent-acp's running total), `session_info_update` → title.
@@ -89,7 +89,7 @@ cd agentd && cargo test   # the host's own tests
 
 ## Scion agents
 
-`agents/scion.rs` (+ `scion/api.rs`, `scion/map.rs`), one thread per enabled `scion` source (Settings › Sources: Hub URL, a `scion_pat_…` user access token as `scion.token`, optional project filter). Built from Scion's Go source at `2220c46` (GoogleCloudPlatform/scion, v0.3 preview, "grove" already renamed "project"); **never run against a live Hub**. Fixtures in `src-tauri/tests/fixtures/scion/` are hand-written from the Go JSON tags (the README there maps each to its Go type). The Hub's state shows in the tree (a red line when it can't connect), not in the sync chip.
+`agents/scion.rs` (+ `scion/api.rs`, `scion/map.rs`), one thread per enabled `scion` source (Settings › Sources: Hub URL, a `scion_pat_…` user access token as `scion.token`, optional project filter). Built from Scion's Go source at `2220c46` (GoogleCloudPlatform/scion, v0.3 preview, "grove" already renamed "project"); checked against a live Hub on 2026-10-06 (below). Fixtures in `src-tauri/tests/fixtures/scion/` are hand-written from the Go JSON tags (the README there maps each to its Go type). The Hub's state shows in the tree (a red line when it can't connect), not in the sync chip.
 
 - **Polling, not SSE:** the Hub's stream is per agent, while one conversation list per project covers every room and DM. Every 3 s: `GET /conversations?include_project_groups=<project>`, then the messages of conversations whose `lastActivityAt` moved (or that hold a send still settling). Every 15 s (or right after you act): `/auth/me`, `/projects`, `/projects/{id}/agents`, room participants, and agent ↔ agent mail (`/chat/conversations/dm:…/interagent`) for agents whose activity moved.
 - **Tree:** a project's group threads (conversations of `kind: group`) are groups with a room row; their agent participants are the group's sessions; other agents sit in a group named after the project. An agent in several threads goes under the most recently active one; `ancestry` gives a subagent's parent.
@@ -103,20 +103,22 @@ cd agentd && cargo test   # the host's own tests
 
 `scripts/fake-scion-hub.mjs` serves the fixtures on `http://127.0.0.1:1431` and keeps posts in memory, for UI work (any value for the `scion.token` secret).
 
-### To check against a live Hub
+### Checked against a live Hub (2026-10-06)
 
-1. Do UAT tokens reach `/api/v1/chat/*`, and is native chat on? Without it, room posts and agent ↔ agent mail don't work.
-2. The scopes the token needs: `project:read`, `agent:read`/`list`, `agent:message`, `agent:create`, `agent:lifecycle`, `agent:attach` (interrupt, agent ↔ agent mail).
-3. Does `POST /agents/{id}/message` take `{structured_message:{msg,type}}` with no version or sender (the web UI sends only `msg`), and `type: "reply"` from a user?
-4. Default order and largest `limit` of `/conversations/{id}/messages` (assumed newest first, like `store.ListMessages`).
-5. The sender and recipient on an agent's own post to a thread, and the system sender (guessed `system:hub`).
-6. Does `include_project_groups` list every project group to a user who isn't a participant?
-7. Does `runtimeBrokerId` take a name? Names are resolved to ids from providers or agents.
-8. Do your DMs with agents appear in `GET /conversations` as `kind: direct`, and do mention copies share `createdAt` exactly?
-9. `start` on a stopped agent and `/keys`; whether `pi` is a harness name (it isn't in this checkout).
-10. Unread counts are always 0 (the conversations API has no read state; chat thread lists have `hasUnread`), and threads have no goal, so a room's header is its name.
-11. The loop cap is Scion's hard-coded 10 mentions per agent pair per 10 minutes; suppressed mentions aren't stored, so no notice appears in the room unless the Hub posts one.
-12. How the Hub adds a newly started agent to an existing group thread (the design's open question; participants are tried first).
+The sandbox Hub (Scion `3c56088e`, Kubernetes broker, dev auth) with project `alethiometer-test`, a hub-bound token, and a claude-harness agent pointed at agentgateway.
+
+- **Token:** mint it through the API with `"boundary":{"kind":"hub"}` (the CLI only makes project tokens) and `project:read`, `agent:read`/`list`/`create`/`lifecycle`/`delete`/`message`/`attach`, `template:read`/`list`, `harness_config:read`/`list`, `broker:read`/`list`, `skill:read`/`list`. Without the skill scopes a create fails with "the token's scopes fit no usable agent role". A project-bound token sees no global templates or harness configs. No token can list projects (Scion has no `project:list` scope), so the source's Projects field must hold project UUIDs, which are read one by one. A token's agents get the `baseline` role at most.
+- **Native chat is on and reachable with a token:** a thread post returns 201 and its mentions are delivered. `POST /conversations/{id}/participants` is refused (403) for a token; the "@name joined this thread" fallback adds the agent.
+- **A group thread's `lastActivityAt` never moves**, whoever posts, so rooms are re-read on every full refresh (15 s). DMs' does move.
+- **DMs:** `POST /agents/{id}/message` with `{structured_message:{msg,type:"instruction"}}` and no sender is delivered. A stopped agent answers 409 `agent_not_running`. DMs list as `kind: direct`. You appear as `user:<email>` or `user:<id>`.
+- **Messages** come newest first, and `limit=1000` is accepted.
+- **An agent's own thread post** is sender `agent:<slug>`, recipient `thread:<topic>` (from `scion message '#general' …`). Told by @mention to reply in the thread, the agent answered in its DM instead.
+- **`/keys`** answers `dispatched`. **Stop** works. **Start** after a stop re-clones the agent's branch (pushed work survives, unpushed doesn't) and re-runs the original task; on this Hub the claude harness then crashed because `ANTHROPIC_API_KEY` wasn't injected the second time (a Scion problem, with a session or a token).
+- **Delete** (`DELETE /agents/{id}`) answers 204.
+- **A dead model** (connection refused at the gateway) leaves the agent `working` until the Hub marks it `stalled`, shown here as failed.
+- `pi` isn't a harness on this Hub.
+
+Still unchecked: `type: "reply"` from a user, the system sender, `include_project_groups` for a non-participant, a broker name in `runtimeBrokerId`, whether mention copies share `createdAt`, deferred delivery, the loop cap notice.
 
 ## Tree
 

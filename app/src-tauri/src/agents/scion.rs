@@ -248,7 +248,7 @@ fn tick(app: &App, hub: &Hub) -> anyhow::Result<()> {
         };
         let group = s(conv, "kind") == "group";
         let participants = if group && (fresh || full) { Some(c.conversation(id)?["participants"].as_array().cloned().unwrap_or_default()) } else { None };
-        let messages = if fresh || moved || unsettled {
+        let messages = if fresh || moved || unsettled || (group && full) {
             let mut m = c.messages(id, max)?;
             m.reverse();
             Some(m)
@@ -1028,6 +1028,30 @@ mod tests {
         poll(&app, &h);
         assert_eq!(h.link().state, "connected", "{}", h.link().error);
         assert_eq!(app.agents.store.lock().sessions.len(), 4);
+    }
+
+    #[test]
+    fn room_messages_are_reread_on_a_full_refresh() {
+        let http = hub_http();
+        let (app, _d, h) = connected(&http);
+        let mut room: Value = text("room_messages.json").parse().unwrap();
+        for m in room["items"].as_array_mut().unwrap() {
+            if m["dispatchState"] == "pending" {
+                m["dispatchState"] = json!("dispatched");
+            }
+        }
+        let path = format!("/api/v1/conversations/{ROOM}/messages");
+        http.on("GET", &path, 200, room.to_string());
+        poll(&app, &h);
+        let mut reply = room["items"][0].clone();
+        reply["id"] = json!("f0000000-0000-4000-8000-0000000000ff");
+        reply["msg"] = json!("ping");
+        room["items"].as_array_mut().unwrap().insert(0, reply);
+        http.on("GET", &path, 200, room.to_string());
+        h.kick.store(true, Ordering::SeqCst);
+        poll(&app, &h);
+        let i = app.agents.store.lock();
+        assert!(i.threads[&format!("r:{ROOM}")].rows.iter().any(|r| r.text == "ping"), "the Hub doesn't move a group thread's lastActivityAt");
     }
 
     #[test]
