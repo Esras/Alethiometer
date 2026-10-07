@@ -68,7 +68,7 @@
     {/if}
     <span class="right">
       {#if pct !== null}
-        <span class="g">ctx <span class="v">{pct}%</span><span class="bar" style:background="linear-gradient(90deg,var(--tx-muted-2) {pct}%,var(--border) {pct}%)"></span><span class="dim">{k(s.stats.ctx_used)}/{k(s.stats.ctx_size)}</span></span>
+        <span class="g">ctx <span class="v">{pct}%</span><span class="bar" style:background="linear-gradient(90deg,var(--tx-muted-2) {pct}%,var(--border) {pct}%)"></span><span class="dim">{k(s.stats.ctx_used)}</span></span>
       {/if}
       {#if cache}
         <span class="g">cache <span class={cache.cls}>{cache.label}</span>{#if cache.fill}<span class="bar short" style:background="linear-gradient(90deg,var(--aqua) {cache.fill}%,var(--border) {cache.fill}%)"></span>{/if}</span>
