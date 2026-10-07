@@ -64,7 +64,7 @@
     <span>{s.source === 'acp' ? (ag.tree?.host ?? s.host) : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
     {#if s.env_changed && s.live}
-      <button class="envchg" title="Its .envrc or devshell changed since it started. Stopping it is safe: your next message resumes the conversation in the new environment." onclick={() => act('stop', { session: s.id })}>⚠ devshell changed · stop to reload</button>
+      <button class="envchg" title="Its .envrc or devshell changed since it started. Click to stop it: your next message resumes the conversation in the new environment." onclick={() => act('stop', { session: s.id })}>⚠ devshell changed</button>
     {/if}
     <span class="right">
       {#if pct !== null}
