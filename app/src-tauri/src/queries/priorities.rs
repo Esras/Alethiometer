@@ -241,7 +241,7 @@ pub struct Row {
     pub neglect: f64,
     pub age_days: i64,
     pub quiet_days: i64,
-    /// Factors present (0-to-1 value above 0), for the Factor filter.
+    /// Factors the todo has (its date, asker, estimate… even when they add 0), for the Factor filter.
     pub factors: Vec<String>,
     /// Factors that added to the score, by group.
     pub reasons: Reasons,
@@ -364,7 +364,9 @@ pub fn list(r: &dyn Reads, clock: &Clock, settings: &Settings) -> Result<List> {
                 neglect: p.neglect.age * age + p.neglect.quiet * quiet,
                 age_days: age.floor() as i64,
                 quiet_days: quiet.floor() as i64,
-                factors: fs.iter().filter(|f| f.value > 0.0).map(|f| f.key.clone()).collect(),
+                // A factor is listed only when its fact exists (a date, an asker, an estimate), so
+                // it's present even at 0 (a soft date still ahead); breadth needs someone on the topic.
+                factors: fs.iter().filter(|f| f.key != "breadth" || f.value > 0.0).map(|f| f.key.clone()).collect(),
                 reasons,
             },
         });
@@ -687,6 +689,15 @@ mod tests {
         assert!(first.windows(2).all(|w| w[0] >= w[1]));
         let top = l.todos.iter().find(|r| r.item_id == l.orders.priority[0]).unwrap();
         assert_eq!(top.band, "hi");
+    }
+
+    #[test]
+    fn a_soft_date_still_ahead_is_present_for_the_factor_filter() {
+        let (conn, clock, _d) = setup();
+        let l = scored(&conn, &clock, &Settings::default());
+        let skip = row(&l, "Skip-level notes for Priya");
+        assert_eq!(skip.pressure, 0.0);
+        assert!(skip.factors.contains(&"sched".to_string()));
     }
 
     #[test]

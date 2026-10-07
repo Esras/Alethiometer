@@ -76,6 +76,8 @@ export interface TopicRow extends TopicRef {
   /** No signal within settings.quiet_days. */
   quiet: boolean;
   next_meeting: { start: string; title: string } | null;
+  /** Set by you, for Priorities. */
+  priority: 'H' | 'M' | 'L' | null;
 }
 
 /** Source kinds; each has an icon in public/icons/<kind>.png. */
@@ -94,7 +96,7 @@ export type SourceKind =
   | 'agents';
 
 export interface TopicDetail {
-  topic: TopicRef & { score: number | null; pills: Pill[] };
+  topic: TopicRef & { score: number | null; pills: Pill[]; priority: 'H' | 'M' | 'L' | null };
   upcoming: { item_id: number; when: string; today: boolean; source: SourceKind; title: string; sub: string | null }[];
   open: { item_id: number; source: SourceKind; title: string; due: Pill | null; owner: string | null }[];
   chronology: {

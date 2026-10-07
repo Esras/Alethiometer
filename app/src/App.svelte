@@ -42,7 +42,7 @@
       e.preventDefault();
       return;
     }
-    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && ui.tab !== 'todos' && ui.tab !== 'agents' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
+    if (e.key === '/' && !isTyping(e) && !ui.searchOpen && ui.tab !== 'reflect' && ui.tab !== 'todos' && ui.tab !== 'priorities' && ui.tab !== 'agents' && !(ui.tab === 'topics' && ui.openTopicId === null)) {
       ui.searchOpen = true;
       e.preventDefault();
       return;

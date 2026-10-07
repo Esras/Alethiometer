@@ -544,7 +544,7 @@
 
   function hold(s: Signal, d: Draft) {
     todoFor = null;
-    act('todos.hold', { item_id: s.item_id, target: d.target, text: d.text, due: d.due });
+    act('todos.hold', { item_id: s.item_id, target: d.target, text: d.text, due: d.due, sched: d.sched });
   }
 
   /** `meta`-style text split at the author's name, so the name can be a PersonName. */

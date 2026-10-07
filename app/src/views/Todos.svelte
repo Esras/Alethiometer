@@ -10,8 +10,6 @@
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, Todo, TodosData } from './todos/types';
 
-  const PRIORITY: Record<string, string> = { now: 'Now-ish', make_room: 'Make room', quick: 'Quick touch', can_wait: 'Can wait' };
-  const PRIORITY_RANK: Record<string, number> = { now: 0, make_room: 1, quick: 2, can_wait: 3 };
   const ICON = { local: 'notes', jira: 'jira', obsidian: 'obsidian' } as const;
   const SOURCES = [
     { key: 'all', label: 'All' },
@@ -19,8 +17,8 @@
     { key: 'jira', label: 'Jira' },
     { key: 'obsidian', label: 'Obsidian' },
   ] as const;
-  type SortKey = 'due' | 'title' | 'status' | 'topic' | 'priority' | 'estimate';
-  const SORTS: SortKey[] = ['due', 'priority', 'estimate', 'topic', 'status', 'title'];
+  type SortKey = 'due' | 'sched' | 'title' | 'status' | 'topic' | 'priority' | 'estimate';
+  const SORTS: SortKey[] = ['due', 'priority', 'estimate', 'sched', 'topic', 'status', 'title'];
   function parseDur(v: string): number | null | undefined {
     const t = v.trim().toLowerCase().replace(/\s+/g, '');
     if (!t) return null;
@@ -47,6 +45,8 @@
   let err = $state<string | null>(null);
   let filterEl = $state<HTMLInputElement>();
   let editing = $state<number | null>(null);
+  /** The todo whose scheduled day is being edited (`d`, local todos only). */
+  let scheduling = $state<number | null>(null);
   let open = $state<number | null>(null);
   let asked = false;
   const focusEl = (el: HTMLInputElement) => el.select();
@@ -89,7 +89,9 @@
       case 'due':
         return last(a.due) - last(b.due) || (a.due ?? '').localeCompare(b.due ?? '');
       case 'priority':
-        return (PRIORITY_RANK[a.priority ?? ''] ?? 9) - (PRIORITY_RANK[b.priority ?? ''] ?? 9);
+        return last(a.rank) - last(b.rank) || (a.rank ?? 0) - (b.rank ?? 0);
+      case 'sched':
+        return last(a.sched) - last(b.sched) || (a.sched ?? '').localeCompare(b.sched ?? '');
       case 'topic':
         return last(a.topic) - last(b.topic) || (a.topic?.name ?? '').localeCompare(b.topic?.name ?? '');
       case 'estimate':
@@ -156,6 +158,16 @@
     }
   }
 
+  async function setSched(t: Todo, value: string) {
+    scheduling = null;
+    try {
+      await call('todos.schedule', { item_id: t.item_id, sched: value || null });
+      err = null;
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    }
+  }
+
   async function create(d: Draft) {
     try {
       await call('todos.create', d);
@@ -168,8 +180,9 @@
   }
 
   useKeys((e) => {
-    if (creating || editing !== null) return;
+    if (creating || editing !== null || scheduling !== null) return;
     if (plain(e, 'e')) return current && !isEpic(current) && (editing = current.item_id), true;
+    if (plain(e, 'd')) return current?.ext.type === 'local' && (scheduling = current.item_id), true;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
     if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
     if (plain(e, 'x') || plain(e, ' ')) return toggle(current), true;
@@ -212,6 +225,7 @@
         <button onclick={() => sortBy('topic')}>Topic{#if sort.key === 'topic'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
         <button onclick={() => sortBy('priority')}>Priority{#if sort.key === 'priority'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
         <button onclick={() => sortBy('estimate')}>Est.{#if sort.key === 'estimate'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('sched')}>Sched{#if sort.key === 'sched'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
         <button onclick={() => sortBy('due')}>Due{#if sort.key === 'due'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
       </div>
       <div class="body scroll">
@@ -232,7 +246,7 @@
             <span class="topic ellipsis">
               {#if t.topic}<span class="cbar" style:background={catColor(t.topic.category)}></span>{t.topic.name}{:else}<span class="none">No topic</span>{/if}
             </span>
-            <span class="muted">{t.priority ? PRIORITY[t.priority] : ''}</span>
+            <span class="muted tnum" title="Place in the Priorities tab's Priority column">{t.rank ? `#${t.rank}` : ''}</span>
             {#if isEpic(t)}
               <span class="muted" title="Epics aren't estimated: you track them, the work is in their issues">-</span>
             {:else if editing === t.item_id}
@@ -257,6 +271,27 @@
                 {#if t.estimate && t.estimate.minutes > 120}<span class="split" title="Over 2h: worth breaking up?">split?</span>{/if}
               </button>
             {/if}
+            {#if scheduling === t.item_id}
+              <input
+                class="input sm sched-pick"
+                type="date"
+                use:focusEl
+                value={t.sched ?? ''}
+                title="↵ save · empty clears · esc"
+                onblur={() => (scheduling = null)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') setSched(t, e.currentTarget.value);
+                  else if (e.key === 'Escape') scheduling = null;
+                  else return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              />
+            {:else if t.ext.type === 'local'}
+              <button class="est tnum" title="Scheduled: the day you mean to do it · d to change" onclick={(e) => (e.stopPropagation(), (scheduling = t.item_id))}>{t.sched_label ?? '—'}</button>
+            {:else}
+              <span></span>
+            {/if}
             <span class="tnum" class:overdue={t.overdue && !done}>{done ? 'Done' : (t.due_label ?? '')}</span>
           </div>
           {#if open === t.item_id && signalOf(t) !== null}
@@ -277,6 +312,7 @@
         <span><kbd>n</kbd> new todo</span>
         <span><kbd>/</kbd> filter</span>
         <span><kbd>e</kbd> estimate</span>
+        {#if current?.ext.type === 'local'}<span><kbd>d</kbd> schedule</span>{/if}
         <span><kbd>s</kbd> sort</span>
         <span><kbd>o</kbd> open source</span>
         {#if signalOf(current) !== null}<span><kbd>{open === sel ? 'Esc' : '↵'}</kbd> signal</span>{/if}
@@ -331,7 +367,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr) 190px 220px 110px 96px 90px;
+    grid-template-columns: 28px minmax(0, 1fr) 190px 220px 80px 96px 90px 90px;
     gap: 12px;
     align-items: center;
     padding: 7px 16px;

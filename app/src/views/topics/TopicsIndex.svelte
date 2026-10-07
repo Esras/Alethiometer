@@ -7,6 +7,7 @@
   // (in the filter: ↑/↓ move, ↵ opens, Esc leaves). m merges the
   // selected topic into another; it's staged ("merged into B · u undo") and
   // written when you leave the index (lib/merges.svelte.ts).
+  import { cyclePriority, PRIORITY_NAME } from '../../lib/topicPriority';
   import { onDestroy, tick } from 'svelte';
   import { call } from '../../lib/api';
   import { live } from '../../lib/live';
@@ -124,6 +125,15 @@
     }
   }
 
+  async function setPriority(t: TopicRow) {
+    try {
+      await cyclePriority(t.id, t.priority);
+      err = null;
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    }
+  }
+
   async function setCategory(id: number, key: string) {
     picking = null;
     try {
@@ -167,6 +177,7 @@
     if (plain(e, 'a')) return toggleArchive(current), true;
     if (plain(e, 'n')) return create(), true;
     if (plain(e, 'c')) return current && (picking = current.id), true;
+    if (plain(e, 'p')) return current && setPriority(current), true;
     if (plain(e, '[')) return cycleCat(-1), true;
     if (plain(e, ']')) return cycleCat(1), true;
     if (plain(e, 'm')) return current && !archived && (merging = current), true;
@@ -186,6 +197,7 @@
     <div class="min0">
       <div class="name">
         <span class="ellipsis" title={t.name}>{t.name}</span>
+        {#if t.priority}<span class="mono-tag prio" title="Priority: {PRIORITY_NAME[t.priority]} (p)">{t.priority}</span>{/if}
         {#if t.new_count > 0}<span class="count new tnum">{t.new_count} new</span>{/if}
       </div>
       {#if merge}
@@ -271,7 +283,7 @@
     <DockHost left={18} />
     <div class="hint-bar">
       <span><kbd>j</kbd> <kbd>k</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>/</kbd> filter</span>
-      <span><kbd>a</kbd> {archived ? 'unarchive' : 'archive'}</span><span><kbd>c</kbd> category</span><span><kbd>[</kbd> <kbd>]</kbd> filter chip</span><span><kbd>n</kbd> new topic</span>{#if !archived}<span><kbd>m</kbd> merge</span>{/if}
+      <span><kbd>a</kbd> {archived ? 'unarchive' : 'archive'}</span><span><kbd>c</kbd> category</span><span><kbd>p</kbd> priority</span><span><kbd>[</kbd> <kbd>]</kbd> filter chip</span><span><kbd>n</kbd> new topic</span>{#if !archived}<span><kbd>m</kbd> merge</span>{/if}
       {#if merges.list.length}<span><kbd>u</kbd> undo merge</span>{/if}
       {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
     </div>
@@ -377,6 +389,11 @@
   }
   .count.new {
     flex: none;
+  }
+  .prio {
+    flex: none;
+    font-weight: 400;
+    color: var(--tx-2);
   }
   .path {
     font-size: 0.8846rem;
