@@ -56,7 +56,7 @@ pub struct TodoFacts {
 }
 
 pub trait PriorityViews {
-    /// Open todos you own (local, Jira and Obsidian tasks), by item id.
+    /// Open todos you own (local, Jira and Obsidian tasks) and asks you delegated from Notes, by item id.
     fn facts(&self) -> Result<Vec<TodoFacts>>;
     /// Every open work item confirmed under a topic that someone owns (yours and
     /// other people's: tasks, issues, emails), as a topic's Open panel lists them.

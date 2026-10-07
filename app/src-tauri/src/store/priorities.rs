@@ -7,8 +7,12 @@ use crate::error::Result;
 use crate::time::{Date, Due, Ts};
 use rusqlite::params;
 
-/// Your open todos: local and Obsidian tasks, Jira issues.
-const YOURS: &str = "i.owner = 'you' AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue'))";
+/// What Priorities ranks: your open todos (local and Obsidian tasks, Jira
+/// issues) and the asks you delegated from Notes (`^@name` lines, owned by the
+/// delegate, or by nobody when the line names no one), scored the same way
+/// (user, 2026-10-07).
+const TODOS: &str = "(i.owner = 'you' AND ((s.kind IN ('notes', 'obsidian') AND i.kind = 'task') OR (s.kind = 'jira' AND i.kind = 'issue')))
+     OR (s.kind = 'notes' AND i.kind = 'task' AND json_valid(i.raw_json) AND json_extract(i.raw_json, '$.kind') = 'delegated')";
 
 impl Sql<'_> {
     /// The facts of open work items matching `which` (SQL over `items i` and `sources s`).
@@ -113,7 +117,7 @@ impl Sql<'_> {
 
 impl PriorityViews for Sql<'_> {
     fn facts(&self) -> Result<Vec<TodoFacts>> {
-        self.facts_where(YOURS, rusqlite::params![])
+        self.facts_where(TODOS, rusqlite::params![])
     }
 
     fn topic_facts(&self, topic_id: i64) -> Result<Vec<TodoFacts>> {

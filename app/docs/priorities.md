@@ -80,7 +80,7 @@ Code: `store/priorities.rs` (each open todo's facts, one query), `queries/priori
 
 - **Where the score is computed (user, 2026-10-07):** the database gives each todo's raw facts; Rust resolves people (the Resolver decides who is "you" and whose People note has which weight) and computes the curves, groups and score as pure functions. A plain view couldn't read the Clock (`fake_now`) or `settings.json`. Nothing is written, so AGENTS.md's "never written twice" holds.
 - **Settings:** `settings.json` › `priorities` (file only; not on a Settings screen yet): `coefficients`, `neglect` (`age`, `quiet`), `quick_max_minutes` (30), `tags` (`name`, `coefficient`, `feeds`: value / pressure / effort).
-- **Which todos:** open, owned by you, local / Jira / Obsidian tasks on work sources, as the Todos tab. Jira epics and `todo_exclude_projects` are left out.
+- **Which todos:** open, owned by you, local / Jira / Obsidian tasks on work sources, as the Todos tab, plus the asks you delegated from Notes. Jira epics and `todo_exclude_projects` are left out.
 - **New inputs:** `items.sched_day` (local todos: `todos.schedule`, TodoForm's Scheduled field, a held todo's `sched`); `items.source_created_at` (Jira `created`); `topics.priority` (`topics.set_priority`); `people.weight` (a People note's `weight`, clamped to 0–1); Jira `issuelinks` in the sync's fields; `item_tags` / `topic_tags` (storage only).
 - **Every table has `created_at` and `updated_at`** (user, 2026-10-06), kept by the database (`store/timestamps.rs`, see `db-plan.md`).
 - **Screens for the new inputs** (user, 2026-10-07): `p` cycles a topic's priority (H → M → L → none) on the Topics index and on a topic page; the Todos tab has a Sched column for local todos, edited with `d`; TodoForm has a Scheduled field for local todos.
@@ -98,7 +98,7 @@ Code: `store/priorities.rs` (each open todo's facts, one query), `queries/priori
 - **Topic priority:** H, M, L or none.
 - **Effort pills:** only "AI guess" / "your estimate" (coloured by size). The mock's "one click", "hand off", "needs a review meeting" were tags, not effort.
 - **Reason pills:** coloured by their share of the score: red for a third or more, yellow from a sixth, green below. Only factors that added to the score get a pill.
-- **Delegated asks:** not included yet (they're notes-source items owned by the delegate, so they were never todos).
+- **Delegated asks** (Notes `^@name` lines) are in, scored exactly like your todos (user, 2026-10-07). They carry no estimate, and none is guessed: they aren't yours to do, so they can't be quick wins and sit at the bottom of Quick wins. They aren't in the Todos tab. A Notes line has no due date or thread yet, so for now they score mostly on their topic.
 - **Neglect:** 0.4 × age days + 0.6 × quiet days, both weights settings. Age runs from the source's own created time where it gives one (Jira), else when Alethiometer stored the todo. Quiet time runs from the latest of: the newest non-bot message on its thread, the todo's `updated_at` (any change to the row), its topic link's `updated_at`, its creation.
 - **No estimate:** Jira epics are left out of Priorities; other unestimated todos sit at the bottom of Quick wins, faded, and Effort counts 0.
 - **Date filter:** Overdue, Today, Next 7 days, Later, No date (plain day counts, no week boundary). A row's date is its hard due date, else its soft one.
@@ -115,14 +115,13 @@ Code: `store/priorities.rs` (each open todo's facts, one query), `queries/priori
 
 - Heat (thread and topic) and its baseline; the early-days cap.
 - Tag suggestions (the small model's pass, the Incoming section) and any tag UI; the vocabulary is empty by default.
-- Delegated asks.
 - A Settings screen for the coefficients; a page for experimenting with sorts and coefficients.
 - In the design system artifact: decision 14 (Priorities compact) and dropping the Priorities exceptions in decisions 3 and 12. The code follows them; the artifact isn't updated.
 
 ## Not yet designed (from the design pass)
 
 - ~~**Who asked** has no weights~~ Settled: a `weight` per person in their People note (its coefficient starts at 0).
-- **Delegated asks** are other people's work, so Value, Pressure and Effort mean something different. A guess: value from the topic, pressure from how far past due, effort tiny (a nudge).
+- ~~**Delegated asks** mean something different~~ Settled (user, 2026-10-07): the same factors as your todos; no estimate, so never a quick win.
 - **The heat baseline:** per topic, per channel, over what window. Best worked out on the work Mac against real signals.
 - **The 0-to-1 curves** for factors Taskwarrior doesn't have: first versions built ("Decided while building"), at coefficient 0 until tuned on real data.
 - **Effort in the Priority score:** built, coefficient 0 until picked.

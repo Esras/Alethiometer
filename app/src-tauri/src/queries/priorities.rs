@@ -812,6 +812,34 @@ mod tests {
     }
 
     #[test]
+    fn delegated_asks_are_scored_the_same_and_are_never_quick_wins() {
+        let (conn, clock, dir) = setup();
+        let notes: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'notes'", [], |r| r.get(0)).unwrap();
+        for (ext, title, owner) in [("notes-line-901", "@Jordan check the retry storm's reach", Some("Jordan")), ("notes-line-902", "^ someone books the room", None)] {
+            conn.execute(
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, owner, seen, raw_json)
+                 VALUES (?1, ?2, 'task', ?3, '2026-09-24T09:00:00.000Z', 'open', ?4, 1, '{\"notes_line_id\": 901, \"kind\": \"delegated\"}')",
+                rusqlite::params![notes, ext, title, owner],
+            )
+            .unwrap();
+            let id = conn.last_insert_rowid();
+            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, (SELECT id FROM topics WHERE name = 'Acme outage'), 'confirmed')", [id]).unwrap();
+        }
+        let l = scored(&conn, &clock, &Settings::default());
+        let ask = row(&l, "@Jordan check the retry storm's reach");
+        assert_eq!(ask.value, 6.0, "its topic's priority, as for your own todos");
+        assert!(ask.estimate.is_none());
+        let unnamed = row(&l, "^ someone books the room").item_id;
+        let quick = &l.orders.quick;
+        let first_unestimated = quick.iter().position(|id| l.todos.iter().find(|r| r.item_id == *id).unwrap().estimate.is_none()).unwrap();
+        assert!(quick[first_unestimated..].contains(&ask.item_id) && quick[first_unestimated..].contains(&unnamed), "at the bottom of Quick wins");
+        // They aren't your todos: the Todos tab doesn't list them, so the AI doesn't estimate them.
+        let app = App::from_parts(conn, Settings::default(), dir.path()).unwrap();
+        let todos = crate::api::call(&app, "todos.list", &json!({})).unwrap();
+        assert!(!todos["todos"].as_array().unwrap().iter().any(|t| t["item_id"] == ask.item_id));
+    }
+
+    #[test]
     fn personal_and_done_todos_are_left_out() {
         let (conn, clock, _d) = setup();
         conn.execute(

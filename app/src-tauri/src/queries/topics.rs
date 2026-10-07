@@ -804,7 +804,7 @@ mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
         // Kim's item gets a due date today: it outranks your undated todos.
-        app.db().execute("UPDATE items SET due_day = date('now') WHERE title = 'Legal redlines back to vendor'", []).unwrap();
+        app.db().execute("UPDATE items SET due_day = ?1 WHERE title = 'Legal redlines back to vendor'", [app.clock.today().to_string()]).unwrap();
         let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
         let scores = app.store().read(|r| crate::queries::priorities::topic_scores(r, &app.clock, &app.settings(), id)).unwrap();
         let open = v["open"].as_array().unwrap();
