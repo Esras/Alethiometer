@@ -16,6 +16,8 @@
 // call the way pi-acp does for an extension's prompt: the request repeats
 // only the call's id and title, with the gate's text as content. FAKE_ACP_MODE=pigate
 // is that with pi's own prompt: a field list restating a long multi-line command.
+// FAKE_ACP_NAME is its agentInfo name (e.g. claude-agent-acp's); FAKE_ACP_SAY_MODE=1
+// adds the permission mode it's in to the gate's output.
 
 import readline from 'node:readline';
 
@@ -36,7 +38,7 @@ const configOptions = () => [
   { id: 'model', currentValue: MODELS.currentModelId, options: [] },
   { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: effort, options: ['default', 'low', 'medium', 'high'].map((v) => ({ value: v, name: v })) },
 ];
-const MODES = { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'acceptEdits', name: 'Accept Edits' }, { id: 'plan', name: 'Plan' }] };
+const MODES = { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }, { id: 'acceptEdits', name: 'Accept Edits' }, { id: 'plan', name: 'Plan' }, { id: 'auto', name: 'Auto' }] };
 
 function request(method, params) {
   const id = nextId++;
@@ -151,7 +153,8 @@ async function gate(cmd = 'rm -rf build && node scripts/clean.js', text = 'Dange
     ],
   });
   update({ sessionUpdate: 'tool_call_update', toolCallId: 'g1', status: 'completed', content: [] });
-  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `gate: ${r?.outcome?.optionId ?? 'none'}` } });
+  const said = process.env.FAKE_ACP_SAY_MODE === '1' ? ` · ${mode}` : '';
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `gate: ${r?.outcome?.optionId ?? 'none'}${said}` } });
   return 'end_turn';
 }
 
@@ -236,7 +239,12 @@ rl.on('line', async (line) => {
   switch (m.method) {
     case 'initialize':
       elicits = !!m.params?.clientCapabilities?.elicitation?.form;
-      return reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } }, authMethods: [] });
+      return reply({
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } },
+        authMethods: [],
+        ...(process.env.FAKE_ACP_NAME ? { agentInfo: { name: process.env.FAKE_ACP_NAME, version: '0.0.0' } } : {}),
+      });
     case 'session/new':
       session = `fake-${Date.now().toString(36)}`;
       return reply({ sessionId: session, modes: MODES, models: MODELS, configOptions: configOptions() });

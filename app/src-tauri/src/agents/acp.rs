@@ -245,7 +245,7 @@ pub fn host_label() -> String {
 
 /// The login shell's PATH: apps started from the Dock get a minimal one, and
 /// npx (or the adapter) usually lives somewhere the shell's profile adds.
-fn login_path() -> String {
+pub(super) fn login_path() -> String {
     static P: OnceLock<String> = OnceLock::new();
     P.get_or_init(|| {
         let current = std::env::var("PATH").unwrap_or_default();
@@ -335,7 +335,7 @@ pub fn env_changed(watches: &[super::model::EnvWatch]) -> bool {
 }
 
 /// Where `cmd` is on the login PATH, or None.
-fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
+pub(super) fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
     if cmd.contains('/') {
         let p = std::path::PathBuf::from(cmd);
         return p.exists().then_some(p);
@@ -351,9 +351,22 @@ pub struct StartArgs {
     pub task: String,
     pub model: Option<String>,
     pub thinking: Option<String>,
+    /// Run it in an OpenShell sandbox instead of on this machine.
+    pub sandbox: Option<SandboxStart>,
 }
 
-fn expand_home(p: &str) -> String {
+/// Where in OpenShell: a new sandbox made from the harness's settings with
+/// `cwd` uploaded into it, or an existing one with `workdir` inside it.
+pub struct SandboxStart {
+    pub gateway: String,
+    /// An existing sandbox; None makes one.
+    pub existing: Option<String>,
+    pub workdir: String,
+    /// The new sandbox's image; empty is the harness's `openshell.from`.
+    pub from: String,
+}
+
+pub(super) fn expand_home(p: &str) -> String {
     match (p.strip_prefix('~'), dirs::home_dir()) {
         (Some(rest), Some(h)) => format!("{}{rest}", h.display()),
         _ => p.to_owned(),
@@ -382,10 +395,32 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     let settings = app.settings();
     let h = settings.agents.harnesses.iter().find(|h| h.key == a.harness).ok_or_else(|| msg(format!("no harness '{}' in agents.harnesses", a.harness)))?;
     let cwd = expand_home(a.cwd.trim());
-    if !std::path::Path::new(&cwd).is_dir() {
+    let existing = a.sandbox.as_ref().and_then(|b| b.existing.clone());
+    if existing.is_none() && !std::path::Path::new(&cwd).is_dir() {
         return Err(msg(format!("{} isn't a directory", a.cwd)));
     }
+    if existing.is_some() && !a.sandbox.as_ref().is_some_and(|b| b.workdir.trim().starts_with('/')) {
+        return Err(msg("Give its directory inside the sandbox, from / (e.g. /sandbox/project)"));
+    }
+    if a.sandbox.is_some() && super::openshell::cli(&settings.agents.openshell.command).is_none() {
+        return Err(msg(format!("{} isn't on your PATH (agents.openshell.command)", settings.agents.openshell.command)));
+    }
     let id = format!("acp-{:08x}", rand_u32());
+    // An existing sandbox runs in the directory given inside it; a new one, in the upload (known once it's made).
+    let sandbox = a.sandbox.as_ref().map(|b| super::model::Sandbox {
+        gateway: b.gateway.trim().to_owned(),
+        name: existing.clone().unwrap_or_else(|| super::openshell::sandbox_name(&id)),
+        upload: if existing.is_some() { String::new() } else { cwd.clone() },
+        allow_all: false,
+    });
+    let cwd = match (&existing, a.sandbox.as_ref()) {
+        (Some(_), Some(b)) => b.workdir.trim().to_owned(),
+        _ => cwd,
+    };
+    let place = match &sandbox {
+        Some(b) => format!("openshell · {} · {}", if b.gateway.is_empty() { "active gateway" } else { &b.gateway }, b.name),
+        None => format!("local · {}", tilde(&cwd)),
+    };
     let name = a.name.clone().filter(|n| !n.trim().is_empty()).map(|n| n.trim().to_owned()).unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
     let group_key = a.group_id.clone().unwrap_or_else(|| "unsorted".into());
     let color = super::store::color_for(app.store(), &group_key, &id, settings.agents.names.palette.len())?;
@@ -398,12 +433,13 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         name,
         template: h.key.clone(),
         harness: h.label.clone(),
-        host: host_label(),
+        host: sandbox.as_ref().map(|b| if b.gateway.is_empty() { "openshell".to_owned() } else { b.gateway.clone() }).unwrap_or_else(host_label),
         cwd: cwd.clone(),
         status: Status::Running,
         title,
         subtitle,
-        context: format!("local · {}", tilde(&cwd)),
+        context: place.clone(),
+        sandbox: sandbox.clone(),
         created_at: ts.clone(),
         active_at: ts.clone(),
         color,
@@ -413,16 +449,34 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     {
         let mut i = app.agents.store.lock();
         i.put_session(s);
-        i.push_row(&session_thread(&id), state_row(&ts, &format!("Session started · {} · {} · {}", h.label, host_label(), tilde(&cwd))));
+        let at = if sandbox.is_some() { place.clone() } else { format!("{} · {}", host_label(), tilde(&cwd)) };
+        i.push_row(&session_thread(&id), state_row(&ts, &format!("Session started · {} · {at}", h.label)));
     }
     let task = a.task.trim().to_owned();
     let model = a.model.clone();
     let thinking = a.thinking.clone();
+    // A new sandbox: made (and the directory uploaded) before the adapter starts in it.
+    let make = match (&sandbox, existing) {
+        (Some(b), None) => {
+            let o = h.openshell.clone().unwrap_or_default();
+            let from = a.sandbox.as_ref().map(|s| s.from.trim().to_owned()).filter(|f| !f.is_empty()).unwrap_or(o.from);
+            Some(super::openshell::NewSandbox { gateway: b.gateway.clone(), name: b.name.clone(), from, providers: o.providers, policy: o.policy, upload: b.upload.clone() })
+        }
+        _ => None,
+    };
     let Some(arc) = app.arc() else { return Ok(id) };
+    // Running but not in the agent host yet (a sandbox can take minutes to make): a reattach must leave it be.
+    app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
     let sid = id.clone();
     std::thread::spawn(move || {
         let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true, vec![]));
-        match connect(&arc, &sid, None) {
+        let made = match make {
+            Some(n) => make_sandbox(&arc, &sid, &n).map_err(|e| format!("couldn't create sandbox {} · {e}", n.name)),
+            None => Ok(()),
+        };
+        let connected = made.and_then(|_| connect(&arc, &sid, None).map_err(|e| e.to_string()));
+        arc.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&sid);
+        match connected {
             Ok(conn) => {
                 if let Some(m) = model {
                     set_model(&arc, &conn, &sid, &m);
@@ -438,12 +492,25 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
                     set_status(&arc, &sid, Status::Idle);
                 }
             }
-            Err(e) => fail(&arc, &sid, &e.to_string()),
+            Err(e) => fail(&arc, &sid, &e),
         }
         super::facts::refresh(&arc, &sid);
         super::guess::suggest(&arc, &sid);
     });
     Ok(id)
+}
+
+/// Create the session's sandbox and upload its directory; the session then runs where the upload landed.
+fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result<()> {
+    let from = if n.from.is_empty() { "the gateway's default image".to_owned() } else { n.from.clone() };
+    let ts = now(app);
+    app.agents.store.lock().push_row(&session_thread(id), state_row(&ts, &format!("Creating sandbox {} from {from} · uploading {}", n.name, tilde(&n.upload))));
+    let workdir = super::openshell::create(&app.settings().agents.openshell.command, n)?;
+    let ts = now(app);
+    let mut i = app.agents.store.lock();
+    i.update_session(id, |s| s.cwd = workdir.clone());
+    i.push_row(&session_thread(id), state_row(&ts, &format!("Sandbox {} ready · {} → {workdir}", n.name, tilde(&n.upload))));
+    Ok(())
 }
 
 fn set_model(app: &App, conn: &Conn, id: &str, model: &str) {
@@ -588,24 +655,37 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     let settings = app.settings();
     let h = settings.agents.harnesses.iter().find(|h| h.key == s.template).ok_or_else(|| msg(format!("the {} harness is gone from settings", s.template)))?;
     let path = login_path();
-    let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH (agents.harnesses.{}.command)", h.command, h.key)))?;
+    // In a sandbox, the agent host runs the OpenShell CLI, which runs the adapter there.
+    let (exe, args, spawn_cwd) = match &s.sandbox {
+        Some(sb) => {
+            let cli = &settings.agents.openshell.command;
+            let exe = which(cli, &path).ok_or_else(|| msg(format!("{cli} isn't on your PATH (agents.openshell.command)")))?;
+            super::openshell::ensure_started(cli, sb).map_err(|e| msg(format!("couldn't start sandbox {} · {e}", sb.name)))?;
+            let local = Some(sb.upload.clone()).filter(|d| std::path::Path::new(d).is_dir()).or_else(|| dirs::home_dir().map(|d| d.display().to_string())).unwrap_or_else(|| "/".into());
+            (exe, super::openshell::exec_args(sb, &s.cwd, h), local)
+        }
+        None => {
+            let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH (agents.harnesses.{}.command)", h.command, h.key)))?;
+            (exe, h.args.clone(), s.cwd.clone())
+        }
+    };
     // A new process starts its turn over; its events keep counting from where the log was read.
     let after = app.agents.store.lock().hosts.get(id).map(|h| h.seq).unwrap_or(0);
     app.agents.store.lock().set_host(id, HostState { seq: after, turn: Value::Null });
     let conn = Arc::new(Conn::new(app, id, Turn::default(), true));
     app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), conn.clone());
-    let mut env = direnv_env(&s.cwd, &path);
+    // The project's devshell is this machine's; a sandbox has its own environment (the harness's `openshell.env`).
+    let mut env = if s.sandbox.is_some() { BTreeMap::new() } else { direnv_env(&s.cwd, &path) };
     let watches = direnv_watches(&env);
     app.agents.store.lock().update_session(id, |s| {
         s.env_watches = watches;
         s.env_changed = false;
     });
     env.entry("PATH".into()).or_insert(path);
-    env.extend(h.env.clone());
-    let spawned = daemon::call(
-        app,
-        &dproto::Request::Spawn { id: id.to_owned(), cmd: exe.display().to_string(), args: h.args.clone(), env, cwd: s.cwd.clone(), after },
-    );
+    if s.sandbox.is_none() {
+        env.extend(h.env.clone());
+    }
+    let spawned = daemon::call(app, &dproto::Request::Spawn { id: id.to_owned(), cmd: exe.display().to_string(), args, env, cwd: spawn_cwd, after });
     if let Err(e) = spawned {
         conn.alive.store(false, Ordering::SeqCst);
         return Err(e);
@@ -652,12 +732,13 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         e
     })?;
     conn.turn.lock().unwrap_or_else(|e| e.into_inner()).sid = sid.clone();
-    // In-project edits are the agent's call to let through (agents.accept_edits).
-    if settings.agents.accept_edits {
-        if let Some(mode) = accept_edits_mode(&opened) {
-            if let Err(e) = conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": mode }), Some(CALL_TIMEOUT)) {
-                eprintln!("agents: couldn't switch {id} to {mode}: {e}");
-            }
+    // In a sandbox, Claude Code decides in its auto mode and other agents ask nothing (`openshell::mode`).
+    // Otherwise in-project edits are the agent's call to let through (agents.accept_edits).
+    let allow_all = s.sandbox.is_some() && !super::openshell::is_claude(&init);
+    let mode = if s.sandbox.is_some() { super::openshell::mode(&init, &opened) } else { settings.agents.accept_edits.then(|| accept_edits_mode(&opened)).flatten() };
+    if let Some(mode) = mode {
+        if let Err(e) = conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": mode }), Some(CALL_TIMEOUT)) {
+            eprintln!("agents: couldn't switch {id} to {mode}: {e}");
         }
     }
     let model = model_of(&opened);
@@ -666,6 +747,9 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         s.thinking = thinking;
         s.ext = sid;
         s.live = true;
+        if let Some(b) = s.sandbox.as_mut() {
+            b.allow_all = allow_all;
+        }
         s.problem.clear();
         if let Some(m) = model {
             s.model = m;
@@ -848,6 +932,8 @@ pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
             }
             // Exited while we were away: its events (ending in the exit) are still to come.
             Some(false) => {}
+            // Being started or reattached right now: not in the host yet.
+            None if app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).contains(&s.id) => {}
             None => {
                 // Nothing in the host: whatever it was doing is over.
                 if matches!(s.status, Status::Running | Status::Waiting) {
@@ -1346,6 +1432,7 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
                 active_at: ts.into(),
                 color,
                 live: true,
+                sandbox: parent.sandbox.clone(),
                 ..Default::default()
             });
             let row = Row {
@@ -1568,9 +1655,13 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         target(&turn, &session, p.get("toolCall").unwrap_or(&Value::Null)).0
     };
     let _ = target;
+    // An agent whose checks are off in its sandbox gets its own allow option at once (`openshell::allow_option`).
+    let auto = s.sandbox.as_ref().filter(|b| b.allow_all).and_then(|_| super::openshell::allow_option(&req.options)).map(|o| o.id.clone());
     {
         let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone(), method: "session/request_permission".into() });
+        if auto.is_none() {
+            turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id.clone(), params: p.clone(), method: "session/request_permission".into() });
+        }
         let mut i = app.agents.store.lock();
         let existing = turn.tools.get(&call).map(|(_, id, _)| *id);
         let row_id = match existing {
@@ -1583,14 +1674,28 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
                 id
             }
         };
-        i.update_row(&key, row_id, |r| {
-            r.kind = Kind::Approval;
-            r.label = "needs approval".into();
-            r.request = Some(req_id.clone());
-            r.text = if kind == "execute" || name == "bash" { command.clone() } else { detail.clone() };
-        });
-        i.put_request(req);
-        i.update_session(&session, |s| s.status = Status::Waiting);
+        if auto.is_some() {
+            if let Some(entry) = turn.tools.get_mut(&call) {
+                entry.2 = now_ms();
+            }
+            let hm = app.clock.local_now().strftime("%H:%M").to_string();
+            i.update_row(&key, row_id, |r| r.note = format!("allowed in the sandbox at {hm}"));
+        } else {
+            i.update_row(&key, row_id, |r| {
+                r.kind = Kind::Approval;
+                r.label = "needs approval".into();
+                r.request = Some(req_id.clone());
+                r.text = if kind == "execute" || name == "bash" { command.clone() } else { detail.clone() };
+            });
+            i.put_request(req);
+            i.update_session(&session, |s| s.status = Status::Waiting);
+        }
+    }
+    if let Some(option) = auto {
+        if let Err(e) = conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": option } })) {
+            eprintln!("agents: couldn't allow {req_id} in the sandbox: {e}");
+        }
+        return;
     }
     super::explain::request(app, &req_id);
 }
@@ -2124,7 +2229,8 @@ pub fn recent_dirs(app: &App) -> Vec<String> {
     s.sort_by(|a, b| b.active_at.cmp(&a.active_at));
     let mut out: Vec<String> = vec![];
     for x in s {
-        let d = tilde(&x.cwd);
+        // A sandboxed session's directory is inside its sandbox; the one it was uploaded from is this machine's.
+        let d = tilde(x.sandbox.as_ref().map(|b| b.upload.as_str()).unwrap_or(&x.cwd));
         if !d.is_empty() && !out.contains(&d) {
             out.push(d);
         }

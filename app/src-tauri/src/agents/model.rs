@@ -116,6 +116,22 @@ pub struct Session {
     pub env_watches: Vec<EnvWatch>,
     #[serde(default)]
     pub env_changed: bool,
+    /// Local only: the OpenShell sandbox its adapter runs in (`cwd` is then a path inside it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<Sandbox>,
+}
+
+/// Where an OpenShell session runs (`agents/openshell.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct Sandbox {
+    /// Gateway name as `openshell gateway list` shows it; empty is the CLI's active gateway.
+    pub gateway: String,
+    pub name: String,
+    /// The local directory uploaded into it, when Alethiometer created it.
+    pub upload: String,
+    /// Its permission requests are answered with the agent's own allow option (any agent but Claude Code, which runs in auto mode).
+    pub allow_all: bool,
 }
 
 /// One of direnv's watched files (`.envrc`, `flake.lock`…) as it was.

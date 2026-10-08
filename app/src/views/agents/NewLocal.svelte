@@ -3,6 +3,8 @@
   // New local agent in the new-agent modal (05), for an ACP harness
   // Alethiometer launches itself; the harness signs in its own way. Joins shows
   // the group it lands in. The model list comes from the harness itself.
+  // Under OpenShell (Where) the harness runs in a sandbox on a gateway the
+  // OpenShell CLI knows: a new one with the directory uploaded, or one that's there.
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
   import { chord } from '../../lib/keys.svelte';
@@ -33,6 +35,14 @@
   let busy = $state(false);
   let err = $state<string | null>(null);
   let taskEl = $state<HTMLTextAreaElement>();
+  type Gateway = { name: string; endpoint: string; remote: boolean; active: boolean };
+  const sandboxed = $derived(ag.form?.kind === 'local' && !!ag.form.openshell);
+  let gateways = $state<Gateway[]>([]);
+  let gateway = $state('');
+  let boxes = $state<{ name: string; phase: string }[]>([]);
+  let box = $state('');
+  let from = $state('');
+  let osNote = $state('');
 
   $effect.pre(() => {
     if (!harness && harnesses.length) harness = harnesses[0].key;
@@ -45,6 +55,34 @@
   $effect(() => {
     taskEl?.focus();
   });
+
+  $effect(() => {
+    if (!sandboxed || gateways.length) return;
+    osNote = 'asking openshell…';
+    call<Gateway[]>('agents.openshell_gateways')
+      .then((g) => {
+        gateways = g;
+        gateway = (g.find((x) => x.active) ?? g[0])?.name ?? '';
+        osNote = g.length ? '' : 'no gateways; add one with openshell gateway add';
+      })
+      .catch((e) => (osNote = String((e as Error).message ?? e)));
+  });
+  $effect(() => {
+    const gw = gateway;
+    if (!sandboxed || !gw) return;
+    boxes = [];
+    box = '';
+    call<{ name: string; phase: string }[]>('agents.openshell_sandboxes', { gateway: gw })
+      .then((b) => {
+        if (gw === gateway) boxes = b;
+      })
+      .catch(() => {});
+  });
+  // An existing sandbox's directory is a path inside it, not one of this machine's.
+  function pickBox(name: string) {
+    box = name;
+    if (name && dirs.includes(cwd)) cwd = '';
+  }
 
   $effect(() => {
     const k = harness;
@@ -87,7 +125,8 @@
         const r = await call<{ id: string }>('agents.group_create', { name: newName, goal: newGoal, cwd });
         g = r.id;
       }
-      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model, thinking })) as { id: string };
+      const sandbox = sandboxed ? { gateway, existing: box, workdir: cwd, from } : undefined;
+      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model, thinking, sandbox })) as { id: string };
       ag.sel = `s:${r.id}`;
       openThread(`s:${r.id}`);
       onClose();
@@ -107,7 +146,7 @@
   }
 </script>
 
-<NewModal sub="local · ACP" onStart={start} {onClose}>
+<NewModal sub={sandboxed ? 'OpenShell · ACP' : 'local · ACP'} onStart={start} {onClose}>
   <Joins
     project={g?.project ?? ''}
     name={groupId === 'new' ? newName || 'New group' : (g?.name ?? 'Unsorted')}
@@ -146,10 +185,35 @@
         <span class="note">{model ? 'levels of the default model' : 'from the harness'}</span>
       </span>
     {/if}
+    {#if sandboxed}
+      <span class="lab label">Gateway</span>
+      <span class="input">
+        <select bind:value={gateway}>
+          {#each gateways as x (x.name)}<option value={x.name}>{x.name} · {x.remote ? 'remote' : 'local'}{x.active ? ' · active' : ''}</option>{/each}
+        </select>
+        <span class="note">{osNote || gateways.find((x) => x.name === gateway)?.endpoint || ''}</span>
+      </span>
+      <span class="lab label">Sandbox</span>
+      <span class="input">
+        <select value={box} onchange={(e) => pickBox((e.currentTarget as HTMLSelectElement).value)}>
+          <option value="">New sandbox</option>
+          {#each boxes as b (b.name)}<option value={b.name}>{b.name} · {b.phase.toLowerCase()}</option>{/each}
+        </select>
+        <span class="note">{box ? 'the harness must be in its image' : 'made for this agent; kept after it stops'}</span>
+      </span>
+      {#if !box}
+        <span class="lab label">Image</span>
+        <span class="input"><input bind:value={from} placeholder={h?.sandbox_from || "the gateway's default"} /><span class="note">with {h?.sandbox_command?.split(' ')[0] || 'the adapter'} in it</span></span>
+      {/if}
+    {/if}
     <span class="lab label">Name</span>
     <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
     <span class="lab label">Directory</span>
-    <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">its working directory</span></span>
+    {#if sandboxed && box}
+      <span class="input"><input bind:value={cwd} placeholder="/sandbox/project" /><span class="note">inside the sandbox</span></span>
+    {:else}
+      <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">{sandboxed ? 'uploaded into the sandbox (.gitignore applies)' : 'its working directory'}</span></span>
+    {/if}
     <datalist id="agent-dirs">{#each dirs as d (d)}<option value={d}></option>{/each}</datalist>
     <span class="lab label">Group</span>
     <span class="input">
@@ -174,6 +238,10 @@
   {#snippet foot()}
     <button class="btn md primary" disabled={busy} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
     <button class="btn md" onclick={onClose}>Cancel<kbd>Esc</kbd></button>
-    <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
+    {#if sandboxed}
+      <span class="cmd"><i class="ph ph-terminal"></i><span>openshell{gateway ? ` -g ${gateway}` : ''} sandbox exec -n {box || 'aleth-…'} -- {h?.sandbox_command ?? ''}</span></span>
+    {:else}
+      <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
+    {/if}
   {/snippet}
 </NewModal>

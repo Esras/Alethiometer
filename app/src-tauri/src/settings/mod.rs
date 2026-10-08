@@ -303,6 +303,9 @@ pub struct AgentsSettings {
     /// a mode, or that never ask (Pi), are unaffected.
     #[schemars(extend("x-group" = "Approvals", "x-label" = "Let agents edit inside the project"))]
     pub accept_edits: bool,
+    /// Running harnesses inside OpenShell sandboxes (`app/docs/agents.md` › OpenShell).
+    #[schemars(extend("x-hidden" = true))]
+    pub openshell: OpenShellSettings,
     pub colors: AgentColors,
     pub names: AgentNames,
     pub boxes: AgentBoxes,
@@ -321,6 +324,40 @@ pub struct Harness {
     /// Minutes the prompt cache lasts after a turn, for the status line's estimate. Unset: 5 for Claude Code, nothing for others.
     #[serde(default)]
     pub cache_ttl_min: Option<u32>,
+    /// How this harness runs in an OpenShell sandbox. Unset: the same command, in the gateway's default image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openshell: Option<HarnessSandbox>,
+}
+
+/// A harness inside an OpenShell sandbox: the image that has its adapter, and the adapter's command there.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[serde(default)]
+pub struct HarnessSandbox {
+    /// Image (or rootfs tar) for a new sandbox (`sandbox create --from`). Empty: the gateway's default.
+    pub from: String,
+    /// OpenShell providers attached to a new sandbox (credentials, e.g. an Anthropic API key).
+    pub providers: Vec<String>,
+    /// A policy YAML file for a new sandbox. Empty: the gateway's default.
+    pub policy: String,
+    /// The adapter inside the sandbox. Empty: the harness's own command and args.
+    pub command: String,
+    pub args: Vec<String>,
+    /// Non-secret variables for the adapter (`sandbox exec --env`); secrets go in providers.
+    pub env: BTreeMap<String, String>,
+}
+
+/// The OpenShell CLI holds the gateways (local or remote) and their sign-in; Alethiometer only runs it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct OpenShellSettings {
+    /// The `openshell` CLI, looked up on the login shell's PATH.
+    pub command: String,
+}
+
+impl Default for OpenShellSettings {
+    fn default() -> Self {
+        OpenShellSettings { command: "openshell".into() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -396,10 +433,12 @@ impl Default for AgentsSettings {
             args: args.iter().map(|a| a.to_string()).collect(),
             env: BTreeMap::new(),
             cache_ttl_min: None,
+            openshell: None,
         };
         AgentsSettings {
             harnesses: vec![h("pi", "Pi", &["-y", "pi-acp"]), h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"])],
             accept_edits: true,
+            openshell: OpenShellSettings::default(),
             colors: AgentColors::default(),
             names: AgentNames::default(),
             boxes: AgentBoxes::default(),

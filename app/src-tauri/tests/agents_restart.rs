@@ -69,6 +69,7 @@ fn setup(dir: &Path, env: &[(&str, &str)]) -> std::thread::JoinHandle<std::io::R
         args: vec![fake.display().to_string()],
         env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         cache_ttl_min: None,
+        openshell: None,
     }];
     std::fs::write(dir.join("settings.json"), serde_json::to_string_pretty(&s).unwrap()).unwrap();
     // The app finds it on the socket and doesn't start its own.

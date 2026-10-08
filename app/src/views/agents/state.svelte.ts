@@ -18,7 +18,7 @@ export type Node =
   | { type: 'archived-label'; key: string; label: string; project: boolean }
   | { type: 'archived'; key: string; item: ArchivedItem };
 
-export type Form = { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null };
+export type Form = { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null; openshell?: boolean };
 
 export const ag = $state({
   tree: null as Tree | null,
@@ -148,8 +148,8 @@ export function openThread(key: string) {
   }
 }
 
-/** Open the new-agent form for a Hub project's group, or a local one (`null`). */
-export function openForm(g: Group | null, localGroup: string | null = null) {
+/** Open the new-agent form for a Hub project's group, or a local one (`null`), on this machine or in an OpenShell sandbox. */
+export function openForm(g: Group | null, localGroup: string | null = null, openshell = false) {
   if (g?.source === 'scion') {
     if (g.room) {
       ag.sel = `r:${g.room.id}`;
@@ -157,7 +157,7 @@ export function openForm(g: Group | null, localGroup: string | null = null) {
     }
     ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null };
   } else {
-    ag.form = { kind: 'local', group: localGroup };
+    ag.form = { kind: 'local', group: localGroup, openshell };
   }
 }
 

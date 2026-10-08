@@ -6,6 +6,8 @@
 //!   take part in rooms, and nothing here builds a channel between them.
 //! - Scion agents (`scion`): Alethiometer is a Hub client. Rooms, DMs and
 //!   delivery states all come from the Hub; there's no messaging layer here.
+//! - OpenShell (`openshell`): a local ACP session whose adapter runs in an
+//!   OpenShell sandbox, on a local or remote gateway.
 //!
 //! Local agents run in the agent host (`daemon`, `app/agentd`) so they outlive
 //! the app. The UI polls `agents.poll` with the last revision it saw (`store`).
@@ -18,6 +20,7 @@ pub mod facts;
 pub mod guess;
 pub mod incoming;
 pub mod model;
+pub mod openshell;
 pub mod scion;
 pub mod shell;
 pub mod store;
@@ -113,8 +116,19 @@ fn tree(app: &App) -> Value {
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
         "nudges": nudges,
         "hub_failed": i.hub_failed,
-        "harnesses": app.settings().agents.harnesses.iter().map(|h| json!({ "key": h.key, "label": h.label, "cache_ttl_min": h.cache_ttl_min, "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string() })).collect::<Vec<_>>(),
+        "harnesses": app.settings().agents.harnesses.iter().map(|h| {
+            let (cmd, args, _) = openshell::adapter(h);
+            json!({
+                "key": h.key,
+                "label": h.label,
+                "cache_ttl_min": h.cache_ttl_min,
+                "command": format!("{} {}", h.command, h.args.join(" ")).trim().to_string(),
+                "sandbox_command": format!("{cmd} {}", args.join(" ")).trim().to_string(),
+                "sandbox_from": h.openshell.as_ref().map(|o| o.from.clone()).unwrap_or_default(),
+            })
+        }).collect::<Vec<_>>(),
         "hubs": scion::hubs(app),
+        "openshell": openshell::cli(&app.settings().agents.openshell.command).is_some(),
         "agentd": daemon::status(app),
         "host": acp::host_label(),
     })
@@ -266,6 +280,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     task: opt(args, "task").unwrap_or("").to_owned(),
                     model: opt(args, "model").map(str::to_owned),
                     thinking: opt(args, "thinking").map(str::to_owned),
+                    sandbox: args.get("sandbox").filter(|v| v.is_object()).map(|b| acp::SandboxStart {
+                        gateway: opt(b, "gateway").unwrap_or("").to_owned(),
+                        existing: opt(b, "existing").map(str::to_owned),
+                        workdir: opt(b, "workdir").unwrap_or("").to_owned(),
+                        from: opt(b, "from").unwrap_or("").to_owned(),
+                    }),
                 },
             )?;
             Ok(json!({ "id": id }))
@@ -394,6 +414,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     .find_map(|g| g.room.as_ref().filter(|r| format!("r:{}", r.id) == id).map(|r| Session { url: r.url.clone(), source: "scion".into(), ..Default::default() }))
                     .ok_or_else(|| msg("nothing to open"))
             })?;
+            if let Some(sb) = s.sandbox.as_ref().filter(|_| s.source == "acp") {
+                // No editor reaches into a sandbox: both open a shell in it.
+                let line = openshell::terminal_command(&app.settings().agents.openshell.command, sb, &s.cwd);
+                app.platform.open_terminal("", Some(&line)).map_err(|e| msg(e.to_string()))?;
+                return Ok(json!({ "ok": true }));
+            }
             match (s.source.as_str(), how) {
                 ("acp", "terminal") => app.platform.open_terminal(&s.cwd, None).map_err(|e| msg(e.to_string()))?,
                 ("acp", _) => acp::open_in_editor(app, &s.cwd)?,
@@ -402,6 +428,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             }
             Ok(json!({ "ok": true }))
         }
+        // Where an OpenShell agent can run: the CLI's gateways, and a gateway's sandboxes.
+        "openshell_gateways" => openshell::gateways(&app.settings().agents.openshell.command),
+        "openshell_sandboxes" => openshell::sandboxes(&app.settings().agents.openshell.command, opt(args, "gateway").unwrap_or("")),
         "models" => acp::models(app, &arg_str(args, "harness")?, opt(args, "cwd").unwrap_or("")),
         "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
         // Stop every local agent (Quit no longer does).

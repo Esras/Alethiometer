@@ -1,9 +1,10 @@
 # Agents
 
-Coding-agent sessions from two kinds of source, in one tree (design "Agents Final" 01–08; spec in `project/design_handoff_helm/README.md` → Agents). Code: `src-tauri/src/agents/`, `src/views/Agents.svelte`, `src/views/agents/`. Tab 7 (`⌘7`), or `g a` from anywhere (`g i` back to Incoming). Local agents run in a separate agent host, so they keep going when the app quits or rebuilds. The tab's badge is the Needs you count.
+Coding-agent sessions from local ACP harnesses (on this machine or in an OpenShell sandbox) and Scion, in one tree (design "Agents Final" 01–08; spec in `project/design_handoff_helm/README.md` → Agents). Code: `src-tauri/src/agents/`, `src/views/Agents.svelte`, `src/views/agents/`. Tab 7 (`⌘7`), or `g a` from anywhere (`g i` back to Incoming). Local agents run in a separate agent host, so they keep going when the app quits or rebuilds. The tab's badge is the Needs you count.
 
 - **Local ACP sessions.** Alethiometer is the ACP client and launches the agent itself (`agents.harnesses`). It sees only sessions it started; one Zed launched belongs to Zed.
 - **Scion agents.** Alethiometer is a Hub client (`agents/scion.rs`, a `scion` source in Settings › Sources). Rooms, DMs and delivery states come from the Hub. There's no messaging layer here, and local sessions never join rooms.
+- **OpenShell sandboxes.** A local ACP session whose adapter runs in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox, on a local or remote gateway (`agents/openshell.rs`). Everything else is the local session's. Below.
 
 ## How it fits together
 
@@ -120,6 +121,19 @@ The sandbox Hub (Scion `3c56088e`, Kubernetes broker, dev auth) with project `al
 
 Still unchecked: `type: "reply"` from a user, the system sender, `include_project_groups` for a non-participant, a broker name in `runtimeBrokerId`, whether mention copies share `createdAt`, deferred delivery, the loop cap notice.
 
+## OpenShell sandboxes
+
+`agents/openshell.rs`. Built from OpenShell's source at `67adcf1` (2026-10-08, v0.1.x) and its docs; **not run against a real gateway yet** (none reachable here). `scripts/fake-openshell.mjs` stands in for the CLI in tests and UI work.
+
+- **What it is:** OpenShell has no agent or messaging layer of its own; it runs processes in policy-enforced sandboxes. So an OpenShell agent is a local ACP session (`acp-…`, same transcript, approvals, Stop, resume) whose adapter is started with `openshell [-g <gateway>] sandbox exec -n <sandbox> --no-tty --workdir <dir> -- <adapter>`, run by the agent host like any adapter. ACP goes over that exec's stdin/stdout. It outlives the app as local agents do.
+- **Gateways** (local Docker/Podman/VM or remote Kubernetes) are the OpenShell CLI's: registered, signed in and selected with `openshell gateway add/login/select`. Alethiometer runs the CLI (`agents.openshell.command`, default `openshell`, looked up on the login PATH) and keeps no credentials. Where shows OpenShell only when the CLI is found.
+- **New agent:** Where › OpenShell adds Gateway (from `openshell gateway list -o json`, the active one first picked), Sandbox (New, or one from `sandbox list -o json`) and, for a new one, Image. A **new sandbox** is `sandbox create --name aleth-<8 hex> --from <image> --provider …  [--policy …] --upload <directory> --detach --no-auto-providers -o json` (no main command: `--upload` can't be combined with one yet, and the adapter is started with `exec`); the session then runs in `<sandbox working dir>/<directory name>`, where OpenShell puts the upload (`.gitignore` applies). An **existing sandbox** takes a directory inside it, and nothing is uploaded. The session's `cwd` is the path inside the sandbox; `sandbox.upload` is the local directory (what the recent-directory list shows).
+- **Harness in the sandbox** (`agents.harnesses[].openshell`, settings.json only): `from` (image), `providers`, `policy` for a new sandbox; `command`/`args` for the adapter there (unset: the harness's own, which usually won't work: `npx` needs the npm registry, and the default policy denies all network); `env` passed with `exec --env` (non-secret; the harness's local `env` and the project's direnv aren't used). The image needs the adapter and the agent (e.g. `claude-agent-acp` and `claude`, or `pi-acp` and `pi`) and Node 22+. Credentials go in OpenShell providers (`openshell provider create`; e.g. the `claude-code` profile with `ANTHROPIC_API_KEY`), which also open the network to their endpoints. A Claude subscription login isn't carried into the sandbox.
+- **Permissions:** the sandbox is the boundary, so the agent's own prompts are off. **Claude Code** (claude-agent-acp, told by `initialize`'s `agentInfo.name`) is switched to its **`auto` mode** (it decides; claude-agent-acp falls back to accept-edits, with a notice, for a model without auto), and anything it still asks comes to you as usual. **Any other agent** is switched to a mode that skips checks when it offers one (`bypassPermissions`, codex-acp's `full-access`, `yolo`; never `dontAsk`, which denies), and every permission request is answered at once with the agent's own allow option: allow-once by kind when the kinds tell allow from deny, else by name, since pi-acp sends each choice of an extension's `select` (pi's permission extensions) as `allow_once`. The row notes "allowed in the sandbox at HH:MM". A `select` with no allow-like choice ("main", "dev") still comes to you; questions (`elicitation/create`) always do. `agents.accept_edits` doesn't apply in a sandbox.
+- **Starting again:** each start (a message to a stopped session) first runs `sandbox start` (idempotent), then the exec. The sandbox and its files stay when the agent stops or is archived.
+- **Open:** no editor reaches into a sandbox, so the terminal button (and Incoming's Open) opens `openshell [-g …] sandbox exec -n … --tty --workdir … -- bash -l`; Open in Zed is hidden.
+- **Not built:** getting changes out of the sandbox (`openshell sandbox download`, or let the agent push with a GitHub provider), deleting the sandbox on archive, reading the policy advisor's pending rules (`openshell rule get`) into Needs you, a model list from inside the sandbox (the form shows the local harness's), and the facts box (git runs on this machine, where the sandbox path doesn't exist). See ISSUES.md.
+
 ## Tree
 
 Projects (the repo of a local group, the Scion project), groups, and rows. Local groups are made in the New agent modal ("New group…", with a goal); a session with no group is under **Unsorted**, where the small tier guesses a group from its directory, title and first prompt ("Looks like alethiometer › Agents tab · Move · Not this", `agents/guess.rs`). Nothing moves until you press Move. A folded group shows its loudest status and count. Status marks: running dot, waiting half ring, idle ring, done check, failed x.
@@ -151,7 +165,7 @@ Single-letter keys are off while typing.
 
 ## Settings › Agents
 
-Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept_edits`; `agents.colors.you|tool|message|hub|needs_you` (presets, `←`/`→`); `agents.names.color_by` (agent, template, off) and `agents.names.palette` (unique within a group, reused across groups, assigned in order of creation and kept in `agent_colors`); `agents.names.self_in_transcript`; `agents.boxes.strength` (subtle .07/.35, normal .10/.45, strong .14/.6) and `agents.boxes.fold_pairs`. `⌫` resets a row. `agents.harnesses` is settings.json only.
+Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept_edits` (not in OpenShell sandboxes); `agents.colors.you|tool|message|hub|needs_you` (presets, `←`/`→`); `agents.names.color_by` (agent, template, off) and `agents.names.palette` (unique within a group, reused across groups, assigned in order of creation and kept in `agent_colors`); `agents.names.self_in_transcript`; `agents.boxes.strength` (subtle .07/.35, normal .10/.45, strong .14/.6) and `agents.boxes.fold_pairs`. `⌫` resets a row. `agents.harnesses` and `agents.openshell` are settings.json only.
 
 ## Development
 
@@ -162,6 +176,8 @@ Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept
 ```
 
 Recorded claude-agent-acp traffic for the mapping tests is in `src-tauri/tests/fixtures/acp/`.
+
+`scripts/fake-openshell.mjs` stands in for the OpenShell CLI: a sandbox is a directory under `FAKE_OPENSHELL_ROOT` (default `$TMPDIR/fake-openshell`) and `sandbox exec` runs the command here. Set `"openshell": { "command": "<repo>/app/scripts/fake-openshell.mjs" }` under `agents`, and give a harness an `openshell` block (e.g. `{ "command": "node", "args": ["<repo>/app/scripts/fake-acp.mjs"] }`). `tests/agents_openshell.rs` runs it with the agent host in-process.
 
 ## Archive
 

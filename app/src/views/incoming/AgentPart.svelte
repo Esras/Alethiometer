@@ -105,7 +105,7 @@
       case 'failed':
         return [
           { key: '1', label: 'Open in Agents', primary: true, run: onOpen },
-          { key: '2', label: session?.source === 'scion' ? 'Open on Hub' : 'Open in Zed', run: () => call('agents.open', { session: a.session, how: 'app' }) },
+          { key: '2', label: session?.source === 'scion' ? 'Open on Hub' : session?.sandbox ? 'Open a shell in its sandbox' : 'Open in Zed', run: () => call('agents.open', { session: a.session, how: 'app' }) },
         ];
       default:
         return [];

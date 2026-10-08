@@ -73,6 +73,8 @@ export interface Session {
   ext: string;
   /** Held back while mid-turn, oldest first; not real rows until sent. */
   queued: { text: string; images?: { data: string; mime: string }[] }[];
+  /** Local only: the OpenShell sandbox it runs in (`cwd` is a path inside it). */
+  sandbox?: { gateway: string; name: string; upload: string; allow_all: boolean } | null;
 }
 
 export interface Who {
@@ -186,7 +188,9 @@ export interface Tree {
   sessions: Session[];
   requests: Request[];
   counts: { running: number; waiting: number; failed: number };
-  harnesses: { key: string; label: string; command: string; cache_ttl_min: number | null }[];
+  harnesses: { key: string; label: string; command: string; cache_ttl_min: number | null; sandbox_command: string; sandbox_from: string }[];
+  /** The OpenShell CLI is on the PATH: agents can run in its sandboxes. */
+  openshell: boolean;
   hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
   /** The agent host (app/agentd) local agents run in. */

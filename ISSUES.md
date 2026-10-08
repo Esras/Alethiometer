@@ -4,7 +4,19 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
-### Agents: local runtimes (sandbox, OpenShell, ssh) (user, 2026-10-03: deferred)
+### Agents: OpenShell sandboxes, what's left (2026-10-08)
+
+Built (`app/docs/agents.md` › OpenShell sandboxes) from OpenShell's source and docs, tested only against `scripts/fake-openshell.mjs`. To check against a real gateway, local and remote:
+
+- `sandbox create --detach --upload` with no main command: that the sandbox stays up (a login shell in a retained PTY) and the upload lands at `<working dir>/<directory name>`.
+- `sandbox exec --no-tty` with stdin held open for hours: ACP lines both ways without buffering, the login shell's profile printing nothing to stdout (it would be a non-JSON line), and what a laptop sleep or a gateway restart does to it (the agent should show as exited and resume on the next message).
+- Stop kills the `openshell` CLI process; whether the gateway then ends the adapter inside the sandbox is unchecked. If it doesn't, a second exec would start a second adapter on the same session.
+- claude-agent-acp in auto mode under OpenShell's network policy (auto needs a model that supports it; the claude-code provider profile allows only api.anthropic.com and telemetry).
+- pi permission extensions' choice names against `openshell::allow_option` (allow by name: yes/allow/approve/ok/proceed/continue/run, not if it has no/deny/reject/block/cancel/don't).
+
+Not built: getting changes out (`sandbox download`, or the agent pushing with a GitHub provider); deleting the sandbox on archive (it's kept; `openshell sandbox delete aleth-…`); the policy advisor's pending rules (`openshell rule get --status pending`) as Needs you items, since a denied connection is the one thing still waiting on a person; the model list from inside the sandbox; the facts box (git runs here, where the sandbox path doesn't exist), and Explained's script reads, which find nothing for the same reason.
+
+### Agents: local runtimes (podman sandbox, ssh) (user, 2026-10-03: deferred; OpenShell built 2026-10-08)
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.
 

@@ -61,7 +61,7 @@
         {#each s.thinking.options as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '').toLowerCase()}</option>{/each}
       </select></span>
     {/if}
-    <span>{s.source === 'acp' ? (ag.tree?.host ?? s.host) : s.host}</span>
+    <span>{s.source === 'acp' && !s.sandbox ? (ag.tree?.host ?? s.host) : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
     {#if s.env_changed && s.live}
       <button class="envchg" title="Its .envrc or devshell changed since it started. Click to stop it: your next message resumes the conversation in the new environment." onclick={() => act('stop', { session: s.id })}>⚠ devshell changed</button>

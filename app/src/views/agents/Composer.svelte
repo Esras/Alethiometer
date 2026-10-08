@@ -215,10 +215,10 @@
   {/if}
   {#if room || session?.source === 'scion'}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
-  {:else if session}
+  {:else if session && !session.sandbox}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open in Zed</button>
   {/if}
-  <button class="btn icon" title="Terminal attached to this session" onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+  <button class="btn icon" title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'} onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
 </div>
 
 <style>
