@@ -16,14 +16,19 @@
     <span class="lab label">Where</span>
     <span class="chips" role="radiogroup" aria-label="Where the agent runs">
       <button class="chip" class:on={!on && !sandboxed} onclick={() => openForm(null, local)}>Local</button>
-      {#if openshell}<button class="chip" class:on={sandboxed} onclick={() => openForm(null, local, true)}>OpenShell</button>{/if}
-      {#if scion.length}<button class="chip" class:on={!!on} onclick={() => !on && openForm(scion[0])}>Scion</button>{/if}
+      {#if openshell}<button class="chip" class:on={sandboxed} onclick={() => openForm(null, local, true)}
+          >OpenShell</button
+        >{/if}
+      {#if scion.length}<button class="chip" class:on={!!on} onclick={() => !on && openForm(scion[0])}>Scion</button
+        >{/if}
     </span>
     {#if on}
       <span class="lab label">Project</span>
       <span class="chips" role="radiogroup" aria-label="Scion project">
         {#each scion as g (g.id)}
-          <button class="chip" class:on={on === g.id} onclick={() => openForm(g)}>{g.project}{g.name && g.name !== g.project ? ` · ${g.name}` : ''}</button>
+          <button class="chip" class:on={on === g.id} onclick={() => openForm(g)}
+            >{g.project}{g.name && g.name !== g.project ? ` · ${g.name}` : ''}</button
+          >
         {/each}
       </span>
     {/if}

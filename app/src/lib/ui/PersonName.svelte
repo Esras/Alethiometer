@@ -15,7 +15,14 @@
     dim = false,
     block = false,
     onlink,
-  }: { who: Who; name: string; variant?: 'thread' | 'tertiary'; dim?: boolean; block?: boolean; onlink?: () => void } = $props();
+  }: {
+    who: Who;
+    name: string;
+    variant?: 'thread' | 'tertiary';
+    dim?: boolean;
+    block?: boolean;
+    onlink?: () => void;
+  } = $props();
   const linkable = $derived(!who.known && !!who.account && !!onlink);
 </script>
 
@@ -35,7 +42,13 @@
     onkeydown={block ? undefined : () => {}}>{name}</svelte:element
   >
 {:else}
-  <span class="name ellipsis" class:tertiary={variant === 'tertiary'} class:dim style:color={personColor(who.color)} title={who.name && who.name !== name ? `${name} · ${who.name}` : name}>{name}</span>
+  <span
+    class="name ellipsis"
+    class:tertiary={variant === 'tertiary'}
+    class:dim
+    style:color={personColor(who.color)}
+    title={who.name && who.name !== name ? `${name} · ${who.name}` : name}>{name}</span
+  >
 {/if}
 
 <style>

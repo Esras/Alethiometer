@@ -11,11 +11,18 @@
     showDecided = $bindable(false),
     showFinished = $bindable(false),
     life = false,
-  }: { brief: DayBriefData; showWhere?: boolean; showDecided?: boolean; showFinished?: boolean; life?: boolean } = $props();
+  }: {
+    brief: DayBriefData;
+    showWhere?: boolean;
+    showDecided?: boolean;
+    showFinished?: boolean;
+    life?: boolean;
+  } = $props();
 
   const span = $derived(brief.range.end_min - brief.range.start_min);
   const pct = (m: number) => `${Math.max(0, Math.min(100, ((m - brief.range.start_min) / span) * 100))}%`;
-  const width = (b: Bar) => `${Math.max(0, ((Math.min(b.end_min, brief.range.end_min) - Math.max(b.start_min, brief.range.start_min)) / span) * 100)}%`;
+  const width = (b: Bar) =>
+    `${Math.max(0, ((Math.min(b.end_min, brief.range.end_min) - Math.max(b.start_min, brief.range.start_min)) / span) * 100)}%`;
   const hours = $derived.by(() => {
     const out: number[] = [];
     for (let h = Math.ceil(brief.range.start_min / 60); h * 60 <= brief.range.end_min; h += 2) out.push(h);
@@ -40,7 +47,13 @@
         <span title="Your calendar for the day">plan</span>
         <div class="track">
           {#each brief.plan as b}
-            <span class="blk" style:left={pct(b.start_min)} style:width={width(b)} style:background={catColor(b.category)} style:opacity="0.5"></span>
+            <span
+              class="blk"
+              style:left={pct(b.start_min)}
+              style:width={width(b)}
+              style:background={catColor(b.category)}
+              style:opacity="0.5"
+            ></span>
           {/each}
         </div>
       </div>
@@ -48,7 +61,12 @@
         <span title={brief.did_note}>did</span>
         <div class="track">
           {#each brief.did as b}
-            <span class="blk" style:left={pct(b.start_min)} style:width={width(b)} style:background={b.over ? 'var(--status-attention)' : catColor(b.category)}></span>
+            <span
+              class="blk"
+              style:left={pct(b.start_min)}
+              style:width={width(b)}
+              style:background={b.over ? 'var(--status-attention)' : catColor(b.category)}
+            ></span>
           {/each}
         </div>
       </div>
@@ -76,7 +94,9 @@
         {#each brief.where as w}
           <div class="where">
             <span class="ellipsis">{w.label}</span>
-            <span class="meter"><span style:width="{(w.minutes / maxWhere) * 100}%" style:background={catColor(w.category)}></span></span>
+            <span class="meter"
+              ><span style:width="{(w.minutes / maxWhere) * 100}%" style:background={catColor(w.category)}></span></span
+            >
             <span class="tnum dur">{w.dur}</span>
           </div>
         {:else}

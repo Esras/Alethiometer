@@ -25,7 +25,11 @@
   import TopicPicker from './TopicPicker.svelte';
   import type { Family, Message, Part } from './types';
 
-  let { itemId, filed = false, onclose }: { itemId: number; filed?: boolean; onclose: (changed: boolean) => void } = $props();
+  let {
+    itemId,
+    filed = false,
+    onclose,
+  }: { itemId: number; filed?: boolean; onclose: (changed: boolean) => void } = $props();
 
   // Filed review: the parts it works on (the signal, plus parts it makes).
   let scope = $state<number[]>(untrack(() => [itemId]));
@@ -60,7 +64,11 @@
       const p = f.parts.find((p) => p.item_id === id)!;
       if (p.dismissed) continue;
       const known = m.get(id);
-      m.set(id, { topic: p.topic, color: known?.color ?? BARS[[...m.values()].filter((v) => v.color !== 'var(--border-strong)').length % BARS.length] });
+      m.set(id, {
+        topic: p.topic,
+        color:
+          known?.color ?? BARS[[...m.values()].filter((v) => v.color !== 'var(--border-strong)').length % BARS.length],
+      });
     }
     meta = m;
     fam = f;
@@ -131,7 +139,11 @@
     const n = live.reduce((a, m) => a + 1 + (m.replies?.length ?? 0), 0);
     const threads = live.filter((m) => m.replies?.length).length;
     const span = live.length ? `${live[0].time}–${live[live.length - 1].time}` : '';
-    return [String(n), span, threads ? `${threads} thread${threads > 1 ? 's' : ''}` : mode === 'topic' ? 'grouped by topic' : 'in order']
+    return [
+      String(n),
+      span,
+      threads ? `${threads} thread${threads > 1 ? 's' : ''}` : mode === 'topic' ? 'grouped by topic' : 'in order',
+    ]
       .filter(Boolean)
       .join(' · ');
   });
@@ -210,7 +222,12 @@
         const live = ms.filter((m) => !isGone(m));
         if (!live.length) continue;
         for (const m of live) mark(m, 'moved');
-        const r = await call<{ item_id: number }>('incoming.review_move', { item_id: part, message_ids: live.map((m) => m.id), topic_id: topicId, ...scoped() });
+        const r = await call<{ item_id: number }>('incoming.review_move', {
+          item_id: part,
+          message_ids: live.map((m) => m.id),
+          topic_id: topicId,
+          ...scoped(),
+        });
         if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       }
       chosen = new Set();
@@ -244,7 +261,12 @@
     const k = id === undefined ? undefined : marks.get(id);
     if (!m || !k) return;
     act(async () => {
-      const r = await call<{ item_id: number }>('incoming.review_move', { item_id: m.part, message_ids: [m.id], topic_id: k.undo, ...scoped() });
+      const r = await call<{ item_id: number }>('incoming.review_move', {
+        item_id: m.part,
+        message_ids: [m.id],
+        topic_id: k.undo,
+        ...scoped(),
+      });
       if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       const next = new Map(marks);
       next.delete(m.id);
@@ -267,17 +289,17 @@
   useKeys((e) => {
     if (picking) return false;
     const shift = shiftStep(e);
-    if (shift) return step(shift, true), true;
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
-    if (plain(e, ' ')) return focus !== null && toggleChosen(focus), true;
-    if (plain(e, 't')) return (picking = !!(chosen.size || current)), true;
-    if (plain(e, 'd')) return dismiss(), true;
-    if (plain(e, 'u')) return undo(), true;
-    if (plain(e, 'g')) return (mode = mode === 'topic' ? 'order' : 'topic'), true;
-    if (plain(e, 'c')) return filed ? onclose(changed) : confirmable && confirmAll(), true;
+    if (shift) return (step(shift, true), true);
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (step(-1), true);
+    if (plain(e, ' ')) return (focus !== null && toggleChosen(focus), true);
+    if (plain(e, 't')) return ((picking = !!(chosen.size || current)), true);
+    if (plain(e, 'd')) return (dismiss(), true);
+    if (plain(e, 'u')) return (undo(), true);
+    if (plain(e, 'g')) return ((mode = mode === 'topic' ? 'order' : 'topic'), true);
+    if (plain(e, 'c')) return (filed ? onclose(changed) : confirmable && confirmAll(), true);
     if (plain(e, 'Enter')) return true;
-    if (plain(e, 'Escape')) return onclose(changed), true;
+    if (plain(e, 'Escape')) return (onclose(changed), true);
     // Everything else (tab switches, [ ]) waits until the review is closed.
     return plain(e, e.key) && e.key.length === 1;
   });
@@ -333,7 +355,8 @@
                   {:else if k?.kind === 'moved'}
                     moved from {k.from} · <kbd>u</kbd>&nbsp;undo
                   {:else if m.replies?.length}
-                    <i class="ph ph-chat-circle-dots"></i>thread · {m.replies.length} {m.replies.length === 1 ? 'reply' : 'replies'}
+                    <i class="ph ph-chat-circle-dots"></i>thread · {m.replies.length}
+                    {m.replies.length === 1 ? 'reply' : 'replies'}
                   {/if}
                 </span>
               </div>
@@ -382,7 +405,8 @@
         <button class="btn primary" onclick={() => onclose(changed)}>Done <kbd>c</kbd></button>
       {:else}
         <button class="btn primary" onclick={confirmAll} disabled={!confirmable}>
-          Confirm {confirmable} {confirmable === 1 ? 'group' : 'groups'} <kbd>c</kbd>
+          Confirm {confirmable}
+          {confirmable === 1 ? 'group' : 'groups'} <kbd>c</kbd>
         </button>
       {/if}
     </span>

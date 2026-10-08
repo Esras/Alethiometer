@@ -18,13 +18,26 @@
 
   const consequence = $derived.by(() => {
     const parts: string[] = [];
-    if (plan.hub) parts.push(`${n(plan.hub, whole ? '1 agent and its clone' : 'Its agent and clone', '# agents and their clones')} will be deleted on the Hub${unpushed ? ', with the unpushed commits' : ''}.`);
-    if (plan.sandboxes) parts.push(`${n(plan.sandboxes, 'Its OpenShell sandbox', '# OpenShell sandboxes')} will be deleted, with ${plan.sandboxes === 1 ? 'its' : 'their'} files.`);
-    if (plan.local) parts.push(`${n(plan.local, 'Its local session stops', '# local sessions stop')}. Transcripts stay searchable.`);
+    if (plan.hub)
+      parts.push(
+        `${n(plan.hub, whole ? '1 agent and its clone' : 'Its agent and clone', '# agents and their clones')} will be deleted on the Hub${unpushed ? ', with the unpushed commits' : ''}.`,
+      );
+    if (plan.sandboxes)
+      parts.push(
+        `${n(plan.sandboxes, 'Its OpenShell sandbox', '# OpenShell sandboxes')} will be deleted, with ${plan.sandboxes === 1 ? 'its' : 'their'} files.`,
+      );
+    if (plan.local)
+      parts.push(`${n(plan.local, 'Its local session stops', '# local sessions stop')}. Transcripts stay searchable.`);
     return parts.join(' ');
   });
 
-  const STATUS: Record<string, string> = { running: 'running', waiting: 'waiting for you', idle: 'stopped', done: 'completed', failed: 'failed' };
+  const STATUS: Record<string, string> = {
+    running: 'running',
+    waiting: 'waiting for you',
+    idle: 'stopped',
+    done: 'completed',
+    failed: 'failed',
+  };
 
   function onkeys(e: KeyboardEvent): boolean {
     if (!mod(e)) return false;
@@ -38,7 +51,8 @@
 <Modal label="Archive" onclose={close} {onkeys} inset="32px 0 0 0" isolate>
   <div class="box modal agent-form">
     <div class="top">
-      {#if blocked}<i class="ph ph-prohibit no"></i><span class="t">Can't archive</span>{:else}<i class="ph ph-archive"></i><span class="t">Archive</span>{/if}
+      {#if blocked}<i class="ph ph-prohibit no"></i><span class="t">Can't archive</span>{:else}<i class="ph ph-archive"
+        ></i><span class="t">Archive</span>{/if}
       <span class="kind">{plan.kind}</span>
       <span class="name">{plan.name}</span>
       <span class="sub">{plan.place}</span>
@@ -46,24 +60,41 @@
     </div>
     <div class="body">
       {#if blocked}
-        <p class="why">{plan.name} still has {n(plan.going, '1 agent', '# agents')} going. Stop {plan.going === 1 ? 'it' : 'them'}, then archive it.</p>
+        <p class="why">
+          {plan.name} still has {n(plan.going, '1 agent', '# agents')} going. Stop {plan.going === 1 ? 'it' : 'them'},
+          then archive it.
+        </p>
       {:else if notDone}
         <div class="notdone">
           <div class="nd-head"><i class="ph ph-warning"></i>Not done</div>
           {#each plan.reasons as r (r.text)}
-            <div class="reason"><span>{r.text}</span>{#if r.note}<span class="note">{r.note}</span>{/if}</div>
+            <div class="reason">
+              <span>{r.text}</span>{#if r.note}<span class="note">{r.note}</span>{/if}
+            </div>
           {/each}
         </div>
       {/if}
       <div class="tree inset" class:whole={whole && !blocked}>
         {#each plan.rows as r, i (i)}
-          <div class="row {r.kind}" class:lit={r.lit && !blocked} class:dim={!r.lit || (blocked && r.tag === 'ready')} style:--indent="{14 * r.depth}px">
+          <div
+            class="row {r.kind}"
+            class:lit={r.lit && !blocked}
+            class:dim={!r.lit || (blocked && r.tag === 'ready')}
+            style:--indent="{14 * r.depth}px"
+          >
             <span class="mark">
-              {#if r.kind === 'group'}<i class="ph ph-caret-down"></i>{:else if r.kind === 'room'}<i class="ph ph-hash hash"></i>{:else if r.status}<StatusMark status={r.status} />{/if}
+              {#if r.kind === 'group'}<i class="ph ph-caret-down"></i>{:else if r.kind === 'room'}<i
+                  class="ph ph-hash hash"
+                ></i>{:else if r.status}<StatusMark status={r.status} />{/if}
             </span>
             <span class="rname">{r.name}</span>
             <span class="meta">{r.kind === 'session' && r.status ? STATUS[r.status] : r.kind}</span>
-            <span class="tag" class:will={r.tag === 'will archive'} class:running={r.tag === 'running'} class:waiting={r.tag === 'waiting for you'}>{r.tag}</span>
+            <span
+              class="tag"
+              class:will={r.tag === 'will archive'}
+              class:running={r.tag === 'running'}
+              class:waiting={r.tag === 'waiting for you'}>{r.tag}</span
+            >
           </div>
         {/each}
       </div>
@@ -73,12 +104,16 @@
       {#if blocked}
         <button class="btn md" onclick={close}>Close<kbd>Esc</kbd></button>
       {:else if notDone}
-        <button class="btn md danger" onclick={() => confirmArchive(true)}>Archive anyway<kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd></button>
+        <button class="btn md danger" onclick={() => confirmArchive(true)}
+          >Archive anyway<kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd></button
+        >
         <button class="btn md" onclick={close}>Cancel<kbd>Esc</kbd></button>
         <span class="undo"><kbd>u</kbd> undoes for 10s</span>
       {:else}
         <button class="btn md primary" onclick={() => confirmArchive(false)}
-          >{whole ? `Archive group${agents ? ` and ${n(agents, '1 agent', '# agents')}` : ''}` : 'Archive session'}<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+          >{whole ? `Archive group${agents ? ` and ${n(agents, '1 agent', '# agents')}` : ''}` : 'Archive session'}<kbd
+            >{chord('⌘⏎', 'Ctrl+⏎')}</kbd
+          ></button
         >
         <button class="btn md" onclick={close}>Cancel<kbd>Esc</kbd></button>
         <span class="undo"><kbd>u</kbd> undoes for 10s</span>

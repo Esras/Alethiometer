@@ -64,7 +64,14 @@ export interface Session {
   created_at: string;
   active_at: string;
   color: number;
-  stats: { ctx_used: number; ctx_size: number; turns: number; cost_usd: number | null; cache: string; started_at: string };
+  stats: {
+    ctx_used: number;
+    ctx_size: number;
+    turns: number;
+    cost_usd: number | null;
+    cache: string;
+    started_at: string;
+  };
   facts: { ticket: Fact | null; pr: Fact | null; branch: Fact | null; todo: Fact | null };
   live: boolean;
   problem: string;
@@ -188,13 +195,27 @@ export interface Tree {
   sessions: Session[];
   requests: Request[];
   counts: { running: number; waiting: number; failed: number };
-  harnesses: { key: string; label: string; command: string; cache_ttl_min: number | null; sandbox_command: string; sandbox_from: string }[];
+  harnesses: {
+    key: string;
+    label: string;
+    command: string;
+    cache_ttl_min: number | null;
+    sandbox_command: string;
+    sandbox_from: string;
+  }[];
   /** The OpenShell CLI is on the PATH: agents can run in its sandboxes. */
   openshell: boolean;
   hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
   /** The agent host (app/agentd) local agents run in. */
-  agentd: { state: 'idle' | 'starting' | 'running' | 'missing' | 'error' | 'unsupported' | ''; version: string; pid: number; error: string; stale: boolean; binary: string };
+  agentd: {
+    state: 'idle' | 'starting' | 'running' | 'missing' | 'error' | 'unsupported' | '';
+    version: string;
+    pid: number;
+    error: string;
+    stale: boolean;
+    binary: string;
+  };
   /** Done nudges by group id: "completed, #208 merged". */
   nudges: Record<string, string>;
   /** Hub deletes that failed after archiving (retried with ⌘R). */
@@ -208,7 +229,16 @@ export interface Plan {
   name: string;
   place: string;
   state: 'ok' | 'not_done' | 'blocked';
-  rows: { kind: 'group' | 'room' | 'session'; name: string; session: string | null; status: Status | null; harness: string; depth: number; lit: boolean; tag: string }[];
+  rows: {
+    kind: 'group' | 'room' | 'session';
+    name: string;
+    session: string | null;
+    status: Status | null;
+    harness: string;
+    depth: number;
+    lit: boolean;
+    tag: string;
+  }[];
   reasons: { text: string; note: string }[];
   going: number;
   hub: number;

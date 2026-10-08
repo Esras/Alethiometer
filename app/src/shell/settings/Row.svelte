@@ -79,17 +79,60 @@
     {#if field.widget === 'toggle'}
       <Switch on={!!value} label={field.label} disabled={readonly} onclick={() => onset(!value)} />
     {:else if field.widget === 'number'}
-      <Stepper value={Number(value ?? 0)} step={o.step ?? 1} min={o.min} max={o.max} unit={o.unit} {editing} {onedit} onchange={(v) => onset(v)} />
+      <Stepper
+        value={Number(value ?? 0)}
+        step={o.step ?? 1}
+        min={o.min}
+        max={o.max}
+        unit={o.unit}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
     {:else if field.widget === 'scale'}
-      <Segmented options={presets.map((p) => ({ value: p, label: p.toFixed(p === 1 ? 1 : 2) }))} value={Number(value)} onpick={(p) => onset(p)} />
-      <Stepper value={Number(value ?? 1)} step={o.step ?? 0.05} min={o.min} max={o.max} digits={2} {editing} {onedit} onchange={(v) => onset(v)} />
+      <Segmented
+        options={presets.map((p) => ({ value: p, label: p.toFixed(p === 1 ? 1 : 2) }))}
+        value={Number(value)}
+        onpick={(p) => onset(p)}
+      />
+      <Stepper
+        value={Number(value ?? 1)}
+        step={o.step ?? 0.05}
+        min={o.min}
+        max={o.max}
+        digits={2}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
     {:else if field.widget === 'hour'}
-      <Stepper value={Number(value ?? 0)} step={1} min={0} max={Number(pair ?? 24) - 1} format={hour} {editing} {onedit} onchange={(v) => onset(v)} />
+      <Stepper
+        value={Number(value ?? 0)}
+        step={1}
+        min={0}
+        max={Number(pair ?? 24) - 1}
+        format={hour}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
       <span class="muted">to</span>
-      <Stepper value={Number(pair ?? 24)} step={1} min={Number(value ?? 0) + 1} max={24} format={hour} onchange={(v) => onset(v, [o.pair ?? 'day_end_hour'])} />
+      <Stepper
+        value={Number(pair ?? 24)}
+        step={1}
+        min={Number(value ?? 0) + 1}
+        max={24}
+        format={hour}
+        onchange={(v) => onset(v, [o.pair ?? 'day_end_hour'])}
+      />
     {:else if field.widget === 'enum'}
       {#if (o.enum ?? []).length <= 4}
-        <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))} value={value ?? ''} disabled={readonly} onpick={(opt) => onset(opt)} />
+        <Segmented
+          options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt || 'default' }))}
+          value={value ?? ''}
+          disabled={readonly}
+          onpick={(opt) => onset(opt)}
+        />
       {:else}
         <span class="dropdown">
           <select class="input" value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
@@ -98,14 +141,35 @@
         </span>
       {/if}
     {:else if field.widget === 'font'}
-      <FontPick value={String(value ?? '')} {fonts} mono={!!o.mono} open={editing} onclose={() => onedit(false)} onchange={(v) => onset(v)} />
+      <FontPick
+        value={String(value ?? '')}
+        {fonts}
+        mono={!!o.mono}
+        open={editing}
+        onclose={() => onedit(false)}
+        onchange={(v) => onset(v)}
+      />
     {:else if readonly && Array.isArray(value)}
-      <span class="chips">{#each value as v}<span class="val">{v}</span>{/each}</span>
+      <span class="chips"
+        >{#each value as v}<span class="val">{v}</span>{/each}</span
+      >
       <span class="lock"><i class="ph ph-lock-simple"></i>settings.json only</span>
     {:else if field.widget === 'list' || field.widget === 'masked_list'}
-      <ListEdit items={(value as string[]) ?? []} masked={field.widget === 'masked_list'} {editing} {onedit} onchange={(v) => onset(v)} />
+      <ListEdit
+        items={(value as string[]) ?? []}
+        masked={field.widget === 'masked_list'}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
     {:else if field.widget === 'map' || field.widget === 'category_map'}
-      <MapEdit map={(value as Record<string, string>) ?? {}} categories={field.widget === 'category_map'} {editing} {onedit} onchange={(v) => onset(v)} />
+      <MapEdit
+        map={(value as Record<string, string>) ?? {}}
+        categories={field.widget === 'category_map'}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
     {:else if field.widget === 'category'}
       <span class="dropdown">
         <select class="input" value={value ?? ''} onchange={(e) => onset(e.currentTarget.value)}>
@@ -114,14 +178,29 @@
       </span>
     {:else if field.widget === 'hour_range'}
       {@const r = (value as number[]) ?? [9, 17]}
-      <Stepper value={r[0] ?? 9} min={0} max={(r[1] ?? 17) - 1} format={hour} onchange={(v) => onset([v, r[1] ?? 17])} />
+      <Stepper
+        value={r[0] ?? 9}
+        min={0}
+        max={(r[1] ?? 17) - 1}
+        format={hour}
+        onchange={(v) => onset([v, r[1] ?? 17])}
+      />
       <span class="muted">to</span>
-      <Stepper value={r[1] ?? 17} min={(r[0] ?? 9) + 1} max={24} format={hour} onchange={(v) => onset([r[0] ?? 9, v])} />
+      <Stepper
+        value={r[1] ?? 17}
+        min={(r[0] ?? 9) + 1}
+        max={24}
+        format={hour}
+        onchange={(v) => onset([r[0] ?? 9, v])}
+      />
     {:else if field.widget === 'slack_channels'}
       {@const all = value === 'all'}
       {@const list = Array.isArray(value) ? (value as string[]) : []}
       <Segmented
-        options={[{ value: 'all', label: "All I'm in" }, { value: 'only', label: 'Only these' }]}
+        options={[
+          { value: 'all', label: "All I'm in" },
+          { value: 'only', label: 'Only these' },
+        ]}
         value={all ? 'all' : 'only'}
         onpick={(v) => (v === 'all' ? !all && onset('all') : all && onaction('only'))}
       />
@@ -132,7 +211,14 @@
       {/if}
       <button class="btn" onclick={() => onaction('review')}>Review… <kbd>↵</kbd></button>
     {:else if field.widget === 'glean_calls'}
-      <Stepper value={Number(value ?? 0)} step={o.step ?? 50} min={o.min} {editing} {onedit} onchange={(v) => onset(v)} />
+      <Stepper
+        value={Number(value ?? 0)}
+        step={o.step ?? 50}
+        min={o.min}
+        {editing}
+        {onedit}
+        onchange={(v) => onset(v)}
+      />
     {:else if field.widget === 'code'}
       <textarea
         class="input mono code"
@@ -146,15 +232,27 @@
             e.currentTarget.blur();
           }
           if (e.key === 'Enter' && mod(e)) e.currentTarget.blur();
-        }}></textarea>
+        }}
+      ></textarea>
     {:else if field.widget === 'swatches'}
       <span class="swatches">
         {#each o.presets ?? [] as c (c)}
-          <button class="sw" class:on={String(value).toLowerCase() === c.toLowerCase()} style:background={c} title={c} aria-label={c} onclick={() => onset(c)}></button>
+          <button
+            class="sw"
+            class:on={String(value).toLowerCase() === c.toLowerCase()}
+            style:background={c}
+            title={c}
+            aria-label={c}
+            onclick={() => onset(c)}
+          ></button>
         {/each}
       </span>
     {:else if field.widget === 'segmented'}
-      <Segmented options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))} value={value ?? ''} onpick={(opt) => onset(opt)} />
+      <Segmented
+        options={(o.enum ?? []).map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))}
+        value={value ?? ''}
+        onpick={(opt) => onset(opt)}
+      />
     {:else if field.widget === 'palette'}
       {#if editing}
         <ListEdit items={(value as string[]) ?? []} {editing} {onedit} onchange={(v) => onset(v)} />
@@ -169,7 +267,10 @@
     {:else}
       <input
         class="input text-input"
-        class:mono={field.widget === 'folder' || field.key.includes('profile') || field.key.endsWith('url') || field.key.includes('model')}
+        class:mono={field.widget === 'folder' ||
+          field.key.includes('profile') ||
+          field.key.endsWith('url') ||
+          field.key.includes('model')}
         bind:this={input}
         value={String(value ?? '')}
         disabled={readonly}
@@ -182,7 +283,8 @@
             e.currentTarget.value = String(value ?? '');
             e.currentTarget.blur();
           }
-        }} />
+        }}
+      />
     {/if}
     {#if o.unit && field.widget !== 'number'}<span class="unit">{o.unit}</span>{/if}
     {#if extra && field.widget !== 'slack_channels'}<span class="extra">{extra}</span>{/if}

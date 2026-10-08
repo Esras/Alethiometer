@@ -7,13 +7,22 @@ import type { Kind, Row } from './types';
 export type Item = { key: string; row: Row; run?: Row[]; folded?: boolean };
 
 /** Legend chips per thread kind: label, the kinds it filters, icon, box class. */
-export const LEGEND: Record<'local' | 'scion' | 'room', { label: string; kinds: string[]; icon: string; box: string; color: string }[]> = {
+export const LEGEND: Record<
+  'local' | 'scion' | 'room',
+  { label: string; kinds: string[]; icon: string; box: string; color: string }[]
+> = {
   local: [
     { label: 'You', kinds: ['you'], icon: 'ph-user', box: 'you', color: '#ebdbb2' },
     { label: 'Output', kinds: ['output'], icon: 'ph-text-align-left', box: '', color: 'var(--tx-2)' },
     { label: 'Thinking', kinds: ['thinking'], icon: 'ph-brain', box: '', color: '#7c6f64' },
     { label: 'Tool Calls', kinds: ['tool'], icon: 'ph-wrench', box: 'tool', color: 'var(--tool)' },
-    { label: 'Subagent Results', kinds: ['result'], icon: 'ph-arrow-elbow-down-right', box: '', color: 'var(--tx-label)' },
+    {
+      label: 'Subagent Results',
+      kinds: ['result'],
+      icon: 'ph-arrow-elbow-down-right',
+      box: '',
+      color: 'var(--tx-label)',
+    },
     { label: 'Messages', kinds: ['message'], icon: 'ph-arrows-left-right', box: 'msg', color: 'var(--msg)' },
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
     { label: 'Approvals', kinds: ['approval'], icon: 'ph-shield-warning', box: 'need', color: 'var(--need)' },
@@ -23,7 +32,13 @@ export const LEGEND: Record<'local' | 'scion' | 'room', { label: string; kinds: 
     { label: 'Output', kinds: ['output'], icon: 'ph-text-align-left', box: '', color: 'var(--tx-2)' },
     { label: 'Thinking', kinds: ['thinking'], icon: 'ph-brain', box: '', color: '#7c6f64' },
     { label: 'Tool Calls', kinds: ['tool'], icon: 'ph-wrench', box: 'tool', color: 'var(--tool)' },
-    { label: 'Subagent Results', kinds: ['result'], icon: 'ph-arrow-elbow-down-right', box: '', color: 'var(--tx-label)' },
+    {
+      label: 'Subagent Results',
+      kinds: ['result'],
+      icon: 'ph-arrow-elbow-down-right',
+      box: '',
+      color: 'var(--tx-label)',
+    },
     { label: 'Messages', kinds: ['message'], icon: 'ph-arrows-left-right', box: 'msg', color: 'var(--msg)' },
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
     { label: 'Hub', kinds: ['hub'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
@@ -49,7 +64,7 @@ export function items(rows: Row[], hidden: Set<string>, expanded: Set<string>, f
   const shown = rows.filter((r) => !hidden.has(r.kind as Kind));
   // Runs of 2+ consecutive messages between the same two agents.
   const runs: { start: number; end: number }[] = [];
-  for (let i = 0; i < shown.length; ) {
+  for (let i = 0; i < shown.length;) {
     const p = pair(shown[i]);
     let j = i + 1;
     if (p) while (j < shown.length && pair(shown[j]) === p) j++;

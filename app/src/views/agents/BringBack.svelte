@@ -60,7 +60,9 @@
   <div class="box modal agent-form">
     <div class="top">
       <i class="ph ph-download-simple"></i><span class="t">Bring back changes</span>
-      <span class="sub">{s?.name ?? ''} · sandbox {s?.sandbox?.name ?? ''} → {look?.local ?? s?.sandbox?.upload ?? ''}</span>
+      <span class="sub"
+        >{s?.name ?? ''} · sandbox {s?.sandbox?.name ?? ''} → {look?.local ?? s?.sandbox?.upload ?? ''}</span
+      >
       <kbd>Esc</kbd>
     </div>
     <div class="body">
@@ -70,17 +72,27 @@
         {#if done}
           <p>{done}</p>
         {:else if !look.changes.length}
-          <p class="muted">Nothing new to bring back{look.same ? ` (${files(look.same)} already the same here)` : ''}.</p>
+          <p class="muted">
+            Nothing new to bring back{look.same ? ` (${files(look.same)} already the same here)` : ''}.
+          </p>
         {:else}
-          <div class="head">{files(look.changes.length)} to copy back{look.same ? ` · ${look.same} already the same here` : ''}</div>
+          <div class="head">
+            {files(look.changes.length)} to copy back{look.same ? ` · ${look.same} already the same here` : ''}
+          </div>
           <div class="list inset">
-            {#each look.changes as c (c.path)}<div class="f {c.what}"><i class="ph {ICON[c.what]}"></i><span class="p">{c.path}</span><span class="w">{c.what}</span></div>{/each}
+            {#each look.changes as c (c.path)}<div class="f {c.what}">
+                <i class="ph {ICON[c.what]}"></i><span class="p">{c.path}</span><span class="w">{c.what}</span>
+              </div>{/each}
           </div>
         {/if}
         {#if look.conflicts.length && !done}
           <div class="head warn"><i class="ph ph-warning"></i>Changed here too: left as they are</div>
           <div class="list inset">
-            {#each look.conflicts as c (c.path)}<div class="f"><i class="ph {ICON[c.what]}"></i><span class="p">{c.path}</span><span class="w">{c.what} in the sandbox</span></div>{/each}
+            {#each look.conflicts as c (c.path)}<div class="f">
+                <i class="ph {ICON[c.what]}"></i><span class="p">{c.path}</span><span class="w"
+                  >{c.what} in the sandbox</span
+                >
+              </div>{/each}
           </div>
         {/if}
       {/if}
@@ -90,8 +102,12 @@
       {#if done || !look?.ready}
         <button class="btn md" onclick={close}>Close<kbd>Esc</kbd></button>
       {:else}
-        <button class="btn md primary" disabled={busy} onclick={() => copy(false)}>Copy {files(look.changes.length)} back<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
-        {#if look.conflicts.length}<button class="btn md danger" disabled={busy} onclick={() => copy(true)}>Sandbox wins, conflicts too<kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd></button>{/if}
+        <button class="btn md primary" disabled={busy} onclick={() => copy(false)}
+          >Copy {files(look.changes.length)} back<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+        >
+        {#if look.conflicts.length}<button class="btn md danger" disabled={busy} onclick={() => copy(true)}
+            >Sandbox wins, conflicts too<kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd></button
+          >{/if}
         <button class="btn md" onclick={close}>Cancel<kbd>Esc</kbd></button>
       {/if}
     </div>

@@ -10,7 +10,13 @@ export interface Range {
 }
 
 /** Start a run at `focus` (if none) and return the selection for the cursor now at `to`. */
-export function extend(order: number[], run: Range | null, focus: number, to: number, chosen: Set<number>): { run: Range; chosen: Set<number> } {
+export function extend(
+  order: number[],
+  run: Range | null,
+  focus: number,
+  to: number,
+  chosen: Set<number>,
+): { run: Range; chosen: Set<number> } {
   const r = run ?? { anchor: focus, base: new Set(chosen) };
   const a = order.indexOf(r.anchor);
   const b = order.indexOf(to);

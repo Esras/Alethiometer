@@ -36,7 +36,17 @@
 
   const lk = $derived(look());
   const color = (w: Who | null | undefined) =>
-    nameColor ? nameColor(w) : !w ? agentColor(lk, sessionById(own)) : w.kind === 'you' ? YOU : w.kind === 'room' ? ROOM : w.kind === 'hub' ? 'var(--hub)' : agentColor(lk, sessionById(w.session));
+    nameColor
+      ? nameColor(w)
+      : !w
+        ? agentColor(lk, sessionById(own))
+        : w.kind === 'you'
+          ? YOU
+          : w.kind === 'room'
+            ? ROOM
+            : w.kind === 'hub'
+              ? 'var(--hub)'
+              : agentColor(lk, sessionById(w.session));
   // A session's own rows drop the name unless the setting says otherwise.
   const ownName = $derived(lk.names.self_in_transcript && !row.who && own ? sessionById(own)?.name : null);
 
@@ -87,7 +97,14 @@
     go(text);
     return { update: go };
   }
-  const secs = (ms: number | null) => (ms == null ? '' : ms < 1000 ? `${(ms / 1000).toFixed(1)}s` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60000)}m`);
+  const secs = (ms: number | null) =>
+    ms == null
+      ? ''
+      : ms < 1000
+        ? `${(ms / 1000).toFixed(1)}s`
+        : ms < 60000
+          ? `${(ms / 1000).toFixed(1)}s`
+          : `${Math.round(ms / 60000)}m`;
 </script>
 
 {#snippet header(main: import('svelte').Snippet, right?: import('svelte').Snippet)}
@@ -104,11 +121,15 @@
 {#snippet whoTo()}
   {#if row.who}
     <span class="who" style:color={color(row.who)}>{row.who.name}</span>
-    {#if row.to}<span class="arrow">→</span><span class="target" style:color={color(row.to)}>{row.to.kind === 'you' ? 'you' : row.to.name}</span>{/if}
+    {#if row.to}<span class="arrow">→</span><span class="target" style:color={color(row.to)}
+        >{row.to.kind === 'you' ? 'you' : row.to.name}</span
+      >{/if}
     {#if row.label}<span class="type">· {row.label}</span>{/if}
   {:else if row.to}
     {#if ownName}<span class="who" style:color={color(null)}>{ownName}</span>{/if}
-    <span class="dir">{row.label === 'result' ? 'from' : 'to'}</span><span class="who" style:color={color(row.to)}>{row.to.kind === 'you' ? 'you' : row.to.name}</span>
+    <span class="dir">{row.label === 'result' ? 'from' : 'to'}</span><span class="who" style:color={color(row.to)}
+      >{row.to.kind === 'you' ? 'you' : row.to.name}</span
+    >
     {#if row.label}<span class="type">· {row.label}</span>{/if}
   {:else}
     {#if ownName}<span class="who" style:color={color(null)}>{ownName}</span>{/if}
@@ -119,7 +140,9 @@
 {#snippet deliveryMark()}
   {#if d}
     {#if d.state === 'delivered'}<span class="dl"><i class="ph ph-check"></i>{d.count || ''}</span>
-    {:else if d.state === 'deferred'}<span class="dl yellow"><i class="ph ph-clock"></i>deferred{d.delivered_at ? `, delivered ${hm(d.delivered_at)}` : ''}</span>
+    {:else if d.state === 'deferred'}<span class="dl yellow"
+        ><i class="ph ph-clock"></i>deferred{d.delivered_at ? `, delivered ${hm(d.delivered_at)}` : ''}</span
+      >
     {:else if d.state === 'pending'}<span class="dl">sending…</span>
     {:else if d.state === 'unreachable'}<span class="dl orange"><i class="ph ph-plugs"></i>not delivered</span>
     {:else if d.state === 'failed'}<span class="dl red"><i class="ph ph-x-circle"></i>failed</span>{/if}
@@ -132,7 +155,9 @@
       <i class="ph {ICON.state} ic" style:color="var(--tx-label)"></i>
       <div class="mid">
         <div class="head line">
-          <span class="line-text">{#if row.who}<span style:color={color(row.who)}>{row.who.name}</span>{' '}{/if}{row.text}</span>
+          <span class="line-text"
+            >{#if row.who}<span style:color={color(row.who)}>{row.who.name}</span>{' '}{/if}{row.text}</span
+          >
           <span class="right">{@render deliveryMark()}<span class="time">{hm(row.at)}</span></span>
         </div>
       </div>
@@ -154,7 +179,16 @@
         {#snippet m()}<span class="own">thinking{row.tokens ? ` · ${row.tokens} tok` : ''}</span>{/snippet}
         {#snippet r()}<kbd>E</kbd>{/snippet}
         {@render header(m, r)}
-        <div class="think" class:open role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>{row.text}</div>
+        <div
+          class="think"
+          class:open
+          role="button"
+          tabindex="0"
+          onclick={() => onToggle?.()}
+          onkeydown={(e) => e.key === 'Enter' && onToggle?.()}
+        >
+          {row.text}
+        </div>
       </div>
     </div>
   {:else if row.kind === 'tool' || row.kind === 'approval'}
@@ -163,7 +197,8 @@
       <i class="ph {ICON[row.kind]} ic" style:color={row.kind === 'approval' ? 'var(--need)' : 'var(--tool)'}></i>
       <div class="mid">
         {#if row.kind === 'approval'}
-          {#snippet m()}<span class="tname need">{t?.name ?? 'tool'}</span><span class="type">· needs approval</span>{/snippet}
+          {#snippet m()}<span class="tname need">{t?.name ?? 'tool'}</span><span class="type">· needs approval</span
+            >{/snippet}
           {#snippet r()}{#if waiting}<span class="waiting">waiting for you ↓</span>{/if}{/snippet}
           {@render header(m, r)}
           <div class="cmd">{row.text || t?.detail}</div>
@@ -171,9 +206,13 @@
           {#snippet m()}
             <span class="tname" class:failed={t?.status === 'failed'}>{t?.name}</span>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <span class="detail" class:wrap={open} onclick={() => onToggle?.()}>{t?.detail}{#if t?.added != null}&nbsp; <span class="add">+{t.added}</span> <span class="del">−{t.removed}</span>{/if}</span>
+            <span class="detail" class:wrap={open} onclick={() => onToggle?.()}
+              >{t?.detail}{#if t?.added != null}&nbsp; <span class="add">+{t.added}</span>
+                <span class="del">−{t.removed}</span>{/if}</span
+            >
           {/snippet}
-          {#snippet r()}{#if t?.status === 'in_progress' || t?.status === 'pending'}<span class="run">running</span>{:else if t?.ms != null}<span class="time">{secs(t.ms)}</span>{/if}{/snippet}
+          {#snippet r()}{#if t?.status === 'in_progress' || t?.status === 'pending'}<span class="run">running</span
+              >{:else if t?.ms != null}<span class="time">{secs(t.ms)}</span>{/if}{/snippet}
           {@render header(m, r)}
         {/if}
       </div>
@@ -184,15 +223,39 @@
       <div class="g">
         <i class="ph ph-arrow-elbow-down-right ic" style:color="var(--tx-label)"></i>
         <div class="mid">
-          <div class="result" class:open class:failed={t?.status === 'failed'} use:follow={open && running ? t?.result ?? '' : null} role="button" tabindex="0" onclick={() => onToggle?.()} onkeydown={(e) => e.key === 'Enter' && onToggle?.()}>
-            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{shown.slice(1)}{:else}{shown}{/if}{#if row.note}{t?.result ? ' · ' : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <kbd>E</kbd></span>{/if}
+          <div
+            class="result"
+            class:open
+            class:failed={t?.status === 'failed'}
+            use:follow={open && running ? (t?.result ?? '') : null}
+            role="button"
+            tabindex="0"
+            onclick={() => onToggle?.()}
+            onkeydown={(e) => e.key === 'Enter' && onToggle?.()}
+          >
+            {#if t?.result.startsWith('✓')}<span class="ok">✓</span>{shown.slice(
+                1,
+              )}{:else}{shown}{/if}{#if row.note}{t?.result
+                ? ' · '
+                : ''}{row.note}{/if}{#if !open && t && long(t.result)}<span class="more"> … <kbd>E</kbd></span>{/if}
           </div>
         </div>
       </div>
     {/if}
   {:else}
     <div class="g">
-      <i class="ph {ICON[row.kind] ?? 'ph-dot'} ic" style:color={row.kind === 'you' ? YOU : row.kind === 'output' ? 'var(--tx-2)' : row.kind === 'message' ? 'var(--msg)' : row.kind === 'ask' ? 'var(--need)' : 'var(--status-broken)'}></i>
+      <i
+        class="ph {ICON[row.kind] ?? 'ph-dot'} ic"
+        style:color={row.kind === 'you'
+          ? YOU
+          : row.kind === 'output'
+            ? 'var(--tx-2)'
+            : row.kind === 'message'
+              ? 'var(--msg)'
+              : row.kind === 'ask'
+                ? 'var(--need)'
+                : 'var(--status-broken)'}
+      ></i>
       <div class="mid">
         {#snippet r()}
           {#if row.note}<span class="note">{row.note}</span>{/if}
@@ -200,7 +263,16 @@
           {@render deliveryMark()}
         {/snippet}
         {@render header(whoTo, r)}
-        {#if row.text}<Body text={row.text} tone={row.kind === 'you' || row.kind === 'ask' ? 'you' : row.kind === 'message' && !nested ? 'boxed' : row.kind === 'message' ? 'boxed' : 'agent'} />{/if}
+        {#if row.text}<Body
+            text={row.text}
+            tone={row.kind === 'you' || row.kind === 'ask'
+              ? 'you'
+              : row.kind === 'message' && !nested
+                ? 'boxed'
+                : row.kind === 'message'
+                  ? 'boxed'
+                  : 'agent'}
+          />{/if}
         {#if row.images?.length}
           <div class="imgs">
             {#each row.images as img, i (i)}<img src="data:{img.mime};base64,{img.data}" alt="pasted" />{/each}
@@ -208,13 +280,19 @@
         {/if}
         {#if d && loud}
           <div class="grid">
-            <span class="gk">why</span><span>{d.reason || (loud === 'unreach' ? 'the agent isn’t running' : 'the Hub refused it')}</span>
-            {#if loud === 'unreach'}<span class="gk">options</span><span>starting it again runs a fresh session with this as its task</span>
+            <span class="gk">why</span><span
+              >{d.reason || (loud === 'unreach' ? 'the agent isn’t running' : 'the Hub refused it')}</span
+            >
+            {#if loud === 'unreach'}<span class="gk">options</span><span
+                >starting it again runs a fresh session with this as its task</span
+              >
             {:else if d.retry_at}<span class="gk">next</span><span>retrying at {hm(d.retry_at)}</span>{/if}
           </div>
           <div class="acts">
             {#if loud === 'unreach'}
-              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}><kbd>⏎</kbd>Start it again and send</button>
+              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}
+                ><kbd>⏎</kbd>Start it again and send</button
+              >
               <button class="btn" onclick={() => onDelivery?.('forward')}><kbd>F</kbd>Send to another agent</button>
               <button class="btn" onclick={() => onDelivery?.('discard')}><kbd>Esc</kbd>Discard</button>
             {:else}
@@ -227,8 +305,12 @@
           <div class="grid">
             <span class="gk">delivery</span>
             <span
-              >{#if d.state === 'deferred'}<span class="yellow">deferred {hm(d.at)}</span> {d.reason}{#if d.delivered_at}
-                  <span class="arrow">→</span> <span class="aqua">delivered {hm(d.delivered_at)}</span> at the start of its next turn{/if}{:else}<span class="aqua">delivered {hm(d.delivered_at || d.at)}</span>{d.count > 1 ? ` to ${d.count}` : ''}{/if}</span
+              >{#if d.state === 'deferred'}<span class="yellow">deferred {hm(d.at)}</span>
+                {d.reason}{#if d.delivered_at}
+                  <span class="arrow">→</span> <span class="aqua">delivered {hm(d.delivered_at)}</span> at the start of its
+                  next turn{/if}{:else}<span class="aqua">delivered {hm(d.delivered_at || d.at)}</span>{d.count > 1
+                  ? ` to ${d.count}`
+                  : ''}{/if}</span
             >
             {#if d.seen_by.length}<span class="gk">seen by</span><span>{d.seen_by.join(' · ')}</span>{/if}
           </div>
@@ -241,7 +323,10 @@
           <i class="ph ph-wrench ic" style:color="var(--tool)"></i>
           <div class="mid">
             <div class="head line">
-              <span class="line-text"><span style:color={color(c.tool.name === row.to?.name ? row.to : null)}>{c.tool.name}</span> · {c.tool.summary}</span>
+              <span class="line-text"
+                ><span style:color={color(c.tool.name === row.to?.name ? row.to : null)}>{c.tool.name}</span> · {c.tool
+                  .summary}</span
+              >
               <span class="right"><kbd>E</kbd></span>
             </div>
           </div>

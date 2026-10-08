@@ -40,7 +40,9 @@
   {#each items as it, i}
     <span class="item" class:mono={masked}>
       {masked ? shorten(it) : it}
-      <button onclick={() => onchange(items.filter((_, j) => j !== i))} aria-label="Remove {it}"><i class="ph ph-x"></i></button>
+      <button onclick={() => onchange(items.filter((_, j) => j !== i))} aria-label="Remove {it}"
+        ><i class="ph ph-x"></i></button
+      >
     </span>
   {/each}
   {#if editing}
@@ -59,7 +61,8 @@
           e.currentTarget.blur();
         }
         e.stopPropagation();
-      }} />
+      }}
+    />
   {:else}
     <button class="add" onclick={() => onedit(true)}><i class="ph ph-plus"></i>add</button>
   {/if}

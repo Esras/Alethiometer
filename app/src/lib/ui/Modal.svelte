@@ -43,7 +43,9 @@
   const TABBABLE = 'input, select, textarea, button, a[href], [tabindex]:not([tabindex="-1"])';
 
   function tab(e: KeyboardEvent): boolean {
-    const all = [...(dialog?.querySelectorAll<HTMLElement>(TABBABLE) ?? [])].filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0 && el.getClientRects().length);
+    const all = [...(dialog?.querySelectorAll<HTMLElement>(TABBABLE) ?? [])].filter(
+      (el) => !el.hasAttribute('disabled') && el.tabIndex >= 0 && el.getClientRects().length,
+    );
     if (!all.length) {
       // Nothing to tab to: park focus on the scrim, so it is out of the page behind.
       if (backdrop) {
@@ -80,7 +82,8 @@
     return () => {
       // Not if focus has already gone somewhere on purpose.
       const now = document.activeElement;
-      if (before?.isConnected && before !== document.body && (!now || now === document.body || d.contains(now))) before.focus();
+      if (before?.isConnected && before !== document.body && (!now || now === document.body || d.contains(now)))
+        before.focus();
     };
   });
 
@@ -98,7 +101,8 @@
   style:position
   style:inset
   {onkeydown}
-  onmousedown={(e) => e.target === e.currentTarget && onclose()}>
+  onmousedown={(e) => e.target === e.currentTarget && onclose()}
+>
   <div class="dialog" bind:this={dialog} role="dialog" aria-modal="true" aria-label={label}>
     {@render children()}
   </div>

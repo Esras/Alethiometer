@@ -64,7 +64,9 @@
       <i class="ph ph-compass app"></i>Alethiometer
       <span class="pin"><i class="ph-fill ph-push-pin"></i>stays until answered</span>
       <span class="at tnum">{data.at}</span>
-      <button class="x" onclick={() => answer('dismissed')} title="Close (Alt+X)" aria-label="Close"><i class="ph ph-x"></i></button>
+      <button class="x" onclick={() => answer('dismissed')} title="Close (Alt+X)" aria-label="Close"
+        ><i class="ph ph-x"></i></button
+      >
     </div>
     <div>
       <div class="title" id="nudge-title">{data.title}</div>

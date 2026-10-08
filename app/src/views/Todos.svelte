@@ -30,7 +30,11 @@
   }
   const DAY = 480;
   const dur = (m: number) =>
-    m >= DAY && m % DAY === 0 ? `${m / DAY}d` : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
+    m >= DAY && m % DAY === 0
+      ? `${m / DAY}d`
+      : m < 60
+        ? `${m}m`
+        : `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
   const signalOf = (t: Todo | null) => (t?.ext.type === 'local' ? t.ext.from_item : null);
   const isEpic = (t: Todo) => t.ext.type === 'jira' && t.ext.issue_type?.toLowerCase() === 'epic';
 
@@ -81,7 +85,11 @@
     }
   }
 
-  const counts = $derived(Object.fromEntries(SOURCES.map((s) => [s.key, todos.filter((t) => s.key === 'all' || t.ext.type === s.key).length])));
+  const counts = $derived(
+    Object.fromEntries(
+      SOURCES.map((s) => [s.key, todos.filter((t) => s.key === 'all' || t.ext.type === s.key).length]),
+    ),
+  );
 
   function cmp(a: Todo, b: Todo, key: SortKey): number {
     const last = (x: unknown) => (x === null || x === undefined ? 1 : 0);
@@ -181,32 +189,40 @@
 
   useKeys((e) => {
     if (creating || editing !== null || scheduling !== null) return;
-    if (plain(e, 'e')) return current && !isEpic(current) && (editing = current.item_id), true;
-    if (plain(e, 'd')) return current?.ext.type === 'local' && (scheduling = current.item_id), true;
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
-    if (plain(e, 'x') || plain(e, ' ')) return toggle(current), true;
-    if (plain(e, 'u')) return current && struck.has(current.item_id) && toggle(current), true;
-    if (plain(e, 'o')) return current?.url && openExternal(current.url), true;
-    if (plain(e, 'Enter')) return expand(current), true;
-    if (plain(e, 'Escape') && open !== null) return (open = null), true;
-    if (plain(e, 't')) return current?.topic && openTopic(current.topic.id), true;
-    if (plain(e, 'n')) return (creating = true), true;
-    if (plain(e, 's')) return (sort = { key: SORTS[(SORTS.indexOf(sort.key) + 1) % SORTS.length], asc: true }), true;
-    if (plain(e, '/')) return filterEl?.focus(), true;
+    if (plain(e, 'e')) return (current && !isEpic(current) && (editing = current.item_id), true);
+    if (plain(e, 'd')) return (current?.ext.type === 'local' && (scheduling = current.item_id), true);
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (step(-1), true);
+    if (plain(e, 'x') || plain(e, ' ')) return (toggle(current), true);
+    if (plain(e, 'u')) return (current && struck.has(current.item_id) && toggle(current), true);
+    if (plain(e, 'o')) return (current?.url && openExternal(current.url), true);
+    if (plain(e, 'Enter')) return (expand(current), true);
+    if (plain(e, 'Escape') && open !== null) return ((open = null), true);
+    if (plain(e, 't')) return (current?.topic && openTopic(current.topic.id), true);
+    if (plain(e, 'n')) return ((creating = true), true);
+    if (plain(e, 's')) return ((sort = { key: SORTS[(SORTS.indexOf(sort.key) + 1) % SORTS.length], asc: true }), true);
+    if (plain(e, '/')) return (filterEl?.focus(), true);
   });
 </script>
 
 <div class="view">
   <div class="main">
     <div class="bar">
-      <FilterField class="todos-filter" bind:value={q} bind:el={filterEl} placeholder="Filter todos" onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())}>
+      <FilterField
+        class="todos-filter"
+        bind:value={q}
+        bind:el={filterEl}
+        placeholder="Filter todos"
+        onkeydown={(e) => e.key === 'Escape' && ((q = ''), filterEl?.blur())}
+      >
         <kbd>/</kbd>
       </FilterField>
       <div class="chips">
         {#each SOURCES as s (s.key)}
           {#if s.key === 'all' || counts[s.key]}
-            <button class="chip" class:on={source === s.key} onclick={() => (source = s.key)}>{s.label} <span class="tnum">{counts[s.key]}</span></button>
+            <button class="chip" class:on={source === s.key} onclick={() => (source = s.key)}
+              >{s.label} <span class="tnum">{counts[s.key]}</span></button
+            >
           {/if}
         {/each}
       </div>
@@ -220,33 +236,70 @@
     <div class="panel col">
       <div class="head row panel-head">
         <span></span>
-        <button onclick={() => sortBy('title')}>Todo{#if sort.key === 'title'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('status')}>Status{#if sort.key === 'status'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('topic')}>Topic{#if sort.key === 'topic'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('priority')}>Priority{#if sort.key === 'priority'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('estimate')}>Est.{#if sort.key === 'estimate'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('sched')}>Sched{#if sort.key === 'sched'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
-        <button onclick={() => sortBy('due')}>Due{#if sort.key === 'due'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button>
+        <button onclick={() => sortBy('title')}
+          >Todo{#if sort.key === 'title'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('status')}
+          >Status{#if sort.key === 'status'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('topic')}
+          >Topic{#if sort.key === 'topic'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('priority')}
+          >Priority{#if sort.key === 'priority'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('estimate')}
+          >Est.{#if sort.key === 'estimate'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('sched')}
+          >Sched{#if sort.key === 'sched'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
+        <button onclick={() => sortBy('due')}
+          >Due{#if sort.key === 'due'}<i class="ph ph-caret-{sort.asc ? 'up' : 'down'}"></i>{/if}</button
+        >
       </div>
       <div class="body scroll">
         {#each rows as t (t.item_id)}
           {@const done = struck.has(t.item_id)}
-          <div class="row todo" class:sel={t.item_id === sel} class:done style:--topic={t.topic ? catColor(t.topic.category) : null} data-todo={t.item_id} onclick={() => (sel = t.item_id)} ondblclick={() => t.url && openExternal(t.url)} role="presentation">
-            <button class="check" onclick={(e) => (e.stopPropagation(), toggle(t))} aria-label={done ? 'Reopen' : 'Done'}>
+          <div
+            class="row todo"
+            class:sel={t.item_id === sel}
+            class:done
+            style:--topic={t.topic ? catColor(t.topic.category) : null}
+            data-todo={t.item_id}
+            onclick={() => (sel = t.item_id)}
+            ondblclick={() => t.url && openExternal(t.url)}
+            role="presentation"
+          >
+            <button
+              class="check"
+              onclick={(e) => (e.stopPropagation(), toggle(t))}
+              aria-label={done ? 'Reopen' : 'Done'}
+            >
               <i class={done ? 'ph-fill ph-check-square' : 'ph ph-square'}></i>
             </button>
             <span class="title-cell">
               <AppIcon source={ICON[t.ext.type]} size={14} />
               <span class="title ellipsis" title={t.title}>{t.title}</span>
               {#if t.from && signalOf(t) !== null}
-                <button class="from link-nav ellipsis" onclick={(e) => (e.stopPropagation(), expand(t))} title="Show the signal (↵)">{t.from}</button>
+                <button
+                  class="from link-nav ellipsis"
+                  onclick={(e) => (e.stopPropagation(), expand(t))}
+                  title="Show the signal (↵)">{t.from}</button
+                >
               {:else if t.from}<span class="from ellipsis">{t.from}</span>{/if}
             </span>
-            <span>{#if t.ext.type === 'jira'}<span class="chip status ellipsis" title={t.ext.status}>{t.ext.status}</span>{/if}</span>
+            <span
+              >{#if t.ext.type === 'jira'}<span class="chip status ellipsis" title={t.ext.status}>{t.ext.status}</span
+                >{/if}</span
+            >
             <span class="topic ellipsis">
-              {#if t.topic}<span class="cbar" style:background={catColor(t.topic.category)}></span>{t.topic.name}{:else}<span class="none">No topic</span>{/if}
+              {#if t.topic}<span class="cbar" style:background={catColor(t.topic.category)}></span>{t.topic
+                  .name}{:else}<span class="none">No topic</span>{/if}
             </span>
-            <span class="muted tnum" title="Place in the Priorities tab's Priority column">{t.rank ? `#${t.rank}` : ''}</span>
+            <span class="muted tnum" title="Place in the Priorities tab's Priority column"
+              >{t.rank ? `#${t.rank}` : ''}</span
+            >
             {#if isEpic(t)}
               <span class="muted" title="Epics aren't estimated: you track them, the work is in their issues">-</span>
             {:else if editing === t.item_id}
@@ -266,9 +319,16 @@
                 }}
               />
             {:else}
-              <button class="est" class:ai={t.estimate?.by === 'ai'} title={t.estimate?.by === 'ai' ? 'AI guess · e to change' : 'e to change'} onclick={(e) => (e.stopPropagation(), (editing = t.item_id))}>
+              <button
+                class="est"
+                class:ai={t.estimate?.by === 'ai'}
+                title={t.estimate?.by === 'ai' ? 'AI guess · e to change' : 'e to change'}
+                onclick={(e) => (e.stopPropagation(), (editing = t.item_id))}
+              >
                 {t.estimate ? `${t.estimate.by === 'ai' ? '~' : ''}${dur(t.estimate.minutes)}` : '—'}
-                {#if t.estimate && t.estimate.minutes > 120}<span class="split" title="Over 2h: worth breaking up?">split?</span>{/if}
+                {#if t.estimate && t.estimate.minutes > 120}<span class="split" title="Over 2h: worth breaking up?"
+                    >split?</span
+                  >{/if}
               </button>
             {/if}
             {#if scheduling === t.item_id}
@@ -288,7 +348,11 @@
                 }}
               />
             {:else if t.ext.type === 'local'}
-              <button class="est tnum" title="Scheduled: the day you mean to do it · d to change" onclick={(e) => (e.stopPropagation(), (scheduling = t.item_id))}>{t.sched_label ?? '—'}</button>
+              <button
+                class="est tnum"
+                title="Scheduled: the day you mean to do it · d to change"
+                onclick={(e) => (e.stopPropagation(), (scheduling = t.item_id))}>{t.sched_label ?? '—'}</button
+              >
             {:else}
               <span></span>
             {/if}
@@ -302,7 +366,10 @@
             </div>
           {/if}
         {:else}
-          <div class="empty-pane">{#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or here (<kbd>n</kbd>).{/if}</div>
+          <div class="empty-pane">
+            {#if todos.length}Nothing matches.{:else}No todos. Make one from a signal in Incoming (<kbd>n</kbd>), or
+              here (<kbd>n</kbd>).{/if}
+          </div>
         {/each}
       </div>
       <div class="hint-bar">

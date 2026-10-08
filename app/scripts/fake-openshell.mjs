@@ -42,13 +42,34 @@ const fail = (msg) => {
 };
 const json = (v) => process.stdout.write(JSON.stringify(v, null, 2) + '\n');
 const rulesFile = (name) => path.join(root, '.rules', `${gateway}--${name}.json`);
-const readRules = (name) => (fs.existsSync(rulesFile(name)) ? JSON.parse(fs.readFileSync(rulesFile(name), 'utf8')) : []);
+const readRules = (name) =>
+  fs.existsSync(rulesFile(name)) ? JSON.parse(fs.readFileSync(rulesFile(name), 'utf8')) : [];
 
 const [group, cmd] = args;
 if (group === 'gateway' && cmd === 'list') {
   json([
-    { name: 'local', endpoint: 'http://127.0.0.1:17670', type: 'local', source: 'system', auth: 'plaintext', active: true, is_remote: false, remote_host: null, resolved_host: null },
-    { name: 'remote', endpoint: 'https://openshell.example.com', type: 'remote', source: 'user', auth: 'edge', active: false, is_remote: true, remote_host: 'gw', resolved_host: null },
+    {
+      name: 'local',
+      endpoint: 'http://127.0.0.1:17670',
+      type: 'local',
+      source: 'system',
+      auth: 'plaintext',
+      active: true,
+      is_remote: false,
+      remote_host: null,
+      resolved_host: null,
+    },
+    {
+      name: 'remote',
+      endpoint: 'https://openshell.example.com',
+      type: 'remote',
+      source: 'user',
+      auth: 'edge',
+      active: false,
+      is_remote: true,
+      remote_host: 'gw',
+      resolved_host: null,
+    },
   ]);
 } else if (group === 'sandbox' && cmd === 'list') {
   const dir = path.join(root, gateway);
@@ -113,7 +134,11 @@ if (group === 'gateway' && cmd === 'list') {
       const i = kv.indexOf('=');
       env[kv.slice(0, i)] = kv.slice(i + 1);
     }
-    const child = spawn(prog, rest, { cwd: workdir ? path.resolve(box(name), workdir) : box(name), env, stdio: 'inherit' });
+    const child = spawn(prog, rest, {
+      cwd: workdir ? path.resolve(box(name), workdir) : box(name),
+      env,
+      stdio: 'inherit',
+    });
     child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
     for (const s of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(s, () => child.kill(s));
   }

@@ -31,7 +31,10 @@ export const checks = {
   'priorities: the cursor row is lit in the focused column only': async (t) => {
     await t.steps('Control+2', ']');
     t.ok((await t.page.locator('.prow.cur').count()) === 1, 'not exactly one cursor row');
-    t.ok((await t.page.locator('.prow.open').count()) === 2, 'the same todo is not open-row grey in the other two columns');
+    t.ok(
+      (await t.page.locator('.prow.open').count()) === 2,
+      'the same todo is not open-row grey in the other two columns',
+    );
   },
   'priorities: / focuses the filter, Esc leaves it and keeps the text': async (t) => {
     await t.steps('Control+2', '/');

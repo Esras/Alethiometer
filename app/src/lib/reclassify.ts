@@ -20,7 +20,11 @@ export interface Move {
 }
 
 export async function moveSignal(itemId: number, from: number | null, to: number, toName: string): Promise<Move> {
-  const r = await call<{ moved: Moved[] }>('incoming.reclassify', { item_id: itemId, from_topic_id: from, to_topic_id: to });
+  const r = await call<{ moved: Moved[] }>('incoming.reclassify', {
+    item_id: itemId,
+    from_topic_id: from,
+    to_topic_id: to,
+  });
   return { itemId, from, to, toName, moved: r.moved };
 }
 

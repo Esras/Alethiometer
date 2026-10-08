@@ -125,28 +125,44 @@
 {#if ui.assistantOpen}
   <aside class="pane" class:wide={glean}>
     {#if sources && last}
-      <SourcesPanel reply={last} topicId={topic?.id ?? null} bind:hoverQuery bind:hoverSource onchanged={(n) => (note = n)} />
+      <SourcesPanel
+        reply={last}
+        topicId={topic?.id ?? null}
+        bind:hoverQuery
+        bind:hoverSource
+        onchanged={(n) => (note = n)}
+      />
     {/if}
     <div class="head">
       <i class="ph ph-sparkle"></i>Assistant
       {#if glean}
-        <span class="route mono" title="Glean searches; the large model answers from what's kept"><AppIcon source="glean" size={12} />{last?.route ?? 'search → model'}</span>
+        <span class="route mono" title="Glean searches; the large model answers from what's kept"
+          ><AppIcon source="glean" size={12} />{last?.route ?? 'search → model'}</span
+        >
       {/if}
-      {#if c.log.length}<button class="reset" onclick={reset} disabled={c.busy} title="Start over"><i class="ph ph-arrow-counter-clockwise"></i></button>{/if}
-      <button class="close" onclick={() => (ui.assistantOpen = false)} title="Close (⌘I)"><i class="ph ph-caret-double-right"></i></button>
+      {#if c.log.length}<button class="reset" onclick={reset} disabled={c.busy} title="Start over"
+          ><i class="ph ph-arrow-counter-clockwise"></i></button
+        >{/if}
+      <button class="close" onclick={() => (ui.assistantOpen = false)} title="Close (⌘I)"
+        ><i class="ph ph-caret-double-right"></i></button
+      >
     </div>
     {#if topic}
       <div class="ctx"><span class="sq" style:background={catColor(topic.category)}></span>{topic.name}</div>
     {:else if scope === 'topics'}
       <div class="ctx"><i class="ph ph-stack"></i>All topics</div>
     {/if}
-    {#if !glean}<div class="provider" title="Questions go only to this allow-listed provider">{ui.info?.ai_label}</div>{/if}
+    {#if !glean}<div class="provider" title="Questions go only to this allow-listed provider">
+        {ui.info?.ai_label}
+      </div>{/if}
     <div class="log scroll">
       {#each c.log as m}
         <div class="q" class:bubble={glean}>{m.q}</div>
         {#if m.reply}
           <GleanAnswer reply={m.reply} {hoverQuery} {hoverSource} bind:hoverPerson />
-        {:else if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err broken"><i class="ph ph-warning-circle"></i>{m.err}</div>{:else}<div class="a pending">{glean ? 'Searching and reading…' : 'Thinking…'}</div>{/if}
+        {:else if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err broken">
+            <i class="ph ph-warning-circle"></i>{m.err}
+          </div>{:else}<div class="a pending">{glean ? 'Searching and reading…' : 'Thinking…'}</div>{/if}
       {/each}
     </div>
     {#if glean}
@@ -158,9 +174,11 @@
           <span>{kept} sources</span>
           <span class="warn">{dropped} dropped</span>
           <span>{asked} {asked === 1 ? 'query' : 'queries'}</span>
-          {#if last.glean.state !== 'ok'}<span class="warn" title={last.glean.message ?? ''}>Glean unavailable</span>{/if}
+          {#if last.glean.state !== 'ok'}<span class="warn" title={last.glean.message ?? ''}>Glean unavailable</span
+            >{/if}
           <button class="btn srcbtn" class:on={sources} onclick={() => (sources = !sources)}>
-            <i class="ph {sources ? 'ph-caret-right' : 'ph-caret-left'}"></i>{sources ? 'Hide sources' : 'Sources'} <kbd>e</kbd>
+            <i class="ph {sources ? 'ph-caret-right' : 'ph-caret-left'}"></i>{sources ? 'Hide sources' : 'Sources'}
+            <kbd>e</kbd>
           </button>
         </div>
       {/if}
@@ -170,7 +188,12 @@
           <div class="label slabel">Sent with your question</div>
           <div class="chips">
             {#each chips as c (c.id)}
-              <button class="src" class:off={!c.on} onclick={() => toggle(c)} title={c.on ? 'Remove (asks again without it)' : 'Add'}>
+              <button
+                class="src"
+                class:off={!c.on}
+                onclick={() => toggle(c)}
+                title={c.on ? 'Remove (asks again without it)' : 'Add'}
+              >
                 <span class:mono={c.id === 'keys'}>{c.label}</span><i class="ph {c.on ? 'ph-x' : 'ph-plus'}"></i>
               </button>
             {/each}

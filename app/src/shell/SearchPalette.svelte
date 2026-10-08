@@ -17,7 +17,6 @@
   import Modal from '../lib/ui/Modal.svelte';
   import TopicPicker from '../views/incoming/TopicPicker.svelte';
 
-
   // From the Search results view, `/` comes back here with its query.
   const initial = ui.tab === 'search' ? ui.searchQuery : '';
   let q = $state(initial);
@@ -25,7 +24,10 @@
   const context = ui.tab === 'topics' && ui.openTopicId !== null ? ui.openTopicId : ui.topicId;
   let anchored = $state(context !== null);
   let anchorTopic = $state<{ name: string; category: string } | null>(null);
-  if (context !== null) call<{ name: string; category: string }>('topics.get', { id: context }).then((t) => (anchorTopic = t)).catch(() => {});
+  if (context !== null)
+    call<{ name: string; category: string }>('topics.get', { id: context })
+      .then((t) => (anchorTopic = t))
+      .catch(() => {});
   let glean = $state(ui.tab === 'search' && ui.searchGlean);
   let res = $state<Hydrated | null>(null);
   let loading = $state(false);
@@ -79,7 +81,9 @@
   $effect(() => input?.focus());
 
   type Item = { kind: 'topic'; id: number; name: string; category: string } | { kind: 'row'; row: HRow };
-  const visible = $derived((res?.rows ?? []).filter((r) => (r.kept || showHidden) && inLens(r, filter) && !(exclude && inLens(r, exclude))));
+  const visible = $derived(
+    (res?.rows ?? []).filter((r) => (r.kept || showHidden) && inLens(r, filter) && !(exclude && inLens(r, exclude))),
+  );
   const rows = $derived<Item[]>([
     ...(res?.topics ?? []).map((t) => ({ kind: 'topic' as const, ...t })),
     ...visible.map((row) => ({ kind: 'row' as const, row })),
@@ -184,84 +188,111 @@
 </script>
 
 <Modal label="Search" onclose={() => (ui.searchOpen = false)} {onkeys}>
-<div class="palette modal">
-  <div class="field">
-    <i class="ph ph-magnifying-glass"></i>
-    <input bind:this={input} bind:value={q} placeholder="Search everything" />
-    {#if context !== null}
-      <button class="chip anchor" class:on={anchored} onclick={() => (anchored = !anchored)} title="Anchor to the topic you're in ({chord('⌥A', 'Alt+A')})">
-        {#if anchored}
-          <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}></span>{anchorName ?? 'This topic'}
-        {:else}
-          <i class="ph ph-anchor-simple"></i>No anchor
-        {/if}
-        <kbd>{chord('⌥A', 'Alt+A')}</kbd>
-      </button>
+  <div class="palette modal">
+    <div class="field">
+      <i class="ph ph-magnifying-glass"></i>
+      <input bind:this={input} bind:value={q} placeholder="Search everything" />
+      {#if context !== null}
+        <button
+          class="chip anchor"
+          class:on={anchored}
+          onclick={() => (anchored = !anchored)}
+          title="Anchor to the topic you're in ({chord('⌥A', 'Alt+A')})"
+        >
+          {#if anchored}
+            <span class="sq" style:background={catColor(res?.anchor?.category ?? anchorTopic?.category ?? '')}
+            ></span>{anchorName ?? 'This topic'}
+          {:else}
+            <i class="ph ph-anchor-simple"></i>No anchor
+          {/if}
+          <kbd>{chord('⌥A', 'Alt+A')}</kbd>
+        </button>
+      {/if}
+    </div>
+    <div class="helper">
+      {#if anchored && res && res.hidden}
+        <button class="hidden" onclick={() => (showHidden = !showHidden)}
+          >{res.hidden} off-topic {showHidden ? 'shown' : 'hidden'}</button
+        >
+        <span><kbd>{'⇧↵'}</kbd> {showHidden ? 'hide' : 'show'}</span>
+      {:else if !anchored && context !== null}
+        <span>Ranked by match and recency</span>
+        <span><kbd>{chord('⌥A', 'Alt+A')}</kbd> anchor to {anchorName ?? 'this topic'}</span>
+      {:else if anchored}
+        <span>Anchored to {anchorName ?? 'this topic'}</span>
+      {:else}
+        <span>Ranked by match and recency</span>
+      {/if}
+      <span class="grow"></span>
+      {#if loading}<span>asking Glean…</span>{:else if q.trim() && !glean}<span
+          ><kbd>{chord('⌥↵', 'Alt+↵')}</kbd> Glean</span
+        >{/if}
+      <span><kbd>↵</kbd> open</span>
+      <span><kbd>{chord('⌘T', 'Ctrl+T')}</kbd> link to topic</span>
+      {#if anchored}<span><kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd> reject</span>{/if}
+    </div>
+    {#if res && q.trim()}
+      <FacetBar facets={res.facets} total={visible.length} bind:hover bind:filter bind:exclude />
+    {/if}
+    {#if rows.length}
+      <div class="results scroll">
+        {#each rows as it, i}
+          {#if it.kind === 'topic'}
+            <button
+              class="row"
+              data-i={i}
+              class:sel={i === sel}
+              onclick={() => open(it)}
+              onmousemove={(e) => pointerMoved(e) && (sel = i)}
+            >
+              <span class="sq topic" style:background={catColor(it.category)}></span>
+              <span class="ellipsis">{it.name}</span>
+              <span class="when">Topic</span>
+            </button>
+          {:else}
+            {@const r = it.row}
+            {@const lit = hover !== null && inLens(r, hover)}
+            <button
+              class="row"
+              data-i={i}
+              class:sel={i === sel}
+              class:dim={hover !== null && !lit}
+              class:dropped={!r.kept}
+              style:--rc={hover ? ROUTE_COLOR[hover.route] : 'transparent'}
+              class:lit
+              onclick={() => open(it)}
+              onmousemove={(e) => pointerMoved(e) && (sel = i)}
+              title={r.reason || r.system}
+            >
+              <AppIcon source={r.icon} size={16} />
+              <span class="ellipsis">{r.title}</span>
+              {#if !r.kept || (i === sel && r.reason)}<span class="why">{r.reason}</span>{/if}
+              {#if r.pinned}<i class="ph ph-push-pin pin"></i>{/if}
+              <span class="when tnum">{r.when}</span>
+            </button>
+          {/if}
+        {/each}
+      </div>
+    {:else if q.trim() && res}
+      <div class="empty-row">
+        No quick matches{#if !glean}{' · '}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> asks Glean{/if} ·
+        <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd> searches everything
+      </div>
+    {/if}
+    {#if note}<div class="note">
+        {note}{#if note === ANCHOR_FIRST}{' ('}<kbd>{chord('⌥A', 'Alt+A')}</kbd>){/if}
+      </div>{/if}
+    {#if picking && current?.kind === 'row'}
+      <div class="picker">
+        <TopicPicker
+          exclude={current.row.topic?.id ?? null}
+          placeholder="Link to topic…"
+          onpick={linkTo}
+          onclose={() => (picking = false)}
+        />
+      </div>
     {/if}
   </div>
-  <div class="helper">
-    {#if anchored && res && res.hidden}
-      <button class="hidden" onclick={() => (showHidden = !showHidden)}>{res.hidden} off-topic {showHidden ? 'shown' : 'hidden'}</button>
-      <span><kbd>{'⇧↵'}</kbd> {showHidden ? 'hide' : 'show'}</span>
-    {:else if !anchored && context !== null}
-      <span>Ranked by match and recency</span>
-      <span><kbd>{chord('⌥A', 'Alt+A')}</kbd> anchor to {anchorName ?? 'this topic'}</span>
-    {:else if anchored}
-      <span>Anchored to {anchorName ?? 'this topic'}</span>
-    {:else}
-      <span>Ranked by match and recency</span>
-    {/if}
-    <span class="grow"></span>
-    {#if loading}<span>asking Glean…</span>{:else if q.trim() && !glean}<span><kbd>{chord('⌥↵', 'Alt+↵')}</kbd> Glean</span>{/if}
-    <span><kbd>↵</kbd> open</span>
-    <span><kbd>{chord('⌘T', 'Ctrl+T')}</kbd> link to topic</span>
-    {#if anchored}<span><kbd>{chord('⌘⌫', 'Ctrl+⌫')}</kbd> reject</span>{/if}
-  </div>
-  {#if res && q.trim()}
-    <FacetBar facets={res.facets} total={visible.length} bind:hover bind:filter bind:exclude />
-  {/if}
-  {#if rows.length}
-    <div class="results scroll">
-      {#each rows as it, i}
-        {#if it.kind === 'topic'}
-          <button class="row" data-i={i} class:sel={i === sel} onclick={() => open(it)} onmousemove={(e) => pointerMoved(e) && (sel = i)}>
-            <span class="sq topic" style:background={catColor(it.category)}></span>
-            <span class="ellipsis">{it.name}</span>
-            <span class="when">Topic</span>
-          </button>
-        {:else}
-          {@const r = it.row}
-          {@const lit = hover !== null && inLens(r, hover)}
-          <button
-            class="row"
-            data-i={i}
-            class:sel={i === sel}
-            class:dim={hover !== null && !lit}
-            class:dropped={!r.kept}
-            style:--rc={hover ? ROUTE_COLOR[hover.route] : 'transparent'}
-            class:lit
-            onclick={() => open(it)}
-            onmousemove={(e) => pointerMoved(e) && (sel = i)}
-            title={r.reason || r.system}>
-            <AppIcon source={r.icon} size={16} />
-            <span class="ellipsis">{r.title}</span>
-            {#if !r.kept || (i === sel && r.reason)}<span class="why">{r.reason}</span>{/if}
-            {#if r.pinned}<i class="ph ph-push-pin pin"></i>{/if}
-            <span class="when tnum">{r.when}</span>
-          </button>
-        {/if}
-      {/each}
-    </div>
-  {:else if q.trim() && res}
-    <div class="empty-row">No quick matches{#if !glean}{' · '}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> asks Glean{/if} · <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd> searches everything</div>
-  {/if}
-  {#if note}<div class="note">{note}{#if note === ANCHOR_FIRST}{' ('}<kbd>{chord('⌥A', 'Alt+A')}</kbd>){/if}</div>{/if}
-  {#if picking && current?.kind === 'row'}
-    <div class="picker">
-      <TopicPicker exclude={current.row.topic?.id ?? null} placeholder="Link to topic…" onpick={linkTo} onclose={() => (picking = false)} />
-    </div>
-  {/if}
-</div>
 </Modal>
 
 <style>

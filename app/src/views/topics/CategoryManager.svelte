@@ -37,7 +37,12 @@
 <div class="mgr" class:embedded>
   {#each cats as c (c.key)}
     <div class="cat">
-      <input type="color" value={c.color} onchange={(e) => run('categories.update', { key: c.key, color: e.currentTarget.value })} title="Color" />
+      <input
+        type="color"
+        value={c.color}
+        onchange={(e) => run('categories.update', { key: c.key, color: e.currentTarget.value })}
+        title="Color"
+      />
       <input
         class="input sm"
         value={c.label}
@@ -45,14 +50,20 @@
         onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       />
       <kbd>{c.key}</kbd>
-      <button class="btn" onclick={() => run('categories.delete', { key: c.key })} title="Remove (only when nothing uses it)"><i class="ph ph-trash"></i></button>
+      <button
+        class="btn"
+        onclick={() => run('categories.delete', { key: c.key })}
+        title="Remove (only when nothing uses it)"><i class="ph ph-trash"></i></button
+      >
     </div>
   {/each}
   <form class="cat" onsubmit={add}>
     <input type="color" bind:value={color} title="Color" />
     <input class="input sm" bind:value={name} placeholder="New category…" />
     <span></span>
-    <button class="btn primary" type="submit" disabled={!name.trim()} title="Add category"><i class="ph ph-plus"></i></button>
+    <button class="btn primary" type="submit" disabled={!name.trim()} title="Add category"
+      ><i class="ph ph-plus"></i></button
+    >
   </form>
   {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}
 </div>

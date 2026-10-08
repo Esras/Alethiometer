@@ -35,14 +35,20 @@
 
   const matches = $derived.by(() => {
     const needle = p.q.trim().toLowerCase();
-    return all.filter((t) => t.id !== exclude && !excludeIds.includes(t.id) && (!needle || t.name.toLowerCase().includes(needle))).slice(0, 8);
+    return all
+      .filter(
+        (t) => t.id !== exclude && !excludeIds.includes(t.id) && (!needle || t.name.toLowerCase().includes(needle)),
+      )
+      .slice(0, 8);
   });
 
   // The Unsorted row: offered while the query could still mean it.
   const showUnsorted = $derived(!!onunsorted && 'unsorted'.startsWith(p.q.trim().toLowerCase()));
   const offset = $derived(showUnsorted ? 1 : 0);
 
-  const canCreate = $derived(p.q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === p.q.trim().toLowerCase()));
+  const canCreate = $derived(
+    p.q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === p.q.trim().toLowerCase()),
+  );
   let creating = $state(false);
 
   async function create() {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fieldsLine, oneLine, splitMessage } from './approvalMessage';
 
-const cmd = "cd ../Alethiometer-archive/app/src-tauri && python3 - <<'EOF'\nimport json\nprint(json.dumps({'a': 1}))\nEOF";
+const cmd =
+  "cd ../Alethiometer-archive/app/src-tauri && python3 - <<'EOF'\nimport json\nprint(json.dumps({'a': 1}))\nEOF";
 const gate = `tool         : bash\nrule         : *\ncommand      : python3\nfull command : ${cmd}`;
 
 describe('splitMessage', () => {

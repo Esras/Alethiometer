@@ -5,7 +5,9 @@
 
 {#if source === 'agents'}
   <!-- Built in, so no supplied icon: Phosphor's robot on the same tile. -->
-  <span class="ph-tile" style:width="{size}px" style:height="{size}px" style:font-size="{Math.round(size * 0.78)}px"><i class="ph ph-robot"></i></span>
+  <span class="ph-tile" style:width="{size}px" style:height="{size}px" style:font-size="{Math.round(size * 0.78)}px"
+    ><i class="ph ph-robot"></i></span
+  >
 {:else}
   <img src="icons/{source}.png" alt="" width={size} height={size} style:width="{size}px" style:height="{size}px" />
 {/if}

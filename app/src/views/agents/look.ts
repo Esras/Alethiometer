@@ -6,7 +6,11 @@ import type { AgentsLook, Session } from './types';
 
 export const DEFAULT_LOOK: AgentsLook = {
   colors: { you: '#504945', tool: '#8a9a5b', message: '#9a9fd6', hub: '#fabd2f', needs_you: '#fe8019' },
-  names: { color_by: 'agent', palette: ['#7fb3d5', '#b8bb26', '#b9a6e0', '#8ec07c', '#e5a8a0'], self_in_transcript: false },
+  names: {
+    color_by: 'agent',
+    palette: ['#7fb3d5', '#b8bb26', '#b9a6e0', '#8ec07c', '#e5a8a0'],
+    self_in_transcript: false,
+  },
   boxes: { strength: 'normal', fold_pairs: true },
 };
 

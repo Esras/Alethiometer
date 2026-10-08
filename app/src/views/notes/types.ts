@@ -30,7 +30,12 @@ export interface Line {
   error: string | null;
   locked: boolean;
   /** Jira task requested from this line: queued, then the key once Jira confirms. */
-  jira?: { state: 'pending' | 'sent' | 'confirmed' | 'failed'; key: string | null; url: string | null; error: string | null } | null;
+  jira?: {
+    state: 'pending' | 'sent' | 'confirmed' | 'failed';
+    key: string | null;
+    url: string | null;
+    error: string | null;
+  } | null;
 }
 
 export interface Page {

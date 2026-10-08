@@ -59,7 +59,9 @@ http
       if (get && (m = p.match(/^\/api\/v1\/projects\/([^/]+)\/providers$/))) return send(200, load('providers.json'));
       if (get && p === '/api/v1/conversations') {
         const pid = url.searchParams.get('include_project_groups');
-        return send(200, { conversations: conversations.conversations.filter((c) => !c.projectId || c.projectId === pid) });
+        return send(200, {
+          conversations: conversations.conversations.filter((c) => !c.projectId || c.projectId === pid),
+        });
       }
       if (get && (m = p.match(/^\/api\/v1\/conversations\/([^/]+)\/messages$/))) {
         const c = conversations.conversations.find((c) => c.id === m[1]);
@@ -68,13 +70,17 @@ http
       if (get && (m = p.match(/^\/api\/v1\/conversations\/([^/]+)$/))) return send(200, load('conversation.json'));
       if (get && p.endsWith('/interagent')) return send(200, load('interagent.json'));
       if (get && p === '/api/v1/templates') return send(200, load('templates.json'));
-      if (get && p.startsWith('/api/v1/templates/') && p.includes('/files/')) return send(200, load('template_file.json'));
+      if (get && p.startsWith('/api/v1/templates/') && p.includes('/files/'))
+        return send(200, load('template_file.json'));
       if (get && p === '/api/v1/harness-configs') return send(200, load('harness_configs.json'));
-      if (get && (m = p.match(/^\/api\/v1\/agents\/([^/]+)$/))) return send(200, agents.agents.find((a) => a.id === m[1]) ?? {});
+      if (get && (m = p.match(/^\/api\/v1\/agents\/([^/]+)$/)))
+        return send(200, agents.agents.find((a) => a.id === m[1]) ?? {});
       if (req.method === 'DELETE' && (m = p.match(/^\/api\/v1\/agents\/([^/]+)$/))) {
         const before = agents.agents.length;
         agents.agents = agents.agents.filter((a) => a.id !== m[1]);
-        return before === agents.agents.length ? send(404, { error: { code: 'not_found', message: 'no such agent' } }) : (res.writeHead(204), res.end());
+        return before === agents.agents.length
+          ? send(404, { error: { code: 'not_found', message: 'no such agent' } })
+          : (res.writeHead(204), res.end());
       }
       const args = body ? JSON.parse(body) : {};
       if (!get && (m = p.match(/^\/api\/v1\/chat\/conversations\/([^/]+)\/messages$/))) {

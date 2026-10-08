@@ -24,7 +24,13 @@
   const a = $derived(s.reply);
   const target = $derived(msg ?? s.messages.at(-1));
   const where = $derived(
-    !thread ? `in ${s.title}` : s.thread ? 'in the thread' : target ? `in the thread of ${target.author} ${target.time}` : 'in the thread of the newest message',
+    !thread
+      ? `in ${s.title}`
+      : s.thread
+        ? 'in the thread'
+        : target
+          ? `in the thread of ${target.author} ${target.time}`
+          : 'in the thread of the newest message',
   );
 
   export async function open(failed = false) {
@@ -44,7 +50,12 @@
     if (!t || busy) return;
     busy = true;
     try {
-      await call('respond.slack', { item_id: s.item_id, text: t, thread, message_key: thread && !s.thread ? msg?.key : undefined });
+      await call('respond.slack', {
+        item_id: s.item_id,
+        text: t,
+        thread,
+        message_key: thread && !s.thread ? msg?.key : undefined,
+      });
       err = null;
       text = '';
       writing = false;
@@ -80,7 +91,9 @@
         {#if a.state === 'confirmed'}
           <span class="ok"><i class="ph ph-check"></i>Replied · {a.at}</span>
         {:else if a.state === 'failed'}
-          <span class="failed" title={a.error}><i class="ph ph-warning"></i>Your reply didn't send{#if a.error}: {a.error}{/if}</span>
+          <span class="failed" title={a.error}
+            ><i class="ph ph-warning"></i>Your reply didn't send{#if a.error}: {a.error}{/if}</span
+          >
           <button class="btn" onclick={retry}>Retry</button>
           <button class="btn" onclick={() => open(true)}>Edit</button>
         {:else}
@@ -90,12 +103,20 @@
     {/if}
     {#if writing}
       <div class="write">
-        <textarea class="input" bind:this={box} bind:value={text} rows="2" placeholder="Reply as you…" onkeydown={onKey}></textarea>
+        <textarea class="input" bind:this={box} bind:value={text} rows="2" placeholder="Reply as you…" onkeydown={onKey}
+        ></textarea>
         <div class="foot">
-          <button class="link-toggle" onclick={() => (thread = !thread)} title="Switch between the thread and the conversation">
+          <button
+            class="link-toggle"
+            onclick={() => (thread = !thread)}
+            title="Switch between the thread and the conversation"
+          >
             <i class="ph ph-{thread ? 'chats-circle' : 'hash'}"></i>{where} <kbd>{chord('⌥T', 'Alt+T')}</kbd>
           </button>
-          <span class="note"><kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd> {editing ? 'send in place of the failed one' : 'send'} · <kbd>Esc</kbd></span>
+          <span class="note"
+            ><kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd>
+            {editing ? 'send in place of the failed one' : 'send'} · <kbd>Esc</kbd></span
+          >
         </div>
       </div>
     {/if}

@@ -17,7 +17,10 @@ type Sub = {
   closed: boolean;
 };
 
-const client = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c${Math.random().toString(36).slice(2)}${Date.now()}`;
+const client =
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `c${Math.random().toString(36).slice(2)}${Date.now()}`;
 const subs = new Map<number, Sub>();
 /** Results that came by `live.wait` before their `live.subscribe` returned. */
 const early = new Map<number, { seq: number; result: unknown }>();
@@ -32,7 +35,11 @@ function deliver(s: Sub, seq: number, result: unknown) {
 
 async function open(s: Sub) {
   try {
-    const r = await call<{ id: number; result: unknown; seq: number }>('live.subscribe', { client, cmd: s.cmd, args: s.args });
+    const r = await call<{ id: number; result: unknown; seq: number }>('live.subscribe', {
+      client,
+      cmd: s.cmd,
+      args: s.args,
+    });
     if (s.closed) {
       early.delete(r.id);
       call('live.unsubscribe', { id: r.id }).catch(() => {});
@@ -57,7 +64,10 @@ async function startWaiting() {
   let pause = 1000;
   while (subs.size > 0) {
     try {
-      const r = await call<{ seq: number; changed: { id: number; result: unknown; seq: number }[]; gone: number[] }>('live.wait', { client, since, ids: [...subs.keys()] });
+      const r = await call<{ seq: number; changed: { id: number; result: unknown; seq: number }[]; gone: number[] }>(
+        'live.wait',
+        { client, since, ids: [...subs.keys()] },
+      );
       pause = 1000;
       since = r.seq;
       for (const c of r.changed) {
@@ -88,7 +98,12 @@ async function startWaiting() {
 /** Run `cmd` now and again whenever its result changes; returns the
  *  unsubscribe, so it can be an `$effect`'s return value. `onError` hears
  *  a subscription the core refused (bad arguments, say). */
-export function live<T>(cmd: string, args: Record<string, unknown>, onResult: (r: T) => void, onError?: (e: unknown) => void): () => void {
+export function live<T>(
+  cmd: string,
+  args: Record<string, unknown>,
+  onResult: (r: T) => void,
+  onError?: (e: unknown) => void,
+): () => void {
   const s: Sub = { cmd, args, onResult: onResult as (r: never) => void, onError, id: null, seq: 0, closed: false };
   void open(s);
   return () => {

@@ -7,10 +7,29 @@
 
   let { look }: { look: AgentsLook } = $props();
 
-  const base = { rev: 0, note: '', tool: null, delivery: null, children: [], request: null, tokens: null, open: false, ext: '' };
+  const base = {
+    rev: 0,
+    note: '',
+    tool: null,
+    delivery: null,
+    children: [],
+    request: null,
+    tokens: null,
+    open: false,
+    ext: '',
+  };
   const who = (name: string, session: string): Who => ({ name, session, kind: 'agent' });
   const rows: Row[] = [
-    { ...base, id: 1, at: '2026-10-03T10:52:00', kind: 'message', who: who('planner', 'p'), to: null, label: 'instruction', text: 'The secret is per project. Read it from the webhook config, not env.' },
+    {
+      ...base,
+      id: 1,
+      at: '2026-10-03T10:52:00',
+      kind: 'message',
+      who: who('planner', 'p'),
+      to: null,
+      label: 'instruction',
+      text: 'The secret is per project. Read it from the webhook config, not env.',
+    },
     {
       ...base,
       id: 2,
@@ -20,12 +39,35 @@
       to: null,
       label: '',
       text: '',
-      tool: { name: 'run', detail: 'npm test -- hooks', status: 'completed', ms: 2600, result: '✓ 41 passed', added: null, removed: null, summary: '' },
+      tool: {
+        name: 'run',
+        detail: 'npm test -- hooks',
+        status: 'completed',
+        ms: 2600,
+        result: '✓ 41 passed',
+        added: null,
+        removed: null,
+        summary: '',
+      },
     },
-    { ...base, id: 3, at: '2026-10-03T11:03:00', kind: 'you', who: { name: 'You', session: null, kind: 'you' }, to: who('handler', 'h'), label: 'mention', text: 'Use the staging Jira project for tests, not prod.' },
+    {
+      ...base,
+      id: 3,
+      at: '2026-10-03T11:03:00',
+      kind: 'you',
+      who: { name: 'You', session: null, kind: 'you' },
+      to: who('handler', 'h'),
+      label: 'mention',
+      text: 'Use the staging Jira project for tests, not prod.',
+    },
   ];
   const colors: Record<string, number> = { p: 0, h: 1 };
-  const nameColor = (w: Who | null | undefined) => (!w ? agentColor(look, { color: 1, template: 'builder' }) : w.kind === 'you' ? YOU : agentColor(look, { color: colors[w.session ?? ''] ?? 2, template: w.name }));
+  const nameColor = (w: Who | null | undefined) =>
+    !w
+      ? agentColor(look, { color: 1, template: 'builder' })
+      : w.kind === 'you'
+        ? YOU
+        : agentColor(look, { color: colors[w.session ?? ''] ?? 2, template: w.name });
 </script>
 
 <div class="preview inset" style={lookVars(look)}>

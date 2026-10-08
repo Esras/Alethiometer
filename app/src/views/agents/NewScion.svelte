@@ -55,9 +55,16 @@
 
   const t = $derived(cat?.templates.find((x) => x.name === template));
   const members = $derived((ag.tree?.sessions ?? []).filter((s) => s.group_id === group && !s.parent_id));
-  const taken = $derived(!!name && (ag.tree?.sessions ?? []).some((s) => s.group_id && groupById(s.group_id)?.project === g?.project && s.name === name));
+  const taken = $derived(
+    !!name &&
+      (ag.tree?.sessions ?? []).some(
+        (s) => s.group_id && groupById(s.group_id)?.project === g?.project && s.name === name,
+      ),
+  );
   const short = (s: string) => (s.length > 28 ? `${s.slice(0, 26)}…` : s);
-  const command = $derived(`scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''}${thinking ? ` --thinking-level ${thinking}` : ''} "${short(task || '<task>')}"`);
+  const command = $derived(
+    `scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''}${thinking ? ` --thinking-level ${thinking}` : ''} "${short(task || '<task>')}"`,
+  );
 
   async function start() {
     if (busy || !name.trim() || taken) {
@@ -102,12 +109,24 @@
 </script>
 
 <NewModal sub="Scion Hub · project {g?.project ?? ''}" onStart={start} {onClose}>
-  <Joins project={g?.project ?? ''} name={g?.name ?? ''} goal={g?.goal} host={g?.host} room={room && addToRoom ? (g?.room?.name ?? null) : null} {members} newName={name.trim()} />
+  <Joins
+    project={g?.project ?? ''}
+    name={g?.name ?? ''}
+    goal={g?.goal}
+    host={g?.host}
+    room={room && addToRoom ? (g?.room?.name ?? null) : null}
+    {members}
+    newName={name.trim()}
+  />
   <Where />
   {#if !cat && !err}<span class="sub">Reading templates from the Hub…</span>{/if}
   <div class="fields">
     <span class="lab label">Name</span>
-    <span class="input"><input bind:this={nameEl} bind:value={name} placeholder="reviewer" /><span class="note" class:taken>{taken ? 'taken' : 'unique in project'}</span></span>
+    <span class="input"
+      ><input bind:this={nameEl} bind:value={name} placeholder="reviewer" /><span class="note" class:taken
+        >{taken ? 'taken' : 'unique in project'}</span
+      ></span
+    >
     <span class="lab label">Template</span>
     <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>
       {#each cat?.templates ?? [] as x (x.name)}
@@ -118,27 +137,35 @@
           onclick={() => {
             template = x.name;
             version = x.versions[0] ?? '';
-          }}>{x.name}<span class="v">{x.name === template ? version || 'default' : (x.versions[0] ?? 'default')}</span></button
+          }}
+          >{x.name}<span class="v">{x.name === template ? version || 'default' : (x.versions[0] ?? 'default')}</span
+          ></button
         >
       {/each}
     </span>
     <span class="lab label">Harness</span>
     <span class="input">
       <select bind:value={harness}>
-        {#each cat?.harness_configs ?? [] as h (h.name)}<option value={h.name}>{h.name} · {h.harness} · {h.model} · {h.auth}</option>{/each}
+        {#each cat?.harness_configs ?? [] as h (h.name)}<option value={h.name}
+            >{h.name} · {h.harness} · {h.model} · {h.auth}</option
+          >{/each}
       </select>
     </span>
     <span class="lab label">Broker</span>
     <span class="input">
       <select bind:value={broker}>
-        {#each cat?.brokers ?? [] as b (b.name)}<option value={b.name}>{b.name}{b.kind ? ` · ${b.kind}` : ''}{b.note ? ` · ${b.note}` : ''}</option>{/each}
+        {#each cat?.brokers ?? [] as b (b.name)}<option value={b.name}
+            >{b.name}{b.kind ? ` · ${b.kind}` : ''}{b.note ? ` · ${b.note}` : ''}</option
+          >{/each}
       </select>
     </span>
     <span class="lab label">Thinking</span>
     <span class="input">
       <select bind:value={thinking}>
         <option value="">default</option>
-        {#each [['low', 25], ['medium', 50], ['high', 75], ['max', 100]] as [n, v] (n)}<option value={n}>{n} · {v}</option>{/each}
+        {#each [['low', 25], ['medium', 50], ['high', 75], ['max', 100]] as [n, v] (n)}<option value={n}
+            >{n} · {v}</option
+          >{/each}
       </select>
       <span class="note">mapped by the harness config</span>
     </span>
@@ -147,24 +174,41 @@
     {#if room}
       <span class="lab label">Then</span>
       <button class="check" onclick={() => (addToRoom = !addToRoom)}>
-        <span class="box" class:on={addToRoom}>{#if addToRoom}<i class="ph ph-check"></i>{/if}</span>Add to #{g?.room?.name}<span class="note">Alethiometer does this after start</span>
+        <span class="box" class:on={addToRoom}
+          >{#if addToRoom}<i class="ph ph-check"></i>{/if}</span
+        >Add to #{g?.room?.name}<span class="note">Alethiometer does this after start</span>
       </button>
     {/if}
   </div>
   <div class="right">
-    <span class="row-lab"><span class="lab label">Instructions</span><span class="note">agent_instructions from {template} {version} · edit the template on Hub</span></span>
+    <span class="row-lab"
+      ><span class="lab label">Instructions</span><span class="note"
+        >agent_instructions from {template} {version} · edit the template on Hub</span
+      ></span
+    >
     <div class="inset ro">{t?.instructions || '—'}</div>
     {#if t?.skills.length}
-      <span class="skills"><span class="lab label">Skills</span>{#each t.skills as s (s)}<span class="skill">{s}</span>{/each}</span>
+      <span class="skills"
+        ><span class="lab label">Skills</span>{#each t.skills as s (s)}<span class="skill">{s}</span>{/each}</span
+      >
     {/if}
-    <span class="row-lab"><span class="lab label">Task</span><span class="note">first instruction, sent on start</span></span>
+    <span class="row-lab"
+      ><span class="lab label">Task</span><span class="note">first instruction, sent on start</span></span
+    >
     <textarea bind:value={task} rows="2" placeholder="What should it do first?"></textarea>
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="btn md primary" disabled={busy || !cat} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
+    <button class="btn md primary" disabled={busy || !cat} onclick={start}
+      >Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+    >
     <button class="btn md" onclick={onClose}>Cancel<kbd>Esc</kbd></button>
-    <span class="cmd"><i class="ph ph-terminal"></i><span>{command}</span><button title="Copy" onclick={() => navigator.clipboard?.writeText(command)}><i class="ph ph-copy"></i></button></span>
+    <span class="cmd"
+      ><i class="ph ph-terminal"></i><span>{command}</span><button
+        title="Copy"
+        onclick={() => navigator.clipboard?.writeText(command)}><i class="ph ph-copy"></i></button
+      ></span
+    >
   {/snippet}
 </NewModal>
 

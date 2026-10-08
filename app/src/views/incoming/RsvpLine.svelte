@@ -1,7 +1,8 @@
 <script lang="ts" module>
   import type { Rsvp as RsvpT } from './types';
   /** Accept/Decline can still be sent: nothing sending or done from here. */
-  export const answerable = (r: RsvpT | undefined) => !!r && !['pending', 'sent', 'confirmed'].includes(r.answer?.state ?? '');
+  export const answerable = (r: RsvpT | undefined) =>
+    !!r && !['pending', 'sent', 'confirmed'].includes(r.answer?.state ?? '');
 </script>
 
 <script lang="ts">
@@ -79,23 +80,37 @@
     {:else}
       <span class="answered no"><i class="ph ph-x"></i>Declined · {a.at}</span>
     {/if}
-    {#if rsvp.url}<button class="link-out" onclick={() => rsvp.url && openExternal(rsvp.url)}>Change in Google Calendar</button>{/if}
+    {#if rsvp.url}<button class="link-out" onclick={() => rsvp.url && openExternal(rsvp.url)}
+        >Change in Google Calendar</button
+      >{/if}
   {:else if sending && a}
-    <span class="answered no"><i class="ph ph-circle-notch"></i>{a.response === 'accepted' ? 'Accepting…' : 'Declining…'}</span>
+    <span class="answered no"
+      ><i class="ph ph-circle-notch"></i>{a.response === 'accepted' ? 'Accepting…' : 'Declining…'}</span
+    >
   {:else if noting}
-    <input class="input sm" bind:this={box} bind:value={note} placeholder="Note to the organiser (optional)" onkeydown={onKey} />
+    <input
+      class="input sm"
+      bind:this={box}
+      bind:value={note}
+      placeholder="Note to the organiser (optional)"
+      onkeydown={onKey}
+    />
     <button class="btn" onclick={() => send('declined', note)}>Send decline <kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
     <span class="note">Esc</span>
   {:else}
     {#if a?.state === 'failed'}
-      <span class="failed" title={a.error}><i class="ph ph-warning"></i>{a.response === 'accepted' ? 'Accept' : 'Decline'} didn't send{#if a.error}: {a.error}{/if}</span>
+      <span class="failed" title={a.error}
+        ><i class="ph ph-warning"></i>{a.response === 'accepted' ? 'Accept' : 'Decline'} didn't send{#if a.error}: {a.error}{/if}</span
+      >
       <button class="btn" onclick={retry}>Retry</button>
     {:else if !small}
       <span class="pill quiet">no reply</span>
     {/if}
     <button class="btn" onclick={accept}><i class="ph ph-check"></i>Accept <kbd>{alt('Y')}</kbd></button>
     <button class="btn" onclick={decline}><i class="ph ph-x"></i>Decline <kbd>{alt('N')}</kbd></button>
-    <button class="link-act" onclick={declineWithNote}>{small ? 'with note…' : 'Decline with note…'} <kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd></button>
+    <button class="link-act" onclick={declineWithNote}
+      >{small ? 'with note…' : 'Decline with note…'} <kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd></button
+    >
     {#if rsvp.overlaps.length}
       <span class="overlap"><i class="ph ph-warning-circle"></i>Overlaps {rsvp.overlaps.join(', ')}</span>
     {/if}

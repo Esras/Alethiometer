@@ -44,14 +44,24 @@
   }
 
   const effects = $derived.by(() => {
-    const out = [target === 'jira' && jira ? `create the issue in ${jira.project} (${jira.issue_type}, assigned to you)` : 'add a todo in Alethiometer'];
+    const out = [
+      target === 'jira' && jira
+        ? `create the issue in ${jira.project} (${jira.issue_type}, assigned to you)`
+        : 'add a todo in Alethiometer',
+    ];
     if (gmail) out.push('archive the thread');
     return out;
   });
 
   function save() {
     if (!text.trim()) return;
-    onsave({ target, text: text.trim(), due: due || null, sched: target === 'local' ? sched || null : null, topic_id: choose ? (picked?.id ?? null) : undefined });
+    onsave({
+      target,
+      text: text.trim(),
+      due: due || null,
+      sched: target === 'local' ? sched || null : null,
+      topic_id: choose ? (picked?.id ?? null) : undefined,
+    });
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -68,14 +78,26 @@
 
 <div class="form" {onkeydown} onclick={(e) => e.stopPropagation()} role="presentation">
   <div class="switch">
-    <button class:on={target === 'local'} onclick={() => (target = 'local')}>Todo <kbd>{chord('⌘1', 'Ctrl+1')}</kbd></button>
-    <button class:on={target === 'jira'} disabled={!jira} title={jira ? '' : 'Set create_project on the Jira source to create issues'} onclick={() => (target = 'jira')}>
+    <button class:on={target === 'local'} onclick={() => (target = 'local')}
+      >Todo <kbd>{chord('⌘1', 'Ctrl+1')}</kbd></button
+    >
+    <button
+      class:on={target === 'jira'}
+      disabled={!jira}
+      title={jira ? '' : 'Set create_project on the Jira source to create issues'}
+      onclick={() => (target = 'jira')}
+    >
       Jira issue <kbd>{chord('⌘2', 'Ctrl+2')}</kbd>
     </button>
   </div>
   <div class="grid">
     <span class="lbl">{target === 'jira' ? 'Summary' : 'Todo'}</span>
-    <input class="input sm" bind:this={input} bind:value={text} placeholder={target === 'jira' ? 'Issue summary' : 'What to do'} />
+    <input
+      class="input sm"
+      bind:this={input}
+      bind:value={text}
+      placeholder={target === 'jira' ? 'Issue summary' : 'What to do'}
+    />
     {#if target === 'jira' && jira}
       <span class="lbl">Issue</span>
       <span class="val">{jira.project} · {jira.issue_type} · you</span>
@@ -83,13 +105,23 @@
     <span class="lbl">Due</span>
     <span class="due">
       <input class="input sm date" class:empty={!due} type="date" bind:value={due} />
-      {#if due}<button class="btn" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span class="muted">none</span>{/if}
+      {#if due}<button class="btn" onclick={() => (due = '')} title="No due date">Clear</button>{:else}<span
+          class="muted">none</span
+        >{/if}
     </span>
     {#if target === 'local'}
       <span class="lbl">Scheduled</span>
       <span class="due">
-        <input class="input sm date" class:empty={!sched} type="date" bind:value={sched} title="The day you mean to do it (a soft date)" />
-        {#if sched}<button class="btn" onclick={() => (sched = '')} title="Not scheduled">Clear</button>{:else}<span class="muted">none</span>{/if}
+        <input
+          class="input sm date"
+          class:empty={!sched}
+          type="date"
+          bind:value={sched}
+          title="The day you mean to do it (a soft date)"
+        />
+        {#if sched}<button class="btn" onclick={() => (sched = '')} title="Not scheduled">Clear</button>{:else}<span
+            class="muted">none</span
+          >{/if}
       </span>
     {/if}
     <span class="lbl">Topic</span>
@@ -103,7 +135,8 @@
       {/if}
     {:else}
       <span class="val muted">
-        {#if topic}<span class="bar" style:background={catColor(topic.category)}></span>{topic.name} · from the signal{:else}the one you file the signal under{/if}
+        {#if topic}<span class="bar" style:background={catColor(topic.category)}></span>{topic.name} · from the signal{:else}the
+          one you file the signal under{/if}
       </span>
     {/if}
   </div>

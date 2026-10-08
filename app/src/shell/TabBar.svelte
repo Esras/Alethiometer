@@ -14,7 +14,12 @@
 <nav class="tabs">
   {#each tabs as t (t.id)}
     {@const n = TABS.findIndex((x) => x.id === t.id)}
-    <button class="tab" class:on={ui.tab === t.id} onclick={() => setTab(t.id)} title={n < 0 ? '' : `${isMac ? '⌘' : 'Ctrl+'}${n + 1}`}>
+    <button
+      class="tab"
+      class:on={ui.tab === t.id}
+      onclick={() => setTab(t.id)}
+      title={n < 0 ? '' : `${isMac ? '⌘' : 'Ctrl+'}${n + 1}`}
+    >
       {#if t.id === 'search'}<i class="ph ph-magnifying-glass"></i>{/if}{t.label}
       {#if t.id === 'incoming' && ui.info}
         <span class="count" class:on={ui.tab === t.id}>{ui.info.incoming_count}</span>
@@ -27,8 +32,12 @@
   {/each}
   <span class="right">
     {#if ui.tab !== 'reflect'}<SyncStatus />{/if}
-    <button class="cog" class:on={ui.settingsOpen} onclick={() => (ui.settingsOpen = !ui.settingsOpen)} title="Settings ({isMac ? '⌘,' : 'Ctrl+,'})" aria-label="Settings"
-      ><i class="ph ph-gear-six"></i></button
+    <button
+      class="cog"
+      class:on={ui.settingsOpen}
+      onclick={() => (ui.settingsOpen = !ui.settingsOpen)}
+      title="Settings ({isMac ? '⌘,' : 'Ctrl+,'})"
+      aria-label="Settings"><i class="ph ph-gear-six"></i></button
     >
     {#if ui.tab === 'reflect'}
       <CountdownPill />

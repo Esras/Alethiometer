@@ -97,10 +97,10 @@ export class Picker<R = undefined> {
 
   private key(e: KeyboardEvent): boolean {
     if (this.o.keys?.(e)) return true;
-    if (e.key === 'Escape') return this.o.onclose(), true;
+    if (e.key === 'Escape') return (this.o.onclose(), true);
     const d = listNav(e);
-    if (d) return this.move(d), true;
-    if (e.key === 'Enter' && !mod(e)) return this.o.pick(this.sel), true;
+    if (d) return (this.move(d), true);
+    if (e.key === 'Enter' && !mod(e)) return (this.o.pick(this.sel), true);
     return false;
   }
 

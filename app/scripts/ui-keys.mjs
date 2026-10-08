@@ -25,11 +25,18 @@ try {
 const SLOT = Number(process.env.UI_DIFF_SLOT ?? 0);
 const BASE = `http://localhost:${SLOT === 0 ? 1420 : 1600 + 10 * SLOT}/`;
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ui-keys');
-const executablePath = fs.existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined;
+const executablePath = fs.existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
+  ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+  : undefined;
 const browser = await pw.chromium.launch({ executablePath });
 
 const want = process.argv.slice(2);
-const files = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => f.endsWith('.mjs')).sort() : [];
+const files = fs.existsSync(DIR)
+  ? fs
+      .readdirSync(DIR)
+      .filter((f) => f.endsWith('.mjs'))
+      .sort()
+  : [];
 let failed = 0;
 let ran = 0;
 for (const file of files) {
@@ -48,7 +55,11 @@ for (const file of files) {
           else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
           else if (k.click) await page.getByTitle(k.click).first().click({ timeout: 3000 });
           else if (k.clickText) await page.getByText(k.clickText).first().click({ timeout: 3000 });
-          else if (k.exact) await page.getByText(k.exact, { exact: true }).nth(k.nth ?? 0).click({ timeout: 3000 });
+          else if (k.exact)
+            await page
+              .getByText(k.exact, { exact: true })
+              .nth(k.nth ?? 0)
+              .click({ timeout: 3000 });
           else if (k.button) await page.getByRole('button', { name: k.button }).first().click({ timeout: 3000 });
           await page.waitForTimeout(300);
         }
@@ -60,7 +71,8 @@ for (const file of files) {
         if ((await loc.count()) && (await loc.first().isVisible())) throw new Error(msg ?? `still visible: ${loc}`);
       },
       async focused(loc, msg) {
-        if (!(await loc.first().evaluate((el) => el === document.activeElement || el.contains(document.activeElement)))) throw new Error(msg ?? `not focused: ${loc}`);
+        if (!(await loc.first().evaluate((el) => el === document.activeElement || el.contains(document.activeElement))))
+          throw new Error(msg ?? `not focused: ${loc}`);
       },
       ok(cond, msg) {
         if (!cond) throw new Error(msg);

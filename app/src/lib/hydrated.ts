@@ -50,8 +50,19 @@ export function hydrated(q: string, anchor: number | null, glean: boolean): Prom
   return call<Hydrated>('search.hydrated', { q, anchor, glean });
 }
 
-export function feedback(topicId: number, r: Pick<HRow, 'key' | 'title' | 'url' | 'system'>, verdict: 'pin' | 'reject' | 'clear'): Promise<unknown> {
-  return call('search.feedback', { topic_id: topicId, key: r.key, verdict, title: r.title, url: r.url ?? '', source: r.system });
+export function feedback(
+  topicId: number,
+  r: Pick<HRow, 'key' | 'title' | 'url' | 'system'>,
+  verdict: 'pin' | 'reject' | 'clear',
+): Promise<unknown> {
+  return call('search.feedback', {
+    topic_id: topicId,
+    key: r.key,
+    verdict,
+    title: r.title,
+    url: r.url ?? '',
+    source: r.system,
+  });
 }
 
 /** What the facet bar is pointing at: a route, or one source within a route. */

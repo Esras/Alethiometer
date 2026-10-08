@@ -28,7 +28,10 @@ async function leaves(t, field, { clears }) {
   await t.steps('Escape');
   t.ok(!(await field.evaluate((el) => el === document.activeElement)), 'Escape left the field focused');
   const value = await field.inputValue();
-  t.ok(clears ? value === '' : value === 'zz', `Escape ${clears ? 'should clear' : 'should keep'} the text; it is "${value}"`);
+  t.ok(
+    clears ? value === '' : value === 'zz',
+    `Escape ${clears ? 'should clear' : 'should keep'} the text; it is "${value}"`,
+  );
   t.ok((await border(field)) !== (await aqua(t)), 'the box is still aqua after leaving it');
 }
 
@@ -47,7 +50,7 @@ export const checks = {
     await t.steps('/');
     await leaves(t, field, { clears: true });
   },
-  "Settings: / focuses find and Esc clears it without closing Settings": async (t) => {
+  'Settings: / focuses find and Esc clears it without closing Settings': async (t) => {
     await t.steps('Control+,');
     const field = t.page.getByPlaceholder('Find a setting');
     await t.steps('/');

@@ -46,7 +46,9 @@
     if (!s) return;
     if (topicId === null) return onchanged('Pins and rejects are per topic: ask from a topic.');
     await feedback(topicId, s, v);
-    onchanged(v === 'pin' ? `Pinned for this topic: ${s.title}` : `Rejected for this topic: ${s.title} (ask again to drop it)`);
+    onchanged(
+      v === 'pin' ? `Pinned for this topic: ${s.title}` : `Rejected for this topic: ${s.title} (ask again to drop it)`,
+    );
   }
 
   useKeys((e) => {
@@ -78,7 +80,8 @@
     window.addEventListener('pointerup', up);
   }
 
-  const dim = (s: Source) => (hoverQuery !== null && !s.queries.includes(hoverQuery)) || (hoverSource !== null && hoverSource !== s.key);
+  const dim = (s: Source) =>
+    (hoverQuery !== null && !s.queries.includes(hoverQuery)) || (hoverSource !== null && hoverSource !== s.key);
 </script>
 
 <div class="sheet" style:width="{width}px" role="complementary" aria-label="Sources">
@@ -90,37 +93,61 @@
   <div class="label">Queries</div>
   <div class="queries">
     {#each reply.queries as q, i}
-      <div class="query" class:on={hoverQuery === i} onmouseenter={() => (hoverQuery = i)} onmouseleave={() => (hoverQuery = null)} role="presentation">
+      <div
+        class="query"
+        class:on={hoverQuery === i}
+        onmouseenter={() => (hoverQuery = i)}
+        onmouseleave={() => (hoverQuery = null)}
+        role="presentation"
+      >
         <span class="mark" style:color={markColor(i, q)}>{q.mark}</span>
         <span class="qn mono">{q.local ? 'L' : `Q${i + 1}`}</span>
         <span class="qt mono ellipsis" title={q.error ?? q.text}>{q.text}</span>
-        {#if q.error}<span class="qerr" title={q.error}><i class="ph ph-warning"></i></span>{:else}<span class="qc tnum">{q.returned} → {q.kept}</span>{/if}
+        {#if q.error}<span class="qerr" title={q.error}><i class="ph ph-warning"></i></span>{:else}<span class="qc tnum"
+            >{q.returned} → {q.kept}</span
+          >{/if}
       </div>
     {/each}
   </div>
   <div class="tabs">
     <button class:on={tab === 'kept'} onclick={() => (tab = 'kept')}>Kept <span class="n">{kept.length}</span></button>
-    <button class:on={tab === 'dropped'} onclick={() => (tab = 'dropped')}>Dropped <span class="n warn">{dropped.length}</span></button>
+    <button class:on={tab === 'dropped'} onclick={() => (tab = 'dropped')}
+      >Dropped <span class="n warn">{dropped.length}</span></button
+    >
     <kbd>⇥</kbd>
   </div>
   <div class="rows scroll">
     {#each list as s, i (s.key)}
-      <button class="row" class:sel={i === sel} class:dim={dim(s)} onclick={() => open(s)} onmouseenter={() => ((sel = i), (hoverSource = s.key))} onmouseleave={() => (hoverSource = null)}>
+      <button
+        class="row"
+        class:sel={i === sel}
+        class:dim={dim(s)}
+        onclick={() => open(s)}
+        onmouseenter={() => ((sel = i), (hoverSource = s.key))}
+        onmouseleave={() => (hoverSource = null)}
+      >
         <span class="num">{s.n ?? ''}</span>
         <AppIcon source={s.icon} size={16} />
         <span class="body">
           <span class="t ellipsis">{s.title}</span>
-          <span class="sub ellipsis">{s.system}{s.container ? ` › ${s.container}` : ''}{s.reason ? ` · ${s.reason}` : ''}</span>
+          <span class="sub ellipsis"
+            >{s.system}{s.container ? ` › ${s.container}` : ''}{s.reason ? ` · ${s.reason}` : ''}</span
+          >
         </span>
         <span class="marks">
-          {#each s.queries as qi}<span style:color={markColor(qi, reply.queries[qi])}>{reply.queries[qi]?.mark}</span>{/each}
+          {#each s.queries as qi}<span style:color={markColor(qi, reply.queries[qi])}>{reply.queries[qi]?.mark}</span
+            >{/each}
         </span>
       </button>
     {:else}
       <div class="empty-pane">{tab === 'kept' ? 'Nothing kept.' : 'Nothing dropped.'}</div>
     {/each}
   </div>
-  <div class="foot"><span>hover a query to trace</span><span><kbd>↵</kbd> open</span><span><kbd>p</kbd> pin</span><span><kbd>x</kbd> reject</span><span>drag edge to widen</span></div>
+  <div class="foot">
+    <span>hover a query to trace</span><span><kbd>↵</kbd> open</span><span><kbd>p</kbd> pin</span><span
+      ><kbd>x</kbd> reject</span
+    ><span>drag edge to widen</span>
+  </div>
 </div>
 
 <style>

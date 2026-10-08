@@ -67,8 +67,14 @@ const quote = (f: string) => (/^[\w-]+$/.test(f) ? f : `"${f.replace(/"/g, '')}"
 /** Type settings as CSS: the root size scales every rem; reading text has its own size. */
 function applyType(info: AppInfo) {
   const root = document.documentElement.style;
-  root.setProperty('--font-ui', info.ui_font ? `${quote(info.ui_font)}, 'Inter', system-ui, sans-serif` : `'Inter', system-ui, sans-serif`);
-  root.setProperty('--font-mono', info.mono_font ? `${quote(info.mono_font)}, ui-monospace, monospace` : `ui-monospace, 'SF Mono', Menlo, monospace`);
+  root.setProperty(
+    '--font-ui',
+    info.ui_font ? `${quote(info.ui_font)}, 'Inter', system-ui, sans-serif` : `'Inter', system-ui, sans-serif`,
+  );
+  root.setProperty(
+    '--font-mono',
+    info.mono_font ? `${quote(info.mono_font)}, ui-monospace, monospace` : `ui-monospace, 'SF Mono', Menlo, monospace`,
+  );
   root.setProperty('font-size', `${info.ui_font_size || 13}px`);
   root.setProperty('--fs-read', `${info.reading_font_size || 14}px`);
   // The desktop window zooms natively (set_zoom); a plain browser gets CSS zoom.
@@ -97,7 +103,16 @@ export function wall(at: string | number) {
   const tz = ui.info?.tz ?? '';
   let f = formats.get(tz);
   if (!f) {
-    const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' };
+    const opts: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    };
     try {
       f = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz || undefined });
     } catch {
@@ -105,10 +120,17 @@ export function wall(at: string | number) {
     }
     formats.set(tz, f);
   }
-  const p = Object.fromEntries(f.formatToParts(typeof at === 'number' ? at : new Date(at)).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(
+    f.formatToParts(typeof at === 'number' ? at : new Date(at)).map((x) => [x.type, x.value]),
+  );
   const h = Number(p.hour);
   const m = Number(p.minute);
-  return { day: `${p.year}-${p.month}-${p.day}`, weekday: p.weekday, minute: h * 60 + m + Number(p.second) / 60, hm: `${p.hour}:${p.minute}` };
+  return {
+    day: `${p.year}-${p.month}-${p.day}`,
+    weekday: p.weekday,
+    minute: h * 60 + m + Number(p.second) / 60,
+    hm: `${p.hour}:${p.minute}`,
+  };
 }
 
 /** "10:52" for an instant, on the app's clock. */

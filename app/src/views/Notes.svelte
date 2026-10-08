@@ -30,7 +30,19 @@
   }
 
   function blank(kind: EditLine['kind'] = 'note', bare = kind === 'note'): EditLine {
-    return { id: null, key: newKey(), kind, bare, text: '', target: null, state: 'draft', receipt_at: null, error: null, locked: false, stale: true };
+    return {
+      id: null,
+      key: newKey(),
+      kind,
+      bare,
+      text: '',
+      target: null,
+      state: 'draft',
+      receipt_at: null,
+      error: null,
+      locked: false,
+      stale: true,
+    };
   }
 
   function setPage(p: Page) {
@@ -60,7 +72,14 @@
   function payload() {
     return lines
       .filter((l, i) => l.id !== null || l.text.trim() || i < lines.length - 1)
-      .map((l) => ({ key: l.key, id: l.id, kind: l.kind, bare: l.bare, text: l.text, target: l.target && !l.target.auto ? l.target : null }));
+      .map((l) => ({
+        key: l.key,
+        id: l.id,
+        kind: l.kind,
+        bare: l.bare,
+        text: l.text,
+        target: l.target && !l.target.auto ? l.target : null,
+      }));
   }
 
   function save(): Promise<void> {
@@ -326,14 +345,14 @@
   }
 
   useKeys((e) => {
-    if (mod(e) && e.key === 'Enter') return send(), true;
-    if (mod(e) && e.key.toLowerCase() === 'r') return retry(), true;
-    if (mod(e) && e.key === '[') return go(page?.prev), true;
-    if (mod(e) && e.key === ']') return go(page?.next), true;
-    if (plain(e, '[')) return go(page?.prev), true;
-    if (plain(e, ']')) return go(page?.next), true;
-    if (plain(e, 't')) return goToday(), true;
-    if (plain(e, 'Enter') || plain(e, 'i')) return writeAtEnd(), true;
+    if (mod(e) && e.key === 'Enter') return (send(), true);
+    if (mod(e) && e.key.toLowerCase() === 'r') return (retry(), true);
+    if (mod(e) && e.key === '[') return (go(page?.prev), true);
+    if (mod(e) && e.key === ']') return (go(page?.next), true);
+    if (plain(e, '[')) return (go(page?.prev), true);
+    if (plain(e, ']')) return (go(page?.next), true);
+    if (plain(e, 't')) return (goToday(), true);
+    if (plain(e, 'Enter') || plain(e, 'i')) return (writeAtEnd(), true);
   });
 
   // ---- derived ----
@@ -370,9 +389,13 @@
     <div class="grid head">
       <span></span>
       <span class="day">
-        <button class="car" onclick={() => go(page?.prev)} title="Previous day ([)"><i class="ph ph-caret-left"></i></button>
+        <button class="car" onclick={() => go(page?.prev)} title="Previous day ([)"
+          ><i class="ph ph-caret-left"></i></button
+        >
         <span class="title nowrap">{page?.label ?? ''}</span>
-        <button class="car" disabled={!page?.next} onclick={() => go(page?.next)} title="Next day (])"><i class="ph ph-caret-right"></i></button>
+        <button class="car" disabled={!page?.next} onclick={() => go(page?.next)} title="Next day (])"
+          ><i class="ph ph-caret-right"></i></button
+        >
         {#if page && !page.today}<button class="back" onclick={goToday} title="Back to today (t)">today</button>{/if}
       </span>
       <span class="label goes">{went ? 'Went to' : 'Goes to'}</span>
@@ -391,9 +414,15 @@
           class:done={l.state === 'confirmed'}
           class:tail={i === lines.length - 1 && l.id === null && !l.text}
         >
-          <span class="glyph">{#if !l.bare}<i class="ph-bold ph-{g.icon}" style:color={g.color}></i>{/if}</span>
+          <span class="glyph"
+            >{#if !l.bare}<i class="ph-bold ph-{g.icon}" style:color={g.color}></i>{/if}</span
+          >
           <div class="text">
-            <div class="mirror" aria-hidden="true">{#each segments(l) as s}<span class={s.c}>{s.t}</span>{/each}{#if !l.text && lines.length === 1}<span class="ph-text">Write anything. Start a line with - [] () ^@ or ~</span>{/if}&#8203;</div>
+            <div class="mirror" aria-hidden="true">
+              {#each segments(l) as s}<span class={s.c}>{s.t}</span>{/each}{#if !l.text && lines.length === 1}<span
+                  class="ph-text">Write anything. Start a line with - [] () ^@ or ~</span
+                >{/if}&#8203;
+            </div>
             <textarea
               bind:this={els[i]}
               value={l.text}
@@ -435,7 +464,9 @@
         {#if counts.waiting}<span style:color="var(--status-attention)">{counts.waiting} waiting</span>{/if}
         {#if counts.life}<span class="lifec">{counts.life} life · Phase 2</span>{/if}
       </span>
-      <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)">Send to Incoming <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>
+      <button class="btn primary" class:is-disabled={!counts.ready} onclick={send} title="Send to Incoming (⌃↵ / ⌘↵)"
+        >Send to Incoming <kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button
+      >
     </div>
   </div>
 </div>

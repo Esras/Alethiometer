@@ -18,7 +18,8 @@ export type Node =
   | { type: 'archived-label'; key: string; label: string; project: boolean }
   | { type: 'archived'; key: string; item: ArchivedItem };
 
-export type Form = { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null; openshell?: boolean };
+export type Form =
+  { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null; openshell?: boolean };
 
 export const ag = $state({
   tree: null as Tree | null,
@@ -70,7 +71,8 @@ export function turnEnded(s: Session): boolean {
 
 /** Looking at a session's thread counts as seeing its turns. */
 function markSeen(sessions: Session[]) {
-  for (const s of sessions) if (turnEnded(s) && ag.open === `s:${s.id}`) call('agents.seen', { session: s.id }).catch(() => {});
+  for (const s of sessions)
+    if (turnEnded(s) && ag.open === `s:${s.id}`) call('agents.seen', { session: s.id }).catch(() => {});
 }
 
 export type Pending = { target: string; until: number; force: boolean; label: string };
@@ -214,7 +216,9 @@ export function threadOf(key: string | null): { session?: Session; group?: Group
 export function pinned(key: string | null): Request | undefined {
   if (!key || !ag.tree) return undefined;
   const id = key.startsWith('s:') ? key.slice(2) : null;
-  return ag.tree.requests.find((r) => !ag.later.has(r.id) && (r.thread === key || (id && r.session_id === id && r.thread.startsWith('s:'))));
+  return ag.tree.requests.find(
+    (r) => !ag.later.has(r.id) && (r.thread === key || (id && r.session_id === id && r.thread.startsWith('s:'))),
+  );
 }
 
 function matches(s: Session, q: string): boolean {
@@ -253,7 +257,8 @@ export function nodes(): Node[] {
   let project: string | null = null;
   for (const g of t.groups) {
     const sessions = ordered(g.id);
-    const hit = !q || g.name.toLowerCase().includes(q) || g.goal.toLowerCase().includes(q) || sessions.some((s) => matches(s, q));
+    const hit =
+      !q || g.name.toLowerCase().includes(q) || g.goal.toLowerCase().includes(q) || sessions.some((s) => matches(s, q));
     if (!hit) continue;
     const label = g.project || (g.source === 'acp' ? 'local' : 'scion');
     if (label !== project) {
@@ -264,7 +269,9 @@ export function nodes(): Node[] {
     out.push({ type: 'group', key: `g:${g.id}`, group: g, open, sessions });
     if (!open) continue;
     if (g.room) out.push({ type: 'room', key: `r:${g.room.id}`, group: g });
-    for (const s of sessions) if (!q || matches(s, q) || g.name.toLowerCase().includes(q)) out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: false });
+    for (const s of sessions)
+      if (!q || matches(s, q) || g.name.toLowerCase().includes(q))
+        out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: false });
   }
   const loose = ordered(null).filter((s) => !q || matches(s, q));
   if (loose.length) {
@@ -273,18 +280,25 @@ export function nodes(): Node[] {
   }
   if (q && ag.hits.length) {
     const groups = ag.hits.filter((h) => h.kind === 'group').length;
-    out.push({ type: 'archived-head', key: 'archived', groups, sessions: ag.hits.length - groups, total: ag.hitsTotal });
+    out.push({
+      type: 'archived-head',
+      key: 'archived',
+      groups,
+      sessions: ag.hits.length - groups,
+      total: ag.hitsTotal,
+    });
     let project: string | null = null;
     let group: string | null = null;
     for (const h of [...ag.hits].sort((a, b) => a.project.localeCompare(b.project))) {
-      const p = h.project || (h.group ? h.source === 'acp' ? 'local' : 'scion' : 'Unsorted');
+      const p = h.project || (h.group ? (h.source === 'acp' ? 'local' : 'scion') : 'Unsorted');
       if (p !== project) {
         out.push({ type: 'archived-label', key: `ap:${p}:${h.id}`, label: p, project: true });
         project = p;
         group = null;
       }
       const g = h.kind === 'group' ? h.name : h.group;
-      if (h.kind === 'session' && g && g !== group) out.push({ type: 'archived-label', key: `ag:${h.id}`, label: g, project: false });
+      if (h.kind === 'session' && g && g !== group)
+        out.push({ type: 'archived-label', key: `ag:${h.id}`, label: g, project: false });
       group = g;
       out.push({ type: 'archived', key: `a:${h.id}`, item: h });
     }
@@ -293,7 +307,8 @@ export function nodes(): Node[] {
 }
 
 /** Nodes j/k can land on. */
-export const selectable = (n: Node) => n.type === 'group' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
+export const selectable = (n: Node) =>
+  n.type === 'group' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -356,7 +371,11 @@ export function confirmArchive(force: boolean) {
   const p = ag.plan;
   if (!p || p.state === 'blocked' || (p.state === 'not_done') !== force) return;
   ag.plan = null;
-  const label = p.hub ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}` : p.sandboxes ? `deleting ${p.sandboxes} sandbox${p.sandboxes === 1 ? '' : 'es'}` : 'archiving';
+  const label = p.hub
+    ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}`
+    : p.sandboxes
+      ? `deleting ${p.sandboxes} sandbox${p.sandboxes === 1 ? '' : 'es'}`
+      : 'archiving';
   ag.pending = [...ag.pending, { target: p.target, until: Date.now() + UNDO_MS, force, label }];
   setTimeout(() => commitArchive(p.target), UNDO_MS);
 }
@@ -383,9 +402,11 @@ export function pendingFor(key: string): Pending | undefined {
 export function archivable(key: string): boolean {
   const target = archiveTarget(key);
   if (!target || !ag.tree) return false;
-  const busy = (s: Session) => s.status === 'running' || s.status === 'waiting' || ag.tree!.requests.some((r) => r.session_id === s.id);
+  const busy = (s: Session) =>
+    s.status === 'running' || s.status === 'waiting' || ag.tree!.requests.some((r) => r.session_id === s.id);
   if (target.startsWith('g:')) return !ag.tree.sessions.some((s) => s.group_id === target.slice(2) && busy(s));
-  const under = (id: string): Session[] => ag.tree!.sessions.filter((s) => s.parent_id === id).flatMap((c) => [c, ...under(c.id)]);
+  const under = (id: string): Session[] =>
+    ag.tree!.sessions.filter((s) => s.parent_id === id).flatMap((c) => [c, ...under(c.id)]);
   const s = sessionById(target.slice(2));
   return !!s && ![s, ...under(s.id)].some(busy);
 }

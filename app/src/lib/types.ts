@@ -98,7 +98,15 @@ export type SourceKind =
 
 export interface TopicDetail {
   topic: TopicRef & { score: number | null; pills: Pill[]; priority: 'H' | 'M' | 'L' | null };
-  upcoming: { item_id: number; when: string; today: boolean; source: SourceKind; title: string; sub: string | null; rsvp?: Rsvp }[];
+  upcoming: {
+    item_id: number;
+    when: string;
+    today: boolean;
+    source: SourceKind;
+    title: string;
+    sub: string | null;
+    rsvp?: Rsvp;
+  }[];
   open: { item_id: number; source: SourceKind; title: string; due: Pill | null; owner: string | null }[];
   chronology: {
     item_id: number;

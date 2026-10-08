@@ -25,7 +25,13 @@ export interface Todo {
   ext: TodoExt;
 }
 
-export type Draft = { target: 'local' | 'jira'; text: string; due: string | null; sched: string | null; topic_id?: number | null };
+export type Draft = {
+  target: 'local' | 'jira';
+  text: string;
+  due: string | null;
+  sched: string | null;
+  topic_id?: number | null;
+};
 
 export interface JiraTarget {
   project: string;

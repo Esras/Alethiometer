@@ -41,7 +41,10 @@ export function splitMessage(message: string, command: string, tool: string): Ap
   const cmd = command.trim();
   // A multi-line command restated in a field would read as lines that aren't fields.
   const flat = cmd.length >= MIN_INSIDE ? text.replaceAll(cmd, HERE) : text;
-  const lines = flat.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = flat
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   const parsed = lines.map((l) => FIELD.exec(l));
   if (parsed.some((m) => !m)) return { fields: [], text: message };
 
@@ -55,9 +58,7 @@ export function splitMessage(message: string, command: string, tool: string): Ap
       (v.length >= MIN_INSIDE && flatCmd.includes(v))
     );
   };
-  const fields = parsed
-    .map((m) => ({ label: squash(m![1]), value: squash(m![2]) }))
-    .filter((f) => !repeats(f.value));
+  const fields = parsed.map((m) => ({ label: squash(m![1]), value: squash(m![2]) })).filter((f) => !repeats(f.value));
   return { fields, text: '' };
 }
 
@@ -65,9 +66,4 @@ export function splitMessage(message: string, command: string, tool: string): Ap
 export const fieldsLine = (fields: ApprovalMessage['fields']) => fields.map((f) => `${f.label} ${f.value}`).join(' · ');
 
 /** Free text on one line: runs of whitespace collapse, line breaks read ` · `. */
-export const oneLine = (text: string) =>
-  text
-    .split('\n')
-    .map(squash)
-    .filter(Boolean)
-    .join(' · ');
+export const oneLine = (text: string) => text.split('\n').map(squash).filter(Boolean).join(' · ');

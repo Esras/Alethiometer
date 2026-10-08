@@ -3,7 +3,23 @@
   import { agentColor } from './look';
   import { popover } from '../../lib/ui/popover';
   import { chord } from '../../lib/keys.svelte';
-  import { act, ag, age, archivable, askArchive, groupById, look, nodes, openArchived, openThread, pendingFor, searchArchived, sessionById, turnEnded, type Node } from './state.svelte';
+  import {
+    act,
+    ag,
+    age,
+    archivable,
+    askArchive,
+    groupById,
+    look,
+    nodes,
+    openArchived,
+    openThread,
+    pendingFor,
+    searchArchived,
+    sessionById,
+    turnEnded,
+    type Node,
+  } from './state.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Group, Request, Session, Status } from './types';
@@ -29,7 +45,8 @@
     return null;
   }
 
-  const hostClass = (g: Group) => (g.source === 'acp' ? 'local' : g.host.toLowerCase().startsWith('scion') ? 'scion' : 'other');
+  const hostClass = (g: Group) =>
+    g.source === 'acp' ? 'local' : g.host.toLowerCase().startsWith('scion') ? 'scion' : 'other';
 
   function needLine(r: Request): { verb: string; verbClass: string; text: string } {
     if (r.kind === 'ask') {
@@ -62,7 +79,8 @@
     const g = gidOf(n);
     return !!g && !!nudges[g];
   };
-  const lastInFrame = (i: number) => framed(list[i]) && gidOf(list[i + 1] ?? list[i]) !== gidOf(list[i]) || (framed(list[i]) && i === list.length - 1);
+  const lastInFrame = (i: number) =>
+    (framed(list[i]) && gidOf(list[i + 1] ?? list[i]) !== gidOf(list[i])) || (framed(list[i]) && i === list.length - 1);
   const pendingOf = (n: Node) => pendingFor(n.key) ?? (gidOf(n) ? pendingFor(`g:${gidOf(n)}`) : undefined);
   const secs = (until: number) => Math.max(0, Math.ceil((until - now) / 1000));
 
@@ -79,7 +97,8 @@
     ag.menu = null;
   }
 
-  const fmtDay = (ts: string) => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
+  const fmtDay = (ts: string) =>
+    ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
 
   function click(n: Node) {
     ag.sel = n.key;
@@ -94,7 +113,9 @@
   }
 
   const host = $derived(ag.tree?.agentd);
-  const localLive = $derived((ag.tree?.sessions ?? []).filter((s) => s.source === 'acp' && !s.parent_id && s.live).length);
+  const localLive = $derived(
+    (ag.tree?.sessions ?? []).filter((s) => s.source === 'acp' && !s.parent_id && s.live).length,
+  );
   const anyLocal = $derived((ag.tree?.sessions ?? []).some((s) => s.source === 'acp'));
   let armed = $state<'' | 'stop' | 'restart'>('');
   function twice(what: 'stop' | 'restart') {
@@ -121,7 +142,8 @@
   role="presentation"
   onmousedown={(e) => {
     ag.zone = 'tree';
-    if (!(e.target as HTMLElement).closest('input, textarea, select')) (document.activeElement as HTMLElement | null)?.blur();
+    if (!(e.target as HTMLElement).closest('input, textarea, select'))
+      (document.activeElement as HTMLElement | null)?.blur();
   }}
 >
   <div class="filter-row">
@@ -147,7 +169,9 @@
       <span title="waiting"><StatusMark status="waiting" />{counts.waiting}</span>
       <span class="red" title="failed"><i class="ph ph-x"></i>{counts.failed}</span>
     </span>
-    <button class="plus" onclick={onNew} title="New session (n)" aria-label="New session"><i class="ph ph-plus"></i></button>
+    <button class="plus" onclick={onNew} title="New session (n)" aria-label="New session"
+      ><i class="ph ph-plus"></i></button
+    >
   </div>
 
   {#each (ag.tree?.hubs ?? []).filter((h) => h.state === 'error') as h (h.source)}
@@ -156,7 +180,9 @@
 
   {#if requests.length}
     <div class="needs">
-      <div class="needs-head label"><i class="ph ph-bell-simple"></i>Needs you<span class="n">{requests.length}</span></div>
+      <div class="needs-head label">
+        <i class="ph ph-bell-simple"></i>Needs you<span class="n">{requests.length}</span>
+      </div>
       {#each requests as r (r.id)}
         {@const s = sessionById(r.session_id)}
         {@const l = needLine(r)}
@@ -164,7 +190,9 @@
           {#if r.kind === 'ask'}<i class="ph ph-question q"></i>{:else}<StatusMark status="waiting" />{/if}
           <span class="who" style:color={agentColor(look(), s)}>{s?.name ?? '?'}</span>
           <span class="what"><span class={l.verbClass}>{l.verb}</span> {l.text}</span>
-          <span class="mono-tag {r.kind === 'ask' ? 'orange' : tagClass(r.tag)}">{r.kind === 'ask' ? 'question' : r.tag}</span>
+          <span class="mono-tag {r.kind === 'ask' ? 'orange' : tagClass(r.tag)}"
+            >{r.kind === 'ask' ? 'question' : r.tag}</span
+          >
         </button>
       {/each}
     </div>
@@ -175,61 +203,79 @@
       {@const fr = framed(n)}
       {@const pend = pendingOf(n)}
       <div class="slot" class:framed={fr} class:ftop={fr && n.type === 'group'} class:pending={!!pend}>
-      {#if n.type === 'project'}
-        <div class="project label">{n.label}</div>
-      {:else if n.type === 'unsorted'}
-        <div class="project unsorted label">Unsorted</div>
-      {:else if n.type === 'group'}
-        {@const f = folded(n.sessions)}
-        <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
-          <i class="ph {n.open ? 'ph-caret-down' : 'ph-caret-right'} caret"></i>
-          <span class="gname"><span class="name">{n.group.name}</span>{#if n.group.goal}<span class="goal">{n.group.goal}</span>{/if}</span>
-          <span class="gright">
-            {#if pend && pend.target === n.key}
-              <span class="undo-note">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
-            {:else}
-              {#if !n.open && f}
-                <span class="fold" class:red={f.status === 'failed'}><StatusMark status={f.status} size={7} />{f.n}</span>
+        {#if n.type === 'project'}
+          <div class="project label">{n.label}</div>
+        {:else if n.type === 'unsorted'}
+          <div class="project unsorted label">Unsorted</div>
+        {:else if n.type === 'group'}
+          {@const f = folded(n.sessions)}
+          <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
+            <i class="ph {n.open ? 'ph-caret-down' : 'ph-caret-right'} caret"></i>
+            <span class="gname"
+              ><span class="name">{n.group.name}</span>{#if n.group.goal}<span class="goal">{n.group.goal}</span
+                >{/if}</span
+            >
+            <span class="gright">
+              {#if pend && pend.target === n.key}
+                <span class="undo-note">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
+              {:else}
+                {#if !n.open && f}
+                  <span class="fold" class:red={f.status === 'failed'}
+                    ><StatusMark status={f.status} size={7} />{f.n}</span
+                  >
+                {/if}
+                <span class="host {hostClass(n.group)}">{n.group.host}</span>
               {/if}
-              <span class="host {hostClass(n.group)}">{n.group.host}</span>
-            {/if}
-          </span>
-        </button>
-      {:else if n.type === 'room'}
-        {@const room = n.group.room!}
-        <button class="row" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
-          <span class="mark"><i class="ph ph-hash hash"></i></span>
-          <span class="name room">{room.name}</span>
-          <span class="mono c2">room · {room.members}</span>
-          <span class="mono msgc">{room.unread ? `${room.unread} new` : ''}</span>
-          <span class="age" class:orange={requests.some((r) => r.thread === n.key)}>{age(room.active_at, now)}</span>
-        </button>
-      {:else if n.type === 'session'}
-        {@const s = n.s}
-        <button class="row" class:sel={ag.sel === n.key} class:sub={n.depth > 0} class:loose={n.unsorted} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)} style:--indent="{14 * n.depth}px">
-          <span class="mark">
-            {#if n.depth > 0}<span class="elbow"></span>{/if}
-            <StatusMark status={turnEnded(s) ? 'problem' : s.status} />
-          </span>
-          <span class="name" title={turnEnded(s) ? 'Ended its turn since you looked' : undefined} style:color={agentColor(look(), s)}
-            >{s.name}{#if n.unsorted && s.cwd}<span class="cwd">{s.cwd.replace(/^\/(Users|home)\/[^/]+/, '~')}</span>{/if}</span
+            </span>
+          </button>
+        {:else if n.type === 'room'}
+          {@const room = n.group.room!}
+          <button class="row" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
+            <span class="mark"><i class="ph ph-hash hash"></i></span>
+            <span class="name room">{room.name}</span>
+            <span class="mono c2">room · {room.members}</span>
+            <span class="mono msgc">{room.unread ? `${room.unread} new` : ''}</span>
+            <span class="age" class:orange={requests.some((r) => r.thread === n.key)}>{age(room.active_at, now)}</span>
+          </button>
+        {:else if n.type === 'session'}
+          {@const s = n.s}
+          <button
+            class="row"
+            class:sel={ag.sel === n.key}
+            class:sub={n.depth > 0}
+            class:loose={n.unsorted}
+            onclick={() => click(n)}
+            oncontextmenu={(e) => menu(e, n)}
+            style:--indent="{14 * n.depth}px"
           >
-          {#if pend && pend.target === n.key}
-            <span class="undo-note wide">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
-          {:else}
-            <span class="mono" class:dim={s.status === 'done'}>{s.harness}</span>
-            <span class="mono" class:dim={s.status === 'done'}>{s.model}</span>
-            <span class="age" class:orange={s.status === 'waiting' || turnEnded(s)}>{age(s.active_at, now)}</span>
+            <span class="mark">
+              {#if n.depth > 0}<span class="elbow"></span>{/if}
+              <StatusMark status={turnEnded(s) ? 'problem' : s.status} />
+            </span>
+            <span
+              class="name"
+              title={turnEnded(s) ? 'Ended its turn since you looked' : undefined}
+              style:color={agentColor(look(), s)}
+              >{s.name}{#if n.unsorted && s.cwd}<span class="cwd">{s.cwd.replace(/^\/(Users|home)\/[^/]+/, '~')}</span
+                >{/if}</span
+            >
+            {#if pend && pend.target === n.key}
+              <span class="undo-note wide">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
+            {:else}
+              <span class="mono" class:dim={s.status === 'done'}>{s.harness}</span>
+              <span class="mono" class:dim={s.status === 'done'}>{s.model}</span>
+              <span class="age" class:orange={s.status === 'waiting' || turnEnded(s)}>{age(s.active_at, now)}</span>
+            {/if}
+          </button>
+          {#if n.unsorted && s.guess?.group_id}
+            <div class="guess">
+              Looks like <span class="where">{s.guess.label}</span>
+              <button class="move" onclick={() => act('move', { session: s.id, group: s.guess!.group_id })}>Move</button
+              >
+              <button onclick={() => act('guess_dismiss', { session: s.id })}>Not this</button>
+            </div>
           {/if}
-        </button>
-        {#if n.unsorted && s.guess?.group_id}
-          <div class="guess">
-            Looks like <span class="where">{s.guess.label}</span>
-            <button class="move" onclick={() => act('move', { session: s.id, group: s.guess!.group_id })}>Move</button>
-            <button onclick={() => act('guess_dismiss', { session: s.id })}>Not this</button>
-          </div>
         {/if}
-      {/if}
       </div>
       {#if lastInFrame(idx)}
         {@const gid = gidOf(n)!}
@@ -242,21 +288,43 @@
       {/if}
     {:else}
       <div class="empty-pane">
-        {#if ag.filter}{archived.length ? 'Nothing live matches.' : `Nothing matches "${ag.filter}".`}{:else}No sessions yet. <button class="link-act" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
+        {#if ag.filter}{archived.length ? 'Nothing live matches.' : `Nothing matches "${ag.filter}".`}{:else}No sessions
+          yet. <button class="link-act" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
       </div>
     {/each}
     {#if archived.length}
       <div class="archive" class:lit={inArchive}>
         {#each archived as n (n.key)}
           {#if n.type === 'archived-head'}
-            <div class="ahead label"><i class="ph ph-archive"></i>Archived<span class="acount">{n.groups ? `${n.groups} group${n.groups === 1 ? '' : 's'} · ` : ''}{n.sessions} session{n.sessions === 1 ? '' : 's'} · of {n.total}</span></div>
+            <div class="ahead label">
+              <i class="ph ph-archive"></i>Archived<span class="acount"
+                >{n.groups ? `${n.groups} group${n.groups === 1 ? '' : 's'} · ` : ''}{n.sessions} session{n.sessions ===
+                1
+                  ? ''
+                  : 's'} · of {n.total}</span
+              >
+            </div>
           {:else if n.type === 'archived-label'}
             <div class="alabel" class:label={n.project} class:gl={!n.project}>{n.label}</div>
           {:else if n.type === 'archived'}
             {@const h = n.item}
-            <button class="arow" class:grp={h.kind === 'group'} class:sel={ag.sel === n.key} onclick={() => ((ag.sel = n.key), openArchived(h.id))}>
-              <span class="aname">{#if h.kind === 'group'}<span class="name">{h.name}</span>{#if h.goal}<span class="goal">{h.goal}</span>{/if}{:else}<span class="name">{h.name}</span>{/if}</span>
-              <span class="mono">{h.kind === 'group' ? (h.room ? `#${h.room}` : 'group') : [h.harness, h.model].filter(Boolean).join(' · ')}</span>
+            <button
+              class="arow"
+              class:grp={h.kind === 'group'}
+              class:sel={ag.sel === n.key}
+              onclick={() => ((ag.sel = n.key), openArchived(h.id))}
+            >
+              <span class="aname"
+                >{#if h.kind === 'group'}<span class="name">{h.name}</span>{#if h.goal}<span class="goal">{h.goal}</span
+                    >{/if}{:else}<span class="name">{h.name}</span>{/if}</span
+              >
+              <span class="mono"
+                >{h.kind === 'group'
+                  ? h.room
+                    ? `#${h.room}`
+                    : 'group'
+                  : [h.harness, h.model].filter(Boolean).join(' · ')}</span
+              >
               <span class="age">{fmtDay(h.at)}</span>
               {#if h.line}<span class="aline"><span class="who">{h.who}</span> {h.line}</span>{/if}
             </button>
@@ -273,32 +341,63 @@
     {@const isGroup = menuNode?.type !== 'session'}
     {@const room = menuGroup?.room}
     {@const can = archivable(k)}
-    <div class="menu popover flush" role="menu" style:left="{ag.menu?.x ?? 0}px" style:top="{ag.menu?.y ?? 0}px" use:popover={{ onclose: () => (ag.menu = null) }}>
+    <div
+      class="menu popover flush"
+      role="menu"
+      style:left="{ag.menu?.x ?? 0}px"
+      style:top="{ag.menu?.y ?? 0}px"
+      use:popover={{ onclose: () => (ag.menu = null) }}
+    >
       {#if !isGroup || room}
-        <button role="menuitem" onclick={() => run(() => { const key = isGroup && room ? `r:${room.id}` : k; ag.sel = key; openThread(key); ag.zone = 'thread'; })}
-          >{isGroup ? `Open #${room?.name}` : 'Open'}<kbd>⏎</kbd></button
+        <button
+          role="menuitem"
+          onclick={() =>
+            run(() => {
+              const key = isGroup && room ? `r:${room.id}` : k;
+              ag.sel = key;
+              openThread(key);
+              ag.zone = 'thread';
+            })}>{isGroup ? `Open #${room?.name}` : 'Open'}<kbd>⏎</kbd></button
         >
       {/if}
       {#if s}
-        <button role="menuitem" disabled={s.status !== 'running' && !s.live} onclick={() => run(() => act('stop', { session: s.id }).catch(() => {}))}>Stop<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button>
+        <button
+          role="menuitem"
+          disabled={s.status !== 'running' && !s.live}
+          onclick={() => run(() => act('stop', { session: s.id }).catch(() => {}))}
+          >Stop<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button
+        >
       {/if}
       {#if menuGroup}
         <button role="menuitem" onclick={() => run(onNew)}>New agent in {menuGroup.name}<kbd>n</kbd></button>
       {/if}
       <div class="divider"></div>
       <button role="menuitem" disabled={!can} onclick={() => run(() => askArchive(k))}
-        >Archive {isGroup ? 'group' : 'session'}{can ? '…' : ''}{#if !can}<span class="off">stop it first</span>{/if}<kbd>a</kbd></button
+        >Archive {isGroup ? 'group' : 'session'}{can ? '…' : ''}{#if !can}<span class="off">stop it first</span
+          >{/if}<kbd>a</kbd></button
       >
     </div>
   {/if}
 
   {#if (ag.tree?.hub_failed ?? 0) > 0}
-    <div class="hostline bad"><i class="ph ph-warning-circle"></i><span class="err broken">{ag.tree?.hub_failed} Hub or sandbox delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord('⌘R', 'Ctrl+R')} in the sync status</span></div>
+    <div class="hostline bad">
+      <i class="ph ph-warning-circle"></i><span class="err broken"
+        >{ag.tree?.hub_failed} Hub or sandbox delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord(
+          '⌘R',
+          'Ctrl+R',
+        )} in the sync status</span
+      >
+    </div>
   {/if}
 
   {#if host && (anyLocal || (host.state !== 'idle' && host.state !== ''))}
-    <div class="hostline" class:bad={host.state === 'missing' || host.state === 'error' || host.state === 'unsupported'} title={host.error || host.binary}>
-      <i class="ph {host.state === 'running' ? 'ph-cpu' : host.state === 'starting' ? 'ph-circle-notch' : 'ph-plugs'}"></i>
+    <div
+      class="hostline"
+      class:bad={host.state === 'missing' || host.state === 'error' || host.state === 'unsupported'}
+      title={host.error || host.binary}
+    >
+      <i class="ph {host.state === 'running' ? 'ph-cpu' : host.state === 'starting' ? 'ph-circle-notch' : 'ph-plugs'}"
+      ></i>
       {#if host.state === 'running'}
         <span>Agent host · v{host.version} · {localLive} running</span>
         {#if host.stale}<span class="note">a newer build is ready</span>{/if}
@@ -311,10 +410,18 @@
       {/if}
       <span class="hacts">
         {#if host.state === 'running' && localLive > 0}
-          <button onclick={() => twice('stop')}>{armed === 'stop' ? `Stops ${localLive} · click again` : 'Stop all'}</button>
+          <button onclick={() => twice('stop')}
+            >{armed === 'stop' ? `Stops ${localLive} · click again` : 'Stop all'}</button
+          >
         {/if}
         {#if host.state === 'running' ? host.stale : host.state === 'error' || host.state === 'missing'}
-          <button onclick={() => twice('restart')}>{armed === 'restart' ? `Stops ${localLive} · click again` : host.state === 'running' ? 'Restart host' : 'Retry'}</button>
+          <button onclick={() => twice('restart')}
+            >{armed === 'restart'
+              ? `Stops ${localLive} · click again`
+              : host.state === 'running'
+                ? 'Restart host'
+                : 'Retry'}</button
+          >
         {/if}
       </span>
     </div>

@@ -14,7 +14,12 @@
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Fact } from './types';
 
-  let { composerEl = $bindable(), approval = $bindable(), ask = $bindable(), denying = $bindable(false) }: {
+  let {
+    composerEl = $bindable(),
+    approval = $bindable(),
+    ask = $bindable(),
+    denying = $bindable(false),
+  }: {
     composerEl?: HTMLTextAreaElement;
     approval?: ApprovalCard;
     ask?: AskCard;
@@ -68,7 +73,9 @@
     following = Math.abs(scroller?.scrollTop ?? 0) < 6;
     anchor = null;
     if (following || !scroller) return;
-    const el = [...scroller.querySelectorAll('[data-row]')].find((e) => topOf(e) + e.getBoundingClientRect().height > 0);
+    const el = [...scroller.querySelectorAll('[data-row]')].find(
+      (e) => topOf(e) + e.getBoundingClientRect().height > 0,
+    );
     if (el) anchor = { el, top: topOf(el) };
   }
   // WebKit has no scroll anchoring: keep the first visible row where it was when rows grow below it.
@@ -123,7 +130,6 @@
     const id = isRoom ? key : s?.id;
     if (id) act('open', { session: id, how }).catch(() => {});
   }
-
 </script>
 
 {#if !key || (!s && !g)}
@@ -131,7 +137,9 @@
     <div class="empty-pane hello">
       <i class="ph ph-robot"></i>
       <p>Open a session or room from the tree, or start a local session.</p>
-      <button class="btn md primary" onclick={() => (ag.form ={ kind: 'local', group: null })}><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button>
+      <button class="btn md primary" onclick={() => (ag.form = { kind: 'local', group: null })}
+        ><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button
+      >
     </div>
   </div>
 {:else}
@@ -139,8 +147,12 @@
     <div class="head">
       <div class="left">
         <div class="ctx">
-          {#if isRoom}<i class="ph ph-hash hash"></i>{g?.room?.name}{:else if s}<StatusMark status={s.status} /><span style:color={agentColor(lk, s)}>{s.name}</span>{/if}
-          <span class="c">{isRoom ? `${g?.room?.hub ?? 'Scion Hub'} · project ${g?.project} · group thread` : s?.context}</span>
+          {#if isRoom}<i class="ph ph-hash hash"></i>{g?.room?.name}{:else if s}<StatusMark status={s.status} /><span
+              style:color={agentColor(lk, s)}>{s.name}</span
+            >{/if}
+          <span class="c"
+            >{isRoom ? `${g?.room?.hub ?? 'Scion Hub'} · project ${g?.project} · group thread` : s?.context}</span
+          >
         </div>
         <div class="pane-title title">{title}</div>
         {#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
@@ -151,8 +163,13 @@
           <span class="fl">{label}</span>
           {#if f}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <span class="fv" class:link-out={!!f.url} onclick={() => f.url && openExternal(f.url)} title={f.url || undefined}
-              ><span class:key={label === 'ticket'}>{f.label}</span>{#if f.detail} <span class="fd">{f.detail}</span>{/if}</span
+            <span
+              class="fv"
+              class:link-out={!!f.url}
+              onclick={() => f.url && openExternal(f.url)}
+              title={f.url || undefined}
+              ><span class:key={label === 'ticket'}>{f.label}</span>{#if f.detail}
+                <span class="fd">{f.detail}</span>{/if}</span
             >
           {:else}<span class="fv none">{none}</span>{/if}
         {/each}
@@ -162,7 +179,9 @@
     <div class="panel">
       {#if kind === 'scion' && ag.tab === 'messages'}
         <div class="tabs">
-          <button class="tab" onclick={() => setTab('transcript')}>Transcript<span class="n">{s?.stats.turns ?? 0} turns</span></button>
+          <button class="tab" onclick={() => setTab('transcript')}
+            >Transcript<span class="n">{s?.stats.turns ?? 0} turns</span></button
+          >
           <button class="tab on">Messages<span class="n">{messageCount}</span></button>
           <span class="tabnote">You ↔ {s?.name}, plus mentions of {s?.name} in rooms</span>
           <span class="tk"><kbd>T</kbd><kbd>M</kbd></span>
@@ -171,9 +190,13 @@
         <div class="legend">
           {#each LEGEND[kind] as c (c.label)}
             {@const off = c.kinds.every((k) => ag.hidden.has(k as never))}
-            <button class="chip {c.box ? `c-${c.box}` : ''}" class:off onclick={() => toggleKind(c.kinds)}><i class="ph {c.icon}" style:color={c.color}></i>{c.label}</button>
+            <button class="chip {c.box ? `c-${c.box}` : ''}" class:off onclick={() => toggleKind(c.kinds)}
+              ><i class="ph {c.icon}" style:color={c.color}></i>{c.label}</button
+            >
           {/each}
-          {#if kind === 'scion'}<button class="chip plain" onclick={() => setTab('messages')}>Messages tab<kbd>M</kbd></button>{/if}
+          {#if kind === 'scion'}<button class="chip plain" onclick={() => setTab('messages')}
+              >Messages tab<kbd>M</kbd></button
+            >{/if}
           <button class="follow" class:paused={!following} onclick={latest}>
             <i class="ph ph-arrow-down"></i>{#if following}Following latest{:else}Jump to latest · <kbd>G</kbd>{/if}
           </button>

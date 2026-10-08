@@ -76,7 +76,13 @@
     status = 'saving';
     const text = serialize(sections);
     try {
-      const r = await call<SaveResult>('reflect.save', { scope: target.scope, period: target.period, lens: target.lens, text, base });
+      const r = await call<SaveResult>('reflect.save', {
+        scope: target.scope,
+        period: target.period,
+        lens: target.lens,
+        text,
+        base,
+      });
       if ('conflict' in r) {
         disk = r.disk;
         status = 'conflict';
@@ -178,7 +184,7 @@
 
   export function focus() {
     const a = areas.filter(Boolean);
-    const el = structured ? a.find((x) => x.value.trim() === '' || /^\d\.\s*$/m.test(x.value)) ?? a[0] : a[0];
+    const el = structured ? (a.find((x) => x.value.trim() === '' || /^\d\.\s*$/m.test(x.value)) ?? a[0]) : a[0];
     if (!el) return;
     el.focus();
     if (!structured) el.setSelectionRange(el.value.length, el.value.length);
@@ -205,7 +211,9 @@
   <div class="head">
     <AppIcon source="obsidian" size={15} />
     <button class="path ellipsis" onclick={openInObsidian} title="Open in Obsidian (o)">{target.path}</button>
-    <span class="status nowrap" class:warn={status === 'conflict' || status === 'offline' || status === 'error'}>{statusLabel}{#if status === 'offline'}{' · '}<kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry{/if}</span>
+    <span class="status nowrap" class:warn={status === 'conflict' || status === 'offline' || status === 'error'}
+      >{statusLabel}{#if status === 'offline'}{' · '}<kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry{/if}</span
+    >
   </div>
   {#if status === 'conflict'}
     <div class="conflict">

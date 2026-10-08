@@ -93,7 +93,10 @@
     thinking = '';
     levels = null;
     loading = true;
-    call<{ models: { id: string; name: string }[]; current: string; thinking: ConfigChoice | null }>('agents.models', { harness: k, cwd: untrack(() => cwd) })
+    call<{ models: { id: string; name: string }[]; current: string; thinking: ConfigChoice | null }>('agents.models', {
+      harness: k,
+      cwd: untrack(() => cwd),
+    })
       .then((r) => {
         if (k !== harness) return;
         models = r.models;
@@ -126,7 +129,9 @@
         g = r.id;
       }
       const sandbox = sandboxed ? { gateway, existing: box, workdir: cwd, from } : undefined;
-      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model, thinking, sandbox })) as { id: string };
+      const r = (await act('start_local', { harness, cwd, name, group: g ?? '', task, model, thinking, sandbox })) as {
+        id: string;
+      };
       ag.sel = `s:${r.id}`;
       openThread(`s:${r.id}`);
       onClose();
@@ -160,7 +165,9 @@
     <span class="lab label">Harness</span>
     <span class="chips" role="radiogroup" aria-label="Choose with ← →" tabindex="0" onkeydown={chipKey}>
       {#each harnesses as x (x.key)}
-        <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}>{x.label}</button>
+        <button class="chip" class:on={x.key === harness} tabindex="-1" onclick={() => (harness = x.key)}
+          >{x.label}</button
+        >
       {/each}
     </span>
     <span class="lab label">Model</span>
@@ -168,19 +175,34 @@
       {#if models.length}
         <select bind:value={model}>
           <option value="">default{current ? ` · ${modelName(current)}` : ''}</option>
-          {#each models.filter((m) => m.id !== current) as m (m.id)}<option value={m.id}>{m.name || m.id}{m.name && m.name !== m.id ? ` · ${m.id}` : ''}</option>{/each}
+          {#each models.filter((m) => m.id !== current) as m (m.id)}<option value={m.id}
+              >{m.name || m.id}{m.name && m.name !== m.id ? ` · ${m.id}` : ''}</option
+            >{/each}
         </select>
       {:else}
         <input bind:value={model} placeholder={loading ? 'asking the harness…' : 'default'} />
       {/if}
-      <span class="note">{loading ? 'from the harness' : models.length ? `${models.length} from ${h?.label ?? 'the harness'}` : 'none listed; type one or leave the default'}</span>
+      <span class="note"
+        >{loading
+          ? 'from the harness'
+          : models.length
+            ? `${models.length} from ${h?.label ?? 'the harness'}`
+            : 'none listed; type one or leave the default'}</span
+      >
     </span>
     {#if levels}
       <span class="lab label">Thinking</span>
       <span class="input">
         <select bind:value={thinking}>
-          <option value="">default · {(levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current).replace(/^thinking:?\s*/i, '')}</option>
-          {#each levels.options.filter((o) => o.value !== levels?.current) as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '')}</option>{/each}
+          <option value=""
+            >default · {(levels.options.find((o) => o.value === levels?.current)?.name ?? levels.current).replace(
+              /^thinking:?\s*/i,
+              '',
+            )}</option
+          >
+          {#each levels.options.filter((o) => o.value !== levels?.current) as o (o.value)}<option value={o.value}
+              >{o.name.replace(/^thinking:?\s*/i, '')}</option
+            >{/each}
         </select>
         <span class="note">{model ? 'levels of the default model' : 'from the harness'}</span>
       </span>
@@ -189,7 +211,9 @@
       <span class="lab label">Gateway</span>
       <span class="input">
         <select bind:value={gateway}>
-          {#each gateways as x (x.name)}<option value={x.name}>{x.name} · {x.remote ? 'remote' : 'local'}{x.active ? ' · active' : ''}</option>{/each}
+          {#each gateways as x (x.name)}<option value={x.name}
+              >{x.name} · {x.remote ? 'remote' : 'local'}{x.active ? ' · active' : ''}</option
+            >{/each}
         </select>
         <span class="note">{osNote || gateways.find((x) => x.name === gateway)?.endpoint || ''}</span>
       </span>
@@ -199,22 +223,37 @@
           <option value="">New sandbox</option>
           {#each boxes as b (b.name)}<option value={b.name}>{b.name} · {b.phase.toLowerCase()}</option>{/each}
         </select>
-        <span class="note">{box ? 'the harness must be in its image' : 'made for this agent; kept after it stops'}</span>
+        <span class="note">{box ? 'the harness must be in its image' : 'made for this agent; kept after it stops'}</span
+        >
       </span>
       {#if !box}
         <span class="lab label">Image</span>
-        <span class="input"><input bind:value={from} placeholder={h?.sandbox_from || "the gateway's default"} /><span class="note">with {h?.sandbox_command?.split(' ')[0] || 'the adapter'} in it</span></span>
+        <span class="input"
+          ><input bind:value={from} placeholder={h?.sandbox_from || "the gateway's default"} /><span class="note"
+            >with {h?.sandbox_command?.split(' ')[0] || 'the adapter'} in it</span
+          ></span
+        >
       {/if}
     {/if}
     <span class="lab label">Name</span>
-    <span class="input"><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span>
+    <span class="input"
+      ><input bind:value={name} placeholder="{harness || 'agent'}-…" /><span class="note">optional</span></span
+    >
     <span class="lab label">Directory</span>
     {#if sandboxed && box}
-      <span class="input"><input bind:value={cwd} placeholder="/sandbox/project" /><span class="note">inside the sandbox</span></span>
+      <span class="input"
+        ><input bind:value={cwd} placeholder="/sandbox/project" /><span class="note">inside the sandbox</span></span
+      >
     {:else}
-      <span class="input"><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note">{sandboxed ? 'uploaded into the sandbox (.gitignore applies)' : 'its working directory'}</span></span>
+      <span class="input"
+        ><input bind:value={cwd} list="agent-dirs" placeholder="~/src/project" /><span class="note"
+          >{sandboxed ? 'uploaded into the sandbox (.gitignore applies)' : 'its working directory'}</span
+        ></span
+      >
     {/if}
-    <datalist id="agent-dirs">{#each dirs as d (d)}<option value={d}></option>{/each}</datalist>
+    <datalist id="agent-dirs"
+      >{#each dirs as d (d)}<option value={d}></option>{/each}</datalist
+    >
     <span class="lab label">Group</span>
     <span class="input">
       <select bind:value={groupId}>
@@ -231,15 +270,22 @@
     {/if}
   </div>
   <div class="right">
-    <span class="row-lab"><span class="lab label">Task</span><span class="note">first prompt, sent on start</span></span>
+    <span class="row-lab"><span class="lab label">Task</span><span class="note">first prompt, sent on start</span></span
+    >
     <textarea bind:this={taskEl} bind:value={task} rows="4" placeholder="What should it do?"></textarea>
     {#if err}<div class="err">{err}</div>{/if}
   </div>
   {#snippet foot()}
-    <button class="btn md primary" disabled={busy} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
+    <button class="btn md primary" disabled={busy} onclick={start}>Start agent<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+    >
     <button class="btn md" onclick={onClose}>Cancel<kbd>Esc</kbd></button>
     {#if sandboxed}
-      <span class="cmd"><i class="ph ph-terminal"></i><span>openshell{gateway ? ` -g ${gateway}` : ''} sandbox exec -n {box || 'aleth-…'} -- {h?.sandbox_command ?? ''}</span></span>
+      <span class="cmd"
+        ><i class="ph ph-terminal"></i><span
+          >openshell{gateway ? ` -g ${gateway}` : ''} sandbox exec -n {box || 'aleth-…'} -- {h?.sandbox_command ??
+            ''}</span
+        ></span
+      >
     {:else}
       <span class="cmd"><i class="ph ph-terminal"></i><span>cd {cwd || '…'} && {h?.command ?? ''}</span></span>
     {/if}

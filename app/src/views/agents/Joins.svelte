@@ -15,14 +15,26 @@
     room = null,
     members = [],
     newName,
-  }: { project: string; name: string; goal?: string; host?: string; room?: string | null; members?: Session[]; newName: string } = $props();
+  }: {
+    project: string;
+    name: string;
+    goal?: string;
+    host?: string;
+    room?: string | null;
+    members?: Session[];
+    newName: string;
+  } = $props();
 </script>
 
 <div class="joins inset">
-  <div class="lab label">Joins{#if project}<span class="proj">{project}</span>{/if}</div>
+  <div class="lab label">
+    Joins{#if project}<span class="proj">{project}</span>{/if}
+  </div>
   <div class="group">
     <i class="ph ph-caret-down"></i>
-    <span class="gn"><span class="name">{name}</span>{#if goal}<span class="goal">{goal}</span>{/if}</span>
+    <span class="gn"
+      ><span class="name">{name}</span>{#if goal}<span class="goal">{goal}</span>{/if}</span
+    >
     {#if host}<span class="host">{host}</span>{/if}
   </div>
   <div class="members">

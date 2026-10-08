@@ -8,7 +8,11 @@
   import NeedCard from './NeedCard.svelte';
   import { fieldsLine, oneLine, splitMessage } from './approvalMessage';
 
-  let { req, compact = false, denying = $bindable(false) }: { req: Request; compact?: boolean; denying?: boolean } = $props();
+  let {
+    req,
+    compact = false,
+    denying = $bindable(false),
+  }: { req: Request; compact?: boolean; denying?: boolean } = $props();
 
   // What came with the request (a gate's prompt or free text): the parts of a
   // field list that the card doesn't already show go in the header, free text gets
@@ -27,11 +31,19 @@
   });
 
   // Long pipelines read better one stage per line, as the design shows them.
-  const pretty = $derived(req.command.length > 70 && req.command.includes(' | ') ? req.command.replace(/\s+\|\s+/g, ' \\\n  | ') : req.command);
+  const pretty = $derived(
+    req.command.length > 70 && req.command.includes(' | ')
+      ? req.command.replace(/\s+\|\s+/g, ' \\\n  | ')
+      : req.command,
+  );
   type Option = Request['options'][number];
   const isDeny = (o: Option) => o.kind.startsWith('reject');
   // The first plain allow is the default; a connector that marks every choice allow_once gets none.
-  const primary = $derived(req.options.filter((o) => o.kind === 'allow_once').length === 1 ? req.options.find((o) => o.kind === 'allow_once') : undefined);
+  const primary = $derived(
+    req.options.filter((o) => o.kind === 'allow_once').length === 1
+      ? req.options.find((o) => o.kind === 'allow_once')
+      : undefined,
+  );
   let denyOpt = $state<Option>();
 
   export function choose(key: string) {
@@ -55,56 +67,73 @@
   }
 
   // The agent's own words: a connector that gets the kinds wrong can't make "No" read as "Allow once".
-  const label = (o: Option) => o.name.trim() || (isDeny(o) ? 'Deny' : o.kind === 'allow_once' ? 'Allow once' : 'Always');
+  const label = (o: Option) =>
+    o.name.trim() || (isDeny(o) ? 'Deny' : o.kind === 'allow_once' ? 'Allow once' : 'Always');
 </script>
 
 {#snippet title()}{req.title}{/snippet}
 {#snippet meta()}
   <span class="tool">{req.tool}</span>
   {#if said.fields.length}<span class="tool gate" title={req.message}>{fieldsLine(said.fields)}</span>{/if}
-  <button class="btn copy" onclick={() => navigator.clipboard?.writeText(req.command)}><i class="ph ph-copy"></i>Copy</button>
+  <button class="btn copy" onclick={() => navigator.clipboard?.writeText(req.command)}
+    ><i class="ph ph-copy"></i>Copy</button
+  >
 {/snippet}
 {#snippet summary()}
   <span class="c">{req.command}</span>
 {/snippet}
 
 <NeedCard icon="shield-warning" {compact} {title} {meta} {summary} capped>
-    {#if req.command}<div class="command inset command-block">{pretty}</div>{/if}
-    {#if said.text}
-      <button class="said" aria-expanded={sayOpen} class:open={sayOpen} onclick={() => (sayOpen = !sayOpen)} title={sayOpen ? 'Sent with the request; the explainer never sees it. Click to fold' : said.text}>
-        <i class="ph ph-chat-text"></i><span>{sayOpen ? said.text : oneLine(said.text)}</span><i class="ph ph-caret-{sayOpen ? 'up' : 'down'} caret"></i>
-      </button>
-    {/if}
-    {#if req.parsed || req.explained}<div class="pw"><Panels {req} fill /></div>{/if}
-    {#if denying}
-      <div class="deny">
-        <input
-          class="input"
-          bind:this={reasonEl}
-          bind:value={reason}
-          placeholder="Why not? Sent as your next message (optional)"
-          onkeydown={(e) => {
-            if (e.key === 'Enter') {
-              sendDeny();
-              e.preventDefault();
-            } else if (e.key === 'Escape') {
-              denying = false;
-              e.preventDefault();
-            }
-            e.stopPropagation();
-          }}
-        />
-        <button class="btn md" onclick={sendDeny}>Deny<kbd>⏎</kbd></button>
-        <button class="btn md" onclick={() => (denying = false)}>Back<kbd>Esc</kbd></button>
-      </div>
-    {:else}
-      <div class="btns">
-        {#each req.options as o (o.id)}
-          <button class="btn md" class:primary={o === primary} title={o.kind.replace('_', ' ')} onclick={() => choose(o.key)}>{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<kbd>{o.key}</kbd>{/if}</button>
-        {/each}
-        <span class="right"><kbd>Esc</kbd> later</span>
-      </div>
-    {/if}
+  {#if req.command}<div class="command inset command-block">{pretty}</div>{/if}
+  {#if said.text}
+    <button
+      class="said"
+      aria-expanded={sayOpen}
+      class:open={sayOpen}
+      onclick={() => (sayOpen = !sayOpen)}
+      title={sayOpen ? 'Sent with the request; the explainer never sees it. Click to fold' : said.text}
+    >
+      <i class="ph ph-chat-text"></i><span>{sayOpen ? said.text : oneLine(said.text)}</span><i
+        class="ph ph-caret-{sayOpen ? 'up' : 'down'} caret"
+      ></i>
+    </button>
+  {/if}
+  {#if req.parsed || req.explained}<div class="pw"><Panels {req} fill /></div>{/if}
+  {#if denying}
+    <div class="deny">
+      <input
+        class="input"
+        bind:this={reasonEl}
+        bind:value={reason}
+        placeholder="Why not? Sent as your next message (optional)"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            sendDeny();
+            e.preventDefault();
+          } else if (e.key === 'Escape') {
+            denying = false;
+            e.preventDefault();
+          }
+          e.stopPropagation();
+        }}
+      />
+      <button class="btn md" onclick={sendDeny}>Deny<kbd>⏎</kbd></button>
+      <button class="btn md" onclick={() => (denying = false)}>Back<kbd>Esc</kbd></button>
+    </div>
+  {:else}
+    <div class="btns">
+      {#each req.options as o (o.id)}
+        <button
+          class="btn md"
+          class:primary={o === primary}
+          title={o.kind.replace('_', ' ')}
+          onclick={() => choose(o.key)}
+          >{label(o)}{#if isDeny(o)}…{/if}{#if o.key}<kbd>{o.key}</kbd>{/if}</button
+        >
+      {/each}
+      <span class="right"><kbd>Esc</kbd> later</span>
+    </div>
+  {/if}
 </NeedCard>
 
 <style>

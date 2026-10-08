@@ -58,7 +58,14 @@ export function mod(e: KeyboardEvent): boolean {
 /** ⌥ plus a letter (⇧ when `shift`), not while typing. By `e.code`: on a
  *  Mac ⌥ types another character ("¥", or a dead key for ⌥N), so `e.key` won't match. */
 export function alt(e: KeyboardEvent, letter: string, shift = false): boolean {
-  return e.altKey && e.shiftKey === shift && !e.metaKey && !e.ctrlKey && e.code === `Key${letter.toUpperCase()}` && !isTyping(e);
+  return (
+    e.altKey &&
+    e.shiftKey === shift &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    e.code === `Key${letter.toUpperCase()}` &&
+    !isTyping(e)
+  );
 }
 
 /** Plain key with no modifiers, not while typing. */

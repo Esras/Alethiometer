@@ -32,10 +32,12 @@
     }
   });
 
-  const decimals = $derived(digits ?? (String(step).split('.')[1]?.length ?? 0));
+  const decimals = $derived(digits ?? String(step).split('.')[1]?.length ?? 0);
   const clamp = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
   const round = (v: number) => Number(v.toFixed(decimals));
-  const shown = $derived(format ? format(value) : digits === undefined && Number.isInteger(value) ? String(value) : value.toFixed(decimals));
+  const shown = $derived(
+    format ? format(value) : digits === undefined && Number.isInteger(value) ? String(value) : value.toFixed(decimals),
+  );
 
   function bump(dir: number) {
     const next = clamp(round(value + dir * step));
@@ -70,7 +72,8 @@
           e.currentTarget.blur();
         }
         e.stopPropagation();
-      }} />
+      }}
+    />
   {:else}
     <span class="v tnum" ondblclick={() => onedit(true)} role="presentation">{shown}</span>
   {/if}

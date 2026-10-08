@@ -4,15 +4,15 @@
   // `lg` (--avatar-lg) is a person's card or page, `sm` (--avatar-sm) a picker
   // row. `px` is an escape hatch for Glean's 15px people, which are parked
   // (ui-plan decision 2); drop it when they move to `sm`.
-  let {
-    initials,
-    color,
-    size,
-    px,
-  }: { initials: string; color: string; size: 'lg' | 'sm'; px?: number } = $props();
+  let { initials, color, size, px }: { initials: string; color: string; size: 'lg' | 'sm'; px?: number } = $props();
 </script>
 
-<span class="avatar {size}" style:background={color} style:width={px ? `${px}px` : undefined} style:height={px ? `${px}px` : undefined}>{initials}</span>
+<span
+  class="avatar {size}"
+  style:background={color}
+  style:width={px ? `${px}px` : undefined}
+  style:height={px ? `${px}px` : undefined}>{initials}</span
+>
 
 <style>
   .avatar {

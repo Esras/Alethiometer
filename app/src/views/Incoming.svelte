@@ -95,9 +95,16 @@
   const entries = $derived<Entry[]>(
     queue
       ? [
-          ...queue.topics.map((t) => ({ key: t.id as QueueKey, name: t.name, category: t.category, count: t.signals.length })),
+          ...queue.topics.map((t) => ({
+            key: t.id as QueueKey,
+            name: t.name,
+            category: t.category,
+            count: t.signals.length,
+          })),
           { key: 'unsorted' as QueueKey, name: 'Unsorted', category: null, count: queue.unsorted.length },
-          ...(queue.agents.length || selKey === 'agents' ? [{ key: 'agents' as QueueKey, name: 'Agents waiting', category: null, count: queue.agents.length }] : []),
+          ...(queue.agents.length || selKey === 'agents'
+            ? [{ key: 'agents' as QueueKey, name: 'Agents waiting', category: null, count: queue.agents.length }]
+            : []),
         ]
       : [],
   );
@@ -154,7 +161,13 @@
   const bodySubs = new Map<number, () => void>();
   $effect(() => {
     const q = queue;
-    const listed = new Set(q ? [...q.topics.flatMap((t) => t.signals), ...q.unsorted].filter((s) => s.source !== 'agents').map((s) => s.item_id) : []);
+    const listed = new Set(
+      q
+        ? [...q.topics.flatMap((t) => t.signals), ...q.unsorted]
+            .filter((s) => s.source !== 'agents')
+            .map((s) => s.item_id)
+        : [],
+    );
     const want = new Set([...expanded].filter((id) => listed.has(id)));
     untrack(() => {
       for (const [id, off] of bodySubs) {
@@ -179,7 +192,8 @@
   });
   onDestroy(() => bodySubs.forEach((off) => off()));
 
-  const hasAgents = (q: Queue | null) => !!q && (q.agents.length > 0 || [...q.unsorted, ...q.topics.flatMap((t) => t.signals)].some((s) => s.agent));
+  const hasAgents = (q: Queue | null) =>
+    !!q && (q.agents.length > 0 || [...q.unsorted, ...q.topics.flatMap((t) => t.signals)].some((s) => s.agent));
   function loadLive() {
     call<AgentTree>('agents.tree')
       .then((t) => (live = { sessions: t.sessions, requests: t.requests }))
@@ -231,10 +245,19 @@
     if (hasAgents(q)) loadLive();
     const present = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted, ...q.agents].map((s) => s.item_id));
     dismissed = new Set([...dismissed].filter((id) => present.has(id)));
-    if ([...answered.keys()].some((id) => !present.has(id))) answered = new Map([...answered].filter(([id]) => present.has(id)));
-    const keys: QueueKey[] = [...q.topics.map((t) => t.id), 'unsorted', ...(q.agents.length || selKey === 'agents' ? ['agents' as QueueKey] : [])];
+    if ([...answered.keys()].some((id) => !present.has(id)))
+      answered = new Map([...answered].filter(([id]) => present.has(id)));
+    const keys: QueueKey[] = [
+      ...q.topics.map((t) => t.id),
+      'unsorted',
+      ...(q.agents.length || selKey === 'agents' ? ['agents' as QueueKey] : []),
+    ];
     if (selKey === null || !keys.includes(selKey)) {
-      selKey = nextKey(prevEntries.map((e) => e.key), selKey, keys)!;
+      selKey = nextKey(
+        prevEntries.map((e) => e.key),
+        selKey,
+        keys,
+      )!;
       selItem = null;
       prevFlat = [];
     }
@@ -242,7 +265,8 @@
     if (!now.some((s) => s.item_id === selItem)) {
       const before = prevFlat.map((s) => s.item_id);
       const left = now.map((s) => s.item_id).filter((id) => before.includes(id));
-      selItem = (prevFlat.length ? nextKey(before, selItem, left) : now[0]?.item_id) ?? now[now.length - 1]?.item_id ?? null;
+      selItem =
+        (prevFlat.length ? nextKey(before, selItem, left) : now[0]?.item_id) ?? now[now.length - 1]?.item_id ?? null;
     }
     // A sync may have changed the messages under an open selection.
     const sig = now.find((s) => s.item_id === selItem);
@@ -396,8 +420,6 @@
     refresh();
   }
 
-
-
   function link(s: Signal, account: Account, name: string) {
     selItem = s.item_id;
     picking = false;
@@ -448,7 +470,9 @@
     if (!expanded.has(s.item_id)) toggle(s.item_id);
     if (inMsgs && s.messages.length) msgIdx = end ? s.messages.length - 1 : 0;
     await tick();
-    document.querySelector(`[data-item="${s.item_id}"]`)?.scrollIntoView({ block: end ? 'end' : 'start', behavior: 'smooth' });
+    document
+      .querySelector(`[data-item="${s.item_id}"]`)
+      ?.scrollIntoView({ block: end ? 'end' : 'start', behavior: 'smooth' });
   }
 
   function toggle(id: number) {
@@ -459,7 +483,15 @@
   }
 
   // The last Confirm, Move or Wrong, kept for `u` until the next one: the row has left the list, and the view may have moved on.
-  type Filed = { text: string; itemId: number; key: QueueKey | null; moved: unknown; from: number | null; to: number; gmail: boolean };
+  type Filed = {
+    text: string;
+    itemId: number;
+    key: QueueKey | null;
+    moved: unknown;
+    from: number | null;
+    to: number;
+    gmail: boolean;
+  };
   let filed = $state<Filed | null>(null);
   const topicNamed = (id: number) => entries.find((e) => e.key === id)?.name ?? 'topic';
 
@@ -511,7 +543,10 @@
     };
     flip(on);
     try {
-      const r = await call<{ unread?: string[] }>(on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss', { item_id: s.item_id, ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [] }) });
+      const r = await call<{ unread?: string[] }>(
+        on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss',
+        { item_id: s.item_id, ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [] }) },
+      );
       if (on) unreadBefore.set(s.item_id, r.unread ?? []);
       err = null;
     } catch (e) {
@@ -529,7 +564,8 @@
   };
 
   /** The topic a signal is listed under: the selected one, or (Agents waiting) its own. */
-  const topicOf = (s: Signal) => (typeof selKey === 'number' ? selKey : selKey === 'agents' ? (s.topic_id ?? null) : null);
+  const topicOf = (s: Signal) =>
+    typeof selKey === 'number' ? selKey : selKey === 'agents' ? (s.topic_id ?? null) : null;
 
   function confirm(s: Signal | null) {
     if (!s || dismissed.has(s.item_id)) return;
@@ -539,7 +575,15 @@
     selItem = s.item_id;
     const key = selKey;
     act('incoming.confirm', { item_id: s.item_id, topic_id: topic, ...saw(s) }, (r) => {
-      filed = { text: `Filed to ${topicNamed(topic)}`, itemId: s.item_id, key, moved: r.moved, from: null, to: topic, gmail: true };
+      filed = {
+        text: `Filed to ${topicNamed(topic)}`,
+        itemId: s.item_id,
+        key,
+        moved: r.moved,
+        from: null,
+        to: topic,
+        gmail: true,
+      };
     });
   }
 
@@ -550,7 +594,15 @@
     selItem = s.item_id;
     const key = selKey;
     act('incoming.wrong', { item_id: s.item_id, topic_id: topic }, (r) => {
-      filed = { text: `Not ${topicNamed(topic)}`, itemId: s.item_id, key, moved: r.moved, from: null, to: topic, gmail: false };
+      filed = {
+        text: `Not ${topicNamed(topic)}`,
+        itemId: s.item_id,
+        key,
+        moved: r.moved,
+        from: null,
+        to: topic,
+        gmail: false,
+      };
     });
   }
 
@@ -573,7 +625,15 @@
     const from = topicOf(s);
     const key = selKey;
     act('incoming.move', { item_id: s.item_id, topic_id: topicId, from_topic_id: from, ...saw(s) }, (r) => {
-      filed = { text: `Filed to ${topicNamed(topicId)}`, itemId: s.item_id, key, moved: r.moved, from, to: topicId, gmail: true };
+      filed = {
+        text: `Filed to ${topicNamed(topicId)}`,
+        itemId: s.item_id,
+        key,
+        moved: r.moved,
+        from,
+        to: topicId,
+        gmail: true,
+      };
     });
   }
 
@@ -618,19 +678,19 @@
     if (picking || todoFor !== null || linking || reviewing !== null) return;
     if (inMsgs && current) {
       const shift = shiftStep(e);
-      if (shift) return stepMsg(shift, true), true;
-      if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepMsg(1), true;
-      if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepMsg(-1), true;
-      if (plain(e, ' ')) return current.messages[msgIdx] && choose(current.messages[msgIdx].id), true;
-      if (plain(e, 'Escape')) return leaveMsgs(), true;
+      if (shift) return (stepMsg(shift, true), true);
+      if (plain(e, 'j') || plain(e, 'ArrowDown')) return (stepMsg(1), true);
+      if (plain(e, 'k') || plain(e, 'ArrowUp')) return (stepMsg(-1), true);
+      if (plain(e, ' ')) return (current.messages[msgIdx] && choose(current.messages[msgIdx].id), true);
+      if (plain(e, 'Escape')) return (leaveMsgs(), true);
     }
-    if (plain(e, 'G')) return jumpEnd(current, true), true;
-    if (plain(e, 'g')) return jumpEnd(current, false), true;
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepSignal(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepSignal(-1), true;
-    if (plain(e, ']')) return stepTopic(1), true;
-    if (plain(e, '[')) return stepTopic(-1), true;
-    if (plain(e, 'Enter')) return enter(current), true;
+    if (plain(e, 'G')) return (jumpEnd(current, true), true);
+    if (plain(e, 'g')) return (jumpEnd(current, false), true);
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (stepSignal(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (stepSignal(-1), true);
+    if (plain(e, ']')) return (stepTopic(1), true);
+    if (plain(e, '[')) return (stepTopic(-1), true);
+    if (plain(e, 'Enter')) return (enter(current), true);
     // An open agent signal: its answers, a reply, the session in Agents.
     if (current?.agent && !dismissed.has(current.item_id)) {
       const part = parts[current.item_id];
@@ -640,44 +700,47 @@
         tick().then(() => parts[current.item_id]?.reply());
         return true;
       }
-      if (plain(e, 'o')) return openInAgents(current), true;
+      if (plain(e, 'o')) return (openInAgents(current), true);
     }
     // Answering, which never triages.
     if (current && answerable(current)) {
       const line = rsvpLines[current.item_id];
-      if (alt(e, 'y')) return line?.accept(), true;
-      if (alt(e, 'n')) return line?.decline(), true;
-      if (alt(e, 'n', true)) return line?.declineWithNote(), true;
+      if (alt(e, 'y')) return (line?.accept(), true);
+      if (alt(e, 'n')) return (line?.decline(), true);
+      if (alt(e, 'n', true)) return (line?.declineWithNote(), true);
     }
-    if (current?.source === 'slack' && !dismissed.has(current.item_id) && plain(e, 'r')) return replyTo(current), true;
-    if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return toggle(current.item_id), true;
-    if (plain(e, 'c')) return confirm(current), true;
-    if (plain(e, 'x')) return wrong(current), true;
-    if (plain(e, 't')) return pick(current), true;
-    if (plain(e, 'd')) return dismiss(current), true;
+    if (current?.source === 'slack' && !dismissed.has(current.item_id) && plain(e, 'r'))
+      return (replyTo(current), true);
+    if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return (toggle(current.item_id), true);
+    if (plain(e, 'c')) return (confirm(current), true);
+    if (plain(e, 'x')) return (wrong(current), true);
+    if (plain(e, 't')) return (pick(current), true);
+    if (plain(e, 'd')) return (dismiss(current), true);
     if (plain(e, 'u')) {
       if (filed && !current?.held && !(current && dismissed.has(current.item_id))) unfile();
       else if (current?.held && !dismissed.has(current.item_id)) act('todos.unhold', { item_id: current.item_id });
       else dismiss(current, false);
       return true;
     }
-    if (plain(e, 'n')) return openTodo(current), true;
-    if (plain(e, '#')) return dismiss(current, true, true), true;
-    if (plain(e, 'o')) return open(current), true;
-    if (plain(e, 's')) return review(current), true;
-    if (plain(e, 'p')) return newPersonNote(current), true;
-    if (plain(e, 'l')) return newPersonLink(current), true;
+    if (plain(e, 'n')) return (openTodo(current), true);
+    if (plain(e, '#')) return (dismiss(current, true, true), true);
+    if (plain(e, 'o')) return (open(current), true);
+    if (plain(e, 's')) return (review(current), true);
+    if (plain(e, 'p')) return (newPersonNote(current), true);
+    if (plain(e, 'l')) return (newPersonLink(current), true);
   });
 </script>
 
 {#snippet metaText(s: Signal, text: string)}
   {@const rest = byAuthor(s, text)}
-  {#if rest !== null && s.author}<span class="who-meta"><PersonName
+  {#if rest !== null && s.author}<span class="who-meta"
+      ><PersonName
         who={s.author.who}
         name={s.author.name}
         variant="tertiary"
         onlink={s.author.who.account ? () => link(s, s.author!.who.account!, s.author!.name) : undefined}
-      /></span>{rest}{:else}{text}{/if}
+      /></span
+    >{rest}{:else}{text}{/if}
 {/snippet}
 
 <div class="view">
@@ -685,10 +748,17 @@
     <div class="label head">Topics</div>
     {#each entries as t (t.key)}
       {#if t.key === 'unsorted'}<div class="fade-rule"></div>{/if}
-      <button class="topic" data-topic-key={t.key} class:on={t.key === selKey} class:unsorted={t.key === 'unsorted' || t.key === 'agents'} onclick={() => selectTopic(t.key)}>
+      <button
+        class="topic"
+        data-topic-key={t.key}
+        class:on={t.key === selKey}
+        class:unsorted={t.key === 'unsorted' || t.key === 'agents'}
+        onclick={() => selectTopic(t.key)}
+      >
         <span class="bar" style:background={t.category ? catColor(t.category) : null}></span>
         <span class="name ellipsis" title={t.name}>
-          {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{:else if t.key === 'agents'}<i class="ph ph-robot"></i>{/if}{t.name}
+          {#if t.key === 'unsorted'}<i class="ph ph-shuffle"></i>{:else if t.key === 'agents'}<i class="ph ph-robot"
+            ></i>{/if}{t.name}
         </span>
         <span class="count tnum" class:on={t.key === selKey}>{t.count}</span>
       </button>
@@ -699,7 +769,9 @@
     <div class="panel col">
       <div class="body scroll">
         {#if filed}
-          <div class="filed"><i class="ph ph-check"></i>{filed.text}<button class="btn" onclick={unfile}>Undo <kbd>u</kbd></button></div>
+          <div class="filed">
+            <i class="ph ph-check"></i>{filed.text}<button class="btn" onclick={unfile}>Undo <kbd>u</kbd></button>
+          </div>
         {/if}
         {#each groups as g, gi (g.source + g.label)}
           <div class="group panel-head" class:rule={gi > 0}>
@@ -711,189 +783,282 @@
             {@const gone = dismissed.has(s.item_id)}
             {@const ag_ = s.agent}
             {@const agSession = ag_ ? live?.sessions.find((x) => x.id === ag_.session) : undefined}
-            <div class="sig" class:sel class:inside={sel && (inMsgs || reviewing?.item === s.item_id)} class:gone={gone && !answered.has(s.item_id)} data-item={s.item_id} onclick={() => (selItem = s.item_id)} role="presentation">
+            <div
+              class="sig"
+              class:sel
+              class:inside={sel && (inMsgs || reviewing?.item === s.item_id)}
+              class:gone={gone && !answered.has(s.item_id)}
+              data-item={s.item_id}
+              onclick={() => (selItem = s.item_id)}
+              role="presentation"
+            >
               {#if reviewing?.item === s.item_id}
                 <SplitReview itemId={s.item_id} onclose={endReview} />
               {:else}
-              <div class="row">
-                {#if ag_}<span class="agent-mark"><StatusMark status={agSession?.status ?? (ag_.waiting ? 'waiting' : 'idle')} /></span>{/if}
-                <button class="title-line" onclick={() => toggle(s.item_id)} title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}>
-                  {#if ag_}
-                    <span class="title" class:ellipsis={!isOpen} title={s.title}><span class="agent-name" style:color={ag_.name.startsWith('#') ? 'var(--tx-2)' : agentColor(look(), agSession)}>{ag_.name}</span> {ag_.reason}</span>
-                  {:else}
-                    <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
-                  {/if}
-                  {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
-                  {#if s.change}
-                    <span class="pill change" class:red={s.change === 'Cancelled'} class:green={s.change.startsWith('New')} class:yellow={s.change !== 'Cancelled' && !s.change.startsWith('New')}>{s.change}</span>
-                  {/if}
-                  {#if s.category}
-                    <span class="pill cat" style:background={`color-mix(in oklch, ${catColor(s.category)} 22%, transparent)`} style:color={catColor(s.category)} title="Labeled {category(s.category).label} in Gmail">{category(s.category).label}</span>
-                  {/if}
-                  {#if s.split}
-                    <span
-                      class="count split"
-                      role="button"
-                      tabindex="-1"
-                      title="Split across topics: review it (s)"
-                      onclick={(e) => (e.stopPropagation(), review(s))}
-                      onkeydown={() => {}}><i class="ph ph-git-fork"></i>split</span
-                    >
-                  {/if}
-                  {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
-                </button>
-                <div class="actions">
-                  {#if answered.has(s.item_id)}
-                    <span class="answered"><i class="ph ph-check"></i>{answered.get(s.item_id)}</span>
-                  {:else if gone}
-                    {#if trashed.has(s.item_id)}
-                      <span class="ghost"><i class="ph ph-trash"></i>Trashed</span>
-                    {:else}
-                      <span class="ghost"><i class="ph ph-eye-slash"></i>{s.source === 'gmail' ? 'Archived' : 'Dismissed'}</span>
-                    {/if}
-                    <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
-                  {:else}
-                    <span class="src-actions">
-                      {#if ag_ && (ag_.kind === 'wrote' || ag_.kind === 'turn')}
-                        <button class="btn" onclick={(e) => (e.stopPropagation(), (selItem = s.item_id), expanded.has(s.item_id) || toggle(s.item_id), tick().then(() => parts[s.item_id]?.reply()))}>Reply <kbd>r</kbd></button>
-                      {/if}
-                      {#if ag_?.kind === 'done' && ag_.facts?.pr}
-                        <button class="btn" onclick={(e) => (e.stopPropagation(), ag_.facts?.pr?.url && openExternal(ag_.facts.pr.url))}><i class="ph ph-git-pull-request"></i>{ag_.facts.pr.label}</button>
-                      {/if}
-                      {#if s.source === 'slack'}
-                        <button class="btn" onclick={(e) => (e.stopPropagation(), replyTo(s))}>Reply <kbd>r</kbd></button>
-                      {/if}
-                      <button class="btn" onclick={() => openTodo(s)}>Todo… <kbd>n</kbd></button>
-                      {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button>{/if}
-                    </span>
-                    {#if unsorted || (selKey === 'agents' && s.topic_id == null)}
-                      <button class="btn" onclick={() => pick(s)}>
-                        {sel && chosen.size ? `Move ${chosen.size} of ${s.n_messages}` : 'Move to topic'}
-                      </button>
-                      <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
-                    {:else}
-                      <button class="btn" onclick={() => confirm(s)}>Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button>
-                      <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
-                      <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
-                    {/if}
-                  {/if}
-                </div>
-              </div>
-              {#if s.rsvp && !gone}
-                <div class="answer"><RsvpLine bind:this={rsvpLines[s.item_id]} itemId={s.item_id} rsvp={s.rsvp} /></div>
-              {/if}
-              {#if todoFor === s.item_id}
-                <div class="todo-form">
-                  <TodoForm
-                    {jira}
-                    held
-                    topic={unsorted ? null : (queue?.topics.find((t) => t.id === selKey) ?? null)}
-                    gmail={s.source === 'gmail'}
-                    initial={s.held}
-                    onsave={(d) => hold(s, d)}
-                    oncancel={() => (todoFor = null)}
-                  />
-                </div>
-              {:else if s.held && !gone}
-                <div class="held">
-                  <i class="ph ph-hourglass-medium"></i>
-                  <span class="ellipsis">
-                    {s.held.target === 'jira' ? 'Jira issue' : 'Todo'} held until you {unsorted ? 'file the signal' : 'confirm'} ·
-                    <span class="htext">{s.held.text}</span>{#if s.held.due}&nbsp;· due {s.held.due}{/if}{#if s.held.target === 'jira' && jira}&nbsp;· {jira.project} · {jira.issue_type} · you{/if}
-                  </span>
-                  <button class="btn" onclick={(e) => (e.stopPropagation(), openTodo(s))}>Edit</button>
-                  <button class="btn" onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}>Discard <kbd>u</kbd></button>
-                </div>
-              {/if}
-              {#if isOpen}
-                {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
-                <div class="ctx">
-                  <div class="info tnum">{@render metaText(s, info(s))}</div>
-                  {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
-                  {#each s.context as m, ci (m.id)}
-                    {#if hidden && ci === 1}
-                      <button class="link-toggle more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
-                        … {hidden} earlier
-                      </button>
-                    {/if}
-                    {#if !hidden || ci === 0 || ci > hidden}
-                      <div class="msg context">
-                        <span class="t tnum">{m.time}</span>
-                        <PersonName who={m.who} name={m.author} />
-                        <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
-                      </div>
-                    {/if}
-                  {/each}
-                  {#if s.messages.length}
-                    {#each s.messages as m, mi (m.id)}
-                      {@const canPick = splittable(s)}
-                      {#if m.gap}
-                        <button class="gap" title="Other topics' messages came in here: review the split (s)" onclick={(e) => (e.stopPropagation(), review(s))}>⋯</button>
-                      {/if}
-                      <div
-                        class="msg"
-                        class:context={m.read}
-                        class:pickable={canPick}
-                        class:focus={sel && inMsgs && mi === msgIdx}
-                        class:chosen={sel && chosen.has(m.id)}
-                        data-msg={m.id}
-                        onclick={(e) => (e.stopPropagation(), clickMsg(s, mi))}
-                        role="presentation"
+                <div class="row">
+                  {#if ag_}<span class="agent-mark"
+                      ><StatusMark status={agSession?.status ?? (ag_.waiting ? 'waiting' : 'idle')} /></span
+                    >{/if}
+                  <button
+                    class="title-line"
+                    onclick={() => toggle(s.item_id)}
+                    title={isOpen ? 'Collapse (↵)' : 'Expand (↵)'}
+                  >
+                    {#if ag_}
+                      <span class="title" class:ellipsis={!isOpen} title={s.title}
+                        ><span
+                          class="agent-name"
+                          style:color={ag_.name.startsWith('#') ? 'var(--tx-2)' : agentColor(look(), agSession)}
+                          >{ag_.name}</span
+                        >
+                        {ag_.reason}</span
                       >
-                        {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
-                        <span class="t tnum">{m.time}</span>
-                        <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
-                        <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
-                      </div>
-                      {@const replies = m.replies ?? []}
-                      {@const readReplies = replies.filter((r) => r.read).length}
-                      {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
-                      {#if hiddenReplies}
-                        <button class="link-toggle more reply-more" onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}>
-                          … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
+                    {:else}
+                      <span class="title" class:ellipsis={!isOpen} title={s.title}>{s.title}</span>
+                    {/if}
+                    {#if !isOpen}<span class="meta tnum">{@render metaText(s, s.meta)}</span>{/if}
+                    {#if s.change}
+                      <span
+                        class="pill change"
+                        class:red={s.change === 'Cancelled'}
+                        class:green={s.change.startsWith('New')}
+                        class:yellow={s.change !== 'Cancelled' && !s.change.startsWith('New')}>{s.change}</span
+                      >
+                    {/if}
+                    {#if s.category}
+                      <span
+                        class="pill cat"
+                        style:background={`color-mix(in oklch, ${catColor(s.category)} 22%, transparent)`}
+                        style:color={catColor(s.category)}
+                        title="Labeled {category(s.category).label} in Gmail">{category(s.category).label}</span
+                      >
+                    {/if}
+                    {#if s.split}
+                      <span
+                        class="count split"
+                        role="button"
+                        tabindex="-1"
+                        title="Split across topics: review it (s)"
+                        onclick={(e) => (e.stopPropagation(), review(s))}
+                        onkeydown={() => {}}><i class="ph ph-git-fork"></i>split</span
+                      >
+                    {/if}
+                    {#if isOpen}<i class="ph ph-caret-up caret"></i>{/if}
+                  </button>
+                  <div class="actions">
+                    {#if answered.has(s.item_id)}
+                      <span class="answered"><i class="ph ph-check"></i>{answered.get(s.item_id)}</span>
+                    {:else if gone}
+                      {#if trashed.has(s.item_id)}
+                        <span class="ghost"><i class="ph ph-trash"></i>Trashed</span>
+                      {:else}
+                        <span class="ghost"
+                          ><i class="ph ph-eye-slash"></i>{s.source === 'gmail' ? 'Archived' : 'Dismissed'}</span
+                        >
+                      {/if}
+                      <button class="btn" onclick={() => dismiss(s, false)}>Undo <kbd>u</kbd></button>
+                    {:else}
+                      <span class="src-actions">
+                        {#if ag_ && (ag_.kind === 'wrote' || ag_.kind === 'turn')}
+                          <button
+                            class="btn"
+                            onclick={(e) => (
+                              e.stopPropagation(),
+                              (selItem = s.item_id),
+                              expanded.has(s.item_id) || toggle(s.item_id),
+                              tick().then(() => parts[s.item_id]?.reply())
+                            )}>Reply <kbd>r</kbd></button
+                          >
+                        {/if}
+                        {#if ag_?.kind === 'done' && ag_.facts?.pr}
+                          <button
+                            class="btn"
+                            onclick={(e) => (e.stopPropagation(), ag_.facts?.pr?.url && openExternal(ag_.facts.pr.url))}
+                            ><i class="ph ph-git-pull-request"></i>{ag_.facts.pr.label}</button
+                          >
+                        {/if}
+                        {#if s.source === 'slack'}
+                          <button class="btn" onclick={(e) => (e.stopPropagation(), replyTo(s))}
+                            >Reply <kbd>r</kbd></button
+                          >
+                        {/if}
+                        <button class="btn" onclick={() => openTodo(s)}>Todo… <kbd>n</kbd></button>
+                        {#if s.source === 'gmail'}<button class="btn" onclick={() => dismiss(s, true, true)}
+                            ><i class="ph ph-trash"></i>Trash <kbd>#</kbd></button
+                          >{/if}
+                      </span>
+                      {#if unsorted || (selKey === 'agents' && s.topic_id == null)}
+                        <button class="btn" onclick={() => pick(s)}>
+                          {sel && chosen.size ? `Move ${chosen.size} of ${s.n_messages}` : 'Move to topic'}
+                        </button>
+                        <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                      {:else}
+                        <button class="btn" onclick={() => confirm(s)}
+                          >Confirm{#if s.held}&nbsp;+ create {s.held.target === 'jira' ? 'issue' : 'todo'}{/if}</button
+                        >
+                        <button class="btn" onclick={() => wrong(s)}>Wrong topic</button>
+                        <button class="btn" onclick={() => dismiss(s)}><i class="ph ph-eye-slash"></i>Dismiss</button>
+                      {/if}
+                    {/if}
+                  </div>
+                </div>
+                {#if s.rsvp && !gone}
+                  <div class="answer">
+                    <RsvpLine bind:this={rsvpLines[s.item_id]} itemId={s.item_id} rsvp={s.rsvp} />
+                  </div>
+                {/if}
+                {#if todoFor === s.item_id}
+                  <div class="todo-form">
+                    <TodoForm
+                      {jira}
+                      held
+                      topic={unsorted ? null : (queue?.topics.find((t) => t.id === selKey) ?? null)}
+                      gmail={s.source === 'gmail'}
+                      initial={s.held}
+                      onsave={(d) => hold(s, d)}
+                      oncancel={() => (todoFor = null)}
+                    />
+                  </div>
+                {:else if s.held && !gone}
+                  <div class="held">
+                    <i class="ph ph-hourglass-medium"></i>
+                    <span class="ellipsis">
+                      {s.held.target === 'jira' ? 'Jira issue' : 'Todo'} held until you {unsorted
+                        ? 'file the signal'
+                        : 'confirm'} ·
+                      <span class="htext">{s.held.text}</span>{#if s.held.due}&nbsp;· due {s.held
+                          .due}{/if}{#if s.held.target === 'jira' && jira}&nbsp;· {jira.project} · {jira.issue_type} · you{/if}
+                    </span>
+                    <button class="btn" onclick={(e) => (e.stopPropagation(), openTodo(s))}>Edit</button>
+                    <button
+                      class="btn"
+                      onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}
+                      >Discard <kbd>u</kbd></button
+                    >
+                  </div>
+                {/if}
+                {#if isOpen}
+                  {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
+                  <div class="ctx">
+                    <div class="info tnum">{@render metaText(s, info(s))}</div>
+                    {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
+                    {#each s.context as m, ci (m.id)}
+                      {#if hidden && ci === 1}
+                        <button
+                          class="link-toggle more"
+                          onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}
+                        >
+                          … {hidden} earlier
                         </button>
                       {/if}
-                      {#each replies.filter((r, ri) => !r.read || ri >= hiddenReplies) as r (r.id)}
-                        <div class="msg reply" class:context={r.read} class:chosen={sel && chosen.has(m.id)}>
-                          <span class="t tnum">{r.time}</span>
-                          <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
-                          <div class="txt"><Markdown text={r.text} tags={s.source !== 'slack'} /></div>
+                      {#if !hidden || ci === 0 || ci > hidden}
+                        <div class="msg context">
+                          <span class="t tnum">{m.time}</span>
+                          <PersonName who={m.who} name={m.author} />
+                          <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
                         </div>
-                      {/each}
-                    {/each}
-                  {/if}
-                  {#if ag_ && !answered.has(s.item_id)}
-                    <AgentPart bind:this={parts[s.item_id]} {s} {live} onDone={(label) => answer(s, label)} onOpen={() => openInAgents(s)} />
-                  {/if}
-                  {#if s.new_person && !gone}
-                    {@const np = s.new_person}
-                    <div class="new-person">
-                      <i class="ph ph-user-plus"></i>
-                      <span class="q">New person?</span>
-                      <PersonName who={{ color: np.color, known: false, me: false }} name={np.real_name ?? np.name} />
-                      <span class="np-info ellipsis">
-                        {sourceLabel(np.source)}{#if np.email}&nbsp;· {np.email}{:else if np.kind === 'github'}&nbsp;· {np.account}{/if} · in {np.signals} signals this week
-                      </span>
-                      <span class="np-actions">
-                        <button class="btn primary" onclick={(e) => (e.stopPropagation(), newPersonNote(s))}>Create note <kbd>p</kbd></button>
-                        <button class="btn" onclick={(e) => (e.stopPropagation(), newPersonLink(s))}>Link to… <kbd>l</kbd></button>
-                        <button class="btn" onclick={(e) => (e.stopPropagation(), act('people.snooze', { kind: np.kind, account: np.account }))}>Not now</button>
-                      </span>
-                    </div>
-                  {/if}
-                  {#if s.url}
-                    <div class="links">
-                      {#if s.msg_count && s.msg_count > s.n_messages}
-                        <button class="all" onclick={() => open(s)}>All {s.msg_count}</button>
                       {/if}
-                      <button class="app" onclick={() => open(s)}>Open in {sourceLabel(s.source)}</button>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-              {#if s.source === 'slack' && !gone}
-                <div class="answer"><SlackReply bind:this={replies[s.item_id]} {s} msg={sel && inMsgs ? s.messages[msgIdx] : undefined} /></div>
-              {/if}
+                    {/each}
+                    {#if s.messages.length}
+                      {#each s.messages as m, mi (m.id)}
+                        {@const canPick = splittable(s)}
+                        {#if m.gap}
+                          <button
+                            class="gap"
+                            title="Other topics' messages came in here: review the split (s)"
+                            onclick={(e) => (e.stopPropagation(), review(s))}>⋯</button
+                          >
+                        {/if}
+                        <div
+                          class="msg"
+                          class:context={m.read}
+                          class:pickable={canPick}
+                          class:focus={sel && inMsgs && mi === msgIdx}
+                          class:chosen={sel && chosen.has(m.id)}
+                          data-msg={m.id}
+                          onclick={(e) => (e.stopPropagation(), clickMsg(s, mi))}
+                          role="presentation"
+                        >
+                          {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
+                          <span class="t tnum">{m.time}</span>
+                          <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
+                          <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
+                        </div>
+                        {@const replies = m.replies ?? []}
+                        {@const readReplies = replies.filter((r) => r.read).length}
+                        {@const hiddenReplies = fullContext.has(s.item_id) || readReplies <= 3 ? 0 : readReplies - 2}
+                        {#if hiddenReplies}
+                          <button
+                            class="link-toggle more reply-more"
+                            onclick={(e) => (e.stopPropagation(), (fullContext = new Set(fullContext).add(s.item_id)))}
+                          >
+                            … {hiddenReplies} earlier {hiddenReplies === 1 ? 'reply' : 'replies'}
+                          </button>
+                        {/if}
+                        {#each replies.filter((r, ri) => !r.read || ri >= hiddenReplies) as r (r.id)}
+                          <div class="msg reply" class:context={r.read} class:chosen={sel && chosen.has(m.id)}>
+                            <span class="t tnum">{r.time}</span>
+                            <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
+                            <div class="txt"><Markdown text={r.text} tags={s.source !== 'slack'} /></div>
+                          </div>
+                        {/each}
+                      {/each}
+                    {/if}
+                    {#if ag_ && !answered.has(s.item_id)}
+                      <AgentPart
+                        bind:this={parts[s.item_id]}
+                        {s}
+                        {live}
+                        onDone={(label) => answer(s, label)}
+                        onOpen={() => openInAgents(s)}
+                      />
+                    {/if}
+                    {#if s.new_person && !gone}
+                      {@const np = s.new_person}
+                      <div class="new-person">
+                        <i class="ph ph-user-plus"></i>
+                        <span class="q">New person?</span>
+                        <PersonName who={{ color: np.color, known: false, me: false }} name={np.real_name ?? np.name} />
+                        <span class="np-info ellipsis">
+                          {sourceLabel(np.source)}{#if np.email}&nbsp;· {np.email}{:else if np.kind === 'github'}&nbsp;· {np.account}{/if}
+                          · in {np.signals} signals this week
+                        </span>
+                        <span class="np-actions">
+                          <button class="btn primary" onclick={(e) => (e.stopPropagation(), newPersonNote(s))}
+                            >Create note <kbd>p</kbd></button
+                          >
+                          <button class="btn" onclick={(e) => (e.stopPropagation(), newPersonLink(s))}
+                            >Link to… <kbd>l</kbd></button
+                          >
+                          <button
+                            class="btn"
+                            onclick={(e) => (
+                              e.stopPropagation(),
+                              act('people.snooze', { kind: np.kind, account: np.account })
+                            )}>Not now</button
+                          >
+                        </span>
+                      </div>
+                    {/if}
+                    {#if s.url}
+                      <div class="links">
+                        {#if s.msg_count && s.msg_count > s.n_messages}
+                          <button class="all" onclick={() => open(s)}>All {s.msg_count}</button>
+                        {/if}
+                        <button class="app" onclick={() => open(s)}>Open in {sourceLabel(s.source)}</button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+                {#if s.source === 'slack' && !gone}
+                  <div class="answer">
+                    <SlackReply
+                      bind:this={replies[s.item_id]}
+                      {s}
+                      msg={sel && inMsgs ? s.messages[msgIdx] : undefined}
+                    />
+                  </div>
+                {/if}
               {/if}
             </div>
           {/each}
@@ -918,7 +1083,9 @@
         <Dock under=".sig.sel">
           <TopicPicker
             exclude={typeof selKey === 'number' ? selKey : null}
-            placeholder={unsorted && chosen.size ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…` : 'Move to topic…'}
+            placeholder={unsorted && chosen.size
+              ? `Move ${chosen.size} ${chosen.size === 1 ? 'message' : 'messages'} to topic…`
+              : 'Move to topic…'}
             onpick={moveTo}
             onclose={() => (picking = false)}
           />
@@ -927,29 +1094,54 @@
       <DockHost />
       <div class="hint-bar">
         {#if reviewing !== null}
-          <span><kbd>j</kbd> <kbd>k</kbd> message (skips ⋯)</span><span><kbd>Space</kbd> select</span><span><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span><span><kbd>t</kbd> move</span><span><kbd>d</kbd> dismiss</span><span><kbd>u</kbd> undo</span>
-          <span><kbd>c</kbd> confirm groups</span><span><kbd>g</kbd> by topic / in order</span><span><kbd>Esc</kbd> back</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> message (skips ⋯)</span><span><kbd>Space</kbd> select</span><span
+            ><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span
+          ><span><kbd>t</kbd> move</span><span><kbd>d</kbd> dismiss</span><span><kbd>u</kbd> undo</span>
+          <span><kbd>c</kbd> confirm groups</span><span><kbd>g</kbd> by topic / in order</span><span
+            ><kbd>Esc</kbd> back</span
+          >
         {:else if unsorted && inMsgs}
-          <span><kbd>j</kbd> <kbd>k</kbd> message</span><span><kbd>g</kbd> <kbd>G</kbd> first / last</span><span><kbd>Space</kbd> select</span><span><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> message</span><span><kbd>g</kbd> <kbd>G</kbd> first / last</span><span
+            ><kbd>Space</kbd> select</span
+          ><span><kbd>⇧j</kbd> <kbd>⇧k</kbd> select range</span>
           <span><kbd>t</kbd> {chosen.size ? `move ${chosen.size} selected` : 'move whole signal'}</span>
           <span><kbd>↵</kbd> collapse</span><span><kbd>Esc</kbd> done</span>
         {:else if unsorted}
-          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> {splittable(current) ? 'pick messages' : 'expand'}</span><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
-          <span><kbd>t</kbd> move to topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span>{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span
+            ><kbd>↵</kbd> {splittable(current) ? 'pick messages' : 'expand'}</span
+          ><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
+          <span><kbd>t</kbd> move to topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span
+          >{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span>
         {:else}
-          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> expand</span><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
-          <span><kbd>c</kbd> confirm</span><span><kbd>x</kbd> wrong topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span>{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span><span><kbd>t</kbd> move to topic</span>
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> expand</span><span
+            ><kbd>g</kbd> <kbd>G</kbd> top / end</span
+          >
+          <span><kbd>c</kbd> confirm</span><span><kbd>x</kbd> wrong topic</span><span><kbd>n</kbd> todo</span><span
+            ><kbd>d</kbd> dismiss</span
+          >{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span><span
+            ><kbd>t</kbd> move to topic</span
+          >
         {/if}
         {#if current?.agent && reviewing === null}
-          {#if expanded.has(current.item_id) && current.agent.waiting}<span><kbd>1–9</kbd> answer</span>{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span><kbd>r</kbd> reply</span>{/if}<span><kbd>o</kbd> open in Agents</span>
+          {#if expanded.has(current.item_id) && current.agent.waiting}<span><kbd>1–9</kbd> answer</span
+            >{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span><kbd>r</kbd> reply</span>{/if}<span
+            ><kbd>o</kbd> open in Agents</span
+          >
         {/if}
-        {#if reviewing === null && current?.source === 'slack' && !dismissed.has(current.item_id)}<span><kbd>r</kbd> reply</span>{/if}
+        {#if reviewing === null && current?.source === 'slack' && !dismissed.has(current.item_id)}<span
+            ><kbd>r</kbd> reply</span
+          >{/if}
         {#if reviewing === null && answerable(current)}
-          <span><kbd>{chord('⌥Y', 'Alt+Y')}</kbd> accept</span><span><kbd>{chord('⌥N', 'Alt+N')}</kbd> decline</span><span><kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd> decline with note</span>
+          <span><kbd>{chord('⌥Y', 'Alt+Y')}</kbd> accept</span><span><kbd>{chord('⌥N', 'Alt+N')}</kbd> decline</span
+          ><span><kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd> decline with note</span>
         {/if}
         {#if reviewing === null}
-          {#if current?.split}<span><kbd>s</kbd> review split</span>{:else if reviewable(current)}<span><kbd>s</kbd> split</span>{/if}
-          {#if current?.new_person && expanded.has(current.item_id)}<span><kbd>p</kbd> new person</span><span><kbd>l</kbd> link</span>{/if}
+          {#if current?.split}<span><kbd>s</kbd> review split</span>{:else if reviewable(current)}<span
+              ><kbd>s</kbd> split</span
+            >{/if}
+          {#if current?.new_person && expanded.has(current.item_id)}<span><kbd>p</kbd> new person</span><span
+              ><kbd>l</kbd> link</span
+            >{/if}
           {#if !current?.agent}<span><kbd>o</kbd> open</span>{/if}<span><kbd>[</kbd> <kbd>]</kbd> topic</span>
         {/if}
         {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}

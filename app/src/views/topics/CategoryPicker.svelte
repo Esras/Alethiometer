@@ -25,17 +25,29 @@
   const p = new Picker<undefined>({ rows: (): number => matches.length, pick, onclose: () => onclose() });
   call<CategoryRow[]>('categories.list').then((c) => {
     cats = c;
-    p.sel = Math.max(0, c.findIndex((x) => x.key === current));
+    p.sel = Math.max(
+      0,
+      c.findIndex((x) => x.key === current),
+    );
   });
 
-  const matches = $derived(p.q.trim() ? cats.filter((c) => c.label.toLowerCase().includes(p.q.trim().toLowerCase())) : cats);
+  const matches = $derived(
+    p.q.trim() ? cats.filter((c) => c.label.toLowerCase().includes(p.q.trim().toLowerCase())) : cats,
+  );
 
   function pick(i: number) {
     if (matches[i]) onpick(matches[i].key);
   }
 </script>
 
-<div class="picker popover flush" role="listbox" use:p.frame style:position={placement.position} style:top={placement.top} style:left={placement.left}>
+<div
+  class="picker popover flush"
+  role="listbox"
+  use:p.frame
+  style:position={placement.position}
+  style:top={placement.top}
+  style:left={placement.left}
+>
   <input class="input" use:p.field bind:value={p.q} placeholder="Category…" />
   {#each matches as c, i (c.key)}
     <button class="opt" class:on={i === p.sel} {...p.row(i)}>

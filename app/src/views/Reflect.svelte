@@ -30,7 +30,12 @@
     month: { label: 'Weeks', icon: 'calendar-dots', scope: 'week' },
     quarter: { label: 'Months', icon: 'calendar-dots', scope: 'month' },
   } as const;
-  const OPEN_LABEL = { day: 'Carry forward', week: 'Still open from the week', month: 'Still open from the month', quarter: 'Still open from the quarter' };
+  const OPEN_LABEL = {
+    day: 'Carry forward',
+    week: 'Still open from the week',
+    month: 'Still open from the month',
+    quarter: 'Still open from the quarter',
+  };
 
   let d = $state<ReflectData | null>(null);
   let err = $state('');
@@ -117,47 +122,58 @@
       (e.target as HTMLElement).blur();
       return true;
     }
-    if (plain(e, 'd')) return setScope('day'), true;
-    if (plain(e, 'w')) return setScope('week'), true;
-    if (plain(e, 'm')) return setScope('month'), true;
-    if (plain(e, 'q')) return setScope('quarter'), true;
-    if (plain(e, '[') || plain(e, 'ArrowLeft')) return step(-1), true;
-    if (plain(e, ']') || plain(e, 'ArrowRight')) return step(1), true;
-    if (plain(e, 't')) return (rs.period = null), true;
-    if (plain(e, 'e') || (plain(e, 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON')) return editor?.focus(), true;
-    if (plain(e, 'o')) return editor?.openInObsidian(), true;
-    if (plain(e, 'a') && d?.scope === 'day' && rs.lens !== 'life') return askEl?.focus(), true;
-    if (plain(e, 'T') && d?.brief) return (showWhere = !showWhere), true;
-    if (plain(e, 'D') && d?.brief && rs.lens !== 'life') return (showDecided = !showDecided), true;
-    if (plain(e, 'F') && d?.brief && rs.lens !== 'life') return (showFinished = !showFinished), true;
+    if (plain(e, 'd')) return (setScope('day'), true);
+    if (plain(e, 'w')) return (setScope('week'), true);
+    if (plain(e, 'm')) return (setScope('month'), true);
+    if (plain(e, 'q')) return (setScope('quarter'), true);
+    if (plain(e, '[') || plain(e, 'ArrowLeft')) return (step(-1), true);
+    if (plain(e, ']') || plain(e, 'ArrowRight')) return (step(1), true);
+    if (plain(e, 't')) return ((rs.period = null), true);
+    if (plain(e, 'e') || (plain(e, 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON'))
+      return (editor?.focus(), true);
+    if (plain(e, 'o')) return (editor?.openInObsidian(), true);
+    if (plain(e, 'a') && d?.scope === 'day' && rs.lens !== 'life') return (askEl?.focus(), true);
+    if (plain(e, 'T') && d?.brief) return ((showWhere = !showWhere), true);
+    if (plain(e, 'D') && d?.brief && rs.lens !== 'life') return ((showDecided = !showDecided), true);
+    if (plain(e, 'F') && d?.brief && rs.lens !== 'life') return ((showFinished = !showFinished), true);
     const n = d?.carry.length ?? 0;
-    if (plain(e, 'j') && n) return (selected = Math.min(n - 1, selected + 1)), true;
-    if (plain(e, 'k') && n) return (selected = Math.max(0, selected - 1)), true;
-    if (plain(e, '>')) return actSelected('tomorrow'), true;
-    if (plain(e, '<')) return actSelected('schedule'), true;
-    if (plain(e, 'x')) return actSelected('let_go'), true;
-    if (plain(e, 'u')) return actSelected('undo'), true;
+    if (plain(e, 'j') && n) return ((selected = Math.min(n - 1, selected + 1)), true);
+    if (plain(e, 'k') && n) return ((selected = Math.max(0, selected - 1)), true);
+    if (plain(e, '>')) return (actSelected('tomorrow'), true);
+    if (plain(e, '<')) return (actSelected('schedule'), true);
+    if (plain(e, 'x')) return (actSelected('let_go'), true);
+    if (plain(e, 'u')) return (actSelected('undo'), true);
   });
 
-  const placeholder = $derived(rs.lens === 'life' ? 'Write if you want to. Only the busy hours are counted here.' : 'What stood out today?');
+  const placeholder = $derived(
+    rs.lens === 'life' ? 'Write if you want to. Only the busy hours are counted here.' : 'What stood out today?',
+  );
 </script>
 
 <div class="view">
   <div class="controls">
     <div class="seg" role="tablist" aria-label="Scope">
       {#each SCOPES as s}
-        <button class:on={rs.scope === s.id} onclick={() => setScope(s.id)} title="{s.label} ({s.id[0]})">{s.label}</button>
+        <button class:on={rs.scope === s.id} onclick={() => setScope(s.id)} title="{s.label} ({s.id[0]})"
+          >{s.label}</button
+        >
       {/each}
     </div>
     {#if d}
       <span class="period">
-        <button class="car" onclick={() => step(-1)} title="Previous ([)" aria-label="Previous"><i class="ph ph-caret-left"></i></button>
+        <button class="car" onclick={() => step(-1)} title="Previous ([)" aria-label="Previous"
+          ><i class="ph ph-caret-left"></i></button
+        >
         <span class="nowrap tnum">{d.title}</span>
-        <button class="car" onclick={() => step(1)} title="Next (])" aria-label="Next"><i class="ph ph-caret-right"></i></button>
+        <button class="car" onclick={() => step(1)} title="Next (])" aria-label="Next"
+          ><i class="ph ph-caret-right"></i></button
+        >
       </span>
       <span class="ctx nowrap">{d.context}</span>
       {#if !d.is_current}
-        <button class="today nowrap" onclick={() => (rs.period = null)} title="t">back to {d.scope === 'day' ? 'today' : `this ${d.scope}`}</button>
+        <button class="today nowrap" onclick={() => (rs.period = null)} title="t"
+          >back to {d.scope === 'day' ? 'today' : `this ${d.scope}`}</button
+        >
       {/if}
     {/if}
   </div>
@@ -180,7 +196,10 @@
         {#if d.lens === 'life'}
           <div class="lifenote">
             <i class="ph ph-house"></i>
-            <span>Life counts busy hours only: no titles, no personal items, no AI. What you write here is saved to the note above, in your work vault.</span>
+            <span
+              >Life counts busy hours only: no titles, no personal items, no AI. What you write here is saved to the
+              note above, in your work vault.</span
+            >
           </div>
         {:else}
           <CarryList rows={d.carry} label={OPEN_LABEL[d.scope]} bind:selected textButtons={d.scope !== 'day'} {act} />
@@ -195,7 +214,9 @@
                     onkeydown={(e) => e.key === 'Enter' && ask()}
                     aria-label="Ask about today"
                   />
-                  {#if !question}<span class="hint ellipsis">Ask about today… <span>e.g. "what did Jordan say about the fix ETA?"</span></span>{/if}
+                  {#if !question}<span class="hint ellipsis"
+                      >Ask about today… <span>e.g. "what did Jordan say about the fix ETA?"</span></span
+                    >{/if}
                 </span>
                 {#if asking}<span class="asking nowrap">asking…</span>{/if}
               </label>

@@ -1,6 +1,6 @@
 // Shapes returned by incoming.list (src-tauri/src/queries/incoming.rs).
-import type { NewPerson, Who } from "../../lib/people";
-import type { SourceKind, TopicRef } from "../../lib/types";
+import type { NewPerson, Who } from '../../lib/people';
+import type { SourceKind, TopicRef } from '../../lib/types';
 
 export interface Message {
   id: number;
@@ -95,7 +95,7 @@ export interface Answer {
 }
 
 export interface Held {
-  target: "local" | "jira";
+  target: 'local' | 'jira';
   text: string;
   due: string | null;
   sched: string | null;
@@ -113,7 +113,7 @@ export interface Queue {
 }
 
 /** A topic id, Unsorted, or Agents waiting. */
-export type QueueKey = number | "unsorted" | "agents";
+export type QueueKey = number | 'unsorted' | 'agents';
 
 /** An agent signal (`agents::incoming`): who, why, and what to answer it with. */
 export interface AgentInfo {
@@ -157,7 +157,7 @@ export interface Family {
   title: string;
   source: SourceKind;
   url: string | null;
-  conv: "dm" | "group" | "channel" | "thread" | "other";
+  conv: 'dm' | 'group' | 'channel' | 'thread' | 'other';
   parts: Part[];
   messages: Message[];
 }

@@ -34,7 +34,8 @@
     if (r.outbox === 'failed') return 'hold failed';
     return `scheduling · ${r.outbox ?? 'pending'}`;
   }
-  const doneIcon = (r: CarryRow) => (r.action === 'tomorrow' ? 'caret-right' : r.action === 'schedule' ? 'caret-left' : 'x');
+  const doneIcon = (r: CarryRow) =>
+    r.action === 'tomorrow' ? 'caret-right' : r.action === 'schedule' ? 'caret-left' : 'x';
 </script>
 
 <Panel icon="arrow-bend-down-right" iconColor="var(--aqua)" {label} count={open} collapsible={false}>
@@ -58,8 +59,12 @@
             <i class="ph ph-x"></i>{#if textButtons}let go{/if}
           </button>
         {:else}
-          <span class="state nowrap" class:fail={r.outbox === 'failed'}><i class="ph ph-{doneIcon(r)}"></i>{doneLabel(r)}</span>
-          <button class="btn" title="Undo (u)" aria-label="Undo" onclick={() => act(r, 'undo')}><i class="ph ph-arrow-u-up-left"></i></button>
+          <span class="state nowrap" class:fail={r.outbox === 'failed'}
+            ><i class="ph ph-{doneIcon(r)}"></i>{doneLabel(r)}</span
+          >
+          <button class="btn" title="Undo (u)" aria-label="Undo" onclick={() => act(r, 'undo')}
+            ><i class="ph ph-arrow-u-up-left"></i></button
+          >
         {/if}
       </span>
     </div>

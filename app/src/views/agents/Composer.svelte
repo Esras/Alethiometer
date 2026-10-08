@@ -28,7 +28,9 @@
   const members = $derived(room && group ? (ag.tree?.sessions ?? []).filter((s) => s.group_id === group.id) : []);
   const target = $derived(room ? `#${room.name}` : (session?.name ?? ''));
   // A reply to the ask pinned above is typed in its card; this box takes one to another ask.
-  const replyingTo = $derived(ag.replying && ag.replying !== pinned(thread)?.id ? ag.tree?.requests.find((r) => r.id === ag.replying) : undefined);
+  const replyingTo = $derived(
+    ag.replying && ag.replying !== pinned(thread)?.id ? ag.tree?.requests.find((r) => r.id === ag.replying) : undefined,
+  );
   // Keyed by thread in Pane, so the draft is read once.
   let text = $state(untrack(() => ag.drafts[thread] ?? ''));
   let images = $state<{ data: string; mime: string }[]>([]);
@@ -51,7 +53,9 @@
     void at;
     dismissed = false;
   });
-  const options = $derived(at === null || dismissed ? [] : members.filter((s) => s.name.toLowerCase().startsWith(at)).slice(0, 6));
+  const options = $derived(
+    at === null || dismissed ? [] : members.filter((s) => s.name.toLowerCase().startsWith(at)).slice(0, 6),
+  );
 
   function complete(s: Session) {
     const before = text.slice(0, caret).replace(/@([\w.-]*)$/, `@${s.name} `);
@@ -93,7 +97,9 @@
   // Local sessions only: ACP's image prompt capability isn't wired for Scion.
   function onPaste(e: ClipboardEvent) {
     if (!isLocal) return;
-    const files = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile());
+    const files = [...(e.clipboardData?.items ?? [])]
+      .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
+      .map((i) => i.getAsFile());
     if (!files.length) return;
     e.preventDefault();
     for (const f of files) {
@@ -173,7 +179,9 @@
           {#each images as img, i (i)}
             <div class="thumb">
               <img src="data:{img.mime};base64,{img.data}" alt="pasted" />
-              <button class="rm" title="Remove" onclick={() => (images = images.filter((_, j) => j !== i))}><i class="ph ph-x"></i></button>
+              <button class="rm" title="Remove" onclick={() => (images = images.filter((_, j) => j !== i))}
+                ><i class="ph ph-x"></i></button
+              >
             </div>
           {/each}
         </div>
@@ -196,7 +204,9 @@
     {#if options.length}
       <div class="pop popover flush" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
         {#each options as s, i (s.id)}
-          <button class:on={i === pick} onmousedown={(e) => (e.preventDefault(), complete(s))}>@{s.name}<span>{s.harness} · {s.model}</span></button>
+          <button class:on={i === pick} onmousedown={(e) => (e.preventDefault(), complete(s))}
+            >@{s.name}<span>{s.harness} · {s.model}</span></button
+          >
         {/each}
       </div>
     {/if}
@@ -205,23 +215,39 @@
     <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<kbd>N</kbd></button>
   {/if}
   {#if session?.source === 'acp' && session.live && hasQueued}
-    <button class="btn primary" onclick={() => act('send_queued', { session: session.id })}><i class="ph ph-fast-forward"></i>Send now<kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button>
+    <button class="btn primary" onclick={() => act('send_queued', { session: session.id })}
+      ><i class="ph ph-fast-forward"></i>Send now<kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button
+    >
   {/if}
   {#if session?.source === 'acp' && (session.status === 'running' || session.status === 'waiting') && session.live}
-    <button class="btn" onclick={() => act('interrupt', { session: session.id })}><i class="ph ph-hand-palm"></i>Interrupt<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button>
+    <button class="btn" onclick={() => act('interrupt', { session: session.id })}
+      ><i class="ph ph-hand-palm"></i>Interrupt<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button
+    >
   {/if}
   {#if session?.source === 'acp' && session.live && !session.id.includes('~')}
-    <button class="btn" title="Stop the agent; sending starts it again" onclick={() => act('stop', { session: session.id })}><i class="ph ph-stop"></i>Stop</button>
+    <button
+      class="btn"
+      title="Stop the agent; sending starts it again"
+      onclick={() => act('stop', { session: session.id })}><i class="ph ph-stop"></i>Stop</button
+    >
   {/if}
   {#if room || session?.source === 'scion'}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
   {:else if session && !session.sandbox}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open in Zed</button>
   {:else if session?.sandbox?.upload && !session.parent_id}
-    <button class="btn" title="Copy what the agent changed in its sandbox into {session.sandbox.upload}" onclick={() => (ag.bringBack = session.id)}><i class="ph ph-download-simple"></i>Bring back</button>
+    <button
+      class="btn"
+      title="Copy what the agent changed in its sandbox into {session.sandbox.upload}"
+      onclick={() => (ag.bringBack = session.id)}><i class="ph ph-download-simple"></i>Bring back</button
+    >
   {/if}
   {#if !room && (session?.source === 'scion' || session?.sandbox)}
-    <button class="btn icon" title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'} onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+    <button
+      class="btn icon"
+      title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'}
+      onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button
+    >
   {/if}
 </div>
 

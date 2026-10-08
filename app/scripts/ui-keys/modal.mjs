@@ -83,7 +83,18 @@ for (const [name, s] of Object.entries(sites)) {
   checks[`${name}: Tab stays inside`] = async (t) => {
     await start(t);
     await s.inField?.(t);
-    for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+    for (const key of [
+      'Tab',
+      'Tab',
+      'Tab',
+      'Tab',
+      'Shift+Tab',
+      'Shift+Tab',
+      'Shift+Tab',
+      'Shift+Tab',
+      'Shift+Tab',
+      'Shift+Tab',
+    ]) {
       await t.page.keyboard.press(key);
       await t.page.waitForTimeout(60);
       await t.ok(await insideDialog(t), `focus left the dialog on ${key}`);
@@ -139,7 +150,10 @@ checks['Settings: its own keys still work'] = async (t) => {
   await t.steps('/');
   await t.focused(t.page.getByPlaceholder('Find a setting'));
   await t.steps('Escape');
-  await t.visible(t.page.getByPlaceholder('Find a setting'), 'Escape in the find field closed Settings; it should only leave the field');
+  await t.visible(
+    t.page.getByPlaceholder('Find a setting'),
+    'Escape in the find field closed Settings; it should only leave the field',
+  );
   await t.steps('Escape');
   await t.gone(t.page.getByPlaceholder('Find a setting'));
 };

@@ -17,7 +17,12 @@
     live,
     onDone,
     onOpen,
-  }: { s: Signal; live: { sessions: Session[]; requests: Request[] } | null; onDone: (label: string) => void; onOpen: () => void } = $props();
+  }: {
+    s: Signal;
+    live: { sessions: Session[]; requests: Request[] } | null;
+    onDone: (label: string) => void;
+    onOpen: () => void;
+  } = $props();
 
   type Answer = { key: string; label: string; detail?: string; primary?: boolean; run: () => void };
 
@@ -56,10 +61,21 @@
     box?.focus();
   }
 
-  const delivery = (action: string, label: string, extra: Record<string, unknown> = {}) => run('delivery', { thread: a.thread, row: a.row, action, ...extra }, label);
+  const delivery = (action: string, label: string, extra: Record<string, unknown> = {}) =>
+    run('delivery', { thread: a.thread, row: a.row, action, ...extra }, label);
   const thread = $derived(a.thread ?? `s:${a.session}`);
   // Who else could take an undelivered message: the group's other running Scion agents.
-  const others = $derived((live?.sessions ?? []).filter((x) => x.id !== a.session && x.source === 'scion' && !x.parent_id && x.group_id === session?.group_id && x.status !== 'done' && x.status !== 'failed'));
+  const others = $derived(
+    (live?.sessions ?? []).filter(
+      (x) =>
+        x.id !== a.session &&
+        x.source === 'scion' &&
+        !x.parent_id &&
+        x.group_id === session?.group_id &&
+        x.status !== 'done' &&
+        x.status !== 'failed',
+    ),
+  );
 
   const answers = $derived.by<Answer[]>(() => {
     switch (a.kind) {
@@ -72,7 +88,8 @@
             if (o.kind.startsWith('reject')) {
               denyWith = o.id;
               write('deny');
-            } else run('respond', { request: req!.id, option: o.id }, o.kind === 'allow_once' ? 'Allowed once' : o.name);
+            } else
+              run('respond', { request: req!.id, option: o.id }, o.kind === 'allow_once' ? 'Allowed once' : o.name);
           },
         }));
       case 'ask':
@@ -80,11 +97,21 @@
           key: c.key,
           label: c.title,
           detail: c.detail,
-          run: () => run('answer', req!.form ? { request: req!.id, choice: c.key } : { request: req!.id, text: c.title }, `Answered: ${c.title}`),
+          run: () =>
+            run(
+              'answer',
+              req!.form ? { request: req!.id, choice: c.key } : { request: req!.id, text: c.title },
+              `Answered: ${c.title}`,
+            ),
         }));
       case 'undelivered':
         return [
-          { key: '1', label: 'Start it again and send', primary: true, run: () => delivery('start_and_send', 'Started again and sent') },
+          {
+            key: '1',
+            label: 'Start it again and send',
+            primary: true,
+            run: () => delivery('start_and_send', 'Started again and sent'),
+          },
           { key: '2', label: 'Send to another agent', run: () => write('forward') },
           { key: '3', label: 'Discard', run: () => delivery('discard', 'Discarded') },
         ];
@@ -105,7 +132,16 @@
       case 'failed':
         return [
           { key: '1', label: 'Open in Agents', primary: true, run: onOpen },
-          { key: '2', label: session?.source === 'scion' ? 'Open on Hub' : session?.sandbox ? 'Open a shell in its sandbox' : 'Open in Zed', run: () => call('agents.open', { session: a.session, how: 'app' }) },
+          {
+            key: '2',
+            label:
+              session?.source === 'scion'
+                ? 'Open on Hub'
+                : session?.sandbox
+                  ? 'Open a shell in its sandbox'
+                  : 'Open in Zed',
+            run: () => call('agents.open', { session: a.session, how: 'app' }),
+          },
         ];
       default:
         return [];
@@ -133,7 +169,10 @@
   function send() {
     const t = text.trim();
     if (writing === 'deny') return run('respond', { request: req!.id, option: denyWith, reason: t }, 'Denied');
-    if (writing === 'forward') return to && delivery('forward', `Sent to ${live?.sessions.find((x) => x.id === to)?.name ?? 'another agent'}`, { to });
+    if (writing === 'forward')
+      return (
+        to && delivery('forward', `Sent to ${live?.sessions.find((x) => x.id === to)?.name ?? 'another agent'}`, { to })
+      );
     if (!t) return;
     if (a.kind === 'ask') return run('answer', { request: req!.id, text: t }, 'Replied');
     return run('send', { thread, text: t }, 'Replied');
@@ -157,7 +196,9 @@
     {#if req}
       {#if req.command}<div class="inset command-block">{req.command}</div>{/if}
       {@const said = splitMessage(req.message ?? '', req.command, req.tool.split(' · ')[0])}
-      {#if said.fields.length}<div class="said" title={req.message}><i class="ph ph-chat-text"></i>{fieldsLine(said.fields)}</div>{:else if said.text}<div class="said"><i class="ph ph-chat-text"></i>{said.text}</div>{/if}
+      {#if said.fields.length}<div class="said" title={req.message}>
+          <i class="ph ph-chat-text"></i>{fieldsLine(said.fields)}
+        </div>{:else if said.text}<div class="said"><i class="ph ph-chat-text"></i>{said.text}</div>{/if}
       {#if req.parsed || req.explained}<Panels {req} />{/if}
     {:else}
       <div class="why">No longer waiting.</div>
@@ -167,7 +208,10 @@
     <div class="facts">
       {#if f.task}<span><b>task</b> {f.task}</span>{/if}
       {#if f.ran}<span><b>ran</b> {f.ran} · {f.turns} turns</span>{/if}
-      {#if f.pr}<span><b>PR</b> {f.pr.label}{#if f.pr.detail}&nbsp;{f.pr.detail}{/if}</span>{/if}
+      {#if f.pr}<span
+          ><b>PR</b>
+          {f.pr.label}{#if f.pr.detail}&nbsp;{f.pr.detail}{/if}</span
+        >{/if}
       {#if f.ticket}<span><b>ticket</b> {f.ticket}</span>{/if}
     </div>
   {:else if a.kind === 'turn' && session && !session.live}
@@ -183,21 +227,47 @@
         </select>
         {#if !others.length}<span class="note">No other running agent in this group.</span>{/if}
       {:else if writing === 'deny'}
-        <input class="input" bind:this={box} bind:value={text} placeholder="Why not? Sent as your next message (optional)" onkeydown={onKey} />
+        <input
+          class="input"
+          bind:this={box}
+          bind:value={text}
+          placeholder="Why not? Sent as your next message (optional)"
+          onkeydown={onKey}
+        />
       {:else}
-        <textarea class="input" bind:this={box} bind:value={text} rows="2" placeholder={a.kind === 'turn' ? 'Your next prompt…' : 'Reply…'} onkeydown={onKey}></textarea>
+        <textarea
+          class="input"
+          bind:this={box}
+          bind:value={text}
+          rows="2"
+          placeholder={a.kind === 'turn' ? 'Your next prompt…' : 'Reply…'}
+          onkeydown={onKey}
+        ></textarea>
       {/if}
       <span class="note"><kbd>{writing === 'reply' ? chord('⌘⏎', 'Ctrl+⏎') : '⏎'}</kbd> send · <kbd>Esc</kbd></span>
     </div>
   {:else if answers.length || canReply}
     <div class="answers">
       {#each answers as x (x.key)}
-        <button class="btn" class:primary={x.primary} class:card={!!x.detail} onclick={(e) => (e.stopPropagation(), x.run())}>
-          <span class="lab">{x.label}{#if x.detail}<span class="det">{x.detail}</span>{/if}</span><kbd>{x.key}</kbd>
+        <button
+          class="btn"
+          class:primary={x.primary}
+          class:card={!!x.detail}
+          onclick={(e) => (e.stopPropagation(), x.run())}
+        >
+          <span class="lab"
+            >{x.label}{#if x.detail}<span class="det">{x.detail}</span>{/if}</span
+          ><kbd>{x.key}</kbd>
         </button>
       {/each}
-      {#if canReply}<button class="btn" onclick={(e) => (e.stopPropagation(), reply())}><span class="lab">Reply…</span><kbd>r</kbd></button>{/if}
-      <span class="note">{answers.length ? 'Number keys answer while it’s open' : ''}{a.kind === 'approval' ? ' · the agent keeps any Always rule' : ''}</span>
+      {#if canReply}<button class="btn" onclick={(e) => (e.stopPropagation(), reply())}
+          ><span class="lab">Reply…</span><kbd>r</kbd></button
+        >{/if}
+      <span class="note"
+        >{answers.length ? 'Number keys answer while it’s open' : ''}{a.kind === 'approval'
+          ? ' · the agent keeps any Always rule'
+          : ''}</span
+      >
     </div>
   {/if}
   {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}

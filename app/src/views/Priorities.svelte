@@ -68,7 +68,8 @@
   const byId = $derived(new Map(all.map((t) => [t.item_id, t])));
   const quickMax = $derived(data?.quick_max ?? 30);
 
-  const effortBand = (t: PriorityRow) => (!t.estimate ? null : t.estimate.minutes <= 15 ? 's' : t.estimate.minutes <= 60 ? 'm' : 'l');
+  const effortBand = (t: PriorityRow) =>
+    !t.estimate ? null : t.estimate.minutes <= 15 ? 's' : t.estimate.minutes <= 60 ? 'm' : 'l';
   const keyOf: Record<Exclude<Dim, 'factor'>, (t: PriorityRow) => string | null> = {
     topic: (t) => (t.topic ? String(t.topic.id) : ''),
     score: (t) => t.band,
@@ -108,26 +109,65 @@
       const k = t.topic ? String(t.topic.id) : '';
       const x = topics.get(k);
       if (x) x.n++;
-      else topics.set(k, { label: t.topic?.name ?? 'No topic', sq: t.topic ? catColor(t.topic.category) : 'var(--tx-label)', n: 1 });
+      else
+        topics.set(k, {
+          label: t.topic?.name ?? 'No topic',
+          sq: t.topic ? catColor(t.topic.category) : 'var(--tx-label)',
+          n: 1,
+        });
     }
-    const topicOpts = [...topics.entries()].sort((a, b) => b[1].n - a[1].n || a[1].label.localeCompare(b[1].label)).map(([k, v]) => ({ k, label: v.label, sq: v.sq }));
+    const topicOpts = [...topics.entries()]
+      .sort((a, b) => b[1].n - a[1].n || a[1].label.localeCompare(b[1].label))
+      .map(([k, v]) => ({ k, label: v.label, sq: v.sq }));
     return [
       { key: 'topic', name: 'Topic', opts: topicOpts },
-      { key: 'score', name: 'Score', opts: [{ k: 'hi', label: 'Top third' }, { k: 'mid', label: 'Middle third' }, { k: 'lo', label: 'Bottom third' }] },
+      {
+        key: 'score',
+        name: 'Score',
+        opts: [
+          { k: 'hi', label: 'Top third' },
+          { k: 'mid', label: 'Middle third' },
+          { k: 'lo', label: 'Bottom third' },
+        ],
+      },
       {
         key: 'date',
         name: 'Date',
-        opts: [{ k: 'od', label: 'Overdue' }, { k: 'today', label: 'Today' }, { k: 'week', label: 'Next 7 days' }, { k: 'later', label: 'Later' }, { k: 'none', label: 'No date' }],
+        opts: [
+          { k: 'od', label: 'Overdue' },
+          { k: 'today', label: 'Today' },
+          { k: 'week', label: 'Next 7 days' },
+          { k: 'later', label: 'Later' },
+          { k: 'none', label: 'No date' },
+        ],
       },
-      { key: 'effort', name: 'Effort', opts: [{ k: 's', label: '15 min or less' }, { k: 'm', label: '16 min to 1 h' }, { k: 'l', label: 'Over 1 h' }] },
-      { key: 'source', name: 'Source', opts: [{ k: 'local', label: 'Local' }, { k: 'jira', label: 'Jira' }, { k: 'obsidian', label: 'Obsidian' }] },
+      {
+        key: 'effort',
+        name: 'Effort',
+        opts: [
+          { k: 's', label: '15 min or less' },
+          { k: 'm', label: '16 min to 1 h' },
+          { k: 'l', label: 'Over 1 h' },
+        ],
+      },
+      {
+        key: 'source',
+        name: 'Source',
+        opts: [
+          { k: 'local', label: 'Local' },
+          { k: 'jira', label: 'Jira' },
+          { k: 'obsidian', label: 'Obsidian' },
+        ],
+      },
       {
         key: 'factor',
         name: 'Factor',
         opts: [
           { head: 'Factors' },
           ...FACTORS.map(([k, label]) => ({ k, label })),
-          ...((data?.tags.length ?? 0) > 0 ? [{ head: 'Tags' }, ...(data?.tags ?? []).map((t) => ({ k: `tag:${t}`, label: t }))] : []),
+          ...((data?.tags.length ?? 0) > 0
+            ? [{ head: 'Tags' }, ...(data?.tags ?? []).map((t) => ({ k: `tag:${t}`, label: t }))]
+            : []),
         ],
       },
     ];
@@ -191,14 +231,14 @@
   }
 
   useKeys((e) => {
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
-    if (plain(e, ']')) return toCol(focus + 1), true;
-    if (plain(e, '[')) return toCol(focus - 1), true;
-    if (plain(e, '/')) return filterEl?.focus(), true;
-    if (plain(e, 'Enter')) return selT?.topic && openTopic(selT.topic.id), true;
-    if (plain(e, 'o')) return selT?.url && openExternal(selT.url), true;
-    if (plain(e, 'x')) return complete(selT), true;
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (step(-1), true);
+    if (plain(e, ']')) return (toCol(focus + 1), true);
+    if (plain(e, '[')) return (toCol(focus - 1), true);
+    if (plain(e, '/')) return (filterEl?.focus(), true);
+    if (plain(e, 'Enter')) return (selT?.topic && openTopic(selT.topic.id), true);
+    if (plain(e, 'o')) return (selT?.url && openExternal(selT.url), true);
+    if (plain(e, 'x')) return (complete(selT), true);
   });
 
   // ---- splines
@@ -221,15 +261,21 @@
   // ---- display
 
   const est = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? m % 60 : ''}`);
-  const metric = (c: number, t: PriorityRow) => (c === 0 ? t.score.toFixed(1) : c === 1 ? (t.estimate ? est(t.estimate.minutes) : '–') : `${t.age_days}d`);
-  const dateText = (c: number, t: PriorityRow) => (c === 2 ? (t.quiet_days === 0 ? 'today' : `quiet ${t.quiet_days}d`) : (t.date?.label ?? ''));
+  const metric = (c: number, t: PriorityRow) =>
+    c === 0 ? t.score.toFixed(1) : c === 1 ? (t.estimate ? est(t.estimate.minutes) : '–') : `${t.age_days}d`;
+  const dateText = (c: number, t: PriorityRow) =>
+    c === 2 ? (t.quiet_days === 0 ? 'today' : `quiet ${t.quiet_days}d`) : (t.date?.label ?? '');
   function dateColor(c: number, t: PriorityRow) {
     if (c === 2 || !t.date) return 'var(--tx-label)';
     if (t.date.overdue) return 'var(--red)';
     if (t.date.kind === 'due') return t.when === 'today' ? 'var(--tx-2)' : 'var(--tx-muted-2)';
     return 'var(--tx-label)';
   }
-  const SORTS = $derived(['score: every factor', `up to ${quickMax} min by value per hour, then by length`, 'age and quiet time']);
+  const SORTS = $derived([
+    'score: every factor',
+    `up to ${quickMax} min by value per hour, then by length`,
+    'age and quiet time',
+  ]);
   const groups = $derived(
     selT
       ? [
@@ -254,10 +300,14 @@
           <AppIcon source={ICON[selT.source]} size={14} />
           <span class="sel-title ellipsis">{selT.title}</span>
           {#if selT.topic}<span class="sel-topic ellipsis">{selT.topic.name}</span>{/if}
-          <span class="sel-date tnum" style:color={selT.date ? dateColor(0, selT) : 'var(--tx-label)'}>{selT.date?.label ?? 'no date'}</span>
+          <span class="sel-date tnum" style:color={selT.date ? dateColor(0, selT) : 'var(--tx-label)'}
+            >{selT.date?.label ?? 'no date'}</span
+          >
           <span class="ranks">
             {#each COLS as col, c}
-              <button class="btn" class:on={c === focus} onclick={() => toCol(c)}><span class="tnum">#{(idx[c].get(selT.item_id) ?? 0) + 1}</span> {col.name}</button>
+              <button class="btn" class:on={c === focus} onclick={() => toCol(c)}
+                ><span class="tnum">#{(idx[c].get(selT.item_id) ?? 0) + 1}</span> {col.name}</button
+              >
             {/each}
           </span>
         </div>
@@ -280,27 +330,52 @@
     </section>
 
     <div class="filters">
-      <FilterField sm class="pfilter" bind:value={text} bind:el={filterEl} placeholder="Filter todos" aria-label="Filter todos by text" onkeydown={(e) => e.key === 'Escape' && filterEl?.blur()}>
+      <FilterField
+        sm
+        class="pfilter"
+        bind:value={text}
+        bind:el={filterEl}
+        placeholder="Filter todos"
+        aria-label="Filter todos by text"
+        onkeydown={(e) => e.key === 'Escape' && filterEl?.blur()}
+      >
         <kbd>/</kbd>
       </FilterField>
       {#each dims as d (d.key)}
         <div class="dim">
-          <button class="chip" class:on={picked[d.key].length > 0} bind:this={chipEls[d.key]} aria-expanded={openDim === d.key} onclick={() => ((openDim = openDim === d.key ? null : d.key), (topicQ = ''))}>
+          <button
+            class="chip"
+            class:on={picked[d.key].length > 0}
+            bind:this={chipEls[d.key]}
+            aria-expanded={openDim === d.key}
+            onclick={() => ((openDim = openDim === d.key ? null : d.key), (topicQ = ''))}
+          >
             <span>{d.name}</span>
-            <span class="count on tnum n" style:visibility={picked[d.key].length ? 'visible' : 'hidden'}>{picked[d.key].length || 1}</span>
+            <span class="count on tnum n" style:visibility={picked[d.key].length ? 'visible' : 'hidden'}
+              >{picked[d.key].length || 1}</span
+            >
             <i class="ph ph-caret-down"></i>
           </button>
           {#if openDim === d.key}
-            <div class="menu popover flush scroll" use:popover={{ onclose: () => (openDim = null), trigger: () => chipEls[d.key] }}>
+            <div
+              class="menu popover flush scroll"
+              use:popover={{ onclose: () => (openDim = null), trigger: () => chipEls[d.key] }}
+            >
               {#if d.key === 'topic'}
-                <div class="find"><FilterField sm bind:value={topicQ} placeholder="Find a topic" aria-label="Find a topic" /></div>
+                <div class="find">
+                  <FilterField sm bind:value={topicQ} placeholder="Find a topic" aria-label="Find a topic" />
+                </div>
               {/if}
-              {#each d.opts.filter((o) => !(d.key === 'topic' && 'k' in o && topicQ.trim() && !o.label.toLowerCase().includes(topicQ.trim().toLowerCase()))) as o}
+              {#each d.opts.filter((o) => !(d.key === 'topic' && 'k' in o && topicQ.trim() && !o.label
+                      .toLowerCase()
+                      .includes(topicQ.trim().toLowerCase()))) as o}
                 {#if 'head' in o}
                   <div class="label mhead">{o.head}</div>
                 {:else}
                   <button class="opt" aria-pressed={picked[d.key].includes(o.k)} onclick={() => toggleOpt(d.key, o.k)}>
-                    <span class="check">{#if picked[d.key].includes(o.k)}<i class="ph ph-check"></i>{/if}</span>
+                    <span class="check"
+                      >{#if picked[d.key].includes(o.k)}<i class="ph ph-check"></i>{/if}</span
+                    >
                     {#if o.sq}<span class="sq" style:background={o.sq}></span>{/if}
                     <span class="ellipsis olabel">{o.label}</span>
                     <span class="tnum on-n">{all.filter((t) => matches(t, d.key, [o.k])).length}</span>
@@ -336,17 +411,28 @@
               {@render rows(c)}
             </div>
             {#if where(c, sel) === 'above'}
-              <button class="count on tnum jump top" onclick={() => toCol(c)}>↑ #{(idx[c].get(sel!) ?? 0) + 1} selected</button>
+              <button class="count on tnum jump top" onclick={() => toCol(c)}
+                >↑ #{(idx[c].get(sel!) ?? 0) + 1} selected</button
+              >
             {:else if where(c, sel) === 'below'}
-              <button class="count on tnum jump bottom" onclick={() => toCol(c)}>↓ #{(idx[c].get(sel!) ?? 0) + 1} selected</button>
+              <button class="count on tnum jump bottom" onclick={() => toCol(c)}
+                >↓ #{(idx[c].get(sel!) ?? 0) + 1} selected</button
+              >
             {/if}
           </div>
         </section>
         {#if c < COLS.length - 1}
           {@const y1 = sel === null ? null : yOf(c, sel)}
           {@const y2 = sel === null ? null : yOf(c + 1, sel)}
-          <svg class="gutter" width={GW} height={HEAD + viewH + 1} viewBox="0 0 {GW} {HEAD + viewH + 1}" aria-hidden="true">
-            {#if hover !== null && hover !== sel}<path class="hover" d={curve(yOf(c, hover), yOf(c + 1, hover))}></path>{/if}
+          <svg
+            class="gutter"
+            width={GW}
+            height={HEAD + viewH + 1}
+            viewBox="0 0 {GW} {HEAD + viewH + 1}"
+            aria-hidden="true"
+          >
+            {#if hover !== null && hover !== sel}<path class="hover" d={curve(yOf(c, hover), yOf(c + 1, hover))}
+              ></path>{/if}
             {#if y1 !== null && y2 !== null}
               <path class="cur" d={curve(y1, y2)}></path>
               <circle cx="2.5" cy={y1} r="2.5" class:hollow={where(c, sel) !== 'in'}></circle>
@@ -624,7 +710,9 @@
     position: absolute;
     right: 14px;
     background: var(--bg-head);
-    box-shadow: 0 0 0 1px var(--aqua-line), var(--popover);
+    box-shadow:
+      0 0 0 1px var(--aqua-line),
+      var(--popover);
   }
   .jump.top {
     top: 5px;

@@ -39,7 +39,6 @@
   import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
 
-
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
   /** On Sources: a source's index, or 'add'. */
@@ -79,7 +78,8 @@
   });
 
   $effect(() => {
-    if (section === 'general' && !fonts.length) call<{ name: string; mono: boolean }[]>('settings.fonts').then((f) => (fonts = f));
+    if (section === 'general' && !fonts.length)
+      call<{ name: string; mono: boolean }[]>('settings.fonts').then((f) => (fonts = f));
   });
 
   async function apply(edits: Edit[]) {
@@ -137,7 +137,9 @@
       const s = source;
       const kind = p.kinds.find((k) => k.kind === s.kind);
       out.push({ t: 'enabled', group: '', source: s });
-      const fields = (kind?.fields ?? []).filter((f) => !f.opts?.secret && !(s.kind === 'glean' && f.key.endsWith('poll_secs')));
+      const fields = (kind?.fields ?? []).filter(
+        (f) => !f.opts?.secret && !(s.kind === 'glean' && f.key.endsWith('poll_secs')),
+      );
       const order = ['identity', 'secrets', 'reads', 'categories', 'limits'];
       for (const g of order) {
         if (g === 'secrets') {
@@ -152,7 +154,13 @@
         }
       }
       for (const f of (kind?.fields ?? []).filter((f) => f.opts?.advanced || f.opts?.secret)) {
-        out.push({ t: 'field', group: 'Advanced', field: f, path: ['sources', s.index, ...f.path], value: sourceValue(p, s.index, s.kind, f.path) });
+        out.push({
+          t: 'field',
+          group: 'Advanced',
+          field: f,
+          path: ['sources', s.index, ...f.path],
+          value: sourceValue(p, s.index, s.kind, f.path),
+        });
       }
       return out;
     }
@@ -160,14 +168,19 @@
     const inUse = new Set(['small', 'large'].map((t) => String(get(p.values, ['ai', t, 'provider']) ?? '')));
     const providerGroups = new Set(p.ai_secrets.map((k) => k.group));
     for (const f of fields) {
-      if (providerGroups.has(f.group) && !p.ai_secrets.some((k) => k.group === f.group && inUse.has(k.provider))) continue;
+      if (providerGroups.has(f.group) && !p.ai_secrets.some((k) => k.group === f.group && inUse.has(k.provider)))
+        continue;
       if (f.widget === 'tier') {
         out.push({ t: 'tier', group: 'Models', tier: f.path[1] as 'small' | 'large' });
         continue;
       }
       if (f.widget === 'prices') {
         const prices = (get(p.values, ['ai', 'prices']) ?? {}) as Record<string, unknown>;
-        const models = new Set([...Object.keys(prices), String(get(p.values, ['ai', 'small', 'model']) ?? ''), String(get(p.values, ['ai', 'large', 'model']) ?? '')]);
+        const models = new Set([
+          ...Object.keys(prices),
+          String(get(p.values, ['ai', 'small', 'model']) ?? ''),
+          String(get(p.values, ['ai', 'large', 'model']) ?? ''),
+        ]);
         for (const m of [...models].filter(Boolean)) out.push({ t: 'price', group: 'Prices', model: m });
         continue;
       }
@@ -176,7 +189,9 @@
       const pair = f.opts?.pair ? get(p.values, [f.opts.pair]) : undefined;
       out.push({ t: 'field', group: f.group, field: f, path: f.path, value, pair });
     }
-    if (section === 'ai') for (const k of p.ai_secrets.filter((k) => inUse.has(k.provider))) out.push({ t: 'secret', group: k.group, secret: k });
+    if (section === 'ai')
+      for (const k of p.ai_secrets.filter((k) => inUse.has(k.provider)))
+        out.push({ t: 'secret', group: k.group, secret: k });
     return out;
   }
 
@@ -210,7 +225,8 @@
     editing = false;
     replacing = null;
     removeArmed = null;
-    if (s === 'sources') src = page?.sources.length ? (typeof src === 'number' && src < page.sources.length ? src : 0) : 'add';
+    if (s === 'sources')
+      src = page?.sources.length ? (typeof src === 'number' && src < page.sources.length ? src : 0) : 'add';
   }
 
   function goSource(i: number | 'add') {
@@ -234,10 +250,14 @@
 
   async function activate(it: Item | undefined) {
     if (!it || !page) return;
-    if (it.t === 'enabled') return apply([{ path: ['sources', it.source.index, 'enabled'], value: !it.source.enabled }]);
+    if (it.t === 'enabled')
+      return apply([{ path: ['sources', it.source.index, 'enabled'], value: !it.source.enabled }]);
     if (it.t === 'secret') return startReplace(it.secret);
     if (it.t === 'kind') return addSource(it.kind, it.label);
-    if (it.t === 'tier') return apply([{ path: ['ai', it.tier, 'enabled'], value: get(page.values, ['ai', it.tier, 'enabled']) === false }]);
+    if (it.t === 'tier')
+      return apply([
+        { path: ['ai', it.tier, 'enabled'], value: get(page.values, ['ai', it.tier, 'enabled']) === false },
+      ]);
     if (it.t === 'field') {
       if (it.field.opts?.readonly) return;
       if (it.field.widget === 'toggle') return setField(it, !it.value);
@@ -278,7 +298,14 @@
     const taken = new Set(page.sources.filter((s) => s.kind === kind).map((s) => s.name));
     let name = label.replace(' · personal', '');
     for (let n = 2; taken.has(name); n++) name = `${label} ${n}`;
-    const value = { kind, tag: kind === 'protoncal' ? 'personal' : 'work', name, enabled: true, poll_secs: kind === 'protoncal' ? 900 : 300, config: {} };
+    const value = {
+      kind,
+      tag: kind === 'protoncal' ? 'personal' : 'work',
+      name,
+      enabled: true,
+      poll_secs: kind === 'protoncal' ? 900 : 300,
+      config: {},
+    };
     const index = page.sources.length;
     await apply([{ op: 'push', path: ['sources'], value }]);
     if (!err) goSource(index);
@@ -307,7 +334,12 @@
   function pickNext(dir: number): boolean {
     const it = items[focus];
     if (it?.t !== 'field') return false;
-    const list = it.field.widget === 'swatches' ? (it.field.opts?.presets ?? []) : it.field.widget === 'segmented' ? (it.field.opts?.enum ?? []) : null;
+    const list =
+      it.field.widget === 'swatches'
+        ? (it.field.opts?.presets ?? [])
+        : it.field.widget === 'segmented'
+          ? (it.field.opts?.enum ?? [])
+          : null;
     if (!list?.length) return false;
     const i = list.findIndex((x) => x.toLowerCase() === String(it.value ?? '').toLowerCase());
     const next = list[(i + dir + list.length) % list.length];
@@ -403,7 +435,8 @@
     const d = listNav(e, { bare: true });
     if (d) focus = moveSel(focus, d, items.length);
     else if (/^[1-7]$/.test(e.key)) goSection(sectionIds[Number(e.key) - 1]);
-    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && pickNext(e.key === 'ArrowRight' ? 1 : -1)) return true;
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && pickNext(e.key === 'ArrowRight' ? 1 : -1))
+      return true;
     else if (e.key === 'Backspace' && resetAgents()) return true;
     else if (e.key === 'Tab') {
       const i = sectionIds.indexOf(section);
@@ -422,7 +455,8 @@
       if (s) startReplace(s);
     } else if (e.key === 'a') goSource('add');
     else if (e.key === 'X' && source) removeSource(source.index);
-    else if (e.key === 's' && source?.status) call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
+    else if (e.key === 's' && source?.status)
+      call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
     else return false;
     return true;
   }
@@ -436,265 +470,349 @@
 </script>
 
 <Modal label="Settings" onclose={close} {onkeys}>
-<div class="settings modal">
-  <header>
-    <i class="ph ph-gear-six cog"></i><span class="title">Settings</span>
-    {#if err}
-      <span class="msg warn"><i class="ph ph-warning"></i>{err}</span>
-    {:else if status?.error}
-      <span class="msg warn"><i class="ph ph-warning"></i>settings.json: {status.error}</span>
-    {:else if status?.message}
-      <span class="msg ok"><i class="ph ph-check"></i>{status.message}</span>
-    {/if}
-    <button class="esc" onclick={close}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
-  </header>
-  <div class="body">
-    <nav>
-      <FilterField class="find" bind:value={findQ} bind:el={findInput} placeholder="Find a setting" oninput={() => (findSel = 0)}>
-        <kbd>/</kbd>
-      </FilterField>
-      {#each SECTIONS as s, i}
-        <button class="sec" class:on={section === s.id && !findQ} onclick={() => goSection(s.id)}>
-          <i class="ph ph-{s.icon}"></i><span>{s.label}</span>
-          {#if s.id === 'sources' && attention && section !== 'sources'}<span class="dot"></span>{/if}
-          <span class="navcount">{counts[s.id] ?? ''}</span><kbd>{i + 1}</kbd>
-        </button>
-        {#if s.id === 'sources' && section === 'sources' && page}
-          {#each page.sources as so}
-            <button class="sub" class:on={src === so.index && !findQ} onclick={() => goSource(so.index)}>
-              <AppIcon source={so.kind} size={14} /><span class="ellipsis">{so.name}</span>
-              {#if so.attention}<span class="dot"></span>{/if}
-            </button>
-          {/each}
-          <button class="sub add" class:on={src === 'add' && !findQ} onclick={() => goSource('add')}><i class="ph ph-plus"></i><span>Add source</span><kbd>a</kbd></button>
-        {/if}
-      {/each}
-      <span class="grow"></span>
-      <button class="file" onclick={() => call('settings.open_file').catch((x) => (err = String(x.message ?? x)))}>
-        <i class="ph ph-file-text"></i>Open settings.json<kbd>{chord('⌘⇧,', 'Ctrl+⇧,')}</kbd>
-      </button>
-    </nav>
-
-    <section class="main scroll">
-      {#if !page}
-        <div class="loading">Loading…</div>
-      {:else if findQ.trim()}
-        <div class="results panel col">
-          {#each results as r, i}
-            <button class="result" class:sel={i === findSel} onclick={() => jump(r)} onmousemove={(e) => pointerMoved(e) && (findSel = i)}>
-              <span class="rl">{r.field.label}</span>
-              <span class="rk mono">{r.field.key}</span>
-              <span class="rw">{r.where}</span>
-            </button>
-          {:else}
-            <div class="empty-row">Nothing matches “{findQ}”. Find looks at labels, descriptions and keys.</div>
-          {/each}
-        </div>
-      {:else}
-        {#if section === 'sources' && source}
-          {@const st = sourceState(source, ui.nowMs)}
-          <div class="crumb">Sources</div>
-          <div class="src-head">
-            <AppIcon source={source.kind} size={22} />
-            <h2 class="pane-title">{source.name}</h2>
-            <span class="state {st.tone}"><span class="d"></span>{st.label}</span>
-            <span class="grow"></span>
-            {#if removeArmed === source.index}<span class="armed"><kbd>⇧X</kbd> again removes {source.name} (its items stay)</span>{/if}
-          </div>
-        {:else if section === 'sources'}
-          <h2 class="pane-title">Add source</h2>
-          <p class="blurb">Pick a kind. It starts enabled with defaults; fill in its page next.</p>
-        {:else}
-          <h2 class="pane-title">{sectionInfo.label}</h2>
-          {#if sectionInfo.blurb}<p class="blurb">{sectionInfo.blurb}</p>{/if}
-        {/if}
-
-        {#if section === 'categories'}
-          <div class="card cats panel"><CategoryManager embedded /></div>
-        {:else if section === 'agents'}
-          <AgentsPreview look={(get(page.values, ['agents']) as AgentsLook) ?? DEFAULT_LOOK} />
-        {:else if section === 'developer' && !page.dev}
-          <p class="blurb">Developer settings only show in dev builds.</p>
-        {/if}
-
-        {#each groups as g}
-          {#if g.name}
-            <div class="label glabel">
-              {GROUP_LABELS[g.name] ?? g.name}
-              {#if g.name === 'secrets'}<span class="gnote">secrets.json (0600), never shown</span>{/if}
-              {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD</span>{/if}
-              {#if g.name === 'Message colors'}<span class="gnote">Box, icon and legend for each kind</span><button class="reset" onclick={resetColors}>Reset to default</button>{/if}
-            </div>
+  <div class="settings modal">
+    <header>
+      <i class="ph ph-gear-six cog"></i><span class="title">Settings</span>
+      {#if err}
+        <span class="msg warn"><i class="ph ph-warning"></i>{err}</span>
+      {:else if status?.error}
+        <span class="msg warn"><i class="ph ph-warning"></i>settings.json: {status.error}</span>
+      {:else if status?.message}
+        <span class="msg ok"><i class="ph ph-check"></i>{status.message}</span>
+      {/if}
+      <button class="esc" onclick={close}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
+    </header>
+    <div class="body">
+      <nav>
+        <FilterField
+          class="find"
+          bind:value={findQ}
+          bind:el={findInput}
+          placeholder="Find a setting"
+          oninput={() => (findSel = 0)}
+        >
+          <kbd>/</kbd>
+        </FilterField>
+        {#each SECTIONS as s, i}
+          <button class="sec" class:on={section === s.id && !findQ} onclick={() => goSection(s.id)}>
+            <i class="ph ph-{s.icon}"></i><span>{s.label}</span>
+            {#if s.id === 'sources' && attention && section !== 'sources'}<span class="dot"></span>{/if}
+            <span class="navcount">{counts[s.id] ?? ''}</span><kbd>{i + 1}</kbd>
+          </button>
+          {#if s.id === 'sources' && section === 'sources' && page}
+            {#each page.sources as so}
+              <button class="sub" class:on={src === so.index && !findQ} onclick={() => goSource(so.index)}>
+                <AppIcon source={so.kind} size={14} /><span class="ellipsis">{so.name}</span>
+                {#if so.attention}<span class="dot"></span>{/if}
+              </button>
+            {/each}
+            <button class="sub add" class:on={src === 'add' && !findQ} onclick={() => goSource('add')}
+              ><i class="ph ph-plus"></i><span>Add source</span><kbd>a</kbd></button
+            >
           {/if}
-          <div class="card panel" class:table={g.name === 'Models' || g.name === 'Prices'}>
-            {#if g.name === 'Models'}
-              <div class="label thead"><span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span></div>
-            {/if}
-            {#each g.items as { item, i } (i)}
-              {#if item.t === 'field'}
-                <Row
-                  field={item.field}
-                  value={item.value}
-                  pair={item.pair}
-                  extra={item.field.widget === 'slack_channels' && item.value === 'all' ? 'every channel you’re in' : item.extra}
-                  {fonts}
-                  focused={i === focus}
-                  editing={i === focus && editing}
-                  onfocus={() => (focus = i)}
-                  onedit={(on) => {
-                    focus = i;
-                    editing = on;
-                  }}
-                  onset={(v, path) => setField(item, v, path)}
-                  onaction={(a) => {
-                    if (a === 'review' && source) review = source;
-                    if (a === 'only' && source) onlyThese(source);
-                  }} />
-              {:else if item.t === 'enabled'}
-                <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
-                  <span class="lbl">Enabled</span>
-                  <Switch on={item.source.enabled} label="Enabled" onclick={() => activate(item)} />
-                </div>
-              {:else if item.t === 'secret'}
-                <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
-                  <div class="text">
-                    <div class="lbl"><i class="ph ph-key"></i> <span class="mono">{item.secret.name}</span></div>
-                    <div class="desc">
-                      {#if item.secret.set}set{item.secret.set_at ? ` ${shortDate(item.secret.set_at)}` : ''}{:else if item.secret.oauth}not connected{:else}not set{item.secret.optional ? ' · optional' : ''}{/if}{item.secret.note ? ` · ${item.secret.note}` : ''}
-                    </div>
-                  </div>
-                  {#if replacing === item.secret.name}
-                    <!-- svelte-ignore a11y_autofocus -->
-                    <input
-                      class="input secret-input mono"
-                      type="password"
-                      autocomplete="off"
-                      autofocus
-                      bind:value={secretValue}
-                      placeholder="paste the new value"
-                      onkeydown={(e) => {
-                        if (e.key === 'Enter') saveSecret();
-                        if (e.key === 'Escape') replacing = null;
-                        e.stopPropagation();
-                      }}
-                      onblur={() => (replacing = null)} />
-                  {:else if item.secret.oauth}
-                    <span class="muted">Connect in the sync status</span>
-                  {:else}
-                    <button class="btn" onclick={() => startReplace(item.secret)}>{item.secret.set ? 'Replace…' : 'Set…'} <kbd>r</kbd></button>
-                  {/if}
-                </div>
-              {:else if item.t === 'tier'}
-                {@const tier = item.tier}
-                {@const model = String(get(page.values, ['ai', tier, 'model']) ?? '')}
-                {@const effort = String(get(page.values, ['ai', tier, 'effort']) ?? '')}
-                {@const on = get(page.values, ['ai', tier, 'enabled']) !== false}
-                {@const provider = String(get(page.values, ['ai', tier, 'provider']) ?? '')}
-                {@const allowed = (get(page.values, ['ai', 'allowed_providers']) ?? []) as string[]}
-                <div class="trow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
-                  <span class="lbl tier">
-                    <Switch {on} label="{tier === 'small' ? 'Small' : 'Large'} tier" onclick={() => activate(item)} />
-                    {tier === 'small' ? 'Small' : 'Large'}
-                  </span>
-                  <select class="input text-input mono" value={provider} onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}>
-                    {#each allowed.includes(provider) ? allowed : [provider, ...allowed] as p}<option value={p}>{p}</option>{/each}
-                  </select>
-                  <input
-                    class="input text-input mono"
-                    value={model}
-                    list="ai-models"
-                    onblur={(e) => e.currentTarget.value !== model && apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
-                    onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-                  <Segmented
-                    options={[['', 'default'], ['low', 'low'], ['medium', 'med'], ['high', 'high']].map(([v, l]) => ({ value: v, label: l }))}
-                    value={effort}
-                    onpick={(v) => apply([{ path: ['ai', tier, 'effort'], value: v }])}
-                  />
-                  <span class="r muted tnum">{model ? usageFor(model) : '—'}</span>
-                </div>
-              {:else if item.t === 'price'}
-                {@const pr = get(page.values, ['ai', 'prices', item.model]) as { input: number; output: number } | undefined}
-                <div class="prow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
-                  <span class="mono model">{item.model}</span>
-                  {#if !pr}<span class="muted">not set</span>{/if}
-                  <label class="money">$<input
-                      class="input sm tnum"
-                      value={pr?.input ?? ''}
-                      placeholder="—"
-                      onblur={(e) => {
-                        const v = e.currentTarget.value.trim();
-                        if (v === String(pr?.input ?? '')) return;
-                        if (!v && !pr) return;
-                        apply([v ? { path: ['ai', 'prices', item.model], value: { input: Number(v), output: pr?.output ?? 0 } } : { op: 'remove', path: ['ai', 'prices', item.model] }]);
-                      }}
-                      onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} /> in</label>
-                  <label class="money">$<input
-                      class="input sm tnum"
-                      value={pr?.output ?? ''}
-                      placeholder="—"
-                      onblur={(e) => {
-                        const v = e.currentTarget.value.trim();
-                        if (v === String(pr?.output ?? '')) return;
-                        if (!v && !pr) return;
-                        apply([v ? { path: ['ai', 'prices', item.model], value: { input: pr?.input ?? 0, output: Number(v) } } : { op: 'remove', path: ['ai', 'prices', item.model] }]);
-                      }}
-                      onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()} /> out</label>
-                </div>
-              {:else if item.t === 'kind'}
-                <button class="row kind" class:focused={i === focus} onclick={() => activate(item)} onmousemove={(e) => pointerMoved(e) && (focus = i)}>
-                  <AppIcon source={item.kind} size={16} /><span class="lbl">{item.label}</span>
-                  <span class="muted">{page.sources.filter((s) => s.kind === item.kind).length || ''}</span>
-                </button>
-              {/if}
+        {/each}
+        <span class="grow"></span>
+        <button class="file" onclick={() => call('settings.open_file').catch((x) => (err = String(x.message ?? x)))}>
+          <i class="ph ph-file-text"></i>Open settings.json<kbd>{chord('⌘⇧,', 'Ctrl+⇧,')}</kbd>
+        </button>
+      </nav>
+
+      <section class="main scroll">
+        {#if !page}
+          <div class="loading">Loading…</div>
+        {:else if findQ.trim()}
+          <div class="results panel col">
+            {#each results as r, i}
+              <button
+                class="result"
+                class:sel={i === findSel}
+                onclick={() => jump(r)}
+                onmousemove={(e) => pointerMoved(e) && (findSel = i)}
+              >
+                <span class="rl">{r.field.label}</span>
+                <span class="rk mono">{r.field.key}</span>
+                <span class="rw">{r.where}</span>
+              </button>
+            {:else}
+              <div class="empty-row">Nothing matches “{findQ}”. Find looks at labels, descriptions and keys.</div>
             {/each}
           </div>
-        {/each}
-        {#if section === 'ai'}
-          <div class="label glabel">Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span></div>
-          <div class="card panel">
-            <div class="row">
-              <div class="text">
-                <div class="lbl mono">{page.embed.model}</div>
-                <div class="desc" class:warnline={page.embed.status.state === 'failed'}>{embedLine(page.embed)}</div>
-              </div>
-              {#if page.embed.status.state === 'failed' || page.embed.status.state === 'missing'}
-                <button class="btn" onclick={() => call('embed.download').then(load)}>{page.embed.status.state === 'failed' ? 'Retry' : 'Download'}</button>
-              {/if}
+        {:else}
+          {#if section === 'sources' && source}
+            {@const st = sourceState(source, ui.nowMs)}
+            <div class="crumb">Sources</div>
+            <div class="src-head">
+              <AppIcon source={source.kind} size={22} />
+              <h2 class="pane-title">{source.name}</h2>
+              <span class="state {st.tone}"><span class="d"></span>{st.label}</span>
+              <span class="grow"></span>
+              {#if removeArmed === source.index}<span class="armed"
+                  ><kbd>⇧X</kbd> again removes {source.name} (its items stay)</span
+                >{/if}
             </div>
-          </div>
+          {:else if section === 'sources'}
+            <h2 class="pane-title">Add source</h2>
+            <p class="blurb">Pick a kind. It starts enabled with defaults; fill in its page next.</p>
+          {:else}
+            <h2 class="pane-title">{sectionInfo.label}</h2>
+            {#if sectionInfo.blurb}<p class="blurb">{sectionInfo.blurb}</p>{/if}
+          {/if}
+
+          {#if section === 'categories'}
+            <div class="card cats panel"><CategoryManager embedded /></div>
+          {:else if section === 'agents'}
+            <AgentsPreview look={(get(page.values, ['agents']) as AgentsLook) ?? DEFAULT_LOOK} />
+          {:else if section === 'developer' && !page.dev}
+            <p class="blurb">Developer settings only show in dev builds.</p>
+          {/if}
+
+          {#each groups as g}
+            {#if g.name}
+              <div class="label glabel">
+                {GROUP_LABELS[g.name] ?? g.name}
+                {#if g.name === 'secrets'}<span class="gnote">secrets.json (0600), never shown</span>{/if}
+                {#if g.name === 'Prices'}<span class="gnote">per million tokens, USD</span>{/if}
+                {#if g.name === 'Message colors'}<span class="gnote">Box, icon and legend for each kind</span><button
+                    class="reset"
+                    onclick={resetColors}>Reset to default</button
+                  >{/if}
+              </div>
+            {/if}
+            <div class="card panel" class:table={g.name === 'Models' || g.name === 'Prices'}>
+              {#if g.name === 'Models'}
+                <div class="label thead">
+                  <span>Tier</span><span>Provider</span><span>Model</span><span>Effort</span><span class="r">Today</span
+                  >
+                </div>
+              {/if}
+              {#each g.items as { item, i } (i)}
+                {#if item.t === 'field'}
+                  <Row
+                    field={item.field}
+                    value={item.value}
+                    pair={item.pair}
+                    extra={item.field.widget === 'slack_channels' && item.value === 'all'
+                      ? 'every channel you’re in'
+                      : item.extra}
+                    {fonts}
+                    focused={i === focus}
+                    editing={i === focus && editing}
+                    onfocus={() => (focus = i)}
+                    onedit={(on) => {
+                      focus = i;
+                      editing = on;
+                    }}
+                    onset={(v, path) => setField(item, v, path)}
+                    onaction={(a) => {
+                      if (a === 'review' && source) review = source;
+                      if (a === 'only' && source) onlyThese(source);
+                    }}
+                  />
+                {:else if item.t === 'enabled'}
+                  <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
+                    <span class="lbl">Enabled</span>
+                    <Switch on={item.source.enabled} label="Enabled" onclick={() => activate(item)} />
+                  </div>
+                {:else if item.t === 'secret'}
+                  <div class="row" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
+                    <div class="text">
+                      <div class="lbl"><i class="ph ph-key"></i> <span class="mono">{item.secret.name}</span></div>
+                      <div class="desc">
+                        {#if item.secret.set}set{item.secret.set_at
+                            ? ` ${shortDate(item.secret.set_at)}`
+                            : ''}{:else if item.secret.oauth}not connected{:else}not set{item.secret.optional
+                            ? ' · optional'
+                            : ''}{/if}{item.secret.note ? ` · ${item.secret.note}` : ''}
+                      </div>
+                    </div>
+                    {#if replacing === item.secret.name}
+                      <!-- svelte-ignore a11y_autofocus -->
+                      <input
+                        class="input secret-input mono"
+                        type="password"
+                        autocomplete="off"
+                        autofocus
+                        bind:value={secretValue}
+                        placeholder="paste the new value"
+                        onkeydown={(e) => {
+                          if (e.key === 'Enter') saveSecret();
+                          if (e.key === 'Escape') replacing = null;
+                          e.stopPropagation();
+                        }}
+                        onblur={() => (replacing = null)}
+                      />
+                    {:else if item.secret.oauth}
+                      <span class="muted">Connect in the sync status</span>
+                    {:else}
+                      <button class="btn" onclick={() => startReplace(item.secret)}
+                        >{item.secret.set ? 'Replace…' : 'Set…'} <kbd>r</kbd></button
+                      >
+                    {/if}
+                  </div>
+                {:else if item.t === 'tier'}
+                  {@const tier = item.tier}
+                  {@const model = String(get(page.values, ['ai', tier, 'model']) ?? '')}
+                  {@const effort = String(get(page.values, ['ai', tier, 'effort']) ?? '')}
+                  {@const on = get(page.values, ['ai', tier, 'enabled']) !== false}
+                  {@const provider = String(get(page.values, ['ai', tier, 'provider']) ?? '')}
+                  {@const allowed = (get(page.values, ['ai', 'allowed_providers']) ?? []) as string[]}
+                  <div class="trow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
+                    <span class="lbl tier">
+                      <Switch {on} label="{tier === 'small' ? 'Small' : 'Large'} tier" onclick={() => activate(item)} />
+                      {tier === 'small' ? 'Small' : 'Large'}
+                    </span>
+                    <select
+                      class="input text-input mono"
+                      value={provider}
+                      onchange={(e) => apply([{ path: ['ai', tier, 'provider'], value: e.currentTarget.value }])}
+                    >
+                      {#each allowed.includes(provider) ? allowed : [provider, ...allowed] as p}<option value={p}
+                          >{p}</option
+                        >{/each}
+                    </select>
+                    <input
+                      class="input text-input mono"
+                      value={model}
+                      list="ai-models"
+                      onblur={(e) =>
+                        e.currentTarget.value !== model &&
+                        apply([{ path: ['ai', tier, 'model'], value: e.currentTarget.value.trim() }])}
+                      onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                    />
+                    <Segmented
+                      options={[
+                        ['', 'default'],
+                        ['low', 'low'],
+                        ['medium', 'med'],
+                        ['high', 'high'],
+                      ].map(([v, l]) => ({ value: v, label: l }))}
+                      value={effort}
+                      onpick={(v) => apply([{ path: ['ai', tier, 'effort'], value: v }])}
+                    />
+                    <span class="r muted tnum">{model ? usageFor(model) : '—'}</span>
+                  </div>
+                {:else if item.t === 'price'}
+                  {@const pr = get(page.values, ['ai', 'prices', item.model]) as
+                    { input: number; output: number } | undefined}
+                  <div class="prow" class:focused={i === focus} onmousedown={() => (focus = i)} role="presentation">
+                    <span class="mono model">{item.model}</span>
+                    {#if !pr}<span class="muted">not set</span>{/if}
+                    <label class="money"
+                      >$<input
+                        class="input sm tnum"
+                        value={pr?.input ?? ''}
+                        placeholder="—"
+                        onblur={(e) => {
+                          const v = e.currentTarget.value.trim();
+                          if (v === String(pr?.input ?? '')) return;
+                          if (!v && !pr) return;
+                          apply([
+                            v
+                              ? {
+                                  path: ['ai', 'prices', item.model],
+                                  value: { input: Number(v), output: pr?.output ?? 0 },
+                                }
+                              : { op: 'remove', path: ['ai', 'prices', item.model] },
+                          ]);
+                        }}
+                        onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                      /> in</label
+                    >
+                    <label class="money"
+                      >$<input
+                        class="input sm tnum"
+                        value={pr?.output ?? ''}
+                        placeholder="—"
+                        onblur={(e) => {
+                          const v = e.currentTarget.value.trim();
+                          if (v === String(pr?.output ?? '')) return;
+                          if (!v && !pr) return;
+                          apply([
+                            v
+                              ? {
+                                  path: ['ai', 'prices', item.model],
+                                  value: { input: pr?.input ?? 0, output: Number(v) },
+                                }
+                              : { op: 'remove', path: ['ai', 'prices', item.model] },
+                          ]);
+                        }}
+                        onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                      /> out</label
+                    >
+                  </div>
+                {:else if item.t === 'kind'}
+                  <button
+                    class="row kind"
+                    class:focused={i === focus}
+                    onclick={() => activate(item)}
+                    onmousemove={(e) => pointerMoved(e) && (focus = i)}
+                  >
+                    <AppIcon source={item.kind} size={16} /><span class="lbl">{item.label}</span>
+                    <span class="muted">{page.sources.filter((s) => s.kind === item.kind).length || ''}</span>
+                  </button>
+                {/if}
+              {/each}
+            </div>
+          {/each}
+          {#if section === 'ai'}
+            <div class="label glabel">
+              Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span>
+            </div>
+            <div class="card panel">
+              <div class="row">
+                <div class="text">
+                  <div class="lbl mono">{page.embed.model}</div>
+                  <div class="desc" class:warnline={page.embed.status.state === 'failed'}>{embedLine(page.embed)}</div>
+                </div>
+                {#if page.embed.status.state === 'failed' || page.embed.status.state === 'missing'}
+                  <button class="btn" onclick={() => call('embed.download').then(load)}
+                    >{page.embed.status.state === 'failed' ? 'Retry' : 'Download'}</button
+                  >
+                {/if}
+              </div>
+            </div>
+          {/if}
+          {#if section === 'developer' && page.dev}
+            <div class="label glabel">Files</div>
+            <div class="card panel">
+              <div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div>
+            </div>
+          {/if}
         {/if}
-        {#if section === 'developer' && page.dev}
-          <div class="label glabel">Files</div>
-          <div class="card panel"><div class="row"><span class="lbl">settings.json</span><span class="mono muted">{page.path}</span></div></div>
-        {/if}
+      </section>
+    </div>
+    <footer>
+      <span><kbd>j</kbd> <kbd>k</kbd> setting</span>
+      {#if section === 'sources'}
+        <span><kbd>{chord('⌥j', 'Alt+J')}</kbd> <kbd>{chord('⌥k', 'Alt+K')}</kbd> previous / next source</span>
+        <span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>r</kbd> replace secret</span><span
+          ><kbd>a</kbd> add</span
+        ><span><kbd>⇧X</kbd> remove</span><span><kbd>s</kbd> sync now</span>
+      {:else if section === 'ai'}
+        <span><kbd>1–7</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>/</kbd> find</span>
+      {:else if section === 'agents'}
+        <span><kbd>1–7</kbd> section</span><span><kbd>←</kbd> <kbd>→</kbd> pick a color</span><span
+          ><kbd>↵</kbd> edit</span
+        ><span><kbd>Space</kbd> toggle</span><span><kbd>⌫</kbd> reset</span>
+      {:else}
+        <span><kbd>1–7</kbd> or <kbd>⇥</kbd> section</span><span><kbd>↵</kbd> edit</span><span
+          ><kbd>−</kbd> <kbd>+</kbd> step</span
+        ><span><kbd>Space</kbd> toggle</span><span><kbd>/</kbd> find</span>
       {/if}
-    </section>
+      <span><kbd>Esc</kbd> close</span>
+    </footer>
+    <datalist id="ai-models">
+      {#each page?.usage ?? [] as u}<option value={u.model}></option>{/each}
+    </datalist>
   </div>
-  <footer>
-    <span><kbd>j</kbd> <kbd>k</kbd> setting</span>
-    {#if section === 'sources'}
-      <span><kbd>{chord('⌥j', 'Alt+J')}</kbd> <kbd>{chord('⌥k', 'Alt+K')}</kbd> previous / next source</span>
-      <span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>r</kbd> replace secret</span><span><kbd>a</kbd> add</span><span><kbd>⇧X</kbd> remove</span><span><kbd>s</kbd> sync now</span>
-    {:else if section === 'ai'}
-      <span><kbd>1–7</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>/</kbd> find</span>
-    {:else if section === 'agents'}
-      <span><kbd>1–7</kbd> section</span><span><kbd>←</kbd> <kbd>→</kbd> pick a color</span><span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>⌫</kbd> reset</span>
-    {:else}
-      <span><kbd>1–7</kbd> or <kbd>⇥</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>−</kbd> <kbd>+</kbd> step</span><span><kbd>Space</kbd> toggle</span><span><kbd>/</kbd> find</span>
-    {/if}
-    <span><kbd>Esc</kbd> close</span>
-  </footer>
-  <datalist id="ai-models">
-    {#each page?.usage ?? [] as u}<option value={u.model}></option>{/each}
-  </datalist>
-</div>
 </Modal>
 {#if review && page}
   <SlackReview
     source={review}
     channels={sourceValue(page, review.index, 'slack', ['config', 'channels'])}
     onclose={() => (review = null)}
-    onchange={(v) => apply([{ path: ['sources', review!.index, 'config', 'channels'], value: v }])} />
+    onchange={(v) => apply([{ path: ['sources', review!.index, 'config', 'channels'], value: v }])}
+  />
 {/if}
 
 <style>

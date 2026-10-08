@@ -37,30 +37,44 @@
 <div class="answer">
   {#each parts as s}
     {#each claims(s) as c}
-    <span class="sentence" class:under={c.cites.some((n) => lit.has(n))}>
-      {#each c.pieces as p}
-        {#if p.t === 'text'}{p.s}{:else if p.t === 'cite'}<span class="cite" class:lit={lit.has(p.n)}>{p.n}</span>{:else}<span
-            class="person"
-            class:hot={hoverPerson === p.name}
-            style:--pc={colorOf(p.name)}
-            onmouseenter={() => (hoverPerson = p.name)}
-            onmouseleave={() => (hoverPerson = null)}
-            role="presentation"><Avatar initials={initial(p.name)} color={colorOf(p.name)} size="sm" px={15} />{p.name}</span
-          >{/if}
-      {/each}
-    </span>
+      <span class="sentence" class:under={c.cites.some((n) => lit.has(n))}>
+        {#each c.pieces as p}
+          {#if p.t === 'text'}{p.s}{:else if p.t === 'cite'}<span class="cite" class:lit={lit.has(p.n)}>{p.n}</span
+            >{:else}<span
+              class="person"
+              class:hot={hoverPerson === p.name}
+              style:--pc={colorOf(p.name)}
+              onmouseenter={() => (hoverPerson = p.name)}
+              onmouseleave={() => (hoverPerson = null)}
+              role="presentation"
+              ><Avatar initials={initial(p.name)} color={colorOf(p.name)} size="sm" px={15} />{p.name}</span
+            >{/if}
+        {/each}
+      </span>
     {/each}
   {/each}
 </div>
 
 {#if reply.people.length}
   <div class="people">
-    <div class="phead"><span class="label">People · {reply.people.length}</span><span class="order">ownership › code › review › management</span></div>
+    <div class="phead">
+      <span class="label">People · {reply.people.length}</span><span class="order"
+        >ownership › code › review › management</span
+      >
+    </div>
     {#each reply.people as p, i}
       {@const more = expanded === p.name ? p.evidence.length : i === 0 ? 2 : 1}
-      <div class="prow" class:hot={hoverPerson === p.name} onmouseenter={() => (hoverPerson = p.name)} onmouseleave={() => (hoverPerson = null)} role="presentation">
+      <div
+        class="prow"
+        class:hot={hoverPerson === p.name}
+        onmouseenter={() => (hoverPerson = p.name)}
+        onmouseleave={() => (hoverPerson = null)}
+        role="presentation"
+      >
         <div class="pline">
-          <span class="person" style:--pc={personColor(p.color)}><Avatar initials={initial(p.name)} color={personColor(p.color)} size="sm" px={15} />{p.name}</span>
+          <span class="person" style:--pc={personColor(p.color)}
+            ><Avatar initials={initial(p.name)} color={personColor(p.color)} size="sm" px={15} />{p.name}</span
+          >
           <span class="role">{p.role}</span>
         </div>
         {#if p.why}<div class="why">{p.why}</div>{/if}
@@ -68,7 +82,9 @@
           {#each p.evidence.slice(0, more) as e}
             <span class="evi"><AppIcon source={e.icon} size={12} />{e.text}</span>
           {/each}
-          {#if p.evidence.length > more}<button class="moreb" onclick={() => (expanded = p.name)}>+ {p.evidence.length - more} more</button>{/if}
+          {#if p.evidence.length > more}<button class="moreb" onclick={() => (expanded = p.name)}
+              >+ {p.evidence.length - more} more</button
+            >{/if}
         </div>
       </div>
     {/each}

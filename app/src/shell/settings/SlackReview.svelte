@@ -11,7 +11,12 @@
 
   type Chan = { id: string; name: string; private: boolean; last: string | null; per_day: number };
 
-  let { source, channels, onclose, onchange }: { source: SourceRow; channels: unknown; onclose: () => void; onchange: (v: unknown) => void } = $props();
+  let {
+    source,
+    channels,
+    onclose,
+    onchange,
+  }: { source: SourceRow; channels: unknown; onclose: () => void; onchange: (v: unknown) => void } = $props();
 
   let all = $state<Chan[]>([]);
   let err = $state<string | null>(null);
@@ -67,38 +72,42 @@
 </script>
 
 <Modal label="Slack channels" {onclose} {onkeys}>
-<div class="review modal">
-  <header>
-    <span class="title">Channels in {source.name}</span>
-    <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
-    <button class="esc" onclick={onclose}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
-  </header>
-  <div class="field"><FilterField bind:value={q} bind:el={input} placeholder="Filter channels" oninput={() => (sel = 0)} /></div>
-  <div class="thead label">
-    <span></span>
-    <button class:on={sort === 'name'} onclick={() => (sort = 'name')}>Channel</button>
-    <button class:on={sort === 'last'} onclick={() => (sort = 'last')}>Last activity</button>
-    <button class:on={sort === 'per_day'} onclick={() => (sort = 'per_day')}>Msgs/day</button>
+  <div class="review modal">
+    <header>
+      <span class="title">Channels in {source.name}</span>
+      <span class="muted">{allMode ? `All I'm in · ${all.length}` : `Only these · ${followed} of ${all.length}`}</span>
+      <button class="esc" onclick={onclose}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
+    </header>
+    <div class="field">
+      <FilterField bind:value={q} bind:el={input} placeholder="Filter channels" oninput={() => (sel = 0)} />
+    </div>
+    <div class="thead label">
+      <span></span>
+      <button class:on={sort === 'name'} onclick={() => (sort = 'name')}>Channel</button>
+      <button class:on={sort === 'last'} onclick={() => (sort = 'last')}>Last activity</button>
+      <button class:on={sort === 'per_day'} onclick={() => (sort = 'per_day')}>Msgs/day</button>
+    </div>
+    <div class="rows scroll">
+      {#if loading}
+        <div class="loading">Asking Slack…</div>
+      {:else if err}
+        <div class="warn">{err}</div>
+      {/if}
+      {#each shown as c, i (c.id)}
+        <button class="row" class:sel={i === sel} onclick={() => toggle(c)}>
+          <i class="ph {follows(c) ? 'ph-check-square' : 'ph-square'}" class:on={follows(c)}></i>
+          <span class="name">{c.private ? '🔒' : '#'}{c.name}</span>
+          <span class="muted tnum">{c.last ? `${ago(c.last, ui.nowMs)} ago` : '—'}</span>
+          <span class="muted tnum r">{c.per_day ? c.per_day : '—'}</span>
+        </button>
+      {/each}
+    </div>
+    <footer>
+      <span><kbd>↑</kbd> <kbd>↓</kbd> channel</span><span><kbd>↵</kbd> follow / unfollow</span><span
+        ><kbd>⇥</kbd> sort</span
+      ><span>Activity is what Alethiometer saw in the last 14 days.</span><span class="last"><kbd>Esc</kbd> done</span>
+    </footer>
   </div>
-  <div class="rows scroll">
-    {#if loading}
-      <div class="loading">Asking Slack…</div>
-    {:else if err}
-      <div class="warn">{err}</div>
-    {/if}
-    {#each shown as c, i (c.id)}
-      <button class="row" class:sel={i === sel} onclick={() => toggle(c)}>
-        <i class="ph {follows(c) ? 'ph-check-square' : 'ph-square'}" class:on={follows(c)}></i>
-        <span class="name">{c.private ? '🔒' : '#'}{c.name}</span>
-        <span class="muted tnum">{c.last ? `${ago(c.last, ui.nowMs)} ago` : '—'}</span>
-        <span class="muted tnum r">{c.per_day ? c.per_day : '—'}</span>
-      </button>
-    {/each}
-  </div>
-  <footer>
-    <span><kbd>↑</kbd> <kbd>↓</kbd> channel</span><span><kbd>↵</kbd> follow / unfollow</span><span><kbd>⇥</kbd> sort</span><span>Activity is what Alethiometer saw in the last 14 days.</span><span class="last"><kbd>Esc</kbd> done</span>
-  </footer>
-</div>
 </Modal>
 
 <style>

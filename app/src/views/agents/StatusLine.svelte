@@ -25,7 +25,9 @@
     return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   });
   // The agent rarely says; the cache lasts the harness's cache_ttl_min after a turn (Claude Code: 5 unless set).
-  const ttl = $derived(ag.tree?.harnesses.find((h) => h.key === s?.template)?.cache_ttl_min ?? (s && /claude/i.test(s.harness) ? 5 : null));
+  const ttl = $derived(
+    ag.tree?.harnesses.find((h) => h.key === s?.template)?.cache_ttl_min ?? (s && /claude/i.test(s.harness) ? 5 : null),
+  );
   const cache = $derived.by(() => {
     if (!s) return null;
     if (s.stats.cache) return { label: s.stats.cache, cls: 'aqua', fill: 60 };
@@ -53,25 +55,49 @@
     <span>{s.harness}</span>
     {#if s.model}<span>{s.model}</span>{/if}
     {#if s.thinking}
-      <span class="g">Thinking:
-      <select class="input sm think" title="Thinking" value={s.thinking.current} disabled={!s.live} onchange={(e) => {
-          const el = e.currentTarget;
-          act('set_thinking', { session: s.id, value: el.value }).catch(() => (el.value = s.thinking?.current ?? ''));
-        }}>
-        {#each s.thinking.options as o (o.value)}<option value={o.value}>{o.name.replace(/^thinking:?\s*/i, '').toLowerCase()}</option>{/each}
-      </select></span>
+      <span class="g"
+        >Thinking:
+        <select
+          class="input sm think"
+          title="Thinking"
+          value={s.thinking.current}
+          disabled={!s.live}
+          onchange={(e) => {
+            const el = e.currentTarget;
+            act('set_thinking', { session: s.id, value: el.value }).catch(() => (el.value = s.thinking?.current ?? ''));
+          }}
+        >
+          {#each s.thinking.options as o (o.value)}<option value={o.value}
+              >{o.name.replace(/^thinking:?\s*/i, '').toLowerCase()}</option
+            >{/each}
+        </select></span
+      >
     {/if}
     <span>{s.source === 'acp' && !s.sandbox ? (ag.tree?.host ?? s.host) : s.host}</span>
     {#if s.problem}<span class="problem" title={s.problem}>{s.problem}</span>{/if}
     {#if s.env_changed && s.live}
-      <button class="envchg" title="Its .envrc or devshell changed since it started. Click to stop it: your next message resumes the conversation in the new environment." onclick={() => act('stop', { session: s.id })}>⚠ devshell changed</button>
+      <button
+        class="envchg"
+        title="Its .envrc or devshell changed since it started. Click to stop it: your next message resumes the conversation in the new environment."
+        onclick={() => act('stop', { session: s.id })}>⚠ devshell changed</button
+      >
     {/if}
     <span class="right">
       {#if pct !== null}
-        <span class="g">ctx <span class="v">{pct}%</span><span class="bar" style:background="linear-gradient(90deg,var(--tx-muted-2) {pct}%,var(--border) {pct}%)"></span><span class="dim">{k(s.stats.ctx_used)}</span></span>
+        <span class="g"
+          >ctx <span class="v">{pct}%</span><span
+            class="bar"
+            style:background="linear-gradient(90deg,var(--tx-muted-2) {pct}%,var(--border) {pct}%)"
+          ></span><span class="dim">{k(s.stats.ctx_used)}</span></span
+        >
       {/if}
       {#if cache}
-        <span class="g">cache <span class={cache.cls}>{cache.label}</span>{#if cache.fill}<span class="bar short" style:background="linear-gradient(90deg,var(--aqua) {cache.fill}%,var(--border) {cache.fill}%)"></span>{/if}</span>
+        <span class="g"
+          >cache <span class={cache.cls}>{cache.label}</span>{#if cache.fill}<span
+              class="bar short"
+              style:background="linear-gradient(90deg,var(--aqua) {cache.fill}%,var(--border) {cache.fill}%)"
+            ></span>{/if}</span
+        >
       {/if}
       <span>{s.stats.turns} turn{s.stats.turns === 1 ? '' : 's'}</span>
       <span>{elapsed}</span>

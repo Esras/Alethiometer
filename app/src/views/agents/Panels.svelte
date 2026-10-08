@@ -10,41 +10,60 @@
 
   const verdictClass = (v: string) => (v === 'read-only' ? 'green' : v === 'unknown' ? 'yellow' : 'orange');
   const tagClass = (t: string) =>
-    ['reads files', 'reads git'].includes(t) ? 'blue' : ['local bin'].includes(t) ? 'green' : ['shell per file', 'runs shell', 'env', 'unknown command'].includes(t) ? 'yellow' : 'orange';
+    ['reads files', 'reads git'].includes(t)
+      ? 'blue'
+      : ['local bin'].includes(t)
+        ? 'green'
+        : ['shell per file', 'runs shell', 'env', 'unknown command'].includes(t)
+          ? 'yellow'
+          : 'orange';
 </script>
 
 <div class="panels" class:solo={!req.parsed || !req.explained} class:fill>
   {#if req.parsed}
-  <div class="facts-box">
-    <div class="ph-head label">
-      <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub">shell parser · same answer every time</span>
-      <span class="badge-wrap"><span class="mono-tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span>
+    <div class="facts-box">
+      <div class="ph-head label">
+        <i class="ph ph-tree-structure" style:color="var(--blue)"></i>Parsed<span class="sub"
+          >shell parser · same answer every time</span
+        >
+        <span class="badge-wrap"
+          ><span class="mono-tag {verdictClass(req.parsed.verdict)}">{req.parsed.verdict}</span></span
+        >
+      </div>
+      {#each req.parsed.steps as s (s.n)}
+        <div class="step" class:deep={s.depth > 0}>
+          <span class="n">{s.n}</span>
+          <span class="st">{s.text}</span>
+          <span class="tags"
+            >{#each s.tags as t (t)}<span class="mono-tag {tagClass(t)}">{t}</span>{/each}</span
+          >
+        </div>
+        {#each s.notes ?? [] as note (note)}<div class="note" class:deep={s.depth > 0}>{note}</div>{/each}
+      {/each}
+      {#if req.parsed.checks.length}
+        <div class="checks">
+          {#each req.parsed.checks as c (c.text)}
+            <span class:warn={!c.ok}><i class="ph {c.ok ? 'ph-check' : 'ph-warning'}"></i>{c.text}</span>
+          {/each}
+        </div>
+      {/if}
     </div>
-    {#each req.parsed.steps as s (s.n)}
-      <div class="step" class:deep={s.depth > 0}>
-        <span class="n">{s.n}</span>
-        <span class="st">{s.text}</span>
-        <span class="tags">{#each s.tags as t (t)}<span class="mono-tag {tagClass(t)}">{t}</span>{/each}</span>
-      </div>
-      {#each s.notes ?? [] as note (note)}<div class="note" class:deep={s.depth > 0}>{note}</div>{/each}
-    {/each}
-    {#if req.parsed.checks.length}
-      <div class="checks">
-        {#each req.parsed.checks as c (c.text)}
-          <span class:warn={!c.ok}><i class="ph {c.ok ? 'ph-check' : 'ph-warning'}"></i>{c.text}</span>
-        {/each}
-      </div>
-    {/if}
-  </div>
   {/if}
   {#if req.explained}
     {@const x = req.explained}
     <div class="facts-box">
-      <div class="ph-head label"><i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span class="sub" title="Sees the command and your request, never the agent’s own words about it">{x.model}</span></div>
+      <div class="ph-head label">
+        <i class="ph ph-sparkle" style:color="var(--purple)"></i>Explained<span
+          class="sub"
+          title="Sees the command and your request, never the agent’s own words about it">{x.model}</span
+        >
+      </div>
       {#if x.state === 'pending'}<div class="ex muted">Asking{x.read.length ? `, with ${x.read.join(', ')}` : ''}…</div>
       {:else if x.state === 'ok'}
         <div class="ex"><Markdown text={x.text} /></div>
-        {#if x.fits === false && x.fit_note}<div class="fit"><i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span></div>{/if}
+        {#if x.fits === false && x.fit_note}<div class="fit">
+            <i class="ph ph-warning"></i><span><b>Beyond your request:</b> {x.fit_note}</span>
+          </div>{/if}
         {#if x.misuse.length}
           <div class="misuse">
             <span class="mh label">If planted</span>
@@ -55,7 +74,9 @@
           <div class="benign"><i class="ph ph-check"></i>Nothing it could be misused for beyond what it says.</div>
         {/if}
         {#if x.read.length}<div class="readf">Read {x.read.join(', ')}</div>{/if}
-      {:else}<div class="ex muted">{req.explained.state === 'off' ? 'Off: ' : 'Couldn’t explain: '}{req.explained.text}</div>{/if}
+      {:else}<div class="ex muted">
+          {req.explained.state === 'off' ? 'Off: ' : 'Couldn’t explain: '}{req.explained.text}
+        </div>{/if}
     </div>
   {/if}
 </div>

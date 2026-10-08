@@ -6,7 +6,13 @@
   import { mod } from '../../lib/keys.svelte';
   import Modal from '../../lib/ui/Modal.svelte';
 
-  let { sub, onStart, onClose, children, foot }: { sub: string; onStart: () => void; onClose: () => void; children: Snippet; foot: Snippet } = $props();
+  let {
+    sub,
+    onStart,
+    onClose,
+    children,
+    foot,
+  }: { sub: string; onStart: () => void; onClose: () => void; children: Snippet; foot: Snippet } = $props();
 
   // Modal does Esc and Tab.
   function onkeys(e: KeyboardEvent): boolean {

@@ -33,7 +33,13 @@
   const hl = (b: Block) => ui.topicId !== null && b.topic_ids.includes(ui.topicId);
 
   // Upcoming leave-by ticks get a label; hour labels they would cover are dropped.
-  const leaves = $derived(data ? data.blocks.filter((b) => b.life && b.buffer_min && b.start_min > now).map((b) => b.start_min - (b.buffer_min ?? 0)) : []);
+  const leaves = $derived(
+    data
+      ? data.blocks
+          .filter((b) => b.life && b.buffer_min && b.start_min > now)
+          .map((b) => b.start_min - (b.buffer_min ?? 0))
+      : [],
+  );
   const hours = $derived.by(() => {
     if (!data) return [];
     const out: number[] = [];
@@ -71,7 +77,10 @@
       if (over.length) hidden.push({ start: Math.min(...over.map((b) => b.start_min)), blocks: over, lanes: n });
       const cuts = [...new Set(cluster.flatMap((b) => [b.start_min, b.end_min]))].sort((a, b) => a - b);
       for (let i = 0; i + 1 < cuts.length; i++) {
-        const depth = Math.min(cluster.filter((b) => b.start_min <= cuts[i] && b.end_min >= cuts[i + 1]).length, MAX_LANES);
+        const depth = Math.min(
+          cluster.filter((b) => b.start_min <= cuts[i] && b.end_min >= cuts[i + 1]).length,
+          MAX_LANES,
+        );
         const last = bands.at(-1);
         if (depth < 2) continue;
         if (last && last.end === cuts[i] && last.depth === depth) last.end = cuts[i + 1];
@@ -99,7 +108,8 @@
   }
   const laned = (b: Block) => (overlaps.lanes.get(b.id)?.lanes ?? 1) > 1;
   const shown = (b: Block) => (overlaps.lanes.get(b.id)?.lane ?? 0) < MAX_LANES;
-  const edge = (b: Block) => (laned(b) ? `inset 2px 0 0 ${catColor(b.category)}` : `inset 0 2px 0 ${catColor(b.category)}`);
+  const edge = (b: Block) =>
+    laned(b) ? `inset 2px 0 0 ${catColor(b.category)}` : `inset 0 2px 0 ${catColor(b.category)}`;
 
   function tint(key: string, pctAlpha: number) {
     return `color-mix(in srgb, ${catColor(key)} ${pctAlpha}%, transparent)`;
@@ -135,14 +145,24 @@
   <div class="countdown">
     <span class="next nowrap">Next · {next ? (next.life ? 'Life' : next.title) : 'nothing left today'}</span>
     <span class="left tnum" style:color>{left === null ? '—' : left <= 0 ? 'now' : `in ${left} min`}</span>
-    <div class="bar"><div style:width="{left === null ? 0 : Math.round(Math.max(0, 1 - left / 30) * 100)}%" style:background={color}></div></div>
+    <div class="bar">
+      <div
+        style:width="{left === null ? 0 : Math.round(Math.max(0, 1 - left / 30) * 100)}%"
+        style:background={color}
+      ></div>
+    </div>
   </div>
 
   <div class="track">
     {#if data}
       <div class="layer">
         {#each overlaps.bands as o (o.start)}
-          <div class="band" class:triple={o.depth >= 3} style:left="{pct(o.start)}%" style:width="{pct(o.end) - pct(o.start)}%"></div>
+          <div
+            class="band"
+            class:triple={o.depth >= 3}
+            style:left="{pct(o.start)}%"
+            style:width="{pct(o.end) - pct(o.start)}%"
+          ></div>
         {/each}
       </div>
       <div class="layer faded">
@@ -222,7 +242,11 @@
     {/if}
 
     {#if popover}
-      <div class="popover day-pop" use:popoverBehaviour={{ onclose: () => (popover = null), trigger: popTrigger }} style:left="min({pct(popover.start_min)}%, calc(100% - 290px))">
+      <div
+        class="popover day-pop"
+        use:popoverBehaviour={{ onclose: () => (popover = null), trigger: popTrigger }}
+        style:left="min({pct(popover.start_min)}%, calc(100% - 290px))"
+      >
         <div class="pop-head">
           <i class="ph ph-house-simple"></i>
           <span class="pop-title">Life · {hm(popover.start_min)}–{hm(popover.end_min)}</span>
@@ -242,7 +266,9 @@
               use:focus
             /> min.
           {:else}
-            <span class="em">{popover.buffer_min} min</span>, so you'll get a nudge at {hm(popover.start_min - (popover.buffer_min ?? 0))}.
+            <span class="em">{popover.buffer_min} min</span>, so you'll get a nudge at {hm(
+              popover.start_min - (popover.buffer_min ?? 0),
+            )}.
           {/if}
         </div>
         <div class="pop-foot">
@@ -378,7 +404,9 @@
     cursor: pointer;
   }
   .block.life.open {
-    box-shadow: inset 0 2px 0 var(--cat-life), 0 0 0 1.5px var(--aqua);
+    box-shadow:
+      inset 0 2px 0 var(--cat-life),
+      0 0 0 1.5px var(--aqua);
   }
   .block.life i {
     font-size: 0.8462rem;

@@ -31,20 +31,35 @@ const shardPorts = (s) => {
   if (s > 0) return [2000 + 100 * SLOT + 10 * s, 2001 + 100 * SLOT + 10 * s];
   return SLOT === 0 ? [1420, 1430] : [1600 + 10 * SLOT, 1601 + 10 * SLOT];
 };
-const WORK = path.join(process.env.UI_DIFF_DIR ?? path.join(process.env.TMPDIR ?? os.tmpdir(), 'alethiometer-ui-diff'), String(SLOT));
+const WORK = path.join(
+  process.env.UI_DIFF_DIR ?? path.join(process.env.TMPDIR ?? os.tmpdir(), 'alethiometer-ui-diff'),
+  String(SLOT),
+);
 // How many shards ui-diff.sh started (1 if it didn't say); UI_DIFF_SHARDS may use fewer.
-const STARTED = Number(fs.existsSync(path.join(WORK, 'shards')) ? fs.readFileSync(path.join(WORK, 'shards'), 'utf8') : 1);
+const STARTED = Number(
+  fs.existsSync(path.join(WORK, 'shards')) ? fs.readFileSync(path.join(WORK, 'shards'), 'utf8') : 1,
+);
 const SHARDS = Number(process.env.UI_DIFF_SHARDS ?? STARTED);
 if (!Number.isInteger(SHARDS) || SHARDS < 1 || SHARDS > STARTED) {
-  throw new Error(`UI_DIFF_SHARDS=${process.env.UI_DIFF_SHARDS}: ui-diff.sh started ${STARTED} shard(s) for slot ${SLOT}`);
+  throw new Error(
+    `UI_DIFF_SHARDS=${process.env.UI_DIFF_SHARDS}: ui-diff.sh started ${STARTED} shard(s) for slot ${SLOT}`,
+  );
 }
 const OUT = path.join(WORK, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
 // Deterministic raster: without these, antialiasing varies by a pixel or two
 // between two loads of the same page.
-const ARGS = ['--deterministic-mode', '--disable-gpu', '--force-color-profile=srgb', '--disable-partial-raster', '--disable-lcd-text'];
-const executablePath = fs.existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' : undefined;
+const ARGS = [
+  '--deterministic-mode',
+  '--disable-gpu',
+  '--force-color-profile=srgb',
+  '--disable-partial-raster',
+  '--disable-lcd-text',
+];
+const executablePath = fs.existsSync('/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
+  ? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+  : undefined;
 const browser = await pw.chromium.launch({ executablePath, args: ARGS });
 const FIXED = new Date();
 // Give Vite's watcher time to see edits saved just before this run.
@@ -170,8 +185,22 @@ const scenes = {
   // 7 minutes away, so the ladder reads yellow before and after), the Agents tree's host
   // line and Scion hub error, a failing source in the sync popover (the sample data has
   // none) and Notes' margin states.
-  'assistant-ask-failed': ['Control+i', { placeholder: 'Ask, or @ to reference…' }, { type: 'What is blocking Acme?' }, 'Enter'],
-  'todos-estimate-bad': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e', { type: 'zzz' }, 'Enter'],
+  'assistant-ask-failed': [
+    'Control+i',
+    { placeholder: 'Ask, or @ to reference…' },
+    { type: 'What is blocking Acme?' },
+    'Enter',
+  ],
+  'todos-estimate-bad': [
+    'n',
+    { type: 'Write the RCA' },
+    'Control+Enter',
+    'c',
+    'Control+4',
+    'e',
+    { type: 'zzz' },
+    'Enter',
+  ],
   // Empty states (decision 18): a filter nobody matches, the Archived topics, a topic with
   // nothing open and no note (the sixth has both), a day with no calendar, decisions or
   // carry rows. The existing agents scene has the Agents hello, todos the empty list and
@@ -204,7 +233,19 @@ const scenes = {
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
   // Sharding keeps all of them in the last chunk: `todos-done` must stay the first of them.
   // Make two todos from signals (n, type, ⌘↵, confirm), then do the first row of the Todos tab.
-  'todos-done': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'n', { type: 'Reply to Dana' }, 'Control+Enter', 'c', 'Control+4', 'x', 'j'],
+  'todos-done': [
+    'n',
+    { type: 'Write the RCA' },
+    'Control+Enter',
+    'c',
+    'n',
+    { type: 'Reply to Dana' },
+    'Control+Enter',
+    'c',
+    'Control+4',
+    'x',
+    'j',
+  ],
   'incoming-dismissed': ['j', 'd', 'j'],
   'incoming-dismissed-selected': ['j', 'd'],
   // The cursor's fill hides the hatching, so move off the dismissed message.
@@ -264,7 +305,9 @@ async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
   // A transition caught half-way is timing, not a change.
-  await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
+  await page.addStyleTag({
+    content: '*, *::before, *::after { transition: none !important; animation: none !important; }',
+  });
   await settle(page, 400, 1500);
   for (const k of steps) {
     lastStep = Date.now();
@@ -273,7 +316,11 @@ async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }
       else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
       else if (k.click) await page.getByTitle(k.click).first().click({ timeout: 3000 });
       else if (k.clickText) await page.getByText(k.clickText).first().click({ timeout: 3000 });
-      else if (k.exact) await page.getByText(k.exact, { exact: true }).nth(k.nth ?? 0).click({ timeout: 3000 });
+      else if (k.exact)
+        await page
+          .getByText(k.exact, { exact: true })
+          .nth(k.nth ?? 0)
+          .click({ timeout: 3000 });
       else if (k.placeholder) await page.getByPlaceholder(k.placeholder).first().click({ timeout: 3000 });
       else if (k.button) await page.getByRole('button', { name: k.button }).first().click({ timeout: 3000 });
     } catch {
@@ -329,7 +376,10 @@ function chunked(names, n) {
     sum += cost(names[i]);
   }
   cuts.push(names.length);
-  return cuts.slice(0, -1).map((c, i) => names.slice(c, cuts[i + 1])).filter((c) => c.length);
+  return cuts
+    .slice(0, -1)
+    .map((c, i) => names.slice(c, cuts[i + 1]))
+    .filter((c) => c.length);
 }
 
 // One scene on shard s: both sides at once, since they have servers of their own.

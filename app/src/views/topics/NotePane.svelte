@@ -169,13 +169,13 @@
   }
 
   useKeys((e) => {
-    if (editing && mod(e) && e.key === 's') return save(), true;
-    if (editing && e.key === 'Escape') return done(), true;
-    if (status === 'offline' && mod(e) && e.key === 'r') return retry(), true;
-    if (status === 'conflict' && plain(e, 'r')) return reload(), true;
-    if (status === 'conflict' && plain(e, 'k')) return keepMine(), true;
-    if (plain(e, 'e')) return edit(), true;
-    if (plain(e, 'o')) return openInObsidian(), true;
+    if (editing && mod(e) && e.key === 's') return (save(), true);
+    if (editing && e.key === 'Escape') return (done(), true);
+    if (status === 'offline' && mod(e) && e.key === 'r') return (retry(), true);
+    if (status === 'conflict' && plain(e, 'r')) return (reload(), true);
+    if (status === 'conflict' && plain(e, 'k')) return (keepMine(), true);
+    if (plain(e, 'e')) return (edit(), true);
+    if (plain(e, 'o')) return (openInObsidian(), true);
   });
 
   onDestroy(() => {
@@ -209,9 +209,18 @@
         <button class="act" onclick={keepMine}>keep mine <kbd>k</kbd></button>
       </span>
     {:else if status === 'offline'}
-      <span class="state warn nowrap">Obsidian isn't open · <button class="act" onclick={retry}><kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry</button></span>
+      <span class="state warn nowrap"
+        >Obsidian isn't open · <button class="act" onclick={retry}><kbd>{chord('⌘R', 'Ctrl+R')}</kbd> retry</button
+        ></span
+      >
     {:else if label}
-      <span class="state nowrap ellipsis" class:warn={status === 'failed'} class:ok={status === 'saved'} title={status === 'failed' ? error : undefined}>{label}{#if status === 'editing'}{' · '}<kbd>{chord('⌘S', 'Ctrl+S')}</kbd> save · <kbd>Esc</kbd> done{/if}</span>
+      <span
+        class="state nowrap ellipsis"
+        class:warn={status === 'failed'}
+        class:ok={status === 'saved'}
+        title={status === 'failed' ? error : undefined}
+        >{label}{#if status === 'editing'}{' · '}<kbd>{chord('⌘S', 'Ctrl+S')}</kbd> save · <kbd>Esc</kbd> done{/if}</span
+      >
     {/if}
     {#if note}
       <span class="keys nowrap">
@@ -221,7 +230,15 @@
     {/if}
   </div>
   {#if editing}
-    <textarea class="note-body scroll" bind:this={area} bind:value={draft} spellcheck="true" oninput={typed} onkeydown={indentKeys} onblur={done}></textarea>
+    <textarea
+      class="note-body scroll"
+      bind:this={area}
+      bind:value={draft}
+      spellcheck="true"
+      oninput={typed}
+      onkeydown={indentKeys}
+      onblur={done}
+    ></textarea>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="note-body scroll" ondblclick={edit}>

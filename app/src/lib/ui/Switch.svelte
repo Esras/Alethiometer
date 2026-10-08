@@ -1,6 +1,11 @@
 <script lang="ts">
   // An on/off switch (Settings).
-  let { on, label, disabled = false, onclick }: { on: boolean; label: string; disabled?: boolean; onclick: () => void } = $props();
+  let {
+    on,
+    label,
+    disabled = false,
+    onclick,
+  }: { on: boolean; label: string; disabled?: boolean; onclick: () => void } = $props();
 </script>
 
 <button class="switch" class:on {disabled} {onclick} aria-label={label} aria-pressed={on}><span></span></button>

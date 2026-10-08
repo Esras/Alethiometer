@@ -48,7 +48,13 @@ export interface SourceRow {
   name: string;
   tag: string;
   enabled: boolean;
-  status: { id: number; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null } | null;
+  status: {
+    id: number;
+    last_sync_at: string | null;
+    last_error: string | null;
+    syncing: boolean;
+    live?: boolean | null;
+  } | null;
   secrets: Secret[];
   attention: boolean;
   /** Glean: calls made today. */
@@ -83,7 +89,12 @@ export interface Page {
 }
 
 export interface EmbedStatus {
-  status: { state: 'missing' | 'downloading' | 'loading' | 'ready' | 'failed'; done?: number; total?: number | null; error?: string };
+  status: {
+    state: 'missing' | 'downloading' | 'loading' | 'ready' | 'failed';
+    done?: number;
+    total?: number | null;
+    error?: string;
+  };
   model: string;
   indexed: number;
   items: number;
@@ -106,17 +117,53 @@ export type Edit = { op?: 'set' | 'remove' | 'push'; path: Seg[]; value?: unknow
 
 export const SECTIONS = [
   { id: 'general', label: 'General', icon: 'sliders-horizontal', blurb: 'Window, type, day strip and Topics.' },
-  { id: 'categories', label: 'Categories', icon: 'tag', blurb: 'Topic categories, in the order the app shows them. Keys never change.' },
+  {
+    id: 'categories',
+    label: 'Categories',
+    icon: 'tag',
+    blurb: 'Topic categories, in the order the app shows them. Keys never change.',
+  },
   { id: 'people', label: 'People', icon: 'users', blurb: 'You, and when to suggest a People note for a new sender.' },
   { id: 'sources', label: 'Sources', icon: 'plugs-connected', blurb: '' },
-  { id: 'ai', label: 'AI', icon: 'sparkle', blurb: 'Work data only goes to allowed providers. Anything else fails closed.' },
+  {
+    id: 'ai',
+    label: 'AI',
+    icon: 'sparkle',
+    blurb: 'Work data only goes to allowed providers. Anything else fails closed.',
+  },
   { id: 'agents', label: 'Agents', icon: 'robot', blurb: 'How rooms and transcripts look.' },
   { id: 'developer', label: 'Developer', icon: 'wrench', blurb: 'For working on Alethiometer itself.' },
 ] as const;
 export type Section = (typeof SECTIONS)[number]['id'];
 
 /** Group order per page (anything unlisted keeps its schema order, after these). */
-export const GROUP_ORDER = ['', 'Window', 'Type', 'Day strip', 'Topics', 'Notes', 'Data', 'You', 'New person suggestions', 'Allowed providers', 'Models', 'Bedrock', 'DigitalOcean', 'Prices', 'Approvals', 'Message colors', 'Agent names', 'Boxes', 'Clock', 'identity', 'secrets', 'reads', 'categories', 'limits', 'Advanced'];
+export const GROUP_ORDER = [
+  '',
+  'Window',
+  'Type',
+  'Day strip',
+  'Topics',
+  'Notes',
+  'Data',
+  'You',
+  'New person suggestions',
+  'Allowed providers',
+  'Models',
+  'Bedrock',
+  'DigitalOcean',
+  'Prices',
+  'Approvals',
+  'Message colors',
+  'Agent names',
+  'Boxes',
+  'Clock',
+  'identity',
+  'secrets',
+  'reads',
+  'categories',
+  'limits',
+  'Advanced',
+];
 
 export const GROUP_LABELS: Record<string, string> = {
   identity: 'Identity',
@@ -156,7 +203,11 @@ export async function patch(edits: Edit[]): Promise<State> {
 /** "Sep 14" for an instant. */
 export function shortDate(ts: string | null): string {
   if (!ts) return '';
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: ui.info?.tz ?? undefined });
+  return new Date(ts).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: ui.info?.tz ?? undefined,
+  });
 }
 
 export function ago(ts: string | null, nowMs: number): string {
@@ -183,21 +234,37 @@ export function sourceState(s: SourceRow, nowMs: number): { label: string; tone:
 }
 
 /** Matches for find (25d): labels, descriptions and key paths, sources included. */
-export function find(page: Page, q: string): { field: Field; where: string; section: Section; source: number | null; path: Seg[] }[] {
+export function find(
+  page: Page,
+  q: string,
+): { field: Field; where: string; section: Section; source: number | null; path: Seg[] }[] {
   const needle = q.trim().toLowerCase();
   if (!needle) return [];
   const hit = (f: Field) => [f.label, f.desc, f.key].some((t) => t.toLowerCase().includes(needle));
   const out: ReturnType<typeof find> = [];
   for (const f of page.fields) {
     if (f.opts?.dev && !page.dev) continue;
-    if (hit(f)) out.push({ field: f, where: SECTIONS.find((s) => s.id === f.section)?.label ?? f.section, section: f.section as Section, source: null, path: f.path });
+    if (hit(f))
+      out.push({
+        field: f,
+        where: SECTIONS.find((s) => s.id === f.section)?.label ?? f.section,
+        section: f.section as Section,
+        source: null,
+        path: f.path,
+      });
   }
   for (const s of page.sources) {
     const kind = page.kinds.find((k) => k.kind === s.kind);
     for (const f of kind?.fields ?? []) {
       if (hit(f) || s.name.toLowerCase().includes(needle)) {
         const path = ['sources', s.index, ...f.path];
-        out.push({ field: { ...f, key: f.key.replace('sources[]', `sources[${s.index}]`) }, where: `Sources · ${s.name}`, section: 'sources', source: s.index, path });
+        out.push({
+          field: { ...f, key: f.key.replace('sources[]', `sources[${s.index}]`) },
+          where: `Sources · ${s.name}`,
+          section: 'sources',
+          source: s.index,
+          path,
+        });
       }
     }
   }

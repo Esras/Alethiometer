@@ -48,7 +48,8 @@
   bind:this={box}
   style:left="{pos.left}px"
   style:top={pos.top === undefined ? null : `${pos.top}px`}
-  style:bottom={pos.bottom === undefined ? null : `${pos.bottom}px`}>
+  style:bottom={pos.bottom === undefined ? null : `${pos.bottom}px`}
+>
   {@render children()}
 </div>
 

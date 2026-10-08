@@ -45,7 +45,8 @@
       class:hot={hover?.route === f.route}
       style:--rc={ROUTE_COLOR[f.route]}
       onmouseenter={() => (hover = l)}
-      role="group">
+      role="group"
+    >
       <button class="route" onclick={(e) => pick(e, l)} title="Click filters · {isMac ? '⌥' : 'Alt+'}click excludes">
         {#if f.route === 'glean'}<AppIcon source="glean" size={12} />{:else}<span class="sq"></span>{/if}
         {ROUTE_LABEL[f.route]}
@@ -65,10 +66,14 @@
             }}
             onmouseleave={() => (hover = l)}
             onclick={(e) => pick(e, sl)}
-            title="{s.system} via {ROUTE_LABEL[f.route]} · {s.count}"><AppIcon source={s.icon} size={14} /></button>
+            title="{s.system} via {ROUTE_LABEL[f.route]} · {s.count}"><AppIcon source={s.icon} size={14} /></button
+          >
         {/each}
       {:else if f.status.state !== 'ok'}
-        <span class="note" title={f.status.message ?? ''}>{#if f.status.state === 'not_asked'}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd> {/if}{routeNote(f)}</span>
+        <span class="note" title={f.status.message ?? ''}
+          >{#if f.status.state === 'not_asked'}<kbd>{chord('⌥↵', 'Alt+↵')}</kbd>
+          {/if}{routeNote(f)}</span
+        >
       {/if}
     </div>
   {/each}

@@ -47,7 +47,13 @@
   const rows = $derived(hits.length + (newName ? 1 : 0));
 
   const what = $derived(
-    account.kind === 'email' ? 'email' : account.kind === 'slack' ? 'Slack ID' : account.kind === 'jira' ? 'Jira account' : 'GitHub login',
+    account.kind === 'email'
+      ? 'email'
+      : account.kind === 'slack'
+        ? 'Slack ID'
+        : account.kind === 'jira'
+          ? 'Jira account'
+          : 'GitHub login',
   );
 
   async function run(cmd: string, args: Record<string, unknown>) {
@@ -73,7 +79,9 @@
 <div class="card popover" role="dialog" aria-label="Link to person" use:p.frame>
   <div class="head">
     <span class="label">Link to person</span>
-    <span class="acct ellipsis">{account.kind === 'email' || account.kind === 'github' ? account.id : name} · {source}</span>
+    <span class="acct ellipsis"
+      >{account.kind === 'email' || account.kind === 'github' ? account.id : name} · {source}</span
+    >
   </div>
   <FilterField field={p.field} bind:value={p.q} placeholder="Name or alias" />
   <div class="rows">
@@ -97,7 +105,9 @@
     {#if err}
       <span class="err ellipsis" title={err}>{err}</span>
     {:else}
-      <span><kbd>↵</kbd> link, adds {what} to the note</span><span><kbd>Esc</kbd></span><span class="right">colour follows the note</span>
+      <span><kbd>↵</kbd> link, adds {what} to the note</span><span><kbd>Esc</kbd></span><span class="right"
+        >colour follows the note</span
+      >
     {/if}
   </div>
 </div>

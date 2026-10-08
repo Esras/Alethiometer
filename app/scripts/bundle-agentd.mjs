@@ -20,7 +20,8 @@ if (process.platform !== 'darwin') {
   process.exit(0);
 }
 if (!existsSync(app)) throw new Error(`no app bundle at ${app}: run tauri build first`);
-if (!existsSync(bin)) execFileSync('cargo', ['build', '--release', '--manifest-path', `${root}agentd/Cargo.toml`], { stdio: 'inherit' });
+if (!existsSync(bin))
+  execFileSync('cargo', ['build', '--release', '--manifest-path', `${root}agentd/Cargo.toml`], { stdio: 'inherit' });
 
 const dest = `${app}/Contents/MacOS/alethiometer-agentd`;
 copyFileSync(bin, dest);

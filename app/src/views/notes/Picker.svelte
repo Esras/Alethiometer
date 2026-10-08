@@ -9,11 +9,7 @@
   import FilterField from '../../lib/ui/FilterField.svelte';
   import { KEEP, type EditLine, type Options, type Target } from './types';
 
-  let {
-    line,
-    onpick,
-    onclose,
-  }: { line: EditLine; onpick: (t: Target | null) => void; onclose: () => void } = $props();
+  let { line, onpick, onclose }: { line: EditLine; onpick: (t: Target | null) => void; onclose: () => void } = $props();
 
   const p = new Picker<Options>({
     fetch: (q) => call<Options>('notes.options', { text: line.text, kind: line.kind, q }),

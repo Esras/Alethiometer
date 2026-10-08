@@ -132,20 +132,20 @@
   useKeys((e) => {
     if (ui.openTopicId === null || linking || merging) return;
     if (renaming !== null && e.target === renameInput) {
-      if (e.key === 'Enter') return void commitRename(renaming), true;
-      if (e.key === 'Escape') return (renaming = null), true;
+      if (e.key === 'Enter') return (void commitRename(renaming), true);
+      if (e.key === 'Escape') return ((renaming = null), true);
       return;
     }
-    if (plain(e, 'Escape')) return toIndex(), true;
-    if (plain(e, 'c')) return (picking = true), true;
-    if (plain(e, 'p')) return d && cyclePriority(d.topic.id, d.topic.priority), true;
-    if (plain(e, 'z')) return fold(), true;
-    if (plain(e, '[')) return step(-1), true;
-    if (plain(e, ']')) return step(1), true;
-    if (plain(e, 'f')) return cycleFilter(), true;
-    if (plain(e, 'm')) return (merging = true), true;
-    if (plain(e, 'r')) return d && (renaming = d.topic.name), true;
-    if (plain(e, 'u') && d && pendingMerge(d.topic.id)) return cancelMerge(d.topic.id), true;
+    if (plain(e, 'Escape')) return (toIndex(), true);
+    if (plain(e, 'c')) return ((picking = true), true);
+    if (plain(e, 'p')) return (d && cyclePriority(d.topic.id, d.topic.priority), true);
+    if (plain(e, 'z')) return (fold(), true);
+    if (plain(e, '[')) return (step(-1), true);
+    if (plain(e, ']')) return (step(1), true);
+    if (plain(e, 'f')) return (cycleFilter(), true);
+    if (plain(e, 'm')) return ((merging = true), true);
+    if (plain(e, 'r')) return (d && (renaming = d.topic.name), true);
+    if (plain(e, 'u') && d && pendingMerge(d.topic.id)) return (cancelMerge(d.topic.id), true);
     if (plain(e, 'Tab') || (e.key === 'Tab' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey)) {
       if (!d?.upcoming.length || !open.up) return;
       section = section === 'up' ? 'chron' : 'up';
@@ -153,13 +153,13 @@
       return true;
     }
     if (section === 'up' && d?.upcoming.length && open.up) {
-      if (plain(e, 'j') || plain(e, 'ArrowDown')) return stepUp(1), true;
-      if (plain(e, 'k') || plain(e, 'ArrowUp')) return stepUp(-1), true;
+      if (plain(e, 'j') || plain(e, 'ArrowDown')) return (stepUp(1), true);
+      if (plain(e, 'k') || plain(e, 'ArrowUp')) return (stepUp(-1), true);
       const r = d.upcoming.find((u) => u.item_id === upSel)?.rsvp;
       if (r && answerable(r) && upLine) {
-        if (alt(e, 'y')) return upLine.accept(), true;
-        if (alt(e, 'n')) return upLine.decline(), true;
-        if (alt(e, 'n', true)) return upLine.declineWithNote(), true;
+        if (alt(e, 'y')) return (upLine.accept(), true);
+        if (alt(e, 'n')) return (upLine.decline(), true);
+        if (alt(e, 'n', true)) return (upLine.declineWithNote(), true);
       }
     }
   });
@@ -173,10 +173,14 @@
   $effect(() => {
     if (section === 'up' && (!d?.upcoming.length || !open.up)) untrack(() => (section = 'chron'));
   });
-  const needsReply = $derived(d ? d.upcoming.filter((u) => u.rsvp?.status === 'needs_action' && answerable(u.rsvp)).length : 0);
+  const needsReply = $derived(
+    d ? d.upcoming.filter((u) => u.rsvp?.status === 'needs_action' && answerable(u.rsvp)).length : 0,
+  );
 
   const entries = $derived(d ? d.chronology.filter((e) => filter === null || e.source === filter) : []);
-  const origin = $derived(ui.openedFrom === 'search' ? 'Search' : (TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics'));
+  const origin = $derived(
+    ui.openedFrom === 'search' ? 'Search' : (TABS.find((t) => t.id === ui.openedFrom)?.label ?? 'Topics'),
+  );
 </script>
 
 <div class="view">
@@ -186,21 +190,48 @@
   {:else if d}
     {@const cat = catColor(d.topic.category)}
     <div class="content">
-      <div class="header" style:background="linear-gradient(90deg, color-mix(in srgb, {cat} 10%, transparent), transparent 55%), var(--bg-panel)">
+      <div
+        class="header"
+        style:background="linear-gradient(90deg, color-mix(in srgb, {cat} 10%, transparent), transparent 55%), var(--bg-panel)"
+      >
         <span class="catbar" style:background={cat}></span>
         <div class="head-row">
           <button class="fold" onclick={fold} title="{allFolded ? 'Expand all' : 'Collapse all'} (z)">
             <i class="ph ph-{allFolded ? 'arrows-out-line-vertical' : 'arrows-in-line-vertical'}"></i>
           </button>
           <div class="titles">
-            <div class="crumb"><button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span class="catpick"><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)">{category(d.topic.category).label}</button>{#if picking}<CategoryPicker current={d.topic.category} placement={{ top: 'calc(100% + 4px)', left: '0' }} onpick={setCategory} onclose={() => (picking = false)} />{/if}</span></div>
+            <div class="crumb">
+              <button class="back" onclick={back}>{origin}</button><i class="ph ph-caret-right"></i><span
+                class="catpick"
+                ><button style:color={cat} onclick={() => (picking = true)} title="Change category (c)"
+                  >{category(d.topic.category).label}</button
+                >{#if picking}<CategoryPicker
+                    current={d.topic.category}
+                    placement={{ top: 'calc(100% + 4px)', left: '0' }}
+                    onpick={setCategory}
+                    onclose={() => (picking = false)}
+                  />{/if}</span
+              >
+            </div>
             {#if renaming !== null}
-              <input class="page-title name-input" bind:this={renameInput} bind:value={renaming} onblur={() => commitRename(renaming)} />
+              <input
+                class="page-title name-input"
+                bind:this={renameInput}
+                bind:value={renaming}
+                onblur={() => commitRename(renaming)}
+              />
             {:else}
-              <button class="page-title name" class:merged={!!pendingMerge(d.topic.id)} ondblclick={() => d && (renaming = d.topic.name)} title="Rename (r)">{d.topic.name}</button>
+              <button
+                class="page-title name"
+                class:merged={!!pendingMerge(d.topic.id)}
+                ondblclick={() => d && (renaming = d.topic.name)}
+                title="Rename (r)">{d.topic.name}</button
+              >
             {/if}
             {#if pendingMerge(d.topic.id)}
-              <div class="merging">merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo</div>
+              <div class="merging">
+                merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo
+              </div>
             {:else if merges.err}
               <div class="merging err"><i class="ph ph-warning"></i>{merges.err}</div>
             {:else if renameErr}
@@ -208,7 +239,12 @@
             {/if}
           </div>
           <div class="pills">
-            <button class="mono-tag prio" class:unset={!d.topic.priority} onclick={() => d && cyclePriority(d.topic.id, d.topic.priority)} title="Priority, for the Priorities tab (p)">
+            <button
+              class="mono-tag prio"
+              class:unset={!d.topic.priority}
+              onclick={() => d && cyclePriority(d.topic.id, d.topic.priority)}
+              title="Priority, for the Priorities tab (p)"
+            >
               {d.topic.priority ? `priority ${PRIORITY_NAME[d.topic.priority]}` : 'no priority'}
             </button>
             {#each d.topic.pills as p}<Pill pill={p} />{/each}
@@ -231,7 +267,14 @@
             >
               {#each d.upcoming as u, i (u.item_id)}
                 {@const on = section === 'up' && upSel === u.item_id}
-                <div class="up-row" class:today={u.today} class:sel={on} class:rule={i > 0} onclick={() => ((section = 'up'), (upSel = u.item_id))} role="presentation">
+                <div
+                  class="up-row"
+                  class:today={u.today}
+                  class:sel={on}
+                  class:rule={i > 0}
+                  onclick={() => ((section = 'up'), (upSel = u.item_id))}
+                  role="presentation"
+                >
                   <span class="when nowrap" class:today={u.today}>{u.when}</span>
                   <AppIcon source={u.source} />
                   <div class="min0">
@@ -267,15 +310,26 @@
           <Panel icon="git-commit" iconColor="var(--blue)" label="Chronology" count={null} bind:open={open.chron}>
             {#snippet right()}
               <span class="filters">
-                <button class="chip" class:on={filter === null} onclick={() => (filter = null)}>All {d?.chronology.length}</button>
+                <button class="chip" class:on={filter === null} onclick={() => (filter = null)}
+                  >All {d?.chronology.length}</button
+                >
                 {#each d?.filters ?? [] as f}
-                  <button class="chip" class:on={filter === f.source} onclick={() => (filter = filter === f.source ? null : f.source)} title={sourceLabel(f.source)}>
+                  <button
+                    class="chip"
+                    class:on={filter === f.source}
+                    onclick={() => (filter = filter === f.source ? null : f.source)}
+                    title={sourceLabel(f.source)}
+                  >
                     <AppIcon source={f.source} size={13} />{f.count}
                   </button>
                 {/each}
               </span>
             {/snippet}
-            <Chronology topicId={d.topic.id} {entries} active={open.chron && !linking && !picking && section === 'chron'} />
+            <Chronology
+              topicId={d.topic.id}
+              {entries}
+              active={open.chron && !linking && !picking && section === 'chron'}
+            />
           </Panel>
 
           <Panel icon="users" iconColor="var(--purple)" label="People" count={d.people.length} bind:open={open.people}>
@@ -285,14 +339,22 @@
                   <Avatar initials={p.initials} color={personColor(p.color)} size="lg" />
                   <div class="min0">
                     {#if !p.known && p.account}
-                      <PersonName who={{ color: p.color, known: false, me: false, account: p.account ?? undefined }} name={p.name} block onlink={() => (linking = p)} />
+                      <PersonName
+                        who={{ color: p.color, known: false, me: false, account: p.account ?? undefined }}
+                        name={p.name}
+                        block
+                        onlink={() => (linking = p)}
+                      />
                     {:else}
                       <div class="strong ellipsis" title={p.name}>{p.name}</div>
                     {/if}
                     {#if p.role}
                       <div class="role ellipsis" title={p.role}>{p.role}</div>
                     {:else if p.signals}
-                      <div class="role ellipsis">{p.signals} {p.signals === 1 ? 'signal' : 'signals'}{#if p.last}&nbsp;· {p.last}{/if}</div>
+                      <div class="role ellipsis">
+                        {p.signals}
+                        {p.signals === 1 ? 'signal' : 'signals'}{#if p.last}&nbsp;· {p.last}{/if}
+                      </div>
                     {/if}
                   </div>
                 </div>

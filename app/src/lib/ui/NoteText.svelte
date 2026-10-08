@@ -7,7 +7,11 @@
 
   let { text }: { text: string } = $props();
 
-  type Part = { t: string; kind: 'text' | 'box' | 'wikilink' | 'link' | 'code' | 'bold' | 'italic' | 'strike' | 'mark'; url?: string };
+  type Part = {
+    t: string;
+    kind: 'text' | 'box' | 'wikilink' | 'link' | 'code' | 'bold' | 'italic' | 'strike' | 'mark';
+    url?: string;
+  };
 
   const inlineRe =
     /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(~~[^~]+~~)|(==[^=]+==)|(\[\[[^\]]+\]\])|(\[[^\]]+\]\([^)]+\))|(\[[ xX]\])|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
@@ -82,16 +86,22 @@
   {:else if b.kind === 'hr'}
     <hr />
   {:else if b.kind === 'quote'}
-    <div class="quote">{#each parts(b.text) as p}{@render inline(p)}{/each}</div>
+    <div class="quote">
+      {#each parts(b.text) as p}{@render inline(p)}{/each}
+    </div>
   {:else if b.kind === 'list'}
     <div class="li" style:padding-left="{14 + b.indent * 14}px">
       <span class="marker">{b.ordered ? b.marker : '•'}</span>
-      <span>{#each parts(b.text) as p}{@render inline(p)}{/each}</span>
+      <span
+        >{#each parts(b.text) as p}{@render inline(p)}{/each}</span
+      >
     </div>
   {:else if b.kind === 'code'}
     <pre class="code"><code>{b.lines.join('\n')}</code></pre>
   {:else}
-    <div>{#each parts(b.text) as p}{@render inline(p)}{/each}</div>
+    <div>
+      {#each parts(b.text) as p}{@render inline(p)}{/each}
+    </div>
   {/if}
 {/each}
 

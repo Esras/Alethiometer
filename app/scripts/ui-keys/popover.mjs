@@ -74,7 +74,10 @@ export const checks = {
     await t.visible(t.page.locator('.box .pop'), 'typing did not bring the menu back');
     await t.steps('Escape', 'Escape');
     await t.page.waitForTimeout(300);
-    t.ok(!(await t.page.locator('.box textarea').evaluate((el) => el === document.activeElement)), 'the second Esc did not leave the composer');
+    t.ok(
+      !(await t.page.locator('.box textarea').evaluate((el) => el === document.activeElement)),
+      'the second Esc did not leave the composer',
+    );
   },
   ...cases('day strip block', {
     open: (t) => life(t).first().click(),

@@ -17,9 +17,22 @@
   const all = $derived(new Set(a.rows.map((r) => `row:${r.id}`)));
   const list = $derived(items(a.rows, new Set(), all, false));
   const title = $derived(isGroup ? d.goal || `#${d.room?.name ?? d.name}` : d.title || d.name || '');
-  const where = $derived(isGroup ? [d.room ? `${d.room.hub || 'Scion Hub'} · project ${d.project}` : d.project, d.room ? 'group thread' : 'group'].filter(Boolean).join(' · ') : (d.context ?? ''));
+  const where = $derived(
+    isGroup
+      ? [d.room ? `${d.room.hub || 'Scion Hub'} · project ${d.project}` : d.project, d.room ? 'group thread' : 'group']
+          .filter(Boolean)
+          .join(' · ')
+      : (d.context ?? ''),
+  );
   const facts = $derived<[string, string, Fact | null | undefined][]>(
-    isGroup ? [] : [['ph-ticket', 'ticket', d.facts?.ticket], ['ph-git-pull-request', 'PR', d.facts?.pr], ['ph-git-branch', 'branch', d.facts?.branch], ['ph-check-square', 'todo', d.facts?.todo]],
+    isGroup
+      ? []
+      : [
+          ['ph-ticket', 'ticket', d.facts?.ticket],
+          ['ph-git-pull-request', 'PR', d.facts?.pr],
+          ['ph-git-branch', 'branch', d.facts?.branch],
+          ['ph-check-square', 'todo', d.facts?.todo],
+        ],
   );
   const kept = $derived(
     `${it.source === 'scion' ? 'Agents deleted on the Hub. ' : ''}${a.kept.messages} message${a.kept.messages === 1 ? '' : 's'} and ${a.kept.transcripts} transcript${a.kept.transcripts === 1 ? '' : 's'} kept.`,
@@ -81,7 +94,9 @@
   <div class="head">
     <div class="left">
       <div class="ctx">
-        {#if isGroup}<i class="ph ph-hash hash"></i>{d.room?.name ?? d.name}{:else}<StatusMark status={d.status ?? 'idle'} /><span>{d.name}</span>{/if}
+        {#if isGroup}<i class="ph ph-hash hash"></i>{d.room?.name ?? d.name}{:else}<StatusMark
+            status={d.status ?? 'idle'}
+          /><span>{d.name}</span>{/if}
         <span class="c">{where}</span>
         <span class="chip arch"><i class="ph ph-archive"></i>archived {day}</span>
       </div>
@@ -106,7 +121,9 @@
   <div class="panel">
     {#if ag.archivedQ}
       <div class="bar">
-        <span>{count ? `${at + 1} of ${count} match${count === 1 ? '' : 'es'}` : 'No matches'} for “{ag.archivedQ}”</span>
+        <span
+          >{count ? `${at + 1} of ${count} match${count === 1 ? '' : 'es'}` : 'No matches'} for “{ag.archivedQ}”</span
+        >
         <kbd>{chord('⌘G', 'Ctrl+G')}</kbd>
       </div>
     {/if}
@@ -115,7 +132,9 @@
         {#each list as x (x.key)}
           <div data-row={x.row.id}><RowView row={x.row} own={isGroup ? null : it.id} open={true} /></div>
         {:else}
-          <div class="quiet">{isGroup ? 'No group thread. Open a session above.' : 'Nothing was stored for this session.'}</div>
+          <div class="quiet">
+            {isGroup ? 'No group thread. Open a session above.' : 'Nothing was stored for this session.'}
+          </div>
         {/each}
       </div>
     </div>

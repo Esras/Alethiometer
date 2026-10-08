@@ -6,12 +6,8 @@
   import Panel from '../../lib/ui/Panel.svelte';
   import type { ChildRow } from './types';
 
-  let {
-    rows,
-    label,
-    icon,
-    open,
-  }: { rows: ChildRow[]; label: string; icon: string; open: (row: ChildRow) => void } = $props();
+  let { rows, label, icon, open }: { rows: ChildRow[]; label: string; icon: string; open: (row: ChildRow) => void } =
+    $props();
 
   const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}` : `${m}m`);
 </script>

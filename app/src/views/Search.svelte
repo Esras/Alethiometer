@@ -73,7 +73,8 @@
   const current = $derived(shown.find((r) => r.key === sel) ?? null);
 
   $effect(() => {
-    if (sel !== null) document.querySelector(`[data-result="${CSS.escape(sel)}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (sel !== null)
+      document.querySelector(`[data-result="${CSS.escape(sel)}"]`)?.scrollIntoView({ block: 'nearest' });
   });
 
   function step(d: number) {
@@ -126,15 +127,15 @@
 
   useKeys((e) => {
     if (picking || reviewing !== null || ui.searchOpen) return;
-    if (e.key === 'Enter' && e.altKey) return (ui.searchGlean = true), true;
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
-    if (plain(e, 'Enter')) return open(current), true;
-    if (plain(e, ' ')) return sel !== null && local && (expanded = expanded === sel ? null : sel), true;
-    if (plain(e, 't')) return (picking = local), true;
-    if (plain(e, 's')) return current?.item_id != null && current.msgs > 1 && (reviewing = current.item_id), true;
-    if (plain(e, 'u')) return undo(), true;
-    if (plain(e, 'Escape')) return expanded !== null ? (expanded = null) : closeSearch(), true;
+    if (e.key === 'Enter' && e.altKey) return ((ui.searchGlean = true), true);
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (step(-1), true);
+    if (plain(e, 'Enter')) return (open(current), true);
+    if (plain(e, ' ')) return (sel !== null && local && (expanded = expanded === sel ? null : sel), true);
+    if (plain(e, 't')) return ((picking = local), true);
+    if (plain(e, 's')) return (current?.item_id != null && current.msgs > 1 && (reviewing = current.item_id), true);
+    if (plain(e, 'u')) return (undo(), true);
+    if (plain(e, 'Escape')) return (expanded !== null ? (expanded = null) : closeSearch(), true);
   });
 </script>
 
@@ -142,12 +143,15 @@
   <div class="panel col">
     <div class="head">
       <span class="total">
-        {#if res}{shown.length} {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
+        {#if res}{shown.length}
+          {shown.length === 1 ? 'result' : 'results'} for <span class="q">"{ui.searchQuery}"</span>{/if}
       </span>
       {#if asking}<span class="asking">asking Glean…</span>{/if}
     </div>
     {#if res}
-      <div class="facets"><FacetBar facets={res.facets} total={shown.length} bind:hover bind:filter bind:exclude /></div>
+      <div class="facets">
+        <FacetBar facets={res.facets} total={shown.length} bind:hover bind:filter bind:exclude />
+      </div>
     {/if}
     <div class="list scroll">
       {#each shown as r (r.key)}
@@ -165,8 +169,16 @@
             data-result={r.key}
             onclick={() => (sel = r.key)}
             ondblclick={() => open(r)}
-            role="presentation">
-            <span class="icon" title="{r.system}{r.routes.length > 1 ? ' · local and Glean' : r.routes[0] === 'glean' ? ' via Glean' : ''}"><AppIcon source={r.icon} size={16} /></span>
+            role="presentation"
+          >
+            <span
+              class="icon"
+              title="{r.system}{r.routes.length > 1
+                ? ' · local and Glean'
+                : r.routes[0] === 'glean'
+                  ? ' via Glean'
+                  : ''}"><AppIcon source={r.icon} size={16} /></span
+            >
             <div class="main">
               <span class="title">{r.title}</span>
               {#if move}
@@ -185,9 +197,15 @@
               {/if}
             </div>
             {#if r.topic}
-              <span class="topic"><span class="bar" style:background={catColor(r.topic.category)}></span><span class="ellipsis">{r.topic.name}</span></span>
+              <span class="topic"
+                ><span class="bar" style:background={catColor(r.topic.category)}></span><span class="ellipsis"
+                  >{r.topic.name}</span
+                ></span
+              >
             {:else if r.item_id === null}
-              <span class="topic none"><span class="ellipsis">{r.system}{r.container ? ` › ${r.container}` : ''}</span></span>
+              <span class="topic none"
+                ><span class="ellipsis">{r.system}{r.container ? ` › ${r.container}` : ''}</span></span
+              >
             {:else}
               <span class="topic none"><span class="bar"></span>no topic</span>
             {/if}
@@ -200,7 +218,12 @@
     </div>
     {#if picking && current}
       <Dock>
-        <TopicPicker exclude={current.topic?.id ?? null} placeholder="Move this signal to…" onpick={moveTo} onclose={() => (picking = false)} />
+        <TopicPicker
+          exclude={current.topic?.id ?? null}
+          placeholder="Move this signal to…"
+          onpick={moveTo}
+          onclose={() => (picking = false)}
+        />
       </Dock>
     {/if}
     <DockHost left={18} />
@@ -209,7 +232,9 @@
       {#if local}<span><kbd>Space</kbd> expand</span><span class="key"><kbd>t</kbd> move to topic</span>{/if}
       {#if current && local && current.msgs > 1}<span class="key"><kbd>s</kbd> split</span>{/if}
       {#if !ui.searchGlean}<span><kbd>{chord('⌥↵', 'Alt+↵')}</kbd> Glean</span>{/if}
-      {#if moves.length}<span><kbd>u</kbd> undo</span>{/if}<span><kbd>/</kbd> edit search</span><span><kbd>Esc</kbd> back</span>
+      {#if moves.length}<span><kbd>u</kbd> undo</span>{/if}<span><kbd>/</kbd> edit search</span><span
+        ><kbd>Esc</kbd> back</span
+      >
       {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
     </div>
   </div>

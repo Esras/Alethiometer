@@ -54,7 +54,8 @@
     const out: { entry: Entry; move: Move | null }[] = entries
       .filter((e) => !moves.some((m) => m.entry.item_id === e.item_id))
       .map((e) => ({ entry: e, move: null }));
-    for (const m of [...moves].sort((a, b) => a.index - b.index)) out.splice(Math.min(m.index, out.length), 0, { entry: m.entry, move: m.move });
+    for (const m of [...moves].sort((a, b) => a.index - b.index))
+      out.splice(Math.min(m.index, out.length), 0, { entry: m.entry, move: m.move });
     return out;
   });
   // "Now" divider between upcoming/undone (open dots) and what happened.
@@ -118,18 +119,18 @@
 
   useKeys((e) => {
     if (!active || picking || reviewing !== null) return;
-    if (plain(e, 'j') || plain(e, 'ArrowDown')) return step(1), true;
-    if (plain(e, 'k') || plain(e, 'ArrowUp')) return step(-1), true;
-    if (plain(e, 'Enter')) return sel !== null && toggle(sel), true;
-    if (plain(e, 'Escape') && expanded !== null) return (expanded = null), true;
-    if (plain(e, 't') && expanded !== null) return (picking = true), true;
-    if (plain(e, 's') && expanded !== null && multi) return (reviewing = expanded), true;
-    if (plain(e, 'u') && moves.length) return undo(), true;
+    if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
+    if (plain(e, 'k') || plain(e, 'ArrowUp')) return (step(-1), true);
+    if (plain(e, 'Enter')) return (sel !== null && toggle(sel), true);
+    if (plain(e, 'Escape') && expanded !== null) return ((expanded = null), true);
+    if (plain(e, 't') && expanded !== null) return ((picking = true), true);
+    if (plain(e, 's') && expanded !== null && multi) return ((reviewing = expanded), true);
+    if (plain(e, 'u') && moves.length) return (undo(), true);
     const r = entries.find((x) => x.item_id === sel)?.rsvp;
     if (r && answerable(r) && line) {
-      if (alt(e, 'y')) return line.accept(), true;
-      if (alt(e, 'n')) return line.decline(), true;
-      if (alt(e, 'n', true)) return line.declineWithNote(), true;
+      if (alt(e, 'y')) return (line.accept(), true);
+      if (alt(e, 'n')) return (line.decline(), true);
+      if (alt(e, 'n', true)) return (line.declineWithNote(), true);
     }
   });
 </script>
@@ -165,12 +166,23 @@
         {:else}
           <div class="min0">
             <div>
-              {e.title}{#if expanded === e.item_id}<i class="ph ph-caret-up caret"></i>{/if}{#if e.range}<span class="range">{e.range}</span>{/if}
+              {e.title}{#if expanded === e.item_id}<i class="ph ph-caret-up caret"></i>{/if}{#if e.range}<span
+                  class="range">{e.range}</span
+                >{/if}
             </div>
             {#if e.sub}<div class="sub">{e.sub}</div>{/if}
-            {#if e.rsvp && sel === e.item_id && expanded !== e.item_id}<RsvpLine bind:this={line} itemId={e.item_id} rsvp={e.rsvp} small />{/if}
+            {#if e.rsvp && sel === e.item_id && expanded !== e.item_id}<RsvpLine
+                bind:this={line}
+                itemId={e.item_id}
+                rsvp={e.rsvp}
+                small
+              />{/if}
           </div>
-          <span class="right nowrap">{#if e.rsvp && answerable(e.rsvp) && e.rsvp.status === 'needs_action'}<span class="pill quiet">no reply</span>{/if}{e.right}</span>
+          <span class="right nowrap"
+            >{#if e.rsvp && answerable(e.rsvp) && e.rsvp.status === 'needs_action'}<span class="pill quiet"
+                >no reply</span
+              >{/if}{e.right}</span
+          >
           {#if expanded === e.item_id}
             <div class="expanded" onclick={(ev) => ev.stopPropagation()} role="presentation">
               <SignalDetail itemId={e.item_id} ondetail={(d) => (detail = d)}>
@@ -187,7 +199,12 @@
 
 {#if picking && expanded !== null}
   <Dock under=".entry.open">
-    <TopicPicker exclude={topicId} placeholder="Move this signal to…" onpick={moveTo} onclose={() => (picking = false)} />
+    <TopicPicker
+      exclude={topicId}
+      placeholder="Move this signal to…"
+      onpick={moveTo}
+      onclose={() => (picking = false)}
+    />
   </Dock>
 {/if}
 

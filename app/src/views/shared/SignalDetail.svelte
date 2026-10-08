@@ -54,7 +54,11 @@
       {/if}
     {/each}
     <div class="foot">
-      {#if d.url}<button class="app" onclick={() => openExternal(messageUrl(d!.url!, d!.messages.at(-1), d!.messages.at(-1)?.replies?.at(-1)))}>Open in {sourceLabel(d.source)}</button>{/if}
+      {#if d.url}<button
+          class="app"
+          onclick={() => openExternal(messageUrl(d!.url!, d!.messages.at(-1), d!.messages.at(-1)?.replies?.at(-1)))}
+          >Open in {sourceLabel(d.source)}</button
+        >{/if}
       <span class="hints">{@render hints()}</span>
     </div>
   </div>

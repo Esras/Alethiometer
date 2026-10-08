@@ -41,7 +41,6 @@
   $effect(() => live<TopicRow[]>('topics.list', { archived }, (r) => (rows = r)));
   $effect(() => live<CategoryRow[]>('categories.list', {}, (c) => (cats = c)));
 
-
   const matches = $derived.by(() => {
     const needle = q.trim().toLowerCase();
     const inCat = catFilter === null ? rows : rows.filter((t) => t.category === catFilter);
@@ -50,11 +49,22 @@
   const active = $derived(archived ? matches : matches.filter((t) => !t.quiet));
   const quiet = $derived(archived ? [] : matches.filter((t) => t.quiet));
   const flat = $derived([...active, ...quiet]);
-  const sel = $derived(Math.max(0, flat.findIndex((t) => t.id === selId)));
+  const sel = $derived(
+    Math.max(
+      0,
+      flat.findIndex((t) => t.id === selId),
+    ),
+  );
   const current = $derived(flat[sel] ?? null);
-  const canCreate = $derived(!archived && q.trim().length > 0 && !rows.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()));
+  const canCreate = $derived(
+    !archived && q.trim().length > 0 && !rows.some((t) => t.name.toLowerCase() === q.trim().toLowerCase()),
+  );
   // Chip order for [ / ] cycling: All, then categories, then Uncategorized if any.
-  const chipKeys = $derived<(string | null)[]>([null, ...cats.map((c) => c.key), ...(rows.some((t) => !t.category) ? [''] : [])]);
+  const chipKeys = $derived<(string | null)[]>([
+    null,
+    ...cats.map((c) => c.key),
+    ...(rows.some((t) => !t.category) ? [''] : []),
+  ]);
   function cycleCat(d: number) {
     const i = chipKeys.indexOf(catFilter);
     catFilter = chipKeys[(i < 0 ? 0 : i + d + chipKeys.length) % chipKeys.length];
@@ -160,59 +170,91 @@
   useKeys((e) => {
     if (merging) return;
     if (naming !== null && e.target === nameInput) {
-      if (e.key === 'Enter') return void create(naming), true;
-      if (e.key === 'Escape') return (naming = null), true;
+      if (e.key === 'Enter') return (void create(naming), true);
+      if (e.key === 'Escape') return ((naming = null), true);
       return;
     }
     if (e.target === input) {
       const d = listNav(e);
-      if (d) return move(d), true;
-      if (e.key === 'Enter') return current ? open(current) : void create(), true;
-      if (e.key === 'Escape') return input?.blur(), true;
+      if (d) return (move(d), true);
+      if (e.key === 'Enter') return (current ? open(current) : void create(), true);
+      if (e.key === 'Escape') return (input?.blur(), true);
       return;
     }
     const d = listNav(e, { bare: true });
-    if (d) return move(d), true;
-    if (plain(e, 'Enter')) return open(current), true;
-    if (plain(e, 'a')) return toggleArchive(current), true;
-    if (plain(e, 'n')) return create(), true;
-    if (plain(e, 'c')) return current && (picking = current.id), true;
-    if (plain(e, 'p')) return current && setPriority(current), true;
-    if (plain(e, '[')) return cycleCat(-1), true;
-    if (plain(e, ']')) return cycleCat(1), true;
-    if (plain(e, 'm')) return current && !archived && (merging = current), true;
-    if (plain(e, 'u')) return cancelMerge(current && pendingMerge(current.id) ? current.id : undefined), true;
-    if (plain(e, '/')) return input?.focus(), true;
+    if (d) return (move(d), true);
+    if (plain(e, 'Enter')) return (open(current), true);
+    if (plain(e, 'a')) return (toggleArchive(current), true);
+    if (plain(e, 'n')) return (create(), true);
+    if (plain(e, 'c')) return (current && (picking = current.id), true);
+    if (plain(e, 'p')) return (current && setPriority(current), true);
+    if (plain(e, '[')) return (cycleCat(-1), true);
+    if (plain(e, ']')) return (cycleCat(1), true);
+    if (plain(e, 'm')) return (current && !archived && (merging = current), true);
+    if (plain(e, 'u')) return (cancelMerge(current && pendingMerge(current.id) ? current.id : undefined), true);
+    if (plain(e, '/')) return (input?.focus(), true);
   });
 </script>
 
 {#snippet row(t: TopicRow)}
   {@const i = flat.indexOf(t)}
   {@const merge = pendingMerge(t.id)}
-  <div class="row" class:sel={i === sel} class:quiet={t.quiet && !archived} class:merged={!!merge} data-topic={t.id} onclick={() => open(t)} onmousemove={(e) => pointerMoved(e) && (selId = t.id)} role="presentation">
-    <button class="bar" style:background={catColor(t.category)} title="Category (c)" aria-label="Category" onclick={(e) => (e.stopPropagation(), (picking = t.id))}></button>
+  <div
+    class="row"
+    class:sel={i === sel}
+    class:quiet={t.quiet && !archived}
+    class:merged={!!merge}
+    data-topic={t.id}
+    onclick={() => open(t)}
+    onmousemove={(e) => pointerMoved(e) && (selId = t.id)}
+    role="presentation"
+  >
+    <button
+      class="bar"
+      style:background={catColor(t.category)}
+      title="Category (c)"
+      aria-label="Category"
+      onclick={(e) => (e.stopPropagation(), (picking = t.id))}
+    ></button>
     {#if picking === t.id}
-      <div class="pick"><CategoryPicker current={t.category} placement={{ position: 'static' }} onpick={(k) => setCategory(t.id, k)} onclose={() => (picking = null)} /></div>
+      <div class="pick">
+        <CategoryPicker
+          current={t.category}
+          placement={{ position: 'static' }}
+          onpick={(k) => setCategory(t.id, k)}
+          onclose={() => (picking = null)}
+        />
+      </div>
     {/if}
     <div class="min0">
       <div class="name">
         <span class="ellipsis" title={t.name}>{t.name}</span>
-        {#if t.priority}<span class="mono-tag prio" title="Priority: {PRIORITY_NAME[t.priority]} (p)">{t.priority}</span>{/if}
+        {#if t.priority}<span class="mono-tag prio" title="Priority: {PRIORITY_NAME[t.priority]} (p)">{t.priority}</span
+          >{/if}
         {#if t.new_count > 0}<span class="count new tnum">{t.new_count} new</span>{/if}
       </div>
       {#if merge}
         <div class="path merging">merged into {merge.intoName} · <kbd>u</kbd> undo</div>
-      {:else if t.obsidian_path}<div class="path ellipsis" title={t.obsidian_path}>{t.obsidian_path}</div>{:else}<div class="path none">no note</div>{/if}
+      {:else if t.obsidian_path}<div class="path ellipsis" title={t.obsidian_path}>{t.obsidian_path}</div>{:else}<div
+          class="path none"
+        >
+          no note
+        </div>{/if}
     </div>
     <span class="cell tnum">{t.open_count ? `${t.open_count} open` : '—'}</span>
     <span class="cell tnum ellipsis" title={t.last_signal ?? ''}>{t.last_signal ?? '—'}</span>
     <div class="meet">
       <button class="btn archive" onclick={(e) => (e.stopPropagation(), toggleArchive(t))}>
-        <i class="ph ph-{archived ? 'arrow-counter-clockwise' : 'archive'}"></i>{archived ? 'Unarchive' : 'Archive'} <kbd>a</kbd>
+        <i class="ph ph-{archived ? 'arrow-counter-clockwise' : 'archive'}"></i>{archived ? 'Unarchive' : 'Archive'}
+        <kbd>a</kbd>
       </button>
       {#if t.next_meeting}
         {@const p = meetingPill(t.next_meeting.start)}
-        <span class="meeting"><span class="pill {p.weight} tnum">{p.label}</span><span class="ellipsis" title={t.next_meeting.title}>{t.next_meeting.title}</span></span>
+        <span class="meeting"
+          ><span class="pill {p.weight} tnum">{p.label}</span><span class="ellipsis" title={t.next_meeting.title}
+            >{t.next_meeting.title}</span
+          ></span
+        >
       {/if}
     </div>
   </div>
@@ -221,21 +263,33 @@
 <div class="view">
   <div class="panel col">
     <div class="head">
-      <FilterField class="topics-filter" icon="funnel-simple" bind:value={q} bind:el={input} placeholder="Filter topics">
+      <FilterField
+        class="topics-filter"
+        icon="funnel-simple"
+        bind:value={q}
+        bind:el={input}
+        placeholder="Filter topics"
+      >
         <span class="total tnum">{rows.length} topics</span>
       </FilterField>
       <div class="seg" role="tablist" aria-label="Topics">
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
         <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
       </div>
-      <button class="btn md" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"><i class="ph ph-palette"></i>Categories</button>
+      <button class="btn md" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"
+        ><i class="ph ph-palette"></i>Categories</button
+      >
       <button class="btn md primary" onclick={() => create()}><i class="ph ph-plus"></i>New topic</button>
     </div>
     {#if managing}<CategoryManager />{/if}
     <div class="chips">
       <button class="chip" class:on={catFilter === null} onclick={() => (catFilter = null)}>All</button>
       {#each cats as c (c.key)}
-        <button class="chip" class:on={catFilter === c.key} onclick={() => (catFilter = catFilter === c.key ? null : c.key)}>
+        <button
+          class="chip"
+          class:on={catFilter === c.key}
+          onclick={() => (catFilter = catFilter === c.key ? null : c.key)}
+        >
           <span class="sq" style:background={c.color}></span>{c.label}
         </button>
       {/each}
@@ -245,9 +299,18 @@
         </button>
       {/if}
     </div>
-    <div class="cols label"><span></span><span>Topic</span><span>Open</span><span>Last signal</span><span>Next meeting</span></div>
+    <div class="cols label">
+      <span></span><span>Topic</span><span>Open</span><span>Last signal</span><span>Next meeting</span>
+    </div>
     {#if naming !== null}
-      <FilterField class="naming" icon="plus" bind:value={naming} bind:el={nameInput} placeholder="New topic name" onblur={() => !naming?.trim() && (naming = null)}>
+      <FilterField
+        class="naming"
+        icon="plus"
+        bind:value={naming}
+        bind:el={nameInput}
+        placeholder="New topic name"
+        onblur={() => !naming?.trim() && (naming = null)}
+      >
         {#if catFilter !== null}<span class="in">in {category(catFilter).label}</span>{/if}
         <span class="hint"><kbd>↵</kbd> create · <kbd>Esc</kbd></span>
       </FilterField>
@@ -258,7 +321,9 @@
         {#each active as t (t.id)}{@render row(t)}{/each}
       {/if}
       {#if quiet.length}
-        <div class="section label">Quiet · no signal in {ui.info?.quiet_days ?? 7} days <span class="n">{quiet.length}</span></div>
+        <div class="section label">
+          Quiet · no signal in {ui.info?.quiet_days ?? 7} days <span class="n">{quiet.length}</span>
+        </div>
         {#each quiet as t (t.id)}{@render row(t)}{/each}
       {/if}
       {#if !flat.length}
@@ -283,9 +348,15 @@
     <DockHost left={18} />
     <div class="hint-bar">
       <span><kbd>j</kbd> <kbd>k</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>/</kbd> filter</span>
-      <span><kbd>a</kbd> {archived ? 'unarchive' : 'archive'}</span><span><kbd>c</kbd> category</span><span><kbd>p</kbd> priority</span><span><kbd>[</kbd> <kbd>]</kbd> filter chip</span><span><kbd>n</kbd> new topic</span>{#if !archived}<span><kbd>m</kbd> merge</span>{/if}
+      <span><kbd>a</kbd> {archived ? 'unarchive' : 'archive'}</span><span><kbd>c</kbd> category</span><span
+        ><kbd>p</kbd> priority</span
+      ><span><kbd>[</kbd> <kbd>]</kbd> filter chip</span><span><kbd>n</kbd> new topic</span>{#if !archived}<span
+          ><kbd>m</kbd> merge</span
+        >{/if}
       {#if merges.list.length}<span><kbd>u</kbd> undo merge</span>{/if}
-      {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span class="note">Archived topics keep their note and stop matching new signals</span>{/if}
+      {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span
+          class="note">Archived topics keep their note and stop matching new signals</span
+        >{/if}
     </div>
   </div>
 </div>

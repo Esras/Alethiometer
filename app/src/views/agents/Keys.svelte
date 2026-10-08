@@ -74,7 +74,10 @@
   <div class="sheet modal">
     <div class="head">
       <span class="pane-title">Keys</span>
-      <span class="lede"><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> goes from the tree to the thread, then toggles the thread and the composer.</span>
+      <span class="lede"
+        ><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> goes from the tree to the thread, then toggles the
+        thread and the composer.</span
+      >
       <span class="close"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span>
     </div>
     <div class="grid">
@@ -83,14 +86,19 @@
           <div class="st label">{s.title}</div>
           <div class="keys">
             {#each s.keys as [ks, what] (what)}
-              <span class="ks">{#each ks as k (k)}<kbd>{k}</kbd>{/each}</span>
+              <span class="ks"
+                >{#each ks as k (k)}<kbd>{k}</kbd>{/each}</span
+              >
               <span class="what">{what}</span>
             {/each}
           </div>
         </div>
       {/each}
     </div>
-    <div class="foot">Needs you keys work whenever a request is pinned and you aren’t typing. Single-letter keys are off while the composer has focus.</div>
+    <div class="foot">
+      Needs you keys work whenever a request is pinned and you aren’t typing. Single-letter keys are off while the
+      composer has focus.
+    </div>
   </div>
 </Modal>
 

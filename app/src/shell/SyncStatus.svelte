@@ -8,12 +8,33 @@
   import { popover } from '../lib/ui/popover';
   import StatusMark from '../lib/ui/StatusMark.svelte';
 
-  type Source = { id: number; kind: string; tag: string; name: string; last_sync_at: string | null; last_error: string | null; syncing: boolean; live?: boolean | null };
-  type Write = { id: number; source: string; op: string; state: 'pending' | 'sent' | 'confirmed' | 'failed'; error: string | null };
+  type Source = {
+    id: number;
+    kind: string;
+    tag: string;
+    name: string;
+    last_sync_at: string | null;
+    last_error: string | null;
+    syncing: boolean;
+    live?: boolean | null;
+  };
+  type Write = {
+    id: number;
+    source: string;
+    op: string;
+    state: 'pending' | 'sent' | 'confirmed' | 'failed';
+    error: string | null;
+  };
 
   type Tokens = { calls: number; input: number; output: number; cost: number | null };
   type Usage = { tier: string; today: Tokens; week: Tokens };
-  type Run = { status: 'ok' | 'ai_off' | 'failed'; message: string | null; suggested: number; at: string; last_ok_at: string | null };
+  type Run = {
+    status: 'ok' | 'ai_off' | 'failed';
+    message: string | null;
+    suggested: number;
+    at: string;
+    last_ok_at: string | null;
+  };
 
   let sources = $state<Source[]>([]);
   let usage = $state<Usage[]>([]);
@@ -61,9 +82,16 @@
   }
 
   const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : `${n}`);
-  const tokens = (t: Tokens) => `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out${t.cost === null ? '' : ` · $${t.cost.toFixed(2)}`}`;
+  const tokens = (t: Tokens) =>
+    `${t.calls} calls · ${k(t.input)} in · ${k(t.output)} out${t.cost === null ? '' : ` · $${t.cost.toFixed(2)}`}`;
 
-  const newest = $derived(live.map((s) => s.last_sync_at).filter(Boolean).sort().at(-1) ?? null);
+  const newest = $derived(
+    live
+      .map((s) => s.last_sync_at)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null,
+  );
 
   function runState(r: Run | null): string {
     if (!r) return 'not run yet';
@@ -152,9 +180,11 @@
             >{#if s.live != null}<span
                 class="mode"
                 class:on={s.live}
-                title={s.live ? 'Live socket connected: new messages arrive within seconds; a full catch-up runs every few hours' : 'Socket down: polling on a timer'}
-                >{s.live ? 'live' : 'polling'}</span
-              > · {/if}{s.last_error ? 'error' : ago(s.last_sync_at)}</span
+                title={s.live
+                  ? 'Live socket connected: new messages arrive within seconds; a full catch-up runs every few hours'
+                  : 'Socket down: polling on a timer'}>{s.live ? 'live' : 'polling'}</span
+              > ·
+            {/if}{s.last_error ? 'error' : ago(s.last_sync_at)}</span
           >
           {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
             <button class="btn" onclick={() => connect(s.id)}>Connect</button>
@@ -172,12 +202,20 @@
       <div class="row">
         <i class="ph ph-sparkle spark"></i>
         <span class="ellipsis">Topic suggestions</span>
-        <span class="when" class:bad={suggestFailed && !suggest.running}>{suggest.running ? 'running…' : runState(suggest.run)}</span>
-        <button class="btn primary" onclick={retrySuggest} disabled={suggesting || suggest.running}>{suggesting || suggest.running ? 'Running…' : 'Retry'}</button>
+        <span class="when" class:bad={suggestFailed && !suggest.running}
+          >{suggest.running ? 'running…' : runState(suggest.run)}</span
+        >
+        <button class="btn primary" onclick={retrySuggest} disabled={suggesting || suggest.running}
+          >{suggesting || suggest.running ? 'Running…' : 'Retry'}</button
+        >
       </div>
-      {#if suggest.run?.message && suggest.run.status !== 'ok'}<div class="err" class:off={!suggestFailed}>{suggest.run.message}</div>{/if}
+      {#if suggest.run?.message && suggest.run.status !== 'ok'}<div class="err" class:off={!suggestFailed}>
+          {suggest.run.message}
+        </div>{/if}
       {#if suggestFailed}
-        <div class="err sub">{suggest.waiting} signals waiting in Unsorted · last success {ago(suggest.run?.last_ok_at ?? null)}</div>
+        <div class="err sub">
+          {suggest.waiting} signals waiting in Unsorted · last success {ago(suggest.run?.last_ok_at ?? null)}
+        </div>
       {/if}
       {#if usage.length}
         <div class="label">AI tokens</div>

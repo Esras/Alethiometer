@@ -14,7 +14,25 @@
   import ArchiveModal from './agents/ArchiveModal.svelte';
   import BringBack from './agents/BringBack.svelte';
   import ArchivedPane from './agents/ArchivedPane.svelte';
-  import { act, ag, askArchive, closeArchived, look, nodes, openArchived, openForm, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf, turnEnded, undoArchive } from './agents/state.svelte';
+  import {
+    act,
+    ag,
+    askArchive,
+    closeArchived,
+    look,
+    nodes,
+    openArchived,
+    openForm,
+    openThread,
+    pinned,
+    selectable,
+    setTab,
+    startPolling,
+    stopPolling,
+    threadOf,
+    turnEnded,
+    undoArchive,
+  } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
 
   $effect(() => {
@@ -47,10 +65,11 @@
   function nextAttention(d: 1 | -1) {
     const asking = new Set((ag.tree?.requests ?? []).map((r) => r.thread));
     const list = nodes().filter((n) => selectable(n) && n.type !== 'group');
-    const needs = (n: (typeof list)[number]) => asking.has(n.key) || (n.type === 'session' && (n.s.status === 'failed' || turnEnded(n.s)));
+    const needs = (n: (typeof list)[number]) =>
+      asking.has(n.key) || (n.type === 'session' && (n.s.status === 'failed' || turnEnded(n.s)));
     const at = list.findIndex((n) => n.key === ag.sel);
     for (let step = 1; step <= list.length; step++) {
-      const n = list[(((at < 0 ? (d > 0 ? -1 : 0) : at) + d * step) % list.length + list.length) % list.length];
+      const n = list[((((at < 0 ? (d > 0 ? -1 : 0) : at) + d * step) % list.length) + list.length) % list.length];
       if (needs(n)) {
         ag.sel = n.key;
         openThread(n.key);
@@ -62,7 +81,8 @@
   function fold(open: boolean) {
     const n = nodes().find((x) => x.key === ag.sel);
     if (!n) return;
-    const gid = n.type === 'group' ? n.group.id : n.type === 'session' ? n.s.group_id : n.type === 'room' ? n.group.id : null;
+    const gid =
+      n.type === 'group' ? n.group.id : n.type === 'session' ? n.s.group_id : n.type === 'room' ? n.group.id : null;
     if (!gid) return;
     if (open) ag.folded.delete(gid);
     else {
@@ -142,7 +162,9 @@
     const st = r?.delivery?.state;
     if (!r || (st !== 'unreachable' && st !== 'failed') || !ag.open) return false;
     const map: Record<string, string> =
-      st === 'unreachable' ? { Enter: 'start_and_send', f: 'forward', Escape: 'discard' } : { Enter: 'retry', e: 'edit', Escape: 'cancel' };
+      st === 'unreachable'
+        ? { Enter: 'start_and_send', f: 'forward', Escape: 'discard' }
+        : { Enter: 'retry', e: 'edit', Escape: 'cancel' };
     const action = map[e.key];
     if (!action) return false;
     if (action === 'edit') ag.drafts[ag.open] = r.text;
@@ -181,7 +203,7 @@
     if (req && !denying) {
       if (req.kind === 'approval' && /^[1-9]$/.test(k) && approval?.choose(k)) return true;
       if (req.kind === 'ask' && /^[1-9]$/.test(k) && ask?.choose(k)) return true;
-      if (req.kind === 'ask' && k === 'r' && ask) return ask.reply(), true;
+      if (req.kind === 'ask' && k === 'r' && ask) return (ask.reply(), true);
     }
     if (ag.zone === 'thread' && deliveryKey(e)) return true;
     if (k === 'u' && undoArchive()) return true;
@@ -229,7 +251,8 @@
       else if (k === 'e') toggleExpand();
       else if (k === 'Enter') reply();
       else if (k === 'c') copyRow();
-      else if (k === 'g') pane?.latest(); else if (k === 't' && threadOf(ag.open).session?.source === 'scion') setTab('transcript');
+      else if (k === 'g') pane?.latest();
+      else if (k === 't' && threadOf(ag.open).session?.source === 'scion') setTab('transcript');
       else if (k === 'm' && threadOf(ag.open).session?.source === 'scion') setTab('messages');
       else return false;
       return true;

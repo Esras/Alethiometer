@@ -15,7 +15,8 @@
 // here. Its ↵ is the same code as the topic picker's.)
 const outside = (t) => t.page.mouse.click(1, 1170);
 
-const cursor = (t, cfg) => cfg.opts(t).evaluateAll((els, c) => els.findIndex((e) => e.classList.contains(c)), cfg.on ?? 'on');
+const cursor = (t, cfg) =>
+  cfg.opts(t).evaluateAll((els, c) => els.findIndex((e) => e.classList.contains(c)), cfg.on ?? 'on');
 
 async function expectCursor(t, cfg, want, what) {
   const got = await cursor(t, cfg);
@@ -36,7 +37,10 @@ function cases(name, cfg) {
       await t.page.waitForTimeout(400);
       const after = await cfg.opts(t).count();
       t.ok(after > 0 && after < before, `${before} rows before, ${after} after`);
-      t.ok(cfg.filter.expect.test(await cfg.opts(t).first().innerText()), `first row after filtering: ${await cfg.opts(t).first().innerText()}`);
+      t.ok(
+        cfg.filter.expect.test(await cfg.opts(t).first().innerText()),
+        `first row after filtering: ${await cfg.opts(t).first().innerText()}`,
+      );
     },
     [`${name}: ↓ and ↑ move the cursor`]: async (t) => {
       await open(t);
@@ -173,7 +177,10 @@ const picks = {
     await t.page.waitForTimeout(600);
     t.ok(searches > 0 && searches < 5, `${searches} searches for 5 keystrokes`);
     const rows = await t.page.locator('.card .rows .row').allInnerTexts();
-    t.ok(rows.length === 2 && /Priya/.test(rows[0]) && /Create person/.test(rows[1]), `rows for "priya": ${rows.join(' | ')}`);
+    t.ok(
+      rows.length === 2 && /Priya/.test(rows[0]) && /Create person/.test(rows[1]),
+      `rows for "priya": ${rows.join(' | ')}`,
+    );
   },
   'person picker: the create row is the last one and the cursor stops on it': async (t) => {
     await incomingPerson.open(t);
@@ -217,7 +224,10 @@ const picks = {
     const pick = t.page.locator('.catpick .picker');
     await t.visible(pick, 'did not open');
     const [a, b] = await Promise.all([pick.boundingBox(), t.page.locator('.catpick > button').boundingBox()]);
-    t.ok(Math.abs(a.y - (b.y + b.height + 4)) < 1.5 && Math.abs(a.x - b.x) < 1.5, `at ${a.x},${a.y}, the button is ${b.x},${b.y + b.height}`);
+    t.ok(
+      Math.abs(a.y - (b.y + b.height + 4)) < 1.5 && Math.abs(a.x - b.x) < 1.5,
+      `at ${a.x},${a.y}, the button is ${b.x},${b.y + b.height}`,
+    );
     await t.steps('Escape');
     await t.gone(pick);
   },
@@ -283,7 +293,8 @@ const lists = {
   '⌘K: ↓ and ↑ move the result': async (t) => {
     await t.steps('Control+k', { type: 'acme' });
     await t.page.waitForTimeout(500);
-    const sel = () => t.page.locator('.row[data-i]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
+    const sel = () =>
+      t.page.locator('.row[data-i]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     t.ok((await sel()) === 0, 'not at the top');
     await t.steps('ArrowDown');
     t.ok((await sel()) === 1, `↓: row ${await sel()}`);
@@ -293,7 +304,8 @@ const lists = {
   'Settings: ↓ and ↑ move the found setting, j and k move the setting': async (t) => {
     await t.steps('Control+,', '/', { type: 'font' });
     await t.page.waitForTimeout(300);
-    const found = () => t.page.locator('.result').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
+    const found = () =>
+      t.page.locator('.result').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     t.ok((await found()) === 0, 'not at the top');
     await t.steps('ArrowDown');
     t.ok((await found()) === 1, `↓: result ${await found()}`);
@@ -302,7 +314,8 @@ const lists = {
     await t.steps('Escape', 'Escape');
     await t.gone(t.page.getByPlaceholder('Find a setting'));
     await t.steps('Control+,');
-    const focused = () => t.page.locator('.row').evaluateAll((els) => els.findIndex((e) => e.classList.contains('focused')));
+    const focused = () =>
+      t.page.locator('.row').evaluateAll((els) => els.findIndex((e) => e.classList.contains('focused')));
     const start = await focused();
     await t.steps('j');
     t.ok((await focused()) === start + 1, `j: setting ${await focused()} after ${start}`);
@@ -313,7 +326,8 @@ const lists = {
   },
   'Topics index: ↓ and ↑ move in the filter, j and k on the list': async (t) => {
     await t.steps('Control+3');
-    const sel = () => t.page.locator('.row[data-topic]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
+    const sel = () =>
+      t.page.locator('.row[data-topic]').evaluateAll((els) => els.findIndex((e) => e.classList.contains('sel')));
     const start = await sel();
     await t.steps('j');
     t.ok((await sel()) === start + 1, `j: row ${await sel()} after ${start}`);

@@ -22,7 +22,12 @@
   let shown = $state(false);
 
   // Stays mounted while closed, so it takes keys only while the list is open.
-  const p = new Picker<undefined>({ rows: (): number => list.length, pick: (i) => list[i] && pick(list[i].name), onclose: () => close(), active: () => shown });
+  const p = new Picker<undefined>({
+    rows: (): number => list.length,
+    pick: (i) => list[i] && pick(list[i].name),
+    onclose: () => close(),
+    active: () => shown,
+  });
 
   $effect(() => {
     if (open) show();
@@ -39,7 +44,10 @@
   function show() {
     shown = true;
     p.q = '';
-    p.sel = Math.max(0, list.findIndex((f) => f.name === value));
+    p.sel = Math.max(
+      0,
+      list.findIndex((f) => f.name === value),
+    );
   }
 
   function close() {
@@ -53,18 +61,26 @@
   }
 
   const label = (n: string) => n || (mono ? 'System monospace' : 'System');
-  const face = (n: string) => (n ? `"${n}", ${mono ? 'monospace' : 'sans-serif'}` : mono ? 'ui-monospace, monospace' : 'system-ui, sans-serif');
+  const face = (n: string) =>
+    n ? `"${n}", ${mono ? 'monospace' : 'sans-serif'}` : mono ? 'ui-monospace, monospace' : 'system-ui, sans-serif';
 </script>
 
 <span class="pick">
   <!-- Open, a press here keeps the focus in the field, so the click closes (not blur, then reopen). -->
-  <button class="current" style:font-family={face(value)} onmousedown={(e) => shown && e.preventDefault()} onclick={() => (shown ? close() : show())}>{label(value)}<i class="ph ph-caret-down"></i></button>
+  <button
+    class="current"
+    style:font-family={face(value)}
+    onmousedown={(e) => shown && e.preventDefault()}
+    onclick={() => (shown ? close() : show())}>{label(value)}<i class="ph ph-caret-down"></i></button
+  >
   {#if shown}
     <div class="pop popover flush" role="listbox" use:p.frame>
       <div class="search"><input class="input" use:p.field bind:value={p.q} placeholder="Filter fonts…" /></div>
       <div class="opts scroll">
         {#each list as f, i (f.name)}
-          <button class="opt" class:sel={i === p.sel} style:font-family={face(f.name)} {...p.row(i)}>{label(f.name)}</button>
+          <button class="opt" class:sel={i === p.sel} style:font-family={face(f.name)} {...p.row(i)}
+            >{label(f.name)}</button
+          >
         {/each}
         {#if !list.length}<div class="empty-row">No installed font matches</div>{/if}
       </div>

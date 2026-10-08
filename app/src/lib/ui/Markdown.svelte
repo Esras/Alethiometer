@@ -60,7 +60,8 @@
   }
 
   type Span = { kind: 'text' | 'code' | 'b' | 'i' | 's' | 'link'; text: string; href?: string };
-  const INLINE = /(`[^`]+`)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|~~([^~]+)~~|(?<!\w)_([^_\s](?:[^_]*[^_\s])?)_(?!\w)/g;
+  const INLINE =
+    /(`[^`]+`)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|~~([^~]+)~~|(?<!\w)_([^_\s](?:[^_]*[^_\s])?)_(?!\w)/g;
 
   function spans(line: string): Span[] {
     const out: Span[] = [];
@@ -88,7 +89,11 @@
     {:else if s.kind === 'b'}<strong>{s.text}</strong>
     {:else if s.kind === 'i'}<em>{s.text}</em>
     {:else if s.kind === 's'}<s>{s.text}</s>
-    {:else if s.kind === 'link'}<a class="link-out" href={s.href} onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a>
+    {:else if s.kind === 'link'}<a
+        class="link-out"
+        href={s.href}
+        onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a
+      >
     {:else}{s.text}{/if}
   {/each}
 {/snippet}
@@ -97,10 +102,18 @@
   {#each parsed as b}
     {#if b.kind === 'code'}<pre><code>{b.text}</code></pre>
     {:else if b.kind === 'h'}<div class="h h{Math.min(b.level, 3)}">{@render inline(b.text)}</div>
-    {:else if b.kind === 'ul'}<ul>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ul>
-    {:else if b.kind === 'ol'}<ol start={b.start}>{#each b.items as it}<li>{@render inline(it)}</li>{/each}</ol>
-    {:else if b.kind === 'quote'}<blockquote>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</blockquote>
-    {:else if b.kind === 'p'}<p>{#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}</p>{/if}
+    {:else if b.kind === 'ul'}<ul>
+        {#each b.items as it}<li>{@render inline(it)}</li>{/each}
+      </ul>
+    {:else if b.kind === 'ol'}<ol start={b.start}>
+        {#each b.items as it}<li>{@render inline(it)}</li>{/each}
+      </ol>
+    {:else if b.kind === 'quote'}<blockquote>
+        {#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}
+      </blockquote>
+    {:else if b.kind === 'p'}<p>
+        {#each b.lines as l, i}{#if i}<br />{/if}{@render inline(l)}{/each}
+      </p>{/if}
   {/each}
 </div>
 
