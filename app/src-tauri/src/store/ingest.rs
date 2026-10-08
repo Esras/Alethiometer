@@ -13,21 +13,32 @@ impl Ingest for Sql<'_> {
     fn handle_person(&self, source_kind: &str, h: &Handle) -> Result<i64> {
         let c = self.conn();
         if let Some(id) = c
-            .query_row("SELECT person_id FROM person_handles WHERE source_kind = ?1 AND handle = ?2", params![source_kind, h.handle], |r| r.get(0))
+            .query_row(
+                "SELECT person_id FROM person_handles WHERE source_kind = ?1 AND handle = ?2",
+                params![source_kind, h.handle],
+                |r| r.get(0),
+            )
             .optional()?
         {
             return Ok(id);
         }
         c.execute("INSERT INTO people (display_name) VALUES (?1)", [&h.display_name])?;
         let id = c.last_insert_rowid();
-        c.execute("INSERT INTO person_handles (person_id, source_kind, handle) VALUES (?1, ?2, ?3)", params![id, source_kind, h.handle])?;
+        c.execute(
+            "INSERT INTO person_handles (person_id, source_kind, handle) VALUES (?1, ?2, ?3)",
+            params![id, source_kind, h.handle],
+        )?;
         Ok(id)
     }
 
     fn reply_read(&self, holder: i64, key: &str, parent: &str) -> Result<bool> {
         Ok(self
             .conn()
-            .query_row("SELECT read FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3", params![holder, key, parent], |r| r.get(0))
+            .query_row(
+                "SELECT read FROM item_messages WHERE item_id = ?1 AND ext_key = ?2 AND reply_to = ?3",
+                params![holder, key, parent],
+                |r| r.get(0),
+            )
             .optional()?
             .unwrap_or(false))
     }
@@ -58,7 +69,9 @@ impl Ingest for Sql<'_> {
     }
 
     fn remote_rev(&self, item_id: i64) -> Result<Option<String>> {
-        Ok(self.conn().query_row("SELECT remote_rev FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
+        Ok(self
+            .conn()
+            .query_row("SELECT remote_rev FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
     }
 
     fn update_item(&self, id: i64, it: &ItemUpsert, author: Option<i64>, bump: bool) -> Result<()> {
@@ -70,8 +83,23 @@ impl Ingest for Sql<'_> {
                source_created_at = coalesce(?18, source_created_at)
              WHERE id = ?1",
             params![
-                id, it.kind, it.title, it.body, it.summary, it.url, author, it.occurred_at, it.ended_at,
-                due_at, due_day, it.status, it.msg_count, it.owner, it.raw_json.to_string(), bump, it.remote_rev,
+                id,
+                it.kind,
+                it.title,
+                it.body,
+                it.summary,
+                it.url,
+                author,
+                it.occurred_at,
+                it.ended_at,
+                due_at,
+                due_day,
+                it.status,
+                it.msg_count,
+                it.owner,
+                it.raw_json.to_string(),
+                bump,
+                it.remote_rev,
                 it.source_created_at
             ],
         )?;
@@ -90,7 +118,16 @@ impl Ingest for Sql<'_> {
         )?;
         for (m, key) in messages {
             let hashed = crate::domain::splits::content_key(&m.at.to_db(), &m.author, &m.text);
-            upsert.execute(params![item_id, m.at, m.author, m.text, key, m.author_id, m.context, hashed])?;
+            upsert.execute(params![
+                item_id,
+                m.at,
+                m.author,
+                m.text,
+                key,
+                m.author_id,
+                m.context,
+                hashed
+            ])?;
         }
         // A hashed key changes with the message: what the source no longer
         // sends under it is an earlier version, not a message of its own.
@@ -113,7 +150,9 @@ impl Ingest for Sql<'_> {
 
     fn put_event(&self, item_id: i64, source_id: i64, title: &str, e: &EventFields) -> Result<()> {
         let c = self.conn();
-        let ev: Option<i64> = c.query_row("SELECT id FROM events WHERE item_id = ?1", [item_id], |r| r.get(0)).optional()?;
+        let ev: Option<i64> = c
+            .query_row("SELECT id FROM events WHERE item_id = ?1", [item_id], |r| r.get(0))
+            .optional()?;
         match ev {
             Some(ev) => c.execute(
                 "UPDATE events SET start = ?2, end = ?3, title = ?4, category = ?5, tentative = ?6, attendees = ?7 WHERE id = ?1",
@@ -129,14 +168,20 @@ impl Ingest for Sql<'_> {
     }
 
     fn drop_event(&self, item_id: i64) -> Result<()> {
-        self.conn().execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [item_id])?;
+        self.conn()
+            .execute("DELETE FROM events WHERE item_id = ?1 AND is_life_busy = 0", [item_id])?;
         Ok(())
     }
 
     fn cancel(&self, source_id: i64, external_id: &str) -> Result<usize> {
         let c = self.conn();
-        let id: Option<i64> =
-            c.query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id], |r| r.get(0)).optional()?;
+        let id: Option<i64> = c
+            .query_row(
+                "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
+                params![source_id, external_id],
+                |r| r.get(0),
+            )
+            .optional()?;
         let Some(id) = id else { return Ok(0) };
         let n = c.execute(
             "UPDATE items SET status = 'done', seen = 0, summary = 'cancelled', raw_json = json_set(raw_json, '$.change', 'cancelled')
@@ -157,7 +202,10 @@ impl Ingest for Sql<'_> {
     }
 
     fn mark_seen(&self, source_id: i64, external_id: &str) -> Result<()> {
-        self.conn().execute("UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id])?;
+        self.conn().execute(
+            "UPDATE items SET seen = 1 WHERE source_id = ?1 AND external_id = ?2",
+            params![source_id, external_id],
+        )?;
         Ok(())
     }
 
@@ -212,7 +260,10 @@ impl Ingest for Sql<'_> {
             .prepare_cached("SELECT start, buffer_min FROM events WHERE source_id = ?1 AND buffer_min IS NOT NULL")?
             .query_map([source_id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        c.execute("DELETE FROM events WHERE source_id = ?1 AND is_life_busy = 1", [source_id])?;
+        c.execute(
+            "DELETE FROM events WHERE source_id = ?1 AND is_life_busy = 1",
+            [source_id],
+        )?;
         for b in busy {
             c.execute(
                 "INSERT INTO events (source_id, start, end, category, is_life_busy, buffer_min) VALUES (?1, ?2, ?3, 'life', 1, ?4)",

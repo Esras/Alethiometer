@@ -116,7 +116,13 @@ pub struct GmailConfig {
 
 impl Default for GmailConfig {
     fn default() -> Self {
-        GmailConfig { account: String::new(), secret_prefix: "gmail".into(), client_prefix: "gcal".into(), category_labels: BTreeMap::new(), read_only: false }
+        GmailConfig {
+            account: String::new(),
+            secret_prefix: "gmail".into(),
+            client_prefix: "gcal".into(),
+            category_labels: BTreeMap::new(),
+            read_only: false,
+        }
     }
 }
 
@@ -300,7 +306,12 @@ pub struct ProtoncalConfig {
 
 impl Default for ProtoncalConfig {
     fn default() -> Self {
-        ProtoncalConfig { urls: vec![], past_days: 1, future_days: 14, all_day: "busy".into() }
+        ProtoncalConfig {
+            urls: vec![],
+            past_days: 1,
+            future_days: 14,
+            all_day: "busy".into(),
+        }
     }
 }
 
@@ -393,7 +404,14 @@ pub struct ScionConfig {
 
 impl Default for ScionConfig {
     fn default() -> Self {
-        ScionConfig { hub_url: String::new(), web_url: String::new(), token_secret: "scion.token".into(), projects: vec![], max_messages: 300, timeout_secs: 10 }
+        ScionConfig {
+            hub_url: String::new(),
+            web_url: String::new(),
+            token_secret: "scion.token".into(),
+            projects: vec![],
+            max_messages: 300,
+            timeout_secs: 10,
+        }
     }
 }
 
@@ -421,36 +439,121 @@ pub struct SecretSlot {
 
 /// The secrets a source of `kind` reads, by name, with this config.
 pub fn secrets(kind: &str, config: &Value) -> Vec<SecretSlot> {
-    let slot = |name: String, label: &str, note: &str, optional: bool, oauth: bool| SecretSlot { name, label: label.into(), note: note.into(), optional, oauth };
-    let get = |k: &str, d: &str| config.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(d).to_string();
+    let slot = |name: String, label: &str, note: &str, optional: bool, oauth: bool| SecretSlot {
+        name,
+        label: label.into(),
+        note: note.into(),
+        optional,
+        oauth,
+    };
+    let get = |k: &str, d: &str| {
+        config
+            .get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(d)
+            .to_string()
+    };
     match kind {
         "slack" => {
             let d = SlackConfig::default();
             vec![
-                slot(get("user_token_secret", &d.user_token_secret), "User token", "xoxp-…", false, false),
-                slot(get("app_token_secret", &d.app_token_secret), "App token", "xapp-… · live feed", true, false),
+                slot(
+                    get("user_token_secret", &d.user_token_secret),
+                    "User token",
+                    "xoxp-…",
+                    false,
+                    false,
+                ),
+                slot(
+                    get("app_token_secret", &d.app_token_secret),
+                    "App token",
+                    "xapp-… · live feed",
+                    true,
+                    false,
+                ),
             ]
         }
-        "jira" => vec![slot(get("secret", crate::sync::connectors::jira::DEFAULT_SECRET), "API token", "", false, false)],
-        "github" => vec![slot(get("secret", crate::sync::connectors::github::DEFAULT_SECRET), "Token", "empty takes it from gh", true, false)],
-        "glean" => vec![slot(get("token_secret", "glean.token"), "API token", "Glean API token with search scope", false, false)],
-        "scion" => vec![slot(get("token_secret", "scion.token"), "Access token", "scion_pat_…", false, false)],
-        "obsidian" => vec![slot(crate::sync::connectors::obsidian::rest::API_KEY.into(), "REST API key", "Local REST API plugin", true, false)],
+        "jira" => vec![slot(
+            get("secret", crate::sync::connectors::jira::DEFAULT_SECRET),
+            "API token",
+            "",
+            false,
+            false,
+        )],
+        "github" => vec![slot(
+            get("secret", crate::sync::connectors::github::DEFAULT_SECRET),
+            "Token",
+            "empty takes it from gh",
+            true,
+            false,
+        )],
+        "glean" => vec![slot(
+            get("token_secret", "glean.token"),
+            "API token",
+            "Glean API token with search scope",
+            false,
+            false,
+        )],
+        "scion" => vec![slot(
+            get("token_secret", "scion.token"),
+            "Access token",
+            "scion_pat_…",
+            false,
+            false,
+        )],
+        "obsidian" => vec![slot(
+            crate::sync::connectors::obsidian::rest::API_KEY.into(),
+            "REST API key",
+            "Local REST API plugin",
+            true,
+            false,
+        )],
         "gcal" => {
             let p = get("secret_prefix", "gcal");
             vec![
-                slot(format!("{p}.client_id"), "OAuth client ID", "…apps.googleusercontent.com", false, false),
+                slot(
+                    format!("{p}.client_id"),
+                    "OAuth client ID",
+                    "…apps.googleusercontent.com",
+                    false,
+                    false,
+                ),
                 slot(format!("{p}.client_secret"), "OAuth client secret", "", false, false),
-                slot(format!("{p}.refresh_token"), "Sign-in", "written by Connect", false, true),
+                slot(
+                    format!("{p}.refresh_token"),
+                    "Sign-in",
+                    "written by Connect",
+                    false,
+                    true,
+                ),
             ]
         }
         "gmail" => {
             let c = get("client_prefix", "gcal");
             let p = get("secret_prefix", "gmail");
             vec![
-                slot(format!("{c}.client_id"), "OAuth client ID", "shared with the calendar", false, false),
-                slot(format!("{c}.client_secret"), "OAuth client secret", "shared with the calendar", false, false),
-                slot(format!("{p}.refresh_token"), "Sign-in", "written by Connect", false, true),
+                slot(
+                    format!("{c}.client_id"),
+                    "OAuth client ID",
+                    "shared with the calendar",
+                    false,
+                    false,
+                ),
+                slot(
+                    format!("{c}.client_secret"),
+                    "OAuth client secret",
+                    "shared with the calendar",
+                    false,
+                    false,
+                ),
+                slot(
+                    format!("{p}.refresh_token"),
+                    "Sign-in",
+                    "written by Connect",
+                    false,
+                    true,
+                ),
             ]
         }
         _ => vec![],
@@ -466,7 +569,9 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
         anyhow::bail!("config must be an object");
     }
     fn check<T: serde::de::DeserializeOwned>(v: &Value) -> anyhow::Result<()> {
-        serde_json::from_value::<T>(v.clone()).map(|_| ()).map_err(|e| anyhow::anyhow!("config: {e}"))
+        serde_json::from_value::<T>(v.clone())
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("config: {e}"))
     }
     match kind {
         "slack" => check::<SlackConfig>(config),
@@ -479,7 +584,9 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
         "glean" => {
             let c: GleanConfig = serde_json::from_value(config.clone()).map_err(|e| anyhow::anyhow!("config: {e}"))?;
             // Plain http only to this machine (a local stand-in during development).
-            let loopback = ["http://127.0.0.1", "http://localhost"].iter().any(|p| c.server_url.starts_with(p));
+            let loopback = ["http://127.0.0.1", "http://localhost"]
+                .iter()
+                .any(|p| c.server_url.starts_with(p));
             if !c.server_url.is_empty() && !c.server_url.starts_with("https://") && !loopback {
                 anyhow::bail!("config.server_url must start with https://");
             }
@@ -487,7 +594,9 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
         }
         "scion" => {
             let c: ScionConfig = serde_json::from_value(config.clone()).map_err(|e| anyhow::anyhow!("config: {e}"))?;
-            let loopback = ["http://127.0.0.1", "http://localhost"].iter().any(|p| c.hub_url.starts_with(p));
+            let loopback = ["http://127.0.0.1", "http://localhost"]
+                .iter()
+                .any(|p| c.hub_url.starts_with(p));
             if !c.hub_url.is_empty() && !c.hub_url.starts_with("https://") && !loopback {
                 anyhow::bail!("config.hub_url must start with https://");
             }
@@ -499,19 +608,21 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
 
 /// Defaults for a new source of `kind`, as JSON.
 pub fn defaults(kind: &str) -> Option<Value> {
-    Some(match kind {
-        "slack" => serde_json::to_value(SlackConfig::default()),
-        "gmail" => serde_json::to_value(GmailConfig::default()),
-        "gcal" => serde_json::to_value(GcalConfig::default()),
-        "jira" => serde_json::to_value(JiraConfig::default()),
-        "github" => serde_json::to_value(GithubConfig::default()),
-        "obsidian" => serde_json::to_value(ObsidianConfig::default()),
-        "protoncal" => serde_json::to_value(ProtoncalConfig::default()),
-        "glean" => serde_json::to_value(GleanConfig::default()),
-        "scion" => serde_json::to_value(ScionConfig::default()),
-        _ => return None,
-    }
-    .ok()?)
+    Some(
+        match kind {
+            "slack" => serde_json::to_value(SlackConfig::default()),
+            "gmail" => serde_json::to_value(GmailConfig::default()),
+            "gcal" => serde_json::to_value(GcalConfig::default()),
+            "jira" => serde_json::to_value(JiraConfig::default()),
+            "github" => serde_json::to_value(GithubConfig::default()),
+            "obsidian" => serde_json::to_value(ObsidianConfig::default()),
+            "protoncal" => serde_json::to_value(ProtoncalConfig::default()),
+            "glean" => serde_json::to_value(GleanConfig::default()),
+            "scion" => serde_json::to_value(ScionConfig::default()),
+            _ => return None,
+        }
+        .ok()?,
+    )
 }
 
 /// The JSON schema of each kind's config.
@@ -542,34 +653,93 @@ mod tests {
         let slack = crate::sync::connectors::slack::Config::from_json(&json!({}));
         let d = SlackConfig::default();
         assert_eq!(
-            (slack.lookback_hours, slack.max_dms as i64, slack.thread_days, slack.max_threads as i64, slack.catchup_hours, slack.dms, slack.mentions),
-            (d.lookback_hours, d.max_dms, d.thread_days, d.max_threads, d.catchup_hours, d.dms, d.mentions)
+            (
+                slack.lookback_hours,
+                slack.max_dms as i64,
+                slack.thread_days,
+                slack.max_threads as i64,
+                slack.catchup_hours,
+                slack.dms,
+                slack.mentions
+            ),
+            (
+                d.lookback_hours,
+                d.max_dms,
+                d.thread_days,
+                d.max_threads,
+                d.catchup_hours,
+                d.dms,
+                d.mentions
+            )
         );
-        assert_eq!((slack.user_token_secret, slack.app_token_secret), (d.user_token_secret, d.app_token_secret));
+        assert_eq!(
+            (slack.user_token_secret, slack.app_token_secret),
+            (d.user_token_secret, d.app_token_secret)
+        );
         let g = crate::sync::connectors::gcal::Config::from(&json!({}));
         let d = GcalConfig::default();
         assert_eq!(
-            (g.calendar_id, g.days_back, g.days_ahead, g.hold_minutes, g.hold_day_start, g.hold_day_end, g.hold_search_days as i64, g.default_category),
-            (d.calendar_id, d.days_back, d.days_ahead, d.hold_minutes, d.hold_hours[0], d.hold_hours[1], d.hold_search_days, d.default_category)
+            (
+                g.calendar_id,
+                g.days_back,
+                g.days_ahead,
+                g.hold_minutes,
+                g.hold_day_start,
+                g.hold_day_end,
+                g.hold_search_days as i64,
+                g.default_category
+            ),
+            (
+                d.calendar_id,
+                d.days_back,
+                d.days_ahead,
+                d.hold_minutes,
+                d.hold_hours[0],
+                d.hold_hours[1],
+                d.hold_search_days,
+                d.default_category
+            )
         );
     }
 
     #[test]
     fn the_real_configs_validate() {
         // Shapes from docs/sources and the work Mac's settings.json.
-        validate("slack", &json!({ "channels": "all", "lookback_hours": 12, "muted": ["#random"] })).unwrap();
+        validate(
+            "slack",
+            &json!({ "channels": "all", "lookback_hours": 12, "muted": ["#random"] }),
+        )
+        .unwrap();
         validate("slack", &json!({ "channels": ["#inc-2291", "C0123"] })).unwrap();
-        validate("gmail", &json!({ "account": "me@work.com", "category_labels": { "work": "Work" } })).unwrap();
-        validate("gcal", &json!({ "category_by_color": { "3": "self" }, "hold_hours": [9, 17] })).unwrap();
-        validate("jira", &json!({ "base_url": "https://x.atlassian.net", "email": "a@b", "jql": "project = X" })).unwrap();
+        validate(
+            "gmail",
+            &json!({ "account": "me@work.com", "category_labels": { "work": "Work" } }),
+        )
+        .unwrap();
+        validate(
+            "gcal",
+            &json!({ "category_by_color": { "3": "self" }, "hold_hours": [9, 17] }),
+        )
+        .unwrap();
+        validate(
+            "jira",
+            &json!({ "base_url": "https://x.atlassian.net", "email": "a@b", "jql": "project = X" }),
+        )
+        .unwrap();
         validate("github", &json!({ "team_review_requests": false, "read_only": true })).unwrap();
         validate("obsidian", &json!({ "vault": "/v", "write_mode": "file" })).unwrap();
         validate("protoncal", &json!({ "urls": ["https://calendar.proton.me/x"] })).unwrap();
         validate("glean", &json!({ "server_url": "https://acme-be.glean.com" })).unwrap();
-        validate("scion", &json!({ "hub_url": "https://hub.example.com", "projects": ["ingest-svc"] })).unwrap();
+        validate(
+            "scion",
+            &json!({ "hub_url": "https://hub.example.com", "projects": ["ingest-svc"] }),
+        )
+        .unwrap();
         assert!(validate("scion", &json!({ "hub_url": "http://hub" })).is_err());
         validate("slack", &json!({ "someday_key": 1 })).expect("unknown keys are allowed");
-        let e = validate("slack", &json!({ "lookback_hours": "lots" })).unwrap_err().to_string();
+        let e = validate("slack", &json!({ "lookback_hours": "lots" }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("lookback_hours") || e.contains("invalid type"), "{e}");
         assert!(validate("glean", &json!({ "server_url": "http://x" })).is_err());
         assert!(validate("fax", &json!({})).is_err());

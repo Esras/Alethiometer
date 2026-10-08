@@ -38,12 +38,19 @@ pub fn ensure(app: &App) -> anyhow::Result<()> {
 }
 
 fn download(app: &App, url: &str, to: &Path) -> anyhow::Result<()> {
-    let agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(std::time::Duration::from_secs(20))).build().new_agent();
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_connect(Some(std::time::Duration::from_secs(20)))
+        .build()
+        .new_agent();
     let mut resp = agent.get(url).call().map_err(|e| anyhow::anyhow!("couldn't reach Hugging Face for the embedding model ({e}). The Mac needs to reach huggingface.co once; retry from Settings → AI."))?;
     if !resp.status().is_success() {
         anyhow::bail!("downloading {url}: HTTP {}", resp.status());
     }
-    let total = resp.headers().get("content-length").and_then(|v| v.to_str().ok()?.parse().ok());
+    let total = resp
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok()?.parse().ok());
     let part = to.with_extension("part");
     let mut out = std::fs::File::create(&part)?;
     let mut reader = resp.body_mut().with_config().limit(u64::MAX).reader();
@@ -84,9 +91,13 @@ enum Input {
 
 impl Onnx {
     pub fn load(dir: &Path) -> anyhow::Result<Onnx> {
-        let mut tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| anyhow::anyhow!("tokenizer.json: {e}"))?;
+        let mut tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
+            .map_err(|e| anyhow::anyhow!("tokenizer.json: {e}"))?;
         tokenizer
-            .with_truncation(Some(tokenizers::TruncationParams { max_length: MAX_TOKENS, ..Default::default() }))
+            .with_truncation(Some(tokenizers::TruncationParams {
+                max_length: MAX_TOKENS,
+                ..Default::default()
+            }))
             .map_err(|e| anyhow::anyhow!("tokenizer: {e}"))?;
         tokenizer.with_padding(None);
         let mut model = tract_onnx::onnx().model_for_path(dir.join("model.onnx"))?;
@@ -104,11 +115,18 @@ impl Onnx {
             model = model.with_input_fact(i, i64::fact(tract_onnx::tract_core::dims!(1, s)).into())?;
         }
         let plan = model.into_optimized()?.into_runnable()?;
-        Ok(Onnx { plan, tokenizer, inputs })
+        Ok(Onnx {
+            plan,
+            tokenizer,
+            inputs,
+        })
     }
 
     fn one(&self, text: &str) -> anyhow::Result<Vec<f32>> {
-        let enc = self.tokenizer.encode(text, true).map_err(|e| anyhow::anyhow!("tokenize: {e}"))?;
+        let enc = self
+            .tokenizer
+            .encode(text, true)
+            .map_err(|e| anyhow::anyhow!("tokenize: {e}"))?;
         let ids: Vec<i64> = enc.get_ids().iter().map(|&x| x as i64).collect();
         let n = ids.len().max(1);
         let mask: Vec<i64> = enc.get_attention_mask().iter().map(|&x| x as i64).collect();
@@ -116,12 +134,14 @@ impl Onnx {
         let t = |v: &[i64]| Tensor::from_shape(&[1, n], v);
         let mut feed: TVec<TValue> = tvec![];
         for which in &self.inputs {
-            feed.push(match which {
-                Input::Ids => t(&ids)?,
-                Input::Mask => t(&mask)?,
-                Input::Types => t(&types)?,
-            }
-            .into());
+            feed.push(
+                match which {
+                    Input::Ids => t(&ids)?,
+                    Input::Mask => t(&mask)?,
+                    Input::Types => t(&types)?,
+                }
+                .into(),
+            );
         }
         let out = self.plan.run(feed)?;
         let hidden = out[0].to_plain_array_view::<f32>()?;
@@ -158,11 +178,16 @@ mod tests {
     fn runs_an_onnx_model_through_tract() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/embed");
         let e = Onnx::load(&dir).unwrap();
-        let v = e.embed(&["cutover plan".into(), "cutover plan".into(), "dentist".into()]).unwrap();
+        let v = e
+            .embed(&["cutover plan".into(), "cutover plan".into(), "dentist".into()])
+            .unwrap();
         assert_eq!(v[0].len(), DIM);
         let norm: f32 = v[0].iter().map(|x| x * x).sum();
         assert!((norm - 1.0).abs() < 1e-4, "unit length ({norm})");
-        assert!((super::super::cosine(&v[0], &v[1]) - 1.0).abs() < 1e-5, "same text, same vector");
+        assert!(
+            (super::super::cosine(&v[0], &v[1]) - 1.0).abs() < 1e-5,
+            "same text, same vector"
+        );
         assert!(super::super::cosine(&v[0], &v[2]) < 0.999);
         let long = "word ".repeat(2000);
         e.embed(&[long]).expect("long text is cut, not an error");

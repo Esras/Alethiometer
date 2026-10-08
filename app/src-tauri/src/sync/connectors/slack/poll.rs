@@ -50,7 +50,7 @@ use super::api::{ts_after, ts_secs, ApiError, Client};
 use super::socket::{self, Flag, Mode, Plan};
 use super::Config;
 use crate::clock::Clock;
-use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Profile, StreamOutcome, Polling};
+use crate::sync::{Batch, Ctx, Handle, ItemUpsert, Message, Polling, Profile, StreamOutcome};
 use crate::time::Ts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -243,15 +243,26 @@ impl Msg {
             text = rich_text(v);
         }
         for f in v.get("files").and_then(Value::as_array).into_iter().flatten() {
-            let image = f.get("mimetype").and_then(Value::as_str).is_some_and(|m| m.starts_with("image/"));
+            let image = f
+                .get("mimetype")
+                .and_then(Value::as_str)
+                .is_some_and(|m| m.starts_with("image/"));
             let name = f.get("name").and_then(Value::as_str).unwrap_or("");
             let line = format!("[{}] {name}", if image { "image" } else { "file" });
-            text = if text.trim().is_empty() { line } else { format!("{text}\n{line}") };
+            text = if text.trim().is_empty() {
+                line
+            } else {
+                format!("{text}\n{line}")
+            };
         }
         Some(Msg {
             ts: s("ts")?,
             user: s("user").filter(|u| !u.is_empty()),
-            bot_name: v.pointer("/bot_profile/name").and_then(Value::as_str).map(str::to_owned).or_else(|| s("username")),
+            bot_name: v
+                .pointer("/bot_profile/name")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| s("username")),
             bot_id: s("bot_id").filter(|b| !b.is_empty()),
             text,
             thread_ts: s("thread_ts"),
@@ -266,7 +277,13 @@ impl Msg {
 }
 
 fn rich_text(v: &Value) -> String {
-    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
+    let s = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+    };
     let mut out: Vec<String> = vec![];
     for a in v.get("attachments").and_then(Value::as_array).into_iter().flatten() {
         let before = out.len();
@@ -292,8 +309,15 @@ fn blocks_text(blocks: &Value) -> String {
             Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
             Value::Object(o) => {
                 match o.get("type").and_then(Value::as_str) {
-                    Some("user") => return out.push_str(&format!("<@{}>", o.get("user_id").and_then(Value::as_str).unwrap_or(""))),
-                    Some("link") if o.get("text").is_none() => return out.push_str(o.get("url").and_then(Value::as_str).unwrap_or("")),
+                    Some("user") => {
+                        return out.push_str(&format!(
+                            "<@{}>",
+                            o.get("user_id").and_then(Value::as_str).unwrap_or("")
+                        ))
+                    }
+                    Some("link") if o.get("text").is_none() => {
+                        return out.push_str(o.get("url").and_then(Value::as_str).unwrap_or(""))
+                    }
                     Some("image") => return,
                     _ => {}
                 }
@@ -449,7 +473,10 @@ impl Poller<'_, '_, '_> {
         };
         if self.recorded.insert(key.to_owned()) || error.is_some() {
             self.outcomes.retain(|o| o.key != key);
-            self.outcomes.push(StreamOutcome { key: key.to_owned(), error });
+            self.outcomes.push(StreamOutcome {
+                key: key.to_owned(),
+                error,
+            });
         }
         if !self.items.is_empty() {
             if let Some(streams) = self.streams.as_mut() {
@@ -552,8 +579,14 @@ impl Poller<'_, '_, '_> {
             self.stream(&c, |p| p.check_conv(&c))?;
         }
         if self.cfg.mentions {
-            threads.extend(self.stream("search:mentions", |p| p.search_mentions())?.unwrap_or_default());
-            threads.extend(self.stream("search:replies", |p| p.search_my_replies())?.unwrap_or_default());
+            threads.extend(
+                self.stream("search:mentions", |p| p.search_mentions())?
+                    .unwrap_or_default(),
+            );
+            threads.extend(
+                self.stream("search:replies", |p| p.search_my_replies())?
+                    .unwrap_or_default(),
+            );
         }
         // Tracked threads: all of them on a socket catch-up (it's rare);
         // without the socket, busy ones every poll and quiet ones hourly.
@@ -562,7 +595,9 @@ impl Poller<'_, '_, '_> {
             .state
             .threads
             .iter()
-            .filter(|(_, t)| all || self.now - ts_secs(&t.seen) < HOT_THREAD_SECS || self.now - t.checked >= COLD_THREAD_CHECK_SECS)
+            .filter(|(_, t)| {
+                all || self.now - ts_secs(&t.seen) < HOT_THREAD_SECS || self.now - t.checked >= COLD_THREAD_CHECK_SECS
+            })
             .filter_map(|(k, _)| k.split_once('/').map(|(c, t)| (c.to_owned(), t.to_owned())))
             .collect();
         threads.extend(tracked);
@@ -593,7 +628,11 @@ impl Poller<'_, '_, '_> {
 
     /// Everything the user is a member of: channels always, DMs when enabled.
     fn conversations(&mut self) -> anyhow::Result<Vec<Conv>> {
-        let types = if self.cfg.dms { "public_channel,private_channel,im,mpim" } else { "public_channel,private_channel" };
+        let types = if self.cfg.dms {
+            "public_channel,private_channel,im,mpim"
+        } else {
+            "public_channel,private_channel"
+        };
         let raw = self.client.get_paged(
             "users.conversations",
             &[("types", types), ("exclude_archived", "true"), ("limit", "200")],
@@ -634,14 +673,19 @@ impl Poller<'_, '_, '_> {
                     }
                     None => anyhow::bail!("Slack: followed channel '{entry}' not found"),
                 },
-                None => anyhow::bail!("Slack: followed channel '{entry}' not found among channels you're in; use its id or join it"),
+                None => anyhow::bail!(
+                    "Slack: followed channel '{entry}' not found among channels you're in; use its id or join it"
+                ),
             };
             if !out.iter().any(|c| c.id == conv.id) {
                 out.push(conv);
             }
         }
         if self.cfg.all_channels {
-            for c in convs.iter().filter(|c| matches!(c.kind, ConvKind::Channel { .. }) && c.member) {
+            for c in convs
+                .iter()
+                .filter(|c| matches!(c.kind, ConvKind::Channel { .. }) && c.member)
+            {
                 if !out.iter().any(|o| o.id == c.id) {
                     out.push(c.clone());
                 }
@@ -668,7 +712,11 @@ impl Poller<'_, '_, '_> {
         }
         let v = self.client.get("conversations.info", &[("channel", id)])?;
         let c = v.get("channel").and_then(Conv::parse);
-        if let Some(Conv { kind: ConvKind::Channel { name }, .. }) = &c {
+        if let Some(Conv {
+            kind: ConvKind::Channel { name },
+            ..
+        }) = &c
+        {
             self.channel_names.insert(id.to_owned(), name.clone());
         }
         self.infos.insert(id.to_owned(), c.clone());
@@ -706,7 +754,12 @@ impl Poller<'_, '_, '_> {
         let oldest = format!("{oldest:.6}");
         let raw = self.client.get_paged(
             "conversations.history",
-            &[("channel", id), ("oldest", &oldest), ("inclusive", "true"), ("limit", "200")],
+            &[
+                ("channel", id),
+                ("oldest", &oldest),
+                ("inclusive", "true"),
+                ("limit", "200"),
+            ],
             "messages",
             HISTORY_PAGES,
         )?;
@@ -715,7 +768,12 @@ impl Poller<'_, '_, '_> {
         let prev_seen = prev.map(|p| p.seen);
         if let Some(newest) = msgs.last() {
             if prev_seen.as_deref().is_none_or(|s| ts_after(&newest.ts, s)) {
-                self.state.convs.insert(id.to_owned(), ConvState { seen: newest.ts.clone() });
+                self.state.convs.insert(
+                    id.to_owned(),
+                    ConvState {
+                        seen: newest.ts.clone(),
+                    },
+                );
             }
         }
         // Parents with replies we haven't read yet.
@@ -749,9 +807,20 @@ impl Poller<'_, '_, '_> {
         // No `oldest`: the parent (first in the answer) carries the thread's
         // read marker and title, and threads are rarely longer than a page.
         // Parent deleted: `stream` stops tracking it after a few tries; the item stays.
-        let raw = self.client.get_paged("conversations.replies", &[("channel", channel), ("ts", thread_ts), ("limit", "200")], "messages", REPLIES_PAGES)?;
-        let parent = raw.iter().find(|m| m.get("ts").and_then(Value::as_str) == Some(thread_ts));
-        let mut msgs: Vec<Msg> = raw.iter().filter_map(Msg::parse).filter(|m| m.ts != thread_ts).collect();
+        let raw = self.client.get_paged(
+            "conversations.replies",
+            &[("channel", channel), ("ts", thread_ts), ("limit", "200")],
+            "messages",
+            REPLIES_PAGES,
+        )?;
+        let parent = raw
+            .iter()
+            .find(|m| m.get("ts").and_then(Value::as_str) == Some(thread_ts));
+        let mut msgs: Vec<Msg> = raw
+            .iter()
+            .filter_map(Msg::parse)
+            .filter(|m| m.ts != thread_ts)
+            .collect();
         msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
         let me = self.state.me.clone();
         let pstr = |k: &str| parent.and_then(|p| p.get(k)).and_then(Value::as_str);
@@ -761,7 +830,9 @@ impl Poller<'_, '_, '_> {
                 .and_then(|p| p.get("reply_users"))
                 .and_then(Value::as_array)
                 .is_some_and(|u| u.iter().any(|u| u.as_str() == Some(me.as_str())))
-            || msgs.iter().any(|m| m.user.as_deref() == Some(me.as_str()) || m.text.contains(&format!("<@{me}")));
+            || msgs
+                .iter()
+                .any(|m| m.user.as_deref() == Some(me.as_str()) || m.text.contains(&format!("<@{me}")));
         let followed = self.state.follow.iter().any(|c| c == channel);
         let prev = self.state.threads.get(&key).cloned();
         if !(in_it || followed || conv.is_dm()) {
@@ -774,7 +845,11 @@ impl Poller<'_, '_, '_> {
                 let cleaned = self.clean(pstr("text").unwrap_or_default())?;
                 let words = first_words(&cleaned, 6);
                 let base = self.base_title(&conv)?;
-                if words.is_empty() { format!("{base} · thread") } else { format!("{base} · thread: {words}") }
+                if words.is_empty() {
+                    format!("{base} · thread")
+                } else {
+                    format!("{base} · thread: {words}")
+                }
             }
         };
         let open = self.state.open.get(&key).cloned();
@@ -786,17 +861,34 @@ impl Poller<'_, '_, '_> {
             // The floor bounds the first read of a thread, not its age.
             floor: if prev.is_some() { 0.0 } else { self.floor() },
         };
-        let newest = msgs.last().map(|m| m.ts.clone()).unwrap_or_else(|| thread_ts.to_owned());
+        let newest = msgs
+            .last()
+            .map(|m| m.ts.clone())
+            .unwrap_or_else(|| thread_ts.to_owned());
         let seen = match &prev_seen {
             Some(s) if !ts_after(&newest, s) => s.clone(),
             _ => newest,
         };
-        self.state.threads.insert(key.clone(), ThreadState { seen, title: title.clone(), checked: self.now });
+        self.state.threads.insert(
+            key.clone(),
+            ThreadState {
+                seen,
+                title: title.clone(),
+                checked: self.now,
+            },
+        );
         let start = msgs.iter().position(|m| marker.unread(&m.ts)).unwrap_or(msgs.len());
         let mut context: Vec<Msg> = parent.and_then(Msg::parse).into_iter().collect();
         context.extend(msgs[..start].iter().skip(start.saturating_sub(MAX_MSGS)).cloned());
         let unread: Vec<Msg> = msgs.into_iter().filter(|m| marker.unread(&m.ts)).collect();
-        self.emit(&conv, Some((thread_ts, &title)), &key, &unread, prev_seen.as_deref(), Some(context))
+        self.emit(
+            &conv,
+            Some((thread_ts, &title)),
+            &key,
+            &unread,
+            prev_seen.as_deref(),
+            Some(context),
+        )
     }
 
     /// Write, update or close the item for one stream's unread run.
@@ -845,10 +937,17 @@ impl Poller<'_, '_, '_> {
             });
         }
         let run = messages.iter().filter(|m| !m.context);
-        let body = run.clone().map(|m| format!("{}: {}", m.author, m.text)).collect::<Vec<_>>().join("\n");
+        let body = run
+            .clone()
+            .map(|m| format!("{}: {}", m.author, m.text))
+            .collect::<Vec<_>>()
+            .join("\n");
         let summary = run.clone().next_back().map(|m| truncate(&m.text, 140));
         let author = match unread.iter().rev().find_map(|m| m.user.as_ref().filter(|u| **u != me)) {
-            Some(u) => Some(Handle { handle: u.clone(), display_name: self.user_name(u)? }),
+            Some(u) => Some(Handle {
+                handle: u.clone(),
+                display_name: self.user_name(u)?,
+            }),
             None => None,
         };
         let mut raw = json!({
@@ -868,7 +967,12 @@ impl Poller<'_, '_, '_> {
         }
         self.items.push(ItemUpsert {
             external_id: id.clone(),
-            kind: if thread.is_some() || unread.len() > 1 { "thread" } else { "message" }.into(),
+            kind: if thread.is_some() || unread.len() > 1 {
+                "thread"
+            } else {
+                "message"
+            }
+            .into(),
             title,
             body,
             summary,
@@ -892,17 +996,37 @@ impl Poller<'_, '_, '_> {
         if muted {
             self.seen.push(id.clone());
         }
-        self.state.open.insert(key.to_owned(), Open { id, first: first.ts.clone(), last: last.ts.clone() });
+        self.state.open.insert(
+            key.to_owned(),
+            Open {
+                id,
+                first: first.ts.clone(),
+                last: last.ts.clone(),
+            },
+        );
         Ok(())
     }
 
     fn context_before(&mut self, channel: &str, ts: &str) -> anyhow::Result<Vec<Msg>> {
         let limit = (CONTEXT_MSGS * 4).to_string();
-        let v = self.client.get("conversations.history", &[("channel", channel), ("latest", ts), ("inclusive", "false"), ("limit", &limit)])?;
+        let v = self.client.get(
+            "conversations.history",
+            &[
+                ("channel", channel),
+                ("latest", ts),
+                ("inclusive", "false"),
+                ("limit", &limit),
+            ],
+        )?;
         let mut msgs: Vec<Msg> = v
             .get("messages")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Msg::parse).filter(|m| !m.is_reply() && ts_after(ts, &m.ts)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Msg::parse)
+                    .filter(|m| !m.is_reply() && ts_after(ts, &m.ts))
+                    .collect()
+            })
             .unwrap_or_default();
         msgs.sort_by(|a, b| ts_secs(&a.ts).total_cmp(&ts_secs(&b.ts)));
         Ok(msgs.split_off(msgs.len().saturating_sub(CONTEXT_MSGS)))
@@ -919,10 +1043,23 @@ impl Poller<'_, '_, '_> {
     /// `search.messages`, newest first. `after:` is by day and exclusive, so
     /// ask from the day before `since`.
     fn search(&mut self, query: &str, since: f64) -> anyhow::Result<Vec<Value>> {
-        let day = Ts::from_unix_secs(since - 86_400.0).map(|t| self.clock.day_of(t).to_string()).unwrap_or_default();
+        let day = Ts::from_unix_secs(since - 86_400.0)
+            .map(|t| self.clock.day_of(t).to_string())
+            .unwrap_or_default();
         let q = format!("{query} after:{day}");
-        let v = self.client.get("search.messages", &[("query", &q), ("sort", "timestamp"), ("sort_dir", "desc"), ("count", "100")])?;
-        Ok(v.pointer("/messages/matches").and_then(Value::as_array).cloned().unwrap_or_default())
+        let v = self.client.get(
+            "search.messages",
+            &[
+                ("query", &q),
+                ("sort", "timestamp"),
+                ("sort_dir", "desc"),
+                ("count", "100"),
+            ],
+        )?;
+        Ok(v.pointer("/messages/matches")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     /// Mentions of you since the last search. In a thread: check the thread
@@ -931,14 +1068,20 @@ impl Poller<'_, '_, '_> {
     /// `max_dms`). Elsewhere: a mention item.
     fn search_mentions(&mut self) -> anyhow::Result<Vec<(String, String)>> {
         let me = self.state.me.clone();
-        let since = (self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
+        let since =
+            (self.state.mention_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
         let tag = format!("<@{me}");
         let mut newest = self.state.mention_ts.clone();
         let mut threads = vec![];
         for m in self.search(&format!("<@{me}>"), since)? {
             let hit = Hit::parse(&m);
             // Search is fuzzy; keep only real mentions by others, once.
-            if hit.ts.is_empty() || hit.channel.is_empty() || hit.user == me || !hit.text.contains(&tag) || ts_secs(&hit.ts) <= since {
+            if hit.ts.is_empty()
+                || hit.channel.is_empty()
+                || hit.user == me
+                || !hit.text.contains(&tag)
+                || ts_secs(&hit.ts) <= since
+            {
                 continue;
             }
             if newest.as_deref().is_none_or(|n| ts_after(&hit.ts, n)) {
@@ -950,7 +1093,16 @@ impl Poller<'_, '_, '_> {
                 let c = hit.channel.clone();
                 self.stream(&c, |p| p.check_conv(&c))?;
             } else {
-                let msg = Msg { ts: hit.ts, user: Some(hit.user).filter(|u| !u.is_empty()), bot_name: Some(hit.username), bot_id: None, text: hit.text, thread_ts: None, reply_count: 0, latest_reply: None };
+                let msg = Msg {
+                    ts: hit.ts,
+                    user: Some(hit.user).filter(|u| !u.is_empty()),
+                    bot_name: Some(hit.username),
+                    bot_id: None,
+                    text: hit.text,
+                    thread_ts: None,
+                    reply_count: 0,
+                    latest_reply: None,
+                };
                 self.mention_item(&hit.channel, hit.channel_name, &msg, hit.permalink)?;
             }
         }
@@ -962,7 +1114,8 @@ impl Poller<'_, '_, '_> {
     /// Alethiometer may not know yet (you replied from your phone while it was off).
     fn search_my_replies(&mut self) -> anyhow::Result<Vec<(String, String)>> {
         let me = self.state.me.clone();
-        let since = (self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
+        let since =
+            (self.state.reply_ts.as_deref().map(ts_secs).unwrap_or(0.0) - SEARCH_OVERLAP_SECS).max(self.floor());
         let mut newest = self.state.reply_ts.clone();
         let mut threads = vec![];
         for m in self.search(&format!("from:<@{me}>"), since)? {
@@ -988,13 +1141,27 @@ impl Poller<'_, '_, '_> {
         }
         let v = self.client.get(
             "conversations.history",
-            &[("channel", channel), ("oldest", ts), ("latest", ts), ("inclusive", "true"), ("limit", "1")],
+            &[
+                ("channel", channel),
+                ("oldest", ts),
+                ("latest", ts),
+                ("inclusive", "true"),
+                ("limit", "1"),
+            ],
         )?;
-        let Some(msg) = v.get("messages").and_then(Value::as_array).and_then(|a| a.first()).and_then(Msg::parse) else {
+        let Some(msg) = v
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(Msg::parse)
+        else {
             return Ok(());
         };
         let name = match self.info(channel)? {
-            Some(Conv { kind: ConvKind::Channel { name }, .. }) => name,
+            Some(Conv {
+                kind: ConvKind::Channel { name },
+                ..
+            }) => name,
             _ => channel.to_owned(),
         };
         self.mention_item(channel, name, &msg, None)?;
@@ -1007,7 +1174,13 @@ impl Poller<'_, '_, '_> {
     /// up to there in Slack. That also marks what came before it read: by the
     /// user's choice, the mention is the unread part that matters there.
     /// (`slack.mark_read` never moves the marker backwards.)
-    fn mention_item(&mut self, channel: &str, channel_name: String, m: &Msg, permalink: Option<String>) -> anyhow::Result<()> {
+    fn mention_item(
+        &mut self,
+        channel: &str,
+        channel_name: String,
+        m: &Msg,
+        permalink: Option<String>,
+    ) -> anyhow::Result<()> {
         let member = self.info(channel).ok().flatten().is_some_and(|c| c.member);
         let name = self.author_name(m)?;
         let clean = self.clean(&m.text)?;
@@ -1020,7 +1193,10 @@ impl Poller<'_, '_, '_> {
             body: format!("{name}: {clean}"),
             summary: Some(truncate(&clean, 140)),
             url: permalink.or_else(|| self.permalink(channel, &m.ts, None)),
-            author: m.user.as_ref().map(|u| Handle { handle: u.clone(), display_name: name.clone() }),
+            author: m.user.as_ref().map(|u| Handle {
+                handle: u.clone(),
+                display_name: name.clone(),
+            }),
             occurred_at: at.clone(),
             status: "open".into(),
             msg_count: Some(1),
@@ -1031,7 +1207,13 @@ impl Poller<'_, '_, '_> {
                 }
                 raw
             },
-            messages: vec![Message { at, author: name, text: clean, author_id: m.user.clone(), context: false }],
+            messages: vec![Message {
+                at,
+                author: name,
+                text: clean,
+                author_id: m.user.clone(),
+                context: false,
+            }],
             bump: true,
             remote_rev: Some(m.ts.clone()),
             ..Default::default()
@@ -1039,7 +1221,14 @@ impl Poller<'_, '_, '_> {
         if self.cfg.is_muted(channel, &channel_name) {
             self.seen.push(id.clone());
         }
-        self.state.open.insert(id.clone(), Open { id, first: m.ts.clone(), last: m.ts.clone() });
+        self.state.open.insert(
+            id.clone(),
+            Open {
+                id,
+                first: m.ts.clone(),
+                last: m.ts.clone(),
+            },
+        );
         Ok(())
     }
 
@@ -1050,9 +1239,16 @@ impl Poller<'_, '_, '_> {
         self.state.open.retain(|_, o| ts_secs(&o.last) >= cutoff);
         self.state.closed.retain(|_, last| ts_secs(last) >= cutoff);
         let open = &self.state.open;
-        self.state.threads.retain(|k, t| ts_secs(&t.seen) >= cutoff || open.contains_key(k));
+        self.state
+            .threads
+            .retain(|k, t| ts_secs(&t.seen) >= cutoff || open.contains_key(k));
         if self.state.threads.len() > self.cfg.max_threads {
-            let mut by_age: Vec<(f64, String)> = self.state.threads.iter().map(|(k, t)| (ts_secs(&t.seen), k.clone())).collect();
+            let mut by_age: Vec<(f64, String)> = self
+                .state
+                .threads
+                .iter()
+                .map(|(k, t)| (ts_secs(&t.seen), k.clone()))
+                .collect();
             by_age.sort_by(|a, b| a.0.total_cmp(&b.0));
             let extra = self.state.threads.len() - self.cfg.max_threads;
             for (_, k) in by_age.into_iter().filter(|(_, k)| !open.contains_key(k)).take(extra) {
@@ -1060,7 +1256,9 @@ impl Poller<'_, '_, '_> {
             }
         }
         let follow = &self.state.follow;
-        self.state.convs.retain(|k, c| ts_secs(&c.seen) >= cutoff || follow.contains(k));
+        self.state
+            .convs
+            .retain(|k, c| ts_secs(&c.seen) >= cutoff || follow.contains(k));
     }
 
     /// Display name for a user id, one `users.info` call per user per poll.
@@ -1070,15 +1268,30 @@ impl Poller<'_, '_, '_> {
         }
         let name = match self.client.get("users.info", &[("user", id)]) {
             Ok(v) => {
-                let s = |p: &str| v.pointer(p).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+                let s = |p: &str| {
+                    v.pointer(p)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                };
                 // Real name and email (`users:read.email`) for People (queries::people).
                 let real_name = s("/user/profile/real_name").or_else(|| s("/user/real_name"));
                 let email = s("/user/profile/email");
                 let is_bot = id == "USLACKBOT" || v.pointer("/user/is_bot").and_then(Value::as_bool) == Some(true);
                 if real_name.is_some() || email.is_some() || is_bot {
-                    self.profiles.push(Profile { kind: "slack".into(), account: id.to_owned(), real_name: real_name.clone(), email, is_bot });
+                    self.profiles.push(Profile {
+                        kind: "slack".into(),
+                        account: id.to_owned(),
+                        real_name: real_name.clone(),
+                        email,
+                        is_bot,
+                    });
                 }
-                s("/user/profile/display_name").or(real_name).or_else(|| s("/user/name")).unwrap_or_else(|| id.to_owned())
+                s("/user/profile/display_name")
+                    .or(real_name)
+                    .or_else(|| s("/user/name"))
+                    .unwrap_or_else(|| id.to_owned())
             }
             // Deleted or foreign users: show the id rather than failing the poll.
             Err(e) if e.to_string().contains("user_not_found") => id.to_owned(),
@@ -1104,7 +1317,12 @@ impl Poller<'_, '_, '_> {
             return Ok(n.clone());
         }
         let name = match self.client.get("bots.info", &[("bot", id)]) {
-            Ok(v) => v.pointer("/bot/name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or("bot").to_owned(),
+            Ok(v) => v
+                .pointer("/bot/name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .unwrap_or("bot")
+                .to_owned(),
             Err(e) if e.to_string().contains("bot_not_found") => "bot".into(),
             Err(e) => return Err(e),
         };
@@ -1139,10 +1357,13 @@ impl Poller<'_, '_, '_> {
                 None => (inner, None),
             };
             let rendered = if let Some(uid) = target.strip_prefix('@') {
-                format!("@{}", match label {
-                    Some(l) => l.to_owned(),
-                    None => self.user_name(uid)?,
-                })
+                format!(
+                    "@{}",
+                    match label {
+                        Some(l) => l.to_owned(),
+                        None => self.user_name(uid)?,
+                    }
+                )
             } else if let Some(cid) = target.strip_prefix('#') {
                 let name = match label {
                     Some(l) => l.to_owned(),
@@ -1188,19 +1409,36 @@ impl Hit {
     fn parse(m: &Value) -> Hit {
         let s = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
         let permalink = s("permalink");
-        let channel = m.pointer("/channel/id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let channel = m
+            .pointer("/channel/id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         let thread_ts = m
             .get("thread_ts")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .or_else(|| permalink.split("thread_ts=").nth(1).map(|t| t.split('&').next().unwrap_or(t).to_owned()));
-        let b = |k: &str| m.pointer(&format!("/channel/{k}")).and_then(Value::as_bool).unwrap_or(false);
+            .or_else(|| {
+                permalink
+                    .split("thread_ts=")
+                    .nth(1)
+                    .map(|t| t.split('&').next().unwrap_or(t).to_owned())
+            });
+        let b = |k: &str| {
+            m.pointer(&format!("/channel/{k}"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        };
         Hit {
             ts: s("ts"),
             user: s("user"),
             username: s("username"),
             text: s("text"),
-            channel_name: m.pointer("/channel/name").and_then(Value::as_str).unwrap_or(&channel).to_owned(),
+            channel_name: m
+                .pointer("/channel/name")
+                .and_then(Value::as_str)
+                .unwrap_or(&channel)
+                .to_owned(),
             dm: b("is_im") || b("is_mpim"),
             channel,
             thread_ts,
@@ -1210,7 +1448,9 @@ impl Hit {
 }
 
 fn looks_like_id(s: &str) -> bool {
-    s.len() >= 9 && (s.starts_with('C') || s.starts_with('G')) && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    s.len() >= 9
+        && (s.starts_with('C') || s.starts_with('G'))
+        && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
 }
 
 /// "mpdm-alice--bob--me-1" → "alice, bob".
@@ -1234,7 +1474,9 @@ fn unescape(s: &str) -> String {
 fn slack_markup(s: &str) -> String {
     let bold = regex::Regex::new(r"\*([^*\n]+)\*").expect("static regex");
     let strike = regex::Regex::new(r"~([^~\n]+)~").expect("static regex");
-    strike.replace_all(&bold.replace_all(s, "**$1**"), "~~$1~~").into_owned()
+    strike
+        .replace_all(&bold.replace_all(s, "**$1**"), "~~$1~~")
+        .into_owned()
 }
 
 fn first_words(s: &str, n: usize) -> String {
@@ -1274,7 +1516,10 @@ mod tests {
             "fallback": "ignored"
         }]});
         let m = Msg::parse(&dd).unwrap();
-        assert_eq!(m.text, "Triggered: Query Monitor Disabled on uams\n* Validate the query works\nTags: @stack_name:uams");
+        assert_eq!(
+            m.text,
+            "Triggered: Query Monitor Disabled on uams\n* Validate the query works\nTags: @stack_name:uams"
+        );
         assert_eq!(m.bot_id.as_deref(), Some("B0DD"));
 
         let blocks = json!({ "ts": "2.0", "text": "", "blocks": [
@@ -1288,38 +1533,68 @@ mod tests {
 
     #[test]
     fn marker_ignores_slacks_read_state() {
-        let m = Marker { from: None, after: Some("90.0".into()), closed: None, floor: 10.0 };
+        let m = Marker {
+            from: None,
+            after: Some("90.0".into()),
+            closed: None,
+            floor: 10.0,
+        };
         assert!(!m.unread("90.0") && m.unread("91.0"));
         assert_eq!(m.oldest(), 90.0);
         // An open run keeps everything from its start, older than the floor or not.
-        let m = Marker { from: Some("5.000000".into()), after: Some("90.0".into()), closed: None, floor: 10.0 };
+        let m = Marker {
+            from: Some("5.000000".into()),
+            after: Some("90.0".into()),
+            closed: None,
+            floor: 10.0,
+        };
         assert!(m.unread("5.000000") && m.unread("50.0") && !m.unread("4.9"));
         assert_eq!(m.oldest(), 5.0);
         // A triaged run's messages never come back.
-        let m = Marker { from: None, after: Some("20.0".into()), closed: Some("60.0".into()), floor: 10.0 };
+        let m = Marker {
+            from: None,
+            after: Some("20.0".into()),
+            closed: Some("60.0".into()),
+            floor: 10.0,
+        };
         assert!(!m.unread("60.0") && m.unread("60.1"));
         assert_eq!(m.oldest(), 60.0);
         // Nothing read yet: the lookback floor bounds it.
-        let m = Marker { from: None, after: None, closed: None, floor: 10.0 };
+        let m = Marker {
+            from: None,
+            after: None,
+            closed: None,
+            floor: 10.0,
+        };
         assert!(!m.unread("9.0") && m.unread("11.0"));
         assert_eq!(m.oldest(), 10.0);
     }
 
     #[test]
     fn cleans_mrkdwn() {
-        assert_eq!(clean_plain("Ping <@U1|sam> in <#C1|inc> see <https://x.io|doc> &amp; <!here>"), "Ping sam in inc see doc & here");
+        assert_eq!(
+            clean_plain("Ping <@U1|sam> in <#C1|inc> see <https://x.io|doc> &amp; <!here>"),
+            "Ping sam in inc see doc & here"
+        );
         assert_eq!(mpim_names("mpdm-alice--bob--me-1", "me"), "alice, bob");
         assert_eq!(first_words("one two three", 2), "one two…");
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert!(looks_like_id("C0123ABCD") && !looks_like_id("inc-2291"));
-        assert_eq!(slack_markup("*bold* and ~gone~ and _italic_ stays"), "**bold** and ~~gone~~ and _italic_ stays");
+        assert_eq!(
+            slack_markup("*bold* and ~gone~ and _italic_ stays"),
+            "**bold** and ~~gone~~ and _italic_ stays"
+        );
     }
 
     #[test]
     fn search_hits_find_their_thread_in_the_permalink() {
-        let h = Hit::parse(&json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000?thread_ts=1.000100&cid=C1", "channel": { "id": "C1", "name": "ops" } }));
+        let h = Hit::parse(
+            &json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000?thread_ts=1.000100&cid=C1", "channel": { "id": "C1", "name": "ops" } }),
+        );
         assert_eq!((h.channel.as_str(), h.thread_ts.as_deref()), ("C1", Some("1.000100")));
-        let h = Hit::parse(&json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000", "channel": { "id": "C1" } }));
+        let h = Hit::parse(
+            &json!({ "ts": "2.0", "permalink": "https://a.slack.com/archives/C1/p2000000", "channel": { "id": "C1" } }),
+        );
         assert_eq!(h.thread_ts, None);
     }
 }

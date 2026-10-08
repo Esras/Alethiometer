@@ -48,7 +48,13 @@ fn workers(app: &App) -> std::sync::MutexGuard<'_, BTreeMap<i64, Worker>> {
 }
 
 pub(super) fn poll_lock(app: &App, id: i64) -> Arc<Mutex<()>> {
-    app.workers.locks.lock().unwrap_or_else(|e| e.into_inner()).entry(id).or_default().clone()
+    app.workers
+        .locks
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(id)
+        .or_default()
+        .clone()
 }
 
 /// How a source is polled: on a timer, and what follows a timed poll.
@@ -68,10 +74,12 @@ pub(super) fn restart(app: Arc<App>, id: i64, gen: u64, plan: Option<Plan>) {
         return;
     };
     let (tx, rx) = mpsc::channel();
-    let old_thread = workers(&app).insert(id, Worker { gen, tx, thread: None }).and_then(|w| {
-        let _ = w.tx.send(Msg::Stop);
-        w.thread
-    });
+    let old_thread = workers(&app)
+        .insert(id, Worker { gen, tx, thread: None })
+        .and_then(|w| {
+            let _ = w.tx.send(Msg::Stop);
+            w.thread
+        });
     let name = plan.name.clone();
     let worker_app = app.clone();
     let spawned = std::thread::Builder::new().name(format!("sync-{name}")).spawn(move || {
@@ -99,14 +107,18 @@ pub(super) fn stop(app: &App, id: i64) {
 
 /// Ask the source's worker to poll soon. False when it has no worker.
 pub fn nudge(app: &App, id: i64) -> bool {
-    workers(app).get(&id).is_some_and(|w| w.tx.send(Msg::Poll(None)).is_ok())
+    workers(app)
+        .get(&id)
+        .is_some_and(|w| w.tx.send(Msg::Poll(None)).is_ok())
 }
 
 /// Poll now and wait for the outcome: through the source's worker when it
 /// has one (queued behind a poll in progress), else directly.
 pub fn poll_now(app: &App, id: i64) -> Result<usize> {
     let (tx, rx) = mpsc::channel();
-    let sent = workers(app).get(&id).is_some_and(|w| w.tx.send(Msg::Poll(Some(tx))).is_ok());
+    let sent = workers(app)
+        .get(&id)
+        .is_some_and(|w| w.tx.send(Msg::Poll(Some(tx))).is_ok());
     if !sent {
         return super::sync_source(app, id);
     }
@@ -163,10 +175,12 @@ fn suggest_in_background(app: &App, id: i64, busy: &Arc<AtomicBool>) {
         return;
     }
     let flag = busy.clone();
-    let spawned = std::thread::Builder::new().name(format!("suggest-{id}")).spawn(move || {
-        super::suggest_after_sync(&app, id);
-        flag.store(false, Ordering::SeqCst);
-    });
+    let spawned = std::thread::Builder::new()
+        .name(format!("suggest-{id}"))
+        .spawn(move || {
+            super::suggest_after_sync(&app, id);
+            flag.store(false, Ordering::SeqCst);
+        });
     if spawned.is_err() {
         busy.store(false, Ordering::SeqCst);
     }
@@ -178,7 +192,11 @@ pub(super) static TEST_CONNECTORS: Mutex<BTreeMap<String, Arc<dyn Connector>>> =
 
 #[cfg(test)]
 pub(super) fn test_connector(kind: &str) -> Option<Arc<dyn Connector>> {
-    TEST_CONNECTORS.lock().unwrap_or_else(|e| e.into_inner()).get(kind).cloned()
+    TEST_CONNECTORS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(kind)
+        .cloned()
 }
 
 #[cfg(not(test))]
@@ -233,7 +251,10 @@ mod tests {
     #[test]
     fn sync_now_nudges_restarts_and_direct_calls_never_overlap() {
         let probe = Arc::new(Probe::default());
-        TEST_CONNECTORS.lock().unwrap().insert("probe-overlap".into(), probe.clone());
+        TEST_CONNECTORS
+            .lock()
+            .unwrap()
+            .insert("probe-overlap".into(), probe.clone());
         let (app, id, _dir) = app_with("probe-overlap");
         crate::sync::start_source(app.clone(), id);
         let mut threads = vec![];
@@ -258,14 +279,24 @@ mod tests {
         // Let the last worker answer what was queued.
         poll_now(&app, id).unwrap();
         crate::sync::stop_source(&app, id);
-        assert_eq!(probe.most.load(Ordering::SeqCst), 1, "two polls of one source ran at once");
-        assert!(probe.polls.load(Ordering::SeqCst) >= 7, "sync-now and direct calls each got a poll");
+        assert_eq!(
+            probe.most.load(Ordering::SeqCst),
+            1,
+            "two polls of one source ran at once"
+        );
+        assert!(
+            probe.polls.load(Ordering::SeqCst) >= 7,
+            "sync-now and direct calls each got a poll"
+        );
     }
 
     #[test]
     fn queued_requests_share_the_next_poll() {
         let probe = Arc::new(Probe::default());
-        TEST_CONNECTORS.lock().unwrap().insert("probe-coalesce".into(), probe.clone());
+        TEST_CONNECTORS
+            .lock()
+            .unwrap()
+            .insert("probe-coalesce".into(), probe.clone());
         let (app, id, _dir) = app_with("probe-coalesce");
         crate::sync::start_source(app.clone(), id);
         poll_now(&app, id).unwrap();

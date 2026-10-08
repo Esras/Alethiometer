@@ -96,7 +96,11 @@ pub fn plan(source_id: i64) -> Plan {
             (true, false) => Mode::CatchUp,
             (true, true) => Mode::Live,
         };
-        Plan { mode, flags: std::mem::take(&mut l.flags), generation: l.generation }
+        Plan {
+            mode,
+            flags: std::mem::take(&mut l.flags),
+            generation: l.generation,
+        }
     })
 }
 
@@ -117,7 +121,10 @@ pub fn finish(source_id: i64, plan: &Plan, ok: bool) {
 
 /// `None` until the socket has been tried for this source.
 pub fn connected(source_id: i64) -> Option<bool> {
-    LIVE.lock().unwrap_or_else(|e| e.into_inner()).get(&source_id).map(|l| l.connected)
+    LIVE.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&source_id)
+        .map(|l| l.connected)
 }
 
 fn set_connected(source_id: i64, connected: bool) {
@@ -174,7 +181,10 @@ pub fn start(app: Arc<App>, source_id: i64, gen: u64) {
                         return;
                     }
                     Err(e) => {
-                        eprintln!("slack socket (source {source_id}): {e}; retrying in {}s", backoff.as_secs());
+                        eprintln!(
+                            "slack socket (source {source_id}): {e}; retrying in {}s",
+                            backoff.as_secs()
+                        );
                         if !crate::sync::sleep_alive(source_id, gen, backoff) {
                             return;
                         }
@@ -195,18 +205,28 @@ fn connect_and_listen(app: &App, source_id: i64, gen: u64, tx: &mpsc::Sender<()>
     let source = app.store().read(|r| crate::sync::source(r, source_id))?;
     let cfg = Config::from_json(&source.config);
     let Some(token) = app.platform.secret_get(&cfg.app_token_secret) else {
-        return Ok(Exit::Stop(format!("no app-level token in secret '{}'", cfg.app_token_secret)));
+        return Ok(Exit::Stop(format!(
+            "no app-level token in secret '{}'",
+            cfg.app_token_secret
+        )));
     };
     let http = UreqHttp::default();
     let opened = match Client::new(&http, token).post("apps.connections.open", &[]) {
         Ok(v) => v,
         // Wrong or revoked token: retrying won't help.
-        Err(e) if ["invalid_auth", "not_authed", "not_allowed_token_type"].iter().any(|c| e.to_string().contains(c)) => {
+        Err(e)
+            if ["invalid_auth", "not_authed", "not_allowed_token_type"]
+                .iter()
+                .any(|c| e.to_string().contains(c)) =>
+        {
             return Ok(Exit::Stop(e.to_string()));
         }
         Err(e) => return Err(e),
     };
-    let url = opened.get("url").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("apps.connections.open: no url"))?;
+    let url = opened
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("apps.connections.open: no url"))?;
     let (mut ws, _) = tungstenite::connect(url).map_err(|e| anyhow::anyhow!("socket connect: {e}"))?;
     match ws.get_mut() {
         MaybeTlsStream::Plain(s) => s.set_read_timeout(Some(READ_TIMEOUT))?,
@@ -227,10 +247,16 @@ fn connect_and_listen(app: &App, source_id: i64, gen: u64, tx: &mpsc::Sender<()>
             Message::Close(_) => return Ok(Exit::Reconnect),
             _ => continue, // pings are answered by tungstenite
         };
-        let state = State::parse(app.store().read(|r| crate::sync::source(r, source_id))?.cursor.as_deref());
+        let state = State::parse(
+            app.store()
+                .read(|r| crate::sync::source(r, source_id))?
+                .cursor
+                .as_deref(),
+        );
         let action = handle(&text, &state);
         if let Some(ack) = action.ack {
-            ws.send(Message::text(ack)).map_err(|e| anyhow::anyhow!("socket ack: {e}"))?;
+            ws.send(Message::text(ack))
+                .map_err(|e| anyhow::anyhow!("socket ack: {e}"))?;
         }
         if let Some(flag) = action.flag {
             add_flag(source_id, flag);
@@ -271,15 +297,31 @@ pub struct Action {
 
 /// Decide what to do with one frame. Pure, for tests.
 pub fn handle(text: &str, state: &State) -> Action {
-    let Ok(v) = serde_json::from_str::<Value>(text) else { return Action::default() };
+    let Ok(v) = serde_json::from_str::<Value>(text) else {
+        return Action::default();
+    };
     let kind = v.get("type").and_then(Value::as_str).unwrap_or_default();
     if kind == "disconnect" {
         // Slack asks us to reconnect (refresh_requested, warning, link_disabled).
-        return Action { reconnect: true, ..Default::default() };
+        return Action {
+            reconnect: true,
+            ..Default::default()
+        };
     }
-    let ack = v.get("envelope_id").and_then(Value::as_str).map(|id| json!({ "envelope_id": id }).to_string());
-    let flag = if kind == "events_api" { v.pointer("/payload/event").and_then(|e| flag_for(e, state)) } else { None };
-    Action { ack, flag, reconnect: false }
+    let ack = v
+        .get("envelope_id")
+        .and_then(Value::as_str)
+        .map(|id| json!({ "envelope_id": id }).to_string());
+    let flag = if kind == "events_api" {
+        v.pointer("/payload/event").and_then(|e| flag_for(e, state))
+    } else {
+        None
+    };
+    Action {
+        ack,
+        flag,
+        reconnect: false,
+    }
 }
 
 /// What a message event means for us, if anything.
@@ -328,18 +370,43 @@ mod tests {
 
     #[test]
     fn acks_every_envelope_and_flags_only_relevant_events() {
-        let mut state = State { me: "U0ME".into(), follow: vec!["C0INC".into()], ..Default::default() };
-        state.threads.insert("C0OPS/1700000000.000100".into(), ThreadState::default());
+        let mut state = State {
+            me: "U0ME".into(),
+            follow: vec!["C0INC".into()],
+            ..Default::default()
+        };
+        state
+            .threads
+            .insert("C0OPS/1700000000.000100".into(), ThreadState::default());
         let flag = |event: Value| handle(&env(event), &state).flag;
 
-        let a = handle(&env(json!({ "type": "message", "channel": "C0INC", "channel_type": "channel", "text": "hi", "ts": "1.1" })), &state);
-        assert_eq!(a, Action { ack: Some(r#"{"envelope_id":"e-1"}"#.into()), flag: Some(Flag::Conv("C0INC".into())), reconnect: false });
+        let a = handle(
+            &env(
+                json!({ "type": "message", "channel": "C0INC", "channel_type": "channel", "text": "hi", "ts": "1.1" }),
+            ),
+            &state,
+        );
+        assert_eq!(
+            a,
+            Action {
+                ack: Some(r#"{"envelope_id":"e-1"}"#.into()),
+                flag: Some(Flag::Conv("C0INC".into())),
+                reconnect: false
+            }
+        );
 
-        let a = handle(&env(json!({ "type": "message", "channel": "C0RANDOM", "channel_type": "channel", "text": "lunch?", "ts": "1.2" })), &state);
+        let a = handle(
+            &env(
+                json!({ "type": "message", "channel": "C0RANDOM", "channel_type": "channel", "text": "lunch?", "ts": "1.2" }),
+            ),
+            &state,
+        );
         assert_eq!((a.ack.is_some(), a.flag), (true, None));
 
         assert_eq!(
-            flag(json!({ "type": "message", "channel": "C0RANDOM", "channel_type": "channel", "text": "<@U0ME> look", "ts": "1.3" })),
+            flag(
+                json!({ "type": "message", "channel": "C0RANDOM", "channel_type": "channel", "text": "<@U0ME> look", "ts": "1.3" })
+            ),
             Some(Flag::Mention("C0RANDOM".into(), "1.3".into()))
         );
         assert_eq!(
@@ -358,9 +425,17 @@ mod tests {
         assert_eq!(reply("C0RANDOM", json!({ "user": "U0ME" })), t("C0RANDOM"));
         assert_eq!(reply("C0RANDOM", json!({ "parent_user_id": "U0SAM" })), None);
         // Edits don't count.
-        assert_eq!(flag(json!({ "type": "message", "subtype": "message_changed", "channel": "D0PRIYA", "channel_type": "im", "ts": "1.5" })), None);
+        assert_eq!(
+            flag(
+                json!({ "type": "message", "subtype": "message_changed", "channel": "D0PRIYA", "channel_type": "im", "ts": "1.5" })
+            ),
+            None
+        );
 
-        assert_eq!(handle(r#"{"type":"hello","num_connections":1}"#, &state), Action::default());
+        assert_eq!(
+            handle(r#"{"type":"hello","num_connections":1}"#, &state),
+            Action::default()
+        );
         assert!(handle(r#"{"type":"disconnect","reason":"refresh_requested"}"#, &state).reconnect);
     }
 

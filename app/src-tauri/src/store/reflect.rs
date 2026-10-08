@@ -90,13 +90,24 @@ impl ReflectViews for Sql<'_> {
             .conn()
             .prepare_cached(sql)?
             .query_map(params![from, to], |r| {
-                Ok(CarryItem { item_id: r.get(0)?, period: r.get(1)?, title: r.get(2)?, owner: r.get(3)?, raw_json: r.get(4)?, action: r.get(5)? })
+                Ok(CarryItem {
+                    item_id: r.get(0)?,
+                    period: r.get(1)?,
+                    title: r.get(2)?,
+                    owner: r.get(3)?,
+                    raw_json: r.get(4)?,
+                    action: r.get(5)?,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn open_carry(&self, day: Date) -> Result<i64> {
-        Ok(self.conn().query_row("SELECT count(*) FROM carry WHERE period = ?1 AND action IS NULL", [day], |r| r.get(0))?)
+        Ok(self.conn().query_row(
+            "SELECT count(*) FROM carry WHERE period = ?1 AND action IS NULL",
+            [day],
+            |r| r.get(0),
+        )?)
     }
 
     fn hold_state(&self, item_id: i64, period: Date) -> Result<Option<String>> {
@@ -126,22 +137,35 @@ impl Reflections for Sql<'_> {
     fn carry_action(&self, item_id: i64, period: Date) -> Result<Option<Option<String>>> {
         Ok(self
             .conn()
-            .query_row("SELECT action FROM carry WHERE item_id = ?1 AND period = ?2", params![item_id, period], |r| r.get(0))
+            .query_row(
+                "SELECT action FROM carry WHERE item_id = ?1 AND period = ?2",
+                params![item_id, period],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
     fn set_carry_action(&self, item_id: i64, period: Date, action: Option<&str>) -> Result<()> {
-        self.conn().execute("UPDATE carry SET action = ?1 WHERE item_id = ?2 AND period = ?3", params![action, item_id, period])?;
+        self.conn().execute(
+            "UPDATE carry SET action = ?1 WHERE item_id = ?2 AND period = ?3",
+            params![action, item_id, period],
+        )?;
         Ok(())
     }
 
     fn carry_to(&self, item_id: i64, period: Date) -> Result<()> {
-        self.conn().execute("INSERT OR IGNORE INTO carry (item_id, period) VALUES (?1, ?2)", params![item_id, period])?;
+        self.conn().execute(
+            "INSERT OR IGNORE INTO carry (item_id, period) VALUES (?1, ?2)",
+            params![item_id, period],
+        )?;
         Ok(())
     }
 
     fn uncarry(&self, item_id: i64, period: Date) -> Result<()> {
-        self.conn().execute("DELETE FROM carry WHERE item_id = ?1 AND period = ?2 AND action IS NULL", params![item_id, period])?;
+        self.conn().execute(
+            "DELETE FROM carry WHERE item_id = ?1 AND period = ?2 AND action IS NULL",
+            params![item_id, period],
+        )?;
         Ok(())
     }
 }

@@ -14,11 +14,11 @@
 
 use super::model::{Kind, Row, Session, Status};
 use super::store::Inner;
+use crate::domain::ports::UnitOfWork;
 use crate::error::Result;
 use crate::state::App;
-use crate::time::Ts;
 use crate::sync::{self, Batch, ItemUpsert, Message};
-use crate::domain::ports::UnitOfWork;
+use crate::time::Ts;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -62,7 +62,12 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
     };
     let base = |s: &Session| -> (Value, String, Option<String>) {
         let g = s.group_id.as_ref().and_then(|g| i.groups.get(g));
-        let task = i.threads.get(&format!("s:{}", s.id)).and_then(|t| t.rows.iter().find(|r| r.kind == Kind::You)).map(|r| r.text.clone()).unwrap_or_default();
+        let task = i
+            .threads
+            .get(&format!("s:{}", s.id))
+            .and_then(|t| t.rows.iter().find(|r| r.kind == Kind::You))
+            .map(|r| r.text.clone())
+            .unwrap_or_default();
         let info = json!({
             "session": s.id,
             "project": g.map(|g| g.project.clone()).unwrap_or_default(),
@@ -73,9 +78,21 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         });
         let context = match g {
             Some(g) => format!("Group: {} — {}\nFirst task: {}", g.name, g.goal, clip(&task, 400)),
-            None => format!("Directory: {}\nFirst task: {}", super::acp::tilde(&s.cwd), clip(&task, 400)),
+            None => format!(
+                "Directory: {}\nFirst task: {}",
+                super::acp::tilde(&s.cwd),
+                clip(&task, 400)
+            ),
         };
-        (info, context, s.facts.ticket.as_ref().map(|t| t.label.clone()).filter(|t| !t.is_empty()))
+        (
+            info,
+            context,
+            s.facts
+                .ticket
+                .as_ref()
+                .map(|t| t.label.clone())
+                .filter(|t| !t.is_empty()),
+        )
     };
     let sig = |s: &Session, ext: String, kind: &str, reason: String, waiting: bool, at: String| -> Sig {
         let (mut info, context, ticket) = base(s);
@@ -83,31 +100,74 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         info["name"] = json!(s.name);
         info["reason"] = json!(reason);
         info["waiting"] = json!(waiting);
-        Sig { ext, session: s.id.clone(), kind: kind.into(), name: s.name.clone(), reason, waiting, at, ended: None, messages: vec![], why: String::new(), info, context, ticket }
+        Sig {
+            ext,
+            session: s.id.clone(),
+            kind: kind.into(),
+            name: s.name.clone(),
+            reason,
+            waiting,
+            at,
+            ended: None,
+            messages: vec![],
+            why: String::new(),
+            info,
+            context,
+            ticket,
+        }
     };
-    let you_before = |rows: &[Row], before: usize| rows[..before].iter().rev().find(|r| r.kind == Kind::You).map(|r| (r.at.clone(), "You".to_owned(), r.text.clone(), true));
+    let you_before = |rows: &[Row], before: usize| {
+        rows[..before]
+            .iter()
+            .rev()
+            .find(|r| r.kind == Kind::You)
+            .map(|r| (r.at.clone(), "You".to_owned(), r.text.clone(), true))
+    };
 
     // Approvals and asks.
     for r in i.requests.values() {
         let Some(s) = top(&r.session_id) else { continue };
         let ask = r.kind == "ask";
         // A prompt an extension raised (`tag: question`) is answered with the agent's options like an approval, but it's a question.
-        let reason = if ask || r.tag == "question" { "has a question" } else { "needs approval" };
-        let mut x = sig(s, format!("req:{}", r.id), if ask { "ask" } else { "approval" }, reason.into(), true, r.at.clone());
+        let reason = if ask || r.tag == "question" {
+            "has a question"
+        } else {
+            "needs approval"
+        };
+        let mut x = sig(
+            s,
+            format!("req:{}", r.id),
+            if ask { "ask" } else { "approval" },
+            reason.into(),
+            true,
+            r.at.clone(),
+        );
         x.info["request"] = json!(r.id);
         if let Some(t) = i.threads.get(&r.thread) {
-            let at = t.rows.iter().position(|row| row.request.as_deref() == Some(r.id.as_str())).unwrap_or(t.rows.len());
+            let at = t
+                .rows
+                .iter()
+                .position(|row| row.request.as_deref() == Some(r.id.as_str()))
+                .unwrap_or(t.rows.len());
             if let Some(m) = you_before(&t.rows, at) {
                 x.messages.push(m);
             }
         }
         if ask {
-            x.messages.push((r.at.clone(), s.name.clone(), r.question.clone(), false));
-            x.why = if r.thread.starts_with("r:") { format!("Asked in {}", room_name(i, &r.thread)) } else { "Asked in its session".into() };
+            x.messages
+                .push((r.at.clone(), s.name.clone(), r.question.clone(), false));
+            x.why = if r.thread.starts_with("r:") {
+                format!("Asked in {}", room_name(i, &r.thread))
+            } else {
+                "Asked in its session".into()
+            };
         } else if r.tag == "question" {
             x.why = "Asked in its session".into();
         } else if r.id.starts_with("osr:") {
-            x.why = format!("Its sandbox blocked a connection; OpenShell drafted this rule ({})", r.tool);
+            x.why = format!(
+                "Its sandbox blocked a connection; OpenShell drafted this rule ({})",
+                r.tool
+            );
         } else {
             x.why = format!("Wants to run this in {}", super::acp::tilde(&r.cwd));
         }
@@ -125,20 +185,53 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         let last_you = rows.iter().rposition(|r| r.kind == Kind::You);
         match s.status {
             Status::Failed => {
-                let reason = if s.problem.is_empty() { "stopped".to_owned() } else { format!("stopped: {}", clip(&s.problem, 60)) };
-                let mut x = sig(s, format!("failed:{}:{}", s.id, s.active_at), "failed", reason, true, s.active_at.clone());
-                if let Some(r) = rows.iter().rev().find(|r| matches!(r.kind, Kind::Output | Kind::Message) && r.who.as_ref().is_none_or(|w| w.kind != "you")) {
-                    x.messages.push((r.at.clone(), s.name.clone(), clip(&r.text, 1200), false));
+                let reason = if s.problem.is_empty() {
+                    "stopped".to_owned()
+                } else {
+                    format!("stopped: {}", clip(&s.problem, 60))
+                };
+                let mut x = sig(
+                    s,
+                    format!("failed:{}:{}", s.id, s.active_at),
+                    "failed",
+                    reason,
+                    true,
+                    s.active_at.clone(),
+                );
+                if let Some(r) = rows.iter().rev().find(|r| {
+                    matches!(r.kind, Kind::Output | Kind::Message) && r.who.as_ref().is_none_or(|w| w.kind != "you")
+                }) {
+                    x.messages
+                        .push((r.at.clone(), s.name.clone(), clip(&r.text, 1200), false));
                 }
-                x.why = [s.problem.as_str(), s.harness.as_str(), s.host.as_str()].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+                x.why = [s.problem.as_str(), s.harness.as_str(), s.host.as_str()]
+                    .iter()
+                    .filter(|p| !p.is_empty())
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(" · ");
                 out.push(x);
             }
             Status::Done if s.source == "scion" => {
-                let mut x = sig(s, format!("done:{}", s.id), "done", "finished".into(), false, s.active_at.clone());
-                if let Some(r) = rows.iter().rev().find(|r| matches!(r.kind, Kind::Output | Kind::Message) && r.who.as_ref().is_none_or(|w| w.kind != "you")) {
-                    x.messages.push((r.at.clone(), s.name.clone(), clip(&r.text, 1200), false));
+                let mut x = sig(
+                    s,
+                    format!("done:{}", s.id),
+                    "done",
+                    "finished".into(),
+                    false,
+                    s.active_at.clone(),
+                );
+                if let Some(r) = rows.iter().rev().find(|r| {
+                    matches!(r.kind, Kind::Output | Kind::Message) && r.who.as_ref().is_none_or(|w| w.kind != "you")
+                }) {
+                    x.messages
+                        .push((r.at.clone(), s.name.clone(), clip(&r.text, 1200), false));
                 }
-                let task = rows.iter().find(|r| r.kind == Kind::You).map(|r| r.text.clone()).unwrap_or_default();
+                let task = rows
+                    .iter()
+                    .find(|r| r.kind == Kind::You)
+                    .map(|r| r.text.clone())
+                    .unwrap_or_default();
                 x.info["facts"] = json!({
                     "task": clip(&task, 120),
                     "ran": ran(&s.stats.started_at, &s.active_at),
@@ -152,11 +245,19 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
             Status::Idle if s.source == "acp" && s.stats.turns > 0 => {
                 let out_at = rows.iter().rposition(|r| r.kind == Kind::Output);
                 if let Some(o) = out_at.filter(|o| last_you.is_none_or(|y| *o > y)) {
-                    let mut x = sig(s, format!("turn:{}:{}", s.id, s.stats.turns), "turn", "ended its turn".into(), false, rows[o].at.clone());
+                    let mut x = sig(
+                        s,
+                        format!("turn:{}:{}", s.id, s.stats.turns),
+                        "turn",
+                        "ended its turn".into(),
+                        false,
+                        rows[o].at.clone(),
+                    );
                     if let Some(m) = you_before(rows, o) {
                         x.messages.push(m);
                     }
-                    x.messages.push((rows[o].at.clone(), s.name.clone(), clip(&rows[o].text, 2000), false));
+                    x.messages
+                        .push((rows[o].at.clone(), s.name.clone(), clip(&rows[o].text, 2000), false));
                     out.push(x);
                 }
             }
@@ -173,21 +274,44 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         let last_you = t.rows.iter().rposition(|r| r.kind == Kind::You);
         let mut wrote: BTreeMap<String, Vec<&Row>> = BTreeMap::new();
         for (n, r) in t.rows.iter().enumerate() {
-            if r.kind == Kind::Message && r.to.as_ref().is_some_and(|w| w.kind == "you") && last_you.is_none_or(|y| n > y) {
+            if r.kind == Kind::Message
+                && r.to.as_ref().is_some_and(|w| w.kind == "you")
+                && last_you.is_none_or(|y| n > y)
+            {
                 if let Some(sid) = r.who.as_ref().and_then(|w| w.session.clone()) {
                     wrote.entry(sid).or_default().push(r);
                 }
             }
             // Your message, or the failed-delivery row it turned into.
-            let Some(d) = r.delivery.as_ref().filter(|d| matches!(r.kind, Kind::You | Kind::Failed) && matches!(d.state.as_str(), "unreachable" | "failed")) else { continue };
-            let to = r.to.as_ref().and_then(|w| w.session.clone()).or_else(|| key.strip_prefix("s:").map(str::to_owned));
-            let Some(s) = to.as_deref().and_then(top).or_else(|| first_member(i, key)) else { continue };
+            let Some(d) = r.delivery.as_ref().filter(|d| {
+                matches!(r.kind, Kind::You | Kind::Failed) && matches!(d.state.as_str(), "unreachable" | "failed")
+            }) else {
+                continue;
+            };
+            let to =
+                r.to.as_ref()
+                    .and_then(|w| w.session.clone())
+                    .or_else(|| key.strip_prefix("s:").map(str::to_owned));
+            let Some(s) = to.as_deref().and_then(top).or_else(|| first_member(i, key)) else {
+                continue;
+            };
             let failed = d.state == "failed";
             let mut x = sig(
                 s,
-                format!("undelivered:{key}:{}", if r.ext.is_empty() { r.id.to_string() } else { r.ext.clone() }),
+                format!(
+                    "undelivered:{key}:{}",
+                    if r.ext.is_empty() {
+                        r.id.to_string()
+                    } else {
+                        r.ext.clone()
+                    }
+                ),
                 if failed { "failed_delivery" } else { "undelivered" },
-                if failed { "didn’t take your message".into() } else { "didn’t get your message".into() },
+                if failed {
+                    "didn’t take your message".into()
+                } else {
+                    "didn’t get your message".into()
+                },
                 true,
                 r.at.clone(),
             );
@@ -199,16 +323,49 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
             x.info["row"] = json!(r.id);
             x.messages.push((r.at.clone(), "You".into(), r.text.clone(), false));
             x.why = if failed {
-                format!("Failed. {}{}", if d.reason.is_empty() { "The Hub refused it." } else { d.reason.as_str() }, if d.retry_at.is_empty() { " It gives no retry time." } else { "" })
+                format!(
+                    "Failed. {}{}",
+                    if d.reason.is_empty() {
+                        "The Hub refused it."
+                    } else {
+                        d.reason.as_str()
+                    },
+                    if d.retry_at.is_empty() {
+                        " It gives no retry time."
+                    } else {
+                        ""
+                    }
+                )
             } else {
-                format!("Not delivered. {}", if d.reason.is_empty() { "Nothing is reading its messages.".to_owned() } else { d.reason.clone() })
+                format!(
+                    "Not delivered. {}",
+                    if d.reason.is_empty() {
+                        "Nothing is reading its messages.".to_owned()
+                    } else {
+                        d.reason.clone()
+                    }
+                )
             };
             out.push(x);
         }
         for (sid, msgs) in wrote {
             let Some(s) = top(&sid) else { continue };
             let first = msgs[0];
-            let mut x = sig(s, format!("wrote:{key}:{}", if first.ext.is_empty() { first.id.to_string() } else { first.ext.clone() }), "wrote", "wrote to you".into(), false, first.at.clone());
+            let mut x = sig(
+                s,
+                format!(
+                    "wrote:{key}:{}",
+                    if first.ext.is_empty() {
+                        first.id.to_string()
+                    } else {
+                        first.ext.clone()
+                    }
+                ),
+                "wrote",
+                "wrote to you".into(),
+                false,
+                first.at.clone(),
+            );
             if msgs.len() > 1 {
                 x.ended = msgs.last().map(|r| r.at.clone());
             }
@@ -228,14 +385,22 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
 
 fn room_name(i: &Inner, key: &str) -> String {
     let id = key.trim_start_matches("r:");
-    i.groups.values().find_map(|g| g.room.as_ref().filter(|r| r.id == id).map(|r| format!("#{}", r.name))).unwrap_or_else(|| "#room".into())
+    i.groups
+        .values()
+        .find_map(|g| g.room.as_ref().filter(|r| r.id == id).map(|r| format!("#{}", r.name)))
+        .unwrap_or_else(|| "#room".into())
 }
 
 /// A room's message with no single recipient: credit the room's group's first member.
 fn first_member<'a>(i: &'a Inner, key: &str) -> Option<&'a Session> {
     let id = key.trim_start_matches("r:");
-    let g = i.groups.values().find(|g| g.room.as_ref().is_some_and(|r| r.id == id))?;
-    i.sessions.values().find(|s| s.group_id.as_deref() == Some(g.id.as_str()) && s.parent_id.is_none())
+    let g = i
+        .groups
+        .values()
+        .find(|g| g.room.as_ref().is_some_and(|r| r.id == id))?;
+    i.sessions
+        .values()
+        .find(|s| s.group_id.as_deref() == Some(g.id.as_str()) && s.parent_id.is_none())
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -247,7 +412,9 @@ fn clip(s: &str, n: usize) -> String {
 }
 
 fn ran(from: &str, to: &str) -> String {
-    let (Some(a), Some(b)) = (Ts::parse(from), Ts::parse(to)) else { return String::new() };
+    let (Some(a), Some(b)) = (Ts::parse(from), Ts::parse(to)) else {
+        return String::new();
+    };
     let m = (b - a).as_mins().max(0);
     if m >= 60 {
         format!("{}h {}m", m / 60, m % 60)
@@ -277,8 +444,13 @@ pub fn sync(app: &App) -> Result<bool> {
         let sid = source_id(uow)?;
         let source = sync::source(uow.reads(), sid)?;
         // What's there: external id → (seen, resolved by us, session).
-        let have: HashMap<String, (bool, bool, String)> =
-            uow.reads().agents().signals(sid)?.into_iter().map(|s| (s.external_id, (s.seen, s.auto_seen, s.session))).collect();
+        let have: HashMap<String, (bool, bool, String)> = uow
+            .reads()
+            .agents()
+            .signals(sid)?
+            .into_iter()
+            .map(|s| (s.external_id, (s.seen, s.auto_seen, s.session)))
+            .collect();
         let wanted: HashSet<&str> = sigs.iter().map(|s| s.ext.as_str()).collect();
         let mut batch = Batch::default();
         let mut fresh = vec![];
@@ -301,7 +473,17 @@ pub fn sync(app: &App) -> Result<bool> {
                 status: "open".into(),
                 msg_count: Some(s.messages.iter().filter(|m| !m.3).count() as i64),
                 raw_json: json!({ "agent": info }),
-                messages: s.messages.iter().map(|(at, who, text, faded)| Message { at: Ts::parse(at).unwrap_or_default(), author: who.clone(), text: text.clone(), author_id: None, context: *faded }).collect(),
+                messages: s
+                    .messages
+                    .iter()
+                    .map(|(at, who, text, faded)| Message {
+                        at: Ts::parse(at).unwrap_or_default(),
+                        author: who.clone(),
+                        text: text.clone(),
+                        author_id: None,
+                        context: *faded,
+                    })
+                    .collect(),
                 bump,
                 ..Default::default()
             });
@@ -327,14 +509,19 @@ fn file(uow: &dyn UnitOfWork, sid: i64, fresh: &[&Sig]) -> Result<bool> {
     let r = uow.reads();
     let mut guess = false;
     for s in fresh {
-        let Some(item) = uow.items().find(sid, &s.ext)? else { continue };
+        let Some(item) = uow.items().find(sid, &s.ext)? else {
+            continue;
+        };
         let by_ticket = match &s.ticket {
             Some(k) => r.agents().ticket_topic(k)?.map(|t| (t, format!("ticket {k}"))),
             None => None,
         };
         let topic = match by_ticket {
             Some(t) => Some(t),
-            None => r.agents().session_topic(sid, item, &s.session)?.map(|t| (t, "same session".to_owned())),
+            None => r
+                .agents()
+                .session_topic(sid, item, &s.session)?
+                .map(|t| (t, "same session".to_owned())),
         };
         match topic {
             Some((t, why)) => {
@@ -390,26 +577,54 @@ pub fn start(app: std::sync::Arc<App>) {
 mod tests {
     use super::*;
     use crate::agents::model::{Fact, Request, Who};
-    use rusqlite::OptionalExtension;
     use crate::ai::context::tests::app;
+    use rusqlite::OptionalExtension;
 
     fn session(app: &App, id: &str, source: &str) {
-        let s = Session { id: id.into(), source: source.into(), name: format!("{id}-name"), cwd: "/r".into(), status: Status::Running, ..Default::default() };
+        let s = Session {
+            id: id.into(),
+            source: source.into(),
+            name: format!("{id}-name"),
+            cwd: "/r".into(),
+            status: Status::Running,
+            ..Default::default()
+        };
         app.agents.store.lock().put_session(s);
     }
 
     fn you(app: &App, id: &str, text: &str) {
-        app.agents.store.lock().push_row(&format!("s:{id}"), Row { at: crate::time::t("2026-10-03T10:00:00").to_db(), kind: Kind::You, who: Some(Who::you()), text: text.into(), ..Default::default() });
+        app.agents.store.lock().push_row(
+            &format!("s:{id}"),
+            Row {
+                at: crate::time::t("2026-10-03T10:00:00").to_db(),
+                kind: Kind::You,
+                who: Some(Who::you()),
+                text: text.into(),
+                ..Default::default()
+            },
+        );
     }
 
     fn approval(app: &App, id: &str) {
-        let r = Request { id: format!("{id}:7"), session_id: id.into(), thread: format!("s:{id}"), kind: "approval".into(), at: crate::time::t("2026-10-03T10:01:00").to_db(), command: "rm -rf build".into(), ..Default::default() };
+        let r = Request {
+            id: format!("{id}:7"),
+            session_id: id.into(),
+            thread: format!("s:{id}"),
+            kind: "approval".into(),
+            at: crate::time::t("2026-10-03T10:01:00").to_db(),
+            command: "rm -rf build".into(),
+            ..Default::default()
+        };
         app.agents.store.lock().put_request(r);
     }
 
     fn seen(app: &App, ext: &str) -> Option<(i64, i64)> {
         app.db()
-            .query_row("SELECT seen, coalesce(json_extract(raw_json, '$.auto_seen'), 0) FROM items WHERE external_id = ?1", [ext], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT seen, coalesce(json_extract(raw_json, '$.auto_seen'), 0) FROM items WHERE external_id = ?1",
+                [ext],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()
             .unwrap()
     }
@@ -423,7 +638,11 @@ mod tests {
         assert!(sync(&app).unwrap());
         assert_eq!(seen(&app, "req:acp-1:7"), Some((0, 0)));
         let (title, msgs): (String, i64) = app.db().query_row("SELECT title, (SELECT count(*) FROM item_messages m WHERE m.item_id = items.id) FROM items WHERE external_id = 'req:acp-1:7'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
-        assert_eq!((title.as_str(), msgs), ("acp-1-name needs approval", 1), "your last message is the conversation");
+        assert_eq!(
+            (title.as_str(), msgs),
+            ("acp-1-name needs approval", 1),
+            "your last message is the conversation"
+        );
         // Answered in Agents: out of Incoming, as ours.
         app.agents.store.lock().remove_request("acp-1:7");
         sync(&app).unwrap();
@@ -440,8 +659,13 @@ mod tests {
         session(&app, "acp-1", "acp");
         approval(&app, "acp-1");
         sync(&app).unwrap();
-        app.db().execute("UPDATE items SET seen = 1 WHERE external_id = 'req:acp-1:7'", []).unwrap();
-        app.agents.store.lock().update_session("acp-1", |s| s.status = Status::Waiting);
+        app.db()
+            .execute("UPDATE items SET seen = 1 WHERE external_id = 'req:acp-1:7'", [])
+            .unwrap();
+        app.agents
+            .store
+            .lock()
+            .update_session("acp-1", |s| s.status = Status::Waiting);
         sync(&app).unwrap();
         assert_eq!(seen(&app, "req:acp-1:7"), Some((1, 0)));
     }
@@ -451,7 +675,15 @@ mod tests {
         let (app, _d) = app();
         session(&app, "acp-1", "acp");
         you(&app, "acp-1", "Fix resume");
-        app.agents.store.lock().push_row("s:acp-1", Row { at: crate::time::t("2026-10-03T10:05:00").to_db(), kind: Kind::Output, text: "Resume works now.".into(), ..Default::default() });
+        app.agents.store.lock().push_row(
+            "s:acp-1",
+            Row {
+                at: crate::time::t("2026-10-03T10:05:00").to_db(),
+                kind: Kind::Output,
+                text: "Resume works now.".into(),
+                ..Default::default()
+            },
+        );
         app.agents.store.lock().update_session("acp-1", |s| {
             s.status = Status::Idle;
             s.stats.turns = 1;
@@ -459,7 +691,10 @@ mod tests {
         sync(&app).unwrap();
         assert_eq!(seen(&app, "turn:acp-1:1"), Some((0, 0)));
         you(&app, "acp-1", "Add a test");
-        app.agents.store.lock().update_session("acp-1", |s| s.status = Status::Running);
+        app.agents
+            .store
+            .lock()
+            .update_session("acp-1", |s| s.status = Status::Running);
         sync(&app).unwrap();
         assert_eq!(seen(&app, "turn:acp-1:1"), Some((1, 1)));
     }
@@ -469,7 +704,15 @@ mod tests {
         let (app, _d) = app();
         session(&app, "acp-1", "acp");
         you(&app, "acp-1", "Fix resume");
-        app.agents.store.lock().push_row("s:acp-1", Row { at: crate::time::t("2026-10-03T10:05:00").to_db(), kind: Kind::Output, text: "Done.".into(), ..Default::default() });
+        app.agents.store.lock().push_row(
+            "s:acp-1",
+            Row {
+                at: crate::time::t("2026-10-03T10:05:00").to_db(),
+                kind: Kind::Output,
+                text: "Done.".into(),
+                ..Default::default()
+            },
+        );
         app.agents.store.lock().update_session("acp-1", |s| {
             s.status = Status::Idle;
             s.stats.turns = 1;
@@ -477,7 +720,10 @@ mod tests {
         sync(&app).unwrap();
         // A new run of the app: the session is known, its rows aren't read yet.
         app.agents.store.lock().threads.get_mut("s:acp-1").unwrap().loaded = false;
-        app.agents.store.lock().update_session("acp-1", |s| s.title = "x".into());
+        app.agents
+            .store
+            .lock()
+            .update_session("acp-1", |s| s.title = "x".into());
         sync(&app).unwrap();
         assert_eq!(seen(&app, "turn:acp-1:1"), Some((0, 0)));
     }
@@ -486,16 +732,33 @@ mod tests {
     fn a_ticket_files_it_under_the_tickets_topic() {
         let (app, _d) = app();
         let conn = app.db();
-        conn.execute("INSERT INTO sources (kind, tag, name, config_json, enabled) VALUES ('jira', 'work', 'Jira', '{}', 1)", []).unwrap();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name, config_json, enabled) VALUES ('jira', 'work', 'Jira', '{}', 1)",
+            [],
+        )
+        .unwrap();
         let jira = conn.last_insert_rowid();
         conn.execute("INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (?1, 'ING-31', 'issue', 'Webhooks', '2026-10-03T09:00:00.000Z')", [jira]).unwrap();
         let item = conn.last_insert_rowid();
-        conn.execute("INSERT INTO topics (name, category) VALUES ('Jira webhooks', 'work')", []).unwrap();
+        conn.execute(
+            "INSERT INTO topics (name, category) VALUES ('Jira webhooks', 'work')",
+            [],
+        )
+        .unwrap();
         let topic = conn.last_insert_rowid();
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", [item, topic]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')",
+            [item, topic],
+        )
+        .unwrap();
         drop(conn);
         session(&app, "scion:h:a", "scion");
-        app.agents.store.lock().update_session("scion:h:a", |s| s.facts.ticket = Some(Fact { label: "ING-31".into(), ..Default::default() }));
+        app.agents.store.lock().update_session("scion:h:a", |s| {
+            s.facts.ticket = Some(Fact {
+                label: "ING-31".into(),
+                ..Default::default()
+            })
+        });
         approval(&app, "scion:h:a");
         sync(&app).unwrap();
         let linked: (i64, String) = app
@@ -505,7 +768,10 @@ mod tests {
         assert_eq!(linked, (topic, "suggested".into()));
         let q = crate::queries::incoming::queue(&crate::store::over(&app.db()), &app.clock).unwrap();
         let t = q.topics.iter().find(|t| t.id == topic).unwrap();
-        assert!(t.signals.iter().any(|s| s.source == "agents" && s.agent.as_ref().is_some_and(|a| a["reason"] == "needs approval")));
+        assert!(t
+            .signals
+            .iter()
+            .any(|s| s.source == "agents" && s.agent.as_ref().is_some_and(|a| a["reason"] == "needs approval")));
         assert_eq!(q.agents.len(), 1, "and under Agents waiting");
         assert_eq!(q.agents[0].topic.as_deref(), Some("Jira webhooks"));
     }

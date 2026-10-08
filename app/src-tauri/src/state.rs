@@ -46,7 +46,11 @@ impl App {
     pub fn default_data_dir() -> PathBuf {
         std::env::var_os("ALETHIOMETER_DATA_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| dirs::data_dir().unwrap_or_else(|| ".".into()).join("dev.alethiometer.app"))
+            .unwrap_or_else(|| {
+                dirs::data_dir()
+                    .unwrap_or_else(|| ".".into())
+                    .join("dev.alethiometer.app")
+            })
     }
 
     pub fn open(data_dir: &Path) -> anyhow::Result<App> {
@@ -63,7 +67,12 @@ impl App {
 
     /// `problem`: settings.json on disk isn't `settings` (it doesn't parse or
     /// validate). Nothing is written back to it then.
-    fn open_with(conn: Connection, mut settings: Settings, data_dir: &Path, problem: Option<String>) -> anyhow::Result<App> {
+    fn open_with(
+        conn: Connection,
+        mut settings: Settings,
+        data_dir: &Path,
+        problem: Option<String>,
+    ) -> anyhow::Result<App> {
         let vault = if settings.obsidian_vault.is_empty() {
             data_dir.join("vault")
         } else {

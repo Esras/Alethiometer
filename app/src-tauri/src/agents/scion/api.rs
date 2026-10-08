@@ -61,8 +61,16 @@ impl Client<'_> {
         let v: Value = serde_json::from_str(&r.body).unwrap_or(Value::Null);
         if !(200..300).contains(&r.status) {
             let e = &v["error"];
-            let message = e["message"].as_str().map(str::to_owned).unwrap_or_else(|| r.body.chars().take(300).collect());
-            return Err(HubError { status: r.status, code: e["code"].as_str().unwrap_or("").into(), message }.into());
+            let message = e["message"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| r.body.chars().take(300).collect());
+            return Err(HubError {
+                status: r.status,
+                code: e["code"].as_str().unwrap_or("").into(),
+                message,
+            }
+            .into());
         }
         Ok(v)
     }
@@ -81,7 +89,11 @@ impl Client<'_> {
         let mut cursor = String::new();
         for _ in 0..pages {
             let sep = if path.contains('?') { '&' } else { '?' };
-            let p = if cursor.is_empty() { path.to_owned() } else { format!("{path}{sep}cursor={}", enc(&cursor)) };
+            let p = if cursor.is_empty() {
+                path.to_owned()
+            } else {
+                format!("{path}{sep}cursor={}", enc(&cursor))
+            };
             let v = self.get(&p)?;
             out.extend(v[key].as_array().cloned().unwrap_or_default());
             match v["nextCursor"].as_str() {
@@ -105,12 +117,19 @@ impl Client<'_> {
     }
 
     pub fn agents(&self, project: &str) -> anyhow::Result<Vec<Value>> {
-        self.list(&format!("/api/v1/projects/{}/agents?limit=500", enc(project)), "agents", 4)
+        self.list(
+            &format!("/api/v1/projects/{}/agents?limit=500", enc(project)),
+            "agents",
+            4,
+        )
     }
 
     /// Your conversations (DMs, groups you're in) plus every group thread in `project`.
     pub fn conversations(&self, project: &str) -> anyhow::Result<Vec<Value>> {
-        let v = self.get(&format!("/api/v1/conversations?include_project_groups={}&limit=200", enc(project)))?;
+        let v = self.get(&format!(
+            "/api/v1/conversations?include_project_groups={}&limit=200",
+            enc(project)
+        ))?;
         Ok(v["conversations"].as_array().cloned().unwrap_or_default())
     }
 
@@ -127,12 +146,21 @@ impl Client<'_> {
 
     /// Agent ↔ agent messages of one agent (native chat; needs attach on it).
     pub fn interagent(&self, dm_key: &str, limit: i64) -> anyhow::Result<Vec<Value>> {
-        let v = self.get(&format!("/api/v1/chat/conversations/{}/interagent?limit={limit}", enc(dm_key)))?;
+        let v = self.get(&format!(
+            "/api/v1/chat/conversations/{}/interagent?limit={limit}",
+            enc(dm_key)
+        ))?;
         Ok(v["messages"].as_array().cloned().unwrap_or_default())
     }
 
     /// Post to a group thread as you. Routing is the Hub's: @mentions, else the thread's default agent.
-    pub fn post_thread(&self, topic: &str, content: &str, reply_to: Option<&str>, idempotency: &str) -> anyhow::Result<Value> {
+    pub fn post_thread(
+        &self,
+        topic: &str,
+        content: &str,
+        reply_to: Option<&str>,
+        idempotency: &str,
+    ) -> anyhow::Result<Value> {
         let mut body = json!({ "content": content, "idempotency_key": idempotency });
         if let Some(r) = reply_to {
             body["reply_to_id"] = json!(r);
@@ -172,7 +200,10 @@ impl Client<'_> {
     }
 
     pub fn add_participant(&self, conv: &str, agent: &str) -> anyhow::Result<Value> {
-        self.post(&format!("/api/v1/conversations/{}/participants", enc(conv)), &json!({ "principalKind": "agent", "principalId": agent }))
+        self.post(
+            &format!("/api/v1/conversations/{}/participants", enc(conv)),
+            &json!({ "principalKind": "agent", "principalId": agent }),
+        )
     }
 
     pub fn templates(&self) -> anyhow::Result<Vec<Value>> {
@@ -203,23 +234,43 @@ mod tests {
     #[test]
     fn errors_read_the_hub_envelope() {
         let http = FakeHttp::default();
-        http.on("POST", "/message", 409, include_str!("../../../tests/fixtures/scion/agent_not_running.json"));
-        let c = Client { http: &http, base: "https://hub/".into(), token: "scion_pat_x".into() };
+        http.on(
+            "POST",
+            "/message",
+            409,
+            include_str!("../../../tests/fixtures/scion/agent_not_running.json"),
+        );
+        let c = Client {
+            http: &http,
+            base: "https://hub/".into(),
+            token: "scion_pat_x".into(),
+        };
         let e = c.message_agent("a1", "hi", "instruction", false).unwrap_err();
         let h = hub_error(&e).unwrap();
         assert_eq!((h.status, h.code.as_str()), (409, "agent_not_running"));
         assert!(e.to_string().contains("is stopped"), "{e}");
         let headers = &http.header_log.lock().unwrap()[0];
-        assert!(headers.iter().any(|(k, v)| k == "authorization" && v == "Bearer scion_pat_x"));
+        assert!(headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer scion_pat_x"));
         assert_eq!(http.requests()[0].1, "https://hub/api/v1/agents/a1/message");
     }
 
     #[test]
     fn lists_follow_the_cursor() {
         let http = FakeHttp::default();
-        http.on("GET", "/api/v1/templates?limit=100", 200, r#"{"templates":[{"name":"a"}],"nextCursor":"c+1"}"#);
+        http.on(
+            "GET",
+            "/api/v1/templates?limit=100",
+            200,
+            r#"{"templates":[{"name":"a"}],"nextCursor":"c+1"}"#,
+        );
         http.on("GET", "cursor=c%2B1", 200, r#"{"templates":[{"name":"b"}]}"#);
-        let c = Client { http: &http, base: "https://hub".into(), token: "t".into() };
+        let c = Client {
+            http: &http,
+            base: "https://hub".into(),
+            token: "t".into(),
+        };
         let t = c.templates().unwrap();
         assert_eq!(t.len(), 2);
         assert_eq!(http.requests().len(), 2);

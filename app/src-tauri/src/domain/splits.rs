@@ -23,10 +23,16 @@ pub fn content_key(at: &str, author: &str, text: &str) -> String {
 /// One key per message, in order: `raw_json.msgs` when it lists exactly one
 /// string per message, otherwise a hash of time, author and text.
 pub fn keys(raw: &Value, msgs: &[(&str, &str, &str)]) -> Vec<String> {
-    let ids: Option<Vec<&str>> = raw.get("msgs").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect());
+    let ids: Option<Vec<&str>> = raw
+        .get("msgs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect());
     match ids {
         Some(ids) if ids.len() == msgs.len() => ids.into_iter().map(str::to_owned).collect(),
-        _ => msgs.iter().map(|(at, author, text)| content_key(at, author, text)).collect(),
+        _ => msgs
+            .iter()
+            .map(|(at, author, text)| content_key(at, author, text))
+            .collect(),
     }
 }
 

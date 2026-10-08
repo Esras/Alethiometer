@@ -69,7 +69,12 @@ pub struct Notes(HashMap<String, String>);
 
 impl Notes {
     pub fn read(vault: &Path, paths: impl IntoIterator<Item = String>) -> Notes {
-        Notes(paths.into_iter().map(|p| (p.clone(), std::fs::read_to_string(vault.join(&p)).unwrap_or_default())).collect())
+        Notes(
+            paths
+                .into_iter()
+                .map(|p| (p.clone(), std::fs::read_to_string(vault.join(&p)).unwrap_or_default()))
+                .collect(),
+        )
     }
 
     /// The note's text, or "" if it wasn't read or isn't there.
@@ -80,8 +85,14 @@ impl Notes {
 
 /// A topic's name and its Obsidian note ("" if it has none or it can't be read).
 pub fn topic_note(app: &App, topic_id: i64) -> Result<(String, String)> {
-    let head = app.store().read(|r| r.topics().head(topic_id))?.ok_or_else(|| msg("no such topic"))?;
-    let text = head.obsidian_path.map(|p| std::fs::read_to_string(app.vault.join(p)).unwrap_or_default()).unwrap_or_default();
+    let head = app
+        .store()
+        .read(|r| r.topics().head(topic_id))?
+        .ok_or_else(|| msg("no such topic"))?;
+    let text = head
+        .obsidian_path
+        .map(|p| std::fs::read_to_string(app.vault.join(p)).unwrap_or_default())
+        .unwrap_or_default();
     Ok((head.name, text))
 }
 
@@ -95,7 +106,13 @@ fn is_open_task(r: &ContextItem) -> bool {
 }
 
 fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem) -> Result<String> {
-    let mut b = format!("\n[item {}] {} {} · {}", r.id, r.source_kind, r.kind, local(clock, r.at));
+    let mut b = format!(
+        "\n[item {}] {} {} · {}",
+        r.id,
+        r.source_kind,
+        r.kind,
+        local(clock, r.at)
+    );
     if let Some(e) = r.ended {
         let _ = write!(b, " to {}", local(clock, e));
     }
@@ -121,21 +138,36 @@ fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem) -> Result<Strin
     }
     // Most recent messages, shown oldest to newest.
     for (at, author, text) in reads.context().latest_messages(r.id, MSGS_PER_ITEM)? {
-        let _ = writeln!(b, "  {} {author}: {}", clock.local(at).strftime("%H:%M"), clip(&text, MSG_CAP));
+        let _ = writeln!(
+            b,
+            "  {} {author}: {}",
+            clock.local(at).strftime("%H:%M"),
+            clip(&text, MSG_CAP)
+        );
     }
     Ok(b)
 }
 
 /// A topic's work items in `state`, checked again for the work tag.
 fn topic_rows(reads: &dyn Reads, topic_id: i64, state: &str) -> Result<Vec<ContextItem>> {
-    Ok(reads.context().topic_items(topic_id, state)?.into_iter().filter(|r| r.tag == "work").collect())
+    Ok(reads
+        .context()
+        .topic_items(topic_id, state)?
+        .into_iter()
+        .filter(|r| r.tag == "work")
+        .collect())
 }
 
 /// Context for questions about one topic: its note, its new signals still in
 /// Incoming (suggested, not confirmed), open tasks, then confirmed items newest first.
 pub fn for_topic(app: &App, topic_id: i64) -> Result<Context> {
     let paths = app.store().read(|r| {
-        let mut paths: Vec<String> = r.topics().head(topic_id)?.and_then(|h| h.obsidian_path).into_iter().collect();
+        let mut paths: Vec<String> = r
+            .topics()
+            .head(topic_id)?
+            .and_then(|h| h.obsidian_path)
+            .into_iter()
+            .collect();
         paths.extend(crate::queries::people::agent_note_paths(r, topic_id, &app.clock)?);
         Ok(paths)
     })?;
@@ -149,15 +181,27 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
     let mut ctx = Context::default();
     ctx.push(&format!("Topic: {}\n", head.name), None);
     if !note.trim().is_empty() {
-        ctx.push(&format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(note, NOTE_CAP)), None);
+        ctx.push(
+            &format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(note, NOTE_CAP)),
+            None,
+        );
     }
     let people = crate::queries::people::agent_context(reads, notes, topic_id, clock)?;
     if !people.is_empty() {
-        ctx.push(&format!("\nPeople on this topic (from their People notes):\n{}", clip(&people, PEOPLE_CAP)), None);
+        ctx.push(
+            &format!(
+                "\nPeople on this topic (from their People notes):\n{}",
+                clip(&people, PEOPLE_CAP)
+            ),
+            None,
+        );
     }
     let suggested = topic_rows(reads, topic_id, "suggested")?;
     if !suggested.is_empty() {
-        ctx.push("\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n", None);
+        ctx.push(
+            "\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n",
+            None,
+        );
         for r in &suggested {
             if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
                 break;
@@ -183,12 +227,33 @@ pub fn for_topics(app: &App) -> Result<Context> {
     let notes = Notes::read(&app.vault, topics.iter().filter_map(|t| t.note_path.clone()));
     app.store().read(|r| {
         let mut ctx = Context::default();
-        ctx.push("Active topics (id, name, linked work items, last activity, note gist, recent items):\n", None);
+        ctx.push(
+            "Active topics (id, name, linked work items, last activity, note gist, recent items):\n",
+            None,
+        );
         for t in &topics {
-            let titles: Vec<String> = r.context().recent_titles(t.id, 5)?.iter().map(|t| clip(t, 80)).collect();
-            let gist = t.note_path.as_deref().map(|p| note_gist(notes.get(p))).unwrap_or_default();
-            let last = t.last.map(|l| app.clock.day_of(l).to_string()).unwrap_or_else(|| "never".into());
-            let block = format!("- [topic {}] {} · {} items · last {last}\n  note: {gist}\n  recent: {}\n", t.id, t.name, t.items, titles.join("; "));
+            let titles: Vec<String> = r
+                .context()
+                .recent_titles(t.id, 5)?
+                .iter()
+                .map(|t| clip(t, 80))
+                .collect();
+            let gist = t
+                .note_path
+                .as_deref()
+                .map(|p| note_gist(notes.get(p)))
+                .unwrap_or_default();
+            let last = t
+                .last
+                .map(|l| app.clock.day_of(l).to_string())
+                .unwrap_or_else(|| "never".into());
+            let block = format!(
+                "- [topic {}] {} · {} items · last {last}\n  note: {gist}\n  recent: {}\n",
+                t.id,
+                t.name,
+                t.items,
+                titles.join("; ")
+            );
             if !ctx.push(&block, None) {
                 break;
             }
@@ -201,12 +266,20 @@ pub fn for_topics(app: &App) -> Result<Context> {
 pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Context> {
     let (day_start, day_end) = clock.day_range(today);
     let mut ctx = Context::default();
-    ctx.push(&format!("Today is {}.\n\nWork calendar today:\n", today.strftime("%A %Y-%m-%d")), None);
+    ctx.push(
+        &format!("Today is {}.\n\nWork calendar today:\n", today.strftime("%A %Y-%m-%d")),
+        None,
+    );
     for e in reads.context().work_events(day_start, day_end)? {
         if e.tag != "work" {
             continue;
         }
-        let mut line = format!("- {}–{} {}", clock.local(e.start).strftime("%H:%M"), clock.local(e.end).strftime("%H:%M"), clip(&e.title, 200));
+        let mut line = format!(
+            "- {}–{} {}",
+            clock.local(e.start).strftime("%H:%M"),
+            clock.local(e.end).strftime("%H:%M"),
+            clip(&e.title, 200)
+        );
         if let Some(a) = e.attendees.filter(|a| !a.is_empty()) {
             let _ = write!(line, " (with {})", clip(&a, 200));
         }
@@ -221,7 +294,12 @@ pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Contex
             return Ok(ctx);
         }
     }
-    let rows: Vec<ContextItem> = reads.context().touched(day_start, day_end)?.into_iter().filter(|r| r.tag == "work").collect();
+    let rows: Vec<ContextItem> = reads
+        .context()
+        .touched(day_start, day_end)?
+        .into_iter()
+        .filter(|r| r.tag == "work")
+        .collect();
     ctx.push("\nWork items touched today (newest first):\n", None);
     for r in &rows {
         if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
@@ -245,7 +323,12 @@ pub fn note_gist(note: &str) -> String {
     }
     let parts: Vec<&str> = lines
         .filter(|l| !l.is_empty())
-        .map(|l| l.trim_start_matches(['#', '-', '*', ' ']).trim_start_matches("[ ]").trim_start_matches("[x]").trim())
+        .map(|l| {
+            l.trim_start_matches(['#', '-', '*', ' '])
+                .trim_start_matches("[ ]")
+                .trim_start_matches("[x]")
+                .trim()
+        })
         .filter(|l| !l.is_empty())
         .take(4)
         .collect();
@@ -255,9 +338,9 @@ pub fn note_gist(note: &str) -> String {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use rusqlite::params;
     use crate::settings::Settings;
     use crate::state::App;
+    use rusqlite::params;
 
     /// Test app with AI *unconfigured* (no models), so each test opts in.
     pub fn app() -> (App, tempfile::TempDir) {
@@ -271,14 +354,20 @@ pub mod tests {
     }
 
     pub fn topic_id(app: &App, name: &str) -> i64 {
-        app.db().query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+        app.db()
+            .query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0))
+            .unwrap()
     }
 
     /// Plant personal content directly in the DB, bypassing apply()'s guard,
     /// linked to a topic and dated today, to prove the context builder drops it.
     pub fn plant_personal(app: &App, topic: i64) -> i64 {
         let conn = app.db();
-        let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'personal' LIMIT 1", [], |r| r.get(0)).unwrap();
+        let src: i64 = conn
+            .query_row("SELECT id FROM sources WHERE tag = 'personal' LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         let at = |h: i8, m: i8| app.clock.from_local(app.clock.today().at(h, m, 0, 0));
         conn.execute(
             "INSERT INTO items (source_id, external_id, kind, title, body, summary, occurred_at, status, owner, seen)
@@ -287,8 +376,16 @@ pub mod tests {
         )
         .unwrap();
         let id = conn.last_insert_rowid();
-        conn.execute("INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, 'me', 'PERSONAL-SECRET msg')", params![id, at(9, 31)]).unwrap();
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![id, topic]).unwrap();
+        conn.execute(
+            "INSERT INTO item_messages (item_id, at, author, text) VALUES (?1, ?2, 'me', 'PERSONAL-SECRET msg')",
+            params![id, at(9, 31)],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')",
+            params![id, topic],
+        )
+        .unwrap();
         // A titled event on the personal source too (apply() would never allow this).
         conn.execute(
             "INSERT INTO events (item_id, source_id, start, end, title, category, is_life_busy) VALUES (?1, ?2, ?3, ?4, 'PERSONAL-SECRET appt', 'life', 0)",
@@ -304,14 +401,23 @@ pub mod tests {
         let id = topic_id(&app, "Datadog renewal");
         {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
-            for (ext, title, seen) in [("n1", "FRESH-SUGGESTION renewal quote", 0), ("n2", "OLD-SUGGESTION already triaged", 1)] {
+            let src: i64 = conn
+                .query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0))
+                .unwrap();
+            for (ext, title, seen) in [
+                ("n1", "FRESH-SUGGESTION renewal quote", 0),
+                ("n2", "OLD-SUGGESTION already triaged", 1),
+            ] {
                 conn.execute(
                     "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, ?2, 'message', ?3, '2026-09-01T09:00:00.000Z', 'open', ?4)",
                     params![src, ext, title, seen],
                 )
                 .unwrap();
-                conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![conn.last_insert_rowid(), id]).unwrap();
+                conn.execute(
+                    "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+                    params![conn.last_insert_rowid(), id],
+                )
+                .unwrap();
             }
         }
         let ctx = for_topic(&app, id).unwrap();
@@ -331,7 +437,11 @@ pub mod tests {
         assert!(!ctx.used.is_empty());
         assert!(ctx.text.len() <= BUDGET);
         assert!(ctx.text.contains("People on this topic"));
-        assert!(ctx.text.contains("- Kim (Procurement), note People/Kim.md"), "{}", ctx.text);
+        assert!(
+            ctx.text.contains("- Kim (Procurement), note People/Kim.md"),
+            "{}",
+            ctx.text
+        );
     }
 
     #[test]
@@ -351,7 +461,10 @@ pub mod tests {
     #[test]
     fn today_has_work_meetings_but_no_life_blocks() {
         let (app, _dir) = app();
-        let ctx = app.store().read(|r| for_today(r, &app.clock, app.clock.today())).unwrap();
+        let ctx = app
+            .store()
+            .read(|r| for_today(r, &app.clock, app.clock.today()))
+            .unwrap();
         assert!(ctx.text.contains("Q4 headcount"), "{}", ctx.text);
         assert!(ctx.text.contains("Acme call") && ctx.text.contains("[tentative]"));
         // Life blocks (12:00–13:00 etc.) have no title and must not appear at all.
@@ -365,7 +478,9 @@ pub mod tests {
         let id = topic_id(&app, "Q4 headcount");
         {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+            let src: i64 = conn
+                .query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0))
+                .unwrap();
             for n in 0..200 {
                 conn.execute(
                     "INSERT INTO items (source_id, external_id, kind, title, body, occurred_at, status) VALUES (?1, ?2, 'thread', ?3, ?4, ?5, 'open')",
@@ -373,7 +488,11 @@ pub mod tests {
                 )
                 .unwrap();
                 let item = conn.last_insert_rowid();
-                conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![item, id]).unwrap();
+                conn.execute(
+                    "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')",
+                    params![item, id],
+                )
+                .unwrap();
             }
         }
         let ctx = for_topic(&app, id).unwrap();

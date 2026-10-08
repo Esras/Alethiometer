@@ -39,8 +39,8 @@ pub mod search;
 pub mod sources;
 pub mod splits;
 pub mod suggest;
-pub mod todos;
 pub mod timestamps;
+pub mod todos;
 pub mod topics;
 pub mod usage;
 pub mod utc_migration;
@@ -108,7 +108,10 @@ struct Writing;
 
 impl Writing {
     fn enter() -> Writing {
-        assert!(!WRITING.with(Cell::get), "the database writer is already held on this thread (a write inside a write)");
+        assert!(
+            !WRITING.with(Cell::get),
+            "the database writer is already held on this thread (a write inside a write)"
+        );
         WRITING.with(|w| w.set(true));
         Writing
     }
@@ -126,23 +129,28 @@ impl Db {
     pub fn new(writer: Connection) -> anyhow::Result<Db> {
         let readers = match writer.path().filter(|p| !p.is_empty()) {
             Some(path) => Some(
-                r2d2::Pool::builder()
-                    .max_size(READERS)
-                    .min_idle(Some(0))
-                    .build(
-                        SqliteConnectionManager::file(Path::new(path))
-                            .with_flags(OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI)
-                            .with_init(|c| {
-                                c.busy_timeout(Duration::from_secs(5))?;
-                                c.pragma_update(None, "query_only", true)
-                            }),
-                    )?,
+                r2d2::Pool::builder().max_size(READERS).min_idle(Some(0)).build(
+                    SqliteConnectionManager::file(Path::new(path))
+                        .with_flags(
+                            OpenFlags::SQLITE_OPEN_READ_ONLY
+                                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                                | OpenFlags::SQLITE_OPEN_URI,
+                        )
+                        .with_init(|c| {
+                            c.busy_timeout(Duration::from_secs(5))?;
+                            c.pragma_update(None, "query_only", true)
+                        }),
+                )?,
             ),
             None => None,
         };
         let changes = Arc::new(changes::Changes::default());
         changes.install(&writer)?;
-        Ok(Db { writer: Mutex::new(writer), readers, changes })
+        Ok(Db {
+            writer: Mutex::new(writer),
+            readers,
+            changes,
+        })
     }
 
     /// Which tables commits changed (`changes::Changes`).
@@ -192,7 +200,10 @@ impl Db {
             Some(pool) => {
                 let mut c = pool.get()?;
                 trace(&c)?;
-                let out = c.transaction_with_behavior(TransactionBehavior::Deferred).map_err(Into::into).and_then(|tx| f(&Sql(&tx)));
+                let out = c
+                    .transaction_with_behavior(TransactionBehavior::Deferred)
+                    .map_err(Into::into)
+                    .and_then(|tx| f(&Sql(&tx)));
                 untrace(&c)?;
                 out
             }
@@ -200,7 +211,10 @@ impl Db {
                 let _w = Writing::enter();
                 let mut c = self.lock();
                 trace(&c)?;
-                let out = c.transaction_with_behavior(TransactionBehavior::Deferred).map_err(Into::into).and_then(|tx| f(&Sql(&tx)));
+                let out = c
+                    .transaction_with_behavior(TransactionBehavior::Deferred)
+                    .map_err(Into::into)
+                    .and_then(|tx| f(&Sql(&tx)));
                 untrace_writer(&c)?;
                 out
             }
@@ -249,7 +263,10 @@ impl Db {
             Err(_) => self.changes.discard(),
         }
         if cfg!(debug_assertions) && started.elapsed() > SLOW_WRITE {
-            eprintln!("database: a write from {caller} held the writer for {:?}", started.elapsed());
+            eprintln!(
+                "database: a write from {caller} held the writer for {:?}",
+                started.elapsed()
+            );
         }
         out
     }
@@ -258,7 +275,10 @@ impl Db {
     /// transaction; each statement commits alone). Not in the app.
     #[cfg(test)]
     pub fn legacy(&self) -> LegacyGuard<'_> {
-        LegacyGuard { _w: Writing::enter(), guard: self.lock() }
+        LegacyGuard {
+            _w: Writing::enter(),
+            guard: self.lock(),
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Connection> {
@@ -368,7 +388,10 @@ mod tests {
     }
 
     fn buffer(r: &dyn Reads) -> Option<i64> {
-        let day = (crate::time::t("2026-10-03T00:00:00"), crate::time::t("2026-10-04T00:00:00"));
+        let day = (
+            crate::time::t("2026-10-03T00:00:00"),
+            crate::time::t("2026-10-04T00:00:00"),
+        );
         r.day_strip().blocks(day.0, day.1).unwrap()[0].buffer_min
     }
 
@@ -392,7 +415,11 @@ mod tests {
         assert!(p.is_err());
         assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(10), "the panic rolled back");
         db.write(|uow| uow.events().set_buffer(1, 25)).unwrap();
-        assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(25), "and the writer still works");
+        assert_eq!(
+            db.read(|r| Ok(buffer(r))).unwrap(),
+            Some(25),
+            "and the writer still works"
+        );
     }
 
     #[test]
@@ -417,9 +444,16 @@ mod tests {
         started.recv().unwrap();
         let t = Instant::now();
         db.write(|uow| uow.events().set_buffer(1, 45)).unwrap();
-        assert!(t.elapsed() < Duration::from_secs(1), "the write didn't wait for the read");
+        assert!(
+            t.elapsed() < Duration::from_secs(1),
+            "the write didn't wait for the read"
+        );
         go_tx.send(()).unwrap();
-        assert_eq!(reader.join().unwrap(), (Some(10), Some(10)), "one snapshot for the whole read");
+        assert_eq!(
+            reader.join().unwrap(),
+            (Some(10), Some(10)),
+            "one snapshot for the whole read"
+        );
         assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(45));
     }
 
@@ -481,7 +515,12 @@ mod tests {
             .unwrap();
         assert_eq!(stale, 0, "topic_links.item_at follows its item");
         let counts = |sql: &str| -> Vec<(i64, i64)> {
-            conn.prepare(sql).unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+            conn.prepare(sql)
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
         };
         let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
         assert_eq!(
@@ -522,7 +561,10 @@ mod tests {
                     let code = test_mod.split(&text).next().unwrap();
                     let n = re.find_iter(code).count();
                     if n > 0 {
-                        found.push(format!("{}: {n} SQL statements (move them into a repository in store/)", p.strip_prefix(&root).unwrap().display()));
+                        found.push(format!(
+                            "{}: {n} SQL statements (move them into a repository in store/)",
+                            p.strip_prefix(&root).unwrap().display()
+                        ));
                     }
                 }
             }

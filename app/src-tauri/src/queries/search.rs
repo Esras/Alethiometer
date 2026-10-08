@@ -15,7 +15,15 @@ pub fn route(name: &str) -> Option<Route> {
         "results" => Route::Read(|r, ctx, args| results(r, ctx, &arg_str(args, "q")?)),
         "feedback" => Route::Write(|uow, _, args| {
             let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-            crate::glean::feedback(uow, arg_i64(args, "topic_id")?, &arg_str(args, "key")?, &arg_str(args, "verdict")?, &s("title"), &s("url"), &s("source"))?;
+            crate::glean::feedback(
+                uow,
+                arg_i64(args, "topic_id")?,
+                &arg_str(args, "key")?,
+                &arg_str(args, "verdict")?,
+                &s("title"),
+                &s("url"),
+                &s("source"),
+            )?;
             Ok(json!({ "ok": true }))
         }),
         _ => return None,
@@ -70,7 +78,9 @@ pub const HIT_END: char = '\u{2}';
 /// confirmed topic (else a suggested one), `msgs` its top-level message count
 /// (the split review needs two).
 fn results(r: &dyn Reads, ctx: &Ctx, q: &str) -> Result<Value> {
-    let Some(fq) = fts_query(q) else { return Ok(json!({ "q": q, "results": [] })) };
+    let Some(fq) = fts_query(q) else {
+        return Ok(json!({ "q": q, "results": [] }));
+    };
     let rows: Vec<Value> = r
         .search()
         .results(&fq, 100)?
@@ -99,8 +109,16 @@ mod tests {
     #[test]
     fn results_mark_matches_and_carry_their_topic() {
         let (app, _dir) = app();
-        let id: i64 = app.db().query_row("SELECT id FROM items WHERE title = '#inc-2291'", [], |r| r.get(0)).unwrap();
-        app.db().execute("UPDATE items SET body = 'Root cause looks like a retry storm from the v2 workers' WHERE id = ?1", [id]).unwrap();
+        let id: i64 = app
+            .db()
+            .query_row("SELECT id FROM items WHERE title = '#inc-2291'", [], |r| r.get(0))
+            .unwrap();
+        app.db()
+            .execute(
+                "UPDATE items SET body = 'Root cause looks like a retry storm from the v2 workers' WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
         let v = crate::api::call(&app, "search.results", &json!({ "q": "retry storm" })).unwrap();
         let rs = v["results"].as_array().unwrap();
         let hit = rs.iter().find(|r| r["id"] == id).expect("the incident thread");
@@ -109,7 +127,11 @@ mod tests {
         assert_eq!(hit["topic"]["state"], "suggested");
         assert_eq!(hit["msgs"], 4);
         let nothing = crate::api::call(&app, "search.results", &json!({ "q": "Renewal" })).unwrap();
-        let filed = nothing["results"].as_array().unwrap().iter().find(|r| r["topic"]["state"] == "confirmed");
+        let filed = nothing["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["topic"]["state"] == "confirmed");
         assert!(filed.is_some(), "filed items carry their confirmed topic");
         let none = crate::api::call(&app, "search.results", &json!({ "q": "  " })).unwrap();
         assert!(none["results"].as_array().unwrap().is_empty(), "nothing to search for");

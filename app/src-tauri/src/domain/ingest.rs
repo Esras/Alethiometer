@@ -122,7 +122,6 @@ pub struct Busy {
     pub end: Ts,
 }
 
-
 /// Writing a batch: the storage side of `sync::apply`, which decides what
 /// each record means (new signal, quiet, attached to its parent).
 pub trait Ingest {

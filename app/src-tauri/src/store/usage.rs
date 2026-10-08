@@ -23,13 +23,24 @@ impl UsageViews for Sql<'_> {
                    FROM ai_usage WHERE at >= ?2 GROUP BY 1, 2, 3 ORDER BY tier DESC",
             )?
             .query_map(params![today_start, since], |r| {
-                Ok(AiUsage { tier: r.get(0)?, model: r.get(1)?, today: r.get(2)?, calls: r.get(3)?, input: r.get(4)?, output: r.get(5)? })
+                Ok(AiUsage {
+                    tier: r.get(0)?,
+                    model: r.get(1)?,
+                    today: r.get(2)?,
+                    calls: r.get(3)?,
+                    input: r.get(4)?,
+                    output: r.get(5)?,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn glean_calls(&self, day: Date) -> Result<i64> {
-        Ok(self.conn().query_row("SELECT n FROM glean_calls WHERE day = ?1", [day], |r| r.get(0)).optional()?.unwrap_or(0))
+        Ok(self
+            .conn()
+            .query_row("SELECT n FROM glean_calls WHERE day = ?1", [day], |r| r.get(0))
+            .optional()?
+            .unwrap_or(0))
     }
 }
 
@@ -46,7 +57,10 @@ impl Usage for Sql<'_> {
         if self.glean_calls(day)? >= per_day {
             return Ok(false);
         }
-        self.conn().execute("INSERT INTO glean_calls (day, n) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET n = n + 1", [day])?;
+        self.conn().execute(
+            "INSERT INTO glean_calls (day, n) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET n = n + 1",
+            [day],
+        )?;
         Ok(true)
     }
 }

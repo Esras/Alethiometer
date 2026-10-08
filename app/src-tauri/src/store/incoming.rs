@@ -1,7 +1,9 @@
 //! Incoming's read models.
 
 use super::Sql;
-use crate::domain::incoming::{FiledSignal, IncomingViews, ItemHeader, MessageRow, PartRow, SignalRow, TopicRef, WaitingAgent};
+use crate::domain::incoming::{
+    FiledSignal, IncomingViews, ItemHeader, MessageRow, PartRow, SignalRow, TopicRef, WaitingAgent,
+};
 use crate::error::{msg, Result};
 use crate::time::Ts;
 use rusqlite::{params, OptionalExtension, Row};
@@ -85,7 +87,9 @@ impl Sql<'_> {
 
 impl IncomingViews for Sql<'_> {
     fn unseen_count(&self) -> Result<i64> {
-        Ok(self.conn().query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))?)
+        Ok(self
+            .conn()
+            .query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))?)
     }
 
     fn filed_signals(&self) -> Result<Vec<FiledSignal>> {
@@ -142,7 +146,10 @@ impl IncomingViews for Sql<'_> {
                     Some(id) => Some((id, r.get(n + 1)?)),
                     None => None,
                 };
-                Ok(WaitingAgent { signal: signal(r)?, topic })
+                Ok(WaitingAgent {
+                    signal: signal(r)?,
+                    topic,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
@@ -229,10 +236,21 @@ impl IncomingViews for Sql<'_> {
             )?
             .query_map([id_list(item_ids)], |r| {
                 let topic = match r.get::<_, Option<i64>>(4)? {
-                    Some(id) => Some(TopicRef { id, name: r.get(5)?, category: r.get(6)? }),
+                    Some(id) => Some(TopicRef {
+                        id,
+                        name: r.get(5)?,
+                        category: r.get(6)?,
+                    }),
                     None => None,
                 };
-                Ok(PartRow { item_id: r.get(0)?, seen: r.get(1)?, has_messages: r.get(2)?, dismissed: r.get(3)?, filed: r.get(7)?, topic })
+                Ok(PartRow {
+                    item_id: r.get(0)?,
+                    seen: r.get(1)?,
+                    has_messages: r.get(2)?,
+                    dismissed: r.get(3)?,
+                    filed: r.get(7)?,
+                    topic,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }

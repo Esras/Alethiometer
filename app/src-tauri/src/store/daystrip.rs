@@ -29,7 +29,9 @@ impl DayStripViews for Sql<'_> {
                 buffer_min: r.get(7)?,
                 item_id: r.get(8)?,
                 attendees: r.get(9)?,
-                topic_ids: topics.map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default(),
+                topic_ids: topics
+                    .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+                    .unwrap_or_default(),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -51,6 +53,9 @@ impl DayStripViews for Sql<'_> {
 
 impl Events for Sql<'_> {
     fn set_buffer(&self, id: i64, minutes: i64) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE events SET buffer_min = ?1 WHERE id = ?2 AND is_life_busy = 1", params![minutes, id])? == 1)
+        Ok(self.conn().execute(
+            "UPDATE events SET buffer_min = ?1 WHERE id = ?2 AND is_life_busy = 1",
+            params![minutes, id],
+        )? == 1)
     }
 }

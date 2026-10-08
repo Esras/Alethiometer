@@ -1,8 +1,8 @@
 //! One module per source kind.
 
-pub mod github;
 pub mod agents;
 pub mod gcal;
+pub mod github;
 pub mod gmail;
 pub mod jira;
 pub mod obsidian;

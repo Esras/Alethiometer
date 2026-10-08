@@ -38,7 +38,11 @@ pub enum Edit {
 
 impl Edit {
     pub fn parse(v: &Value) -> Result<Edit> {
-        let path = v.get("path").and_then(Value::as_array).cloned().ok_or_else(|| msg("an edit needs 'path' as an array"))?;
+        let path = v
+            .get("path")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| msg("an edit needs 'path' as an array"))?;
         if path.is_empty() {
             return Err(msg("an edit needs a non-empty path"));
         }
@@ -98,8 +102,11 @@ fn slot<'a>(root: &'a mut Value, path: &[Value], create: bool) -> Result<&'a mut
             }
             Value::Number(n) => {
                 let i = n.as_u64().ok_or_else(|| msg("bad index"))? as usize;
-                let arr = cur.as_array_mut().ok_or_else(|| msg(format!("{} isn't a list", path_label(path))))?;
-                arr.get_mut(i).ok_or_else(|| msg(format!("{} is out of range", path_label(path))))?
+                let arr = cur
+                    .as_array_mut()
+                    .ok_or_else(|| msg(format!("{} isn't a list", path_label(path))))?;
+                arr.get_mut(i)
+                    .ok_or_else(|| msg(format!("{} is out of range", path_label(path))))?
             }
             _ => return Err(msg("path segments are keys or indexes")),
         };
@@ -115,7 +122,10 @@ fn apply_edit(root: &mut Value, e: &Edit) -> Result<()> {
             if target.is_null() {
                 *target = json!([]);
             }
-            target.as_array_mut().ok_or_else(|| msg(format!("{} isn't a list", path_label(p))))?.push(v.clone());
+            target
+                .as_array_mut()
+                .ok_or_else(|| msg(format!("{} isn't a list", path_label(p))))?
+                .push(v.clone());
         }
         Edit::Remove(p) => {
             let (last, parent) = p.split_last().expect("non-empty");
@@ -146,7 +156,8 @@ fn read_file(path: &Path) -> Result<Value> {
 /// Atomically (`fsx::write_atomic`), so a reader never sees half a file.
 pub fn write_file(path: &Path, v: &Value) -> Result<()> {
     let out = serde_json::to_string_pretty(v).map_err(|e| msg(e.to_string()))? + "\n";
-    crate::fsx::write_atomic(path, out.as_bytes(), None).map_err(|e| msg(format!("couldn't write {}: {e}", path.display())))
+    crate::fsx::write_atomic(path, out.as_bytes(), None)
+        .map_err(|e| msg(format!("couldn't write {}: {e}", path.display())))
 }
 
 /// Parse and check a whole settings document.
@@ -163,13 +174,24 @@ pub fn migrate_file(path: &Path) -> Result<()> {
     let links: Vec<Value> = v
         .get("life_calendars")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter(|u| u.as_str().is_some_and(|s| !s.trim().is_empty())).cloned().collect())
+        .map(|a| {
+            a.iter()
+                .filter(|u| u.as_str().is_some_and(|s| !s.trim().is_empty()))
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
     if links.is_empty() {
         return Ok(());
     }
-    let sources = v.as_object_mut().ok_or_else(|| msg("settings.json isn't an object"))?.entry("sources").or_insert(json!([]));
-    let list = sources.as_array_mut().ok_or_else(|| msg("settings.json: sources isn't a list"))?;
+    let sources = v
+        .as_object_mut()
+        .ok_or_else(|| msg("settings.json isn't an object"))?
+        .entry("sources")
+        .or_insert(json!([]));
+    let list = sources
+        .as_array_mut()
+        .ok_or_else(|| msg("settings.json: sources isn't a list"))?;
     match list.iter_mut().find(|s| s.get("kind").and_then(Value::as_str) == Some("protoncal")) {
         Some(src) => {
             if !src.get("config").is_some_and(Value::is_object) {
@@ -229,7 +251,13 @@ pub fn load_at_startup(path: &Path) -> anyhow::Result<(Settings, Option<String>)
                 None => format!("settings.json: {e}. Running on defaults until it's fixed."),
             };
             eprintln!("{why}");
-            Ok((last.unwrap_or_else(|| Settings { demo_data: false, ..Default::default() }), Some(why)))
+            Ok((
+                last.unwrap_or_else(|| Settings {
+                    demo_data: false,
+                    ..Default::default()
+                }),
+                Some(why),
+            ))
         }
     }
 }
@@ -247,8 +275,12 @@ pub fn patch(app: &App, edits: &[Edit]) -> Result<State> {
     let mut v = read_file(&path)?;
     let before = v.clone();
     for e in edits {
-        if e.path().first().and_then(Value::as_str) == Some("ai") && e.path().get(1).and_then(Value::as_str) == Some("allowed_providers") {
-            return Err(msg("ai.allowed_providers is the safety gate for work data: change it in settings.json by hand"));
+        if e.path().first().and_then(Value::as_str) == Some("ai")
+            && e.path().get(1).and_then(Value::as_str) == Some("allowed_providers")
+        {
+            return Err(msg(
+                "ai.allowed_providers is the safety gate for work data: change it in settings.json by hand",
+            ));
         }
         apply_edit(&mut v, e)?;
     }
@@ -265,7 +297,12 @@ fn rename_sources(app: &App, before: &Value, new: &Settings) -> Result<()> {
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
-                .map(|s| (s.get("kind").and_then(Value::as_str).unwrap_or("").into(), s.get("name").and_then(Value::as_str).unwrap_or("").into()))
+                .map(|s| {
+                    (
+                        s.get("kind").and_then(Value::as_str).unwrap_or("").into(),
+                        s.get("name").and_then(Value::as_str).unwrap_or("").into(),
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -276,7 +313,10 @@ fn rename_sources(app: &App, before: &Value, new: &Settings) -> Result<()> {
         for ((kind, was), now) in old.iter().zip(&new.sources) {
             if *kind == now.kind && *was != now.name {
                 if uow.reads().sources().find(kind, &now.name)?.is_some() {
-                    return Err(msg(format!("a {kind} source named '{}' already has data here; pick another name", now.name)));
+                    return Err(msg(format!(
+                        "a {kind} source named '{}' already has data here; pick another name",
+                        now.name
+                    )));
                 }
                 uow.sources().rename(kind, was, &now.name)?;
             }
@@ -330,7 +370,10 @@ fn apply(app: &App, new: Settings) -> State {
         restart = true;
     }
     if old.categories != new.categories {
-        match app.store().write(|uow| crate::queries::categories::load(uow, &new.categories)) {
+        match app
+            .store()
+            .write(|uow| crate::queries::categories::load(uow, &new.categories))
+        {
             Ok(true) => {
                 let _ = crate::queries::categories::save(app, &app.settings_path());
             }
@@ -351,8 +394,17 @@ fn apply(app: &App, new: Settings) -> State {
         "Saved · restart Alethiometer to apply".to_string()
     } else if !restarted.is_empty() {
         // Glean is search-only and Scion re-reads its config: nothing to reconnect.
-        let search_only = new.sources.iter().filter(|s| s.kind == "glean" || s.kind == "scion").map(|s| &s.name).collect::<Vec<_>>();
-        let verb = if restarted.iter().all(|n| search_only.contains(&n)) { "updated" } else { "reconnected" };
+        let search_only = new
+            .sources
+            .iter()
+            .filter(|s| s.kind == "glean" || s.kind == "scion")
+            .map(|s| &s.name)
+            .collect::<Vec<_>>();
+        let verb = if restarted.iter().all(|n| search_only.contains(&n)) {
+            "updated"
+        } else {
+            "reconnected"
+        };
         format!("Saved · {} {verb}", join_names(&restarted))
     } else {
         "Saved · live".to_string()
@@ -361,7 +413,11 @@ fn apply(app: &App, new: Settings) -> State {
         let mut st = app.settings_state();
         st.rev += 1;
         st.error = None;
-        st.message = if notes.is_empty() { message } else { format!("{message} · {}", notes.join(" · ")) };
+        st.message = if notes.is_empty() {
+            message
+        } else {
+            format!("{message} · {}", notes.join(" · "))
+        };
         st.clone()
     };
     if restart {
@@ -392,8 +448,14 @@ fn restart_changed_sources(app: &App, old: &[SourceConfig], new: &[SourceConfig]
         if let Err(e) = app.store().write(|uow| crate::sync::register(uow, new)) {
             eprintln!("settings: {e}");
         }
-        let gone: Vec<&SourceConfig> = old.iter().filter(|o| !new.iter().any(|n| n.kind == o.kind && n.name == o.name)).collect();
-        if let Err(e) = app.store().write(|uow| gone.iter().try_for_each(|g| uow.sources().disable(&g.kind, &g.name))) {
+        let gone: Vec<&SourceConfig> = old
+            .iter()
+            .filter(|o| !new.iter().any(|n| n.kind == o.kind && n.name == o.name))
+            .collect();
+        if let Err(e) = app
+            .store()
+            .write(|uow| gone.iter().try_for_each(|g| uow.sources().disable(&g.kind, &g.name)))
+        {
             eprintln!("settings: {e}");
         }
         let changed = |s: &SourceConfig| old.iter().find(|o| o.kind == s.kind && o.name == s.name) != Some(s);
@@ -432,7 +494,11 @@ fn restart_changed_sources(app: &App, old: &[SourceConfig], new: &[SourceConfig]
 pub fn restart_sources_using(app: &App, secret: &str) -> Vec<String> {
     let s = app.settings();
     let mut names = vec![];
-    for src in s.sources.iter().filter(|x| x.enabled && sources::secrets(&x.kind, &x.config).iter().any(|k| k.name == secret)) {
+    for src in s
+        .sources
+        .iter()
+        .filter(|x| x.enabled && sources::secrets(&x.kind, &x.config).iter().any(|k| k.name == secret))
+    {
         if let Ok(Some(id)) = app.store().read(|r| r.sources().find(&src.kind, &src.name)) {
             if let Some(a) = app.arc().filter(|_| crate::sync::running_threads()) {
                 crate::sync::start_source(a, id);
@@ -461,9 +527,16 @@ pub fn watch(app: Arc<App>) {
                 eprintln!("settings: file watcher off ({e}); hand edits apply on restart");
                 return;
             }
-            let ours = |ev: &notify::Event| ev.paths.iter().any(|p| p.file_name().is_some_and(|n| n == "settings.json"));
+            let ours = |ev: &notify::Event| {
+                ev.paths
+                    .iter()
+                    .any(|p| p.file_name().is_some_and(|n| n == "settings.json"))
+            };
             while let Ok(ev) = rx.recv() {
-                if !ev.as_ref().is_ok_and(|e| ours(e) && !matches!(e.kind, notify::EventKind::Access(_))) {
+                if !ev
+                    .as_ref()
+                    .is_ok_and(|e| ours(e) && !matches!(e.kind, notify::EventKind::Access(_)))
+                {
                     continue;
                 }
                 while rx.recv_timeout(std::time::Duration::from_millis(300)).is_ok() {}
@@ -497,28 +570,47 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         // A good start, with a source and the vault left default.
-        let mut good = Settings { demo_data: false, quiet_days: 9, ..Default::default() };
-        good.sources.push(serde_json::from_value(serde_json::json!({ "kind": "jira", "tag": "work", "name": "Jira" })).unwrap());
+        let mut good = Settings {
+            demo_data: false,
+            quiet_days: 9,
+            ..Default::default()
+        };
+        good.sources.push(
+            serde_json::from_value(serde_json::json!({ "kind": "jira", "tag": "work", "name": "Jira" })).unwrap(),
+        );
         std::fs::write(&path, serde_json::to_string_pretty(&good).unwrap()).unwrap();
         drop(App::open(dir.path()).unwrap());
         for broken in [
-            "{ \"quiet_days\": ",                                                    // doesn't parse
-            "{ \"quiet_days\": \"7\" }",                                             // wrong type
+            "{ \"quiet_days\": ",                                                            // doesn't parse
+            "{ \"quiet_days\": \"7\" }",                                                     // wrong type
             "{ \"sources\": [{ \"kind\": \"jira\", \"tag\": \"Work\", \"name\": \"J\" }] }", // bad tag
             "{ \"categories\": [{ \"key\": \"work\", \"label\": \"Work\", \"color\": \"yellow\" }] }", // bad colour
         ] {
             std::fs::write(&path, broken).unwrap();
             let app = App::open(dir.path()).unwrap_or_else(|e| panic!("didn't open with {broken}: {e}"));
             assert_eq!(app.settings().quiet_days, 9, "last good settings with {broken}");
-            assert!(app.settings_state().error.as_deref().is_some_and(|e| e.contains("last good")), "{broken}");
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "the file is left for the user to fix");
+            assert!(
+                app.settings_state()
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("last good")),
+                "{broken}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                broken,
+                "the file is left for the user to fix"
+            );
         }
     }
 
     #[test]
     fn a_bad_category_list_is_refused_before_it_applies() {
         let (app, _dir) = arc();
-        let bad = set(json!(["categories"]), json!([{ "key": "work", "label": "Work", "color": "yellow" }]));
+        let bad = set(
+            json!(["categories"]),
+            json!([{ "key": "work", "label": "Work", "color": "yellow" }]),
+        );
         assert!(patch(&app, &[bad]).is_err());
         assert!(app.settings().validate().is_ok());
     }
@@ -542,7 +634,9 @@ mod tests {
         let before = std::fs::read_to_string(app.settings_path()).unwrap();
         assert!(patch(&app, &[set(json!(["day_start_hour"]), json!(20))]).is_err());
         assert!(patch(&app, &[set(json!(["quiet_days"]), json!("soon"))]).is_err());
-        let e = patch(&app, &[set(json!(["ai", "allowed_providers"]), json!(["openai"]))]).unwrap_err().to_string();
+        let e = patch(&app, &[set(json!(["ai", "allowed_providers"]), json!(["openai"]))])
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("by hand"), "{e}");
         assert_eq!(std::fs::read_to_string(app.settings_path()).unwrap(), before);
     }
@@ -565,28 +659,67 @@ mod tests {
     #[test]
     fn prices_keys_with_dots_are_one_segment() {
         let (app, _dir) = arc();
-        patch(&app, &[set(json!(["ai", "prices", "us.anthropic.claude-opus-5-5"]), json!({ "input": 5.0, "output": 25.0 }))]).unwrap();
+        patch(
+            &app,
+            &[set(
+                json!(["ai", "prices", "us.anthropic.claude-opus-5-5"]),
+                json!({ "input": 5.0, "output": 25.0 }),
+            )],
+        )
+        .unwrap();
         assert_eq!(app.settings().ai.prices["us.anthropic.claude-opus-5-5"].output, 25.0);
-        patch(&app, &[Edit::parse(&json!({ "op": "remove", "path": ["ai", "prices", "us.anthropic.claude-opus-5-5"] })).unwrap()]).unwrap();
+        patch(
+            &app,
+            &[
+                Edit::parse(&json!({ "op": "remove", "path": ["ai", "prices", "us.anthropic.claude-opus-5-5"] }))
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
         assert!(app.settings().ai.prices.is_empty());
-        assert_eq!(path_label(&[json!("ai"), json!("prices"), json!("us.x")]), "ai.prices[\"us.x\"]");
+        assert_eq!(
+            path_label(&[json!("ai"), json!("prices"), json!("us.x")]),
+            "ai.prices[\"us.x\"]"
+        );
     }
 
     #[test]
     fn sources_add_rename_and_remove() {
         let (app, _dir) = arc();
         let src = json!({ "kind": "jira", "tag": "work", "name": "Work Jira", "config": { "base_url": "https://x.atlassian.net", "email": "a@b" } });
-        let st = patch(&app, &[Edit::parse(&json!({ "op": "push", "path": ["sources"], "value": src })).unwrap()]).unwrap();
+        let st = patch(
+            &app,
+            &[Edit::parse(&json!({ "op": "push", "path": ["sources"], "value": src })).unwrap()],
+        )
+        .unwrap();
         assert_eq!(st.message, "Saved · Work Jira reconnected");
-        let id: i64 = app.db().query_row("SELECT id FROM sources WHERE name = 'Work Jira'", [], |r| r.get(0)).unwrap();
+        let id: i64 = app
+            .db()
+            .query_row("SELECT id FROM sources WHERE name = 'Work Jira'", [], |r| r.get(0))
+            .unwrap();
         patch(&app, &[set(json!(["sources", 0, "name"]), json!("DEVOPS Jira"))]).unwrap();
-        let renamed: i64 = app.db().query_row("SELECT id FROM sources WHERE name = 'DEVOPS Jira'", [], |r| r.get(0)).unwrap();
+        let renamed: i64 = app
+            .db()
+            .query_row("SELECT id FROM sources WHERE name = 'DEVOPS Jira'", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(renamed, id, "a rename keeps the row");
-        let e = patch(&app, &[set(json!(["sources", 0, "config", "lookback_days"]), json!("x"))]).unwrap_err().to_string();
+        let e = patch(
+            &app,
+            &[set(json!(["sources", 0, "config", "lookback_days"]), json!("x"))],
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.contains("sources[0]"), "{e}");
-        patch(&app, &[Edit::parse(&json!({ "op": "remove", "path": ["sources", 0] })).unwrap()]).unwrap();
+        patch(
+            &app,
+            &[Edit::parse(&json!({ "op": "remove", "path": ["sources", 0] })).unwrap()],
+        )
+        .unwrap();
         assert!(app.settings().sources.is_empty());
-        let enabled: bool = app.db().query_row("SELECT enabled FROM sources WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        let enabled: bool = app
+            .db()
+            .query_row("SELECT enabled FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
         assert!(!enabled, "a removed source stops but keeps its items");
     }
 
@@ -594,7 +727,11 @@ mod tests {
     fn life_calendars_move_into_the_protoncal_source() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("settings.json");
-        std::fs::write(&p, json!({ "life_calendars": ["https://calendar.proton.me/a"], "sources": [] }).to_string()).unwrap();
+        std::fs::write(
+            &p,
+            json!({ "life_calendars": ["https://calendar.proton.me/a"], "sources": [] }).to_string(),
+        )
+        .unwrap();
         migrate_file(&p).unwrap();
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert!(v.get("life_calendars").is_none());

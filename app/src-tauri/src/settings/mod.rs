@@ -38,7 +38,11 @@ pub enum Categories {
 impl<'de> Deserialize<'de> for Categories {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = serde_json::Value::deserialize(d)?;
-        let out = if v.is_array() { serde_json::from_value(v).map(Categories::List) } else { serde_json::from_value(v).map(Categories::Legacy) };
+        let out = if v.is_array() {
+            serde_json::from_value(v).map(Categories::List)
+        } else {
+            serde_json::from_value(v).map(Categories::Legacy)
+        };
         out.map_err(|e| serde::de::Error::custom(format!("categories: {e}")))
     }
 }
@@ -256,7 +260,12 @@ fn value_group() -> String {
 
 impl Default for PrioritySettings {
     fn default() -> Self {
-        PrioritySettings { coefficients: Coefficients::default(), neglect: NeglectWeights::default(), quick_max_minutes: 30, tags: vec![] }
+        PrioritySettings {
+            coefficients: Coefficients::default(),
+            neglect: NeglectWeights::default(),
+            quick_max_minutes: 30,
+            tags: vec![],
+        }
     }
 }
 
@@ -356,7 +365,9 @@ pub struct OpenShellSettings {
 
 impl Default for OpenShellSettings {
     fn default() -> Self {
-        OpenShellSettings { command: "openshell".into() }
+        OpenShellSettings {
+            command: "openshell".into(),
+        }
     }
 }
 
@@ -379,7 +390,13 @@ pub struct AgentColors {
 
 impl Default for AgentColors {
     fn default() -> Self {
-        AgentColors { you: "#504945".into(), tool: "#8a9a5b".into(), message: "#9a9fd6".into(), hub: "#fabd2f".into(), needs_you: "#fe8019".into() }
+        AgentColors {
+            you: "#504945".into(),
+            tool: "#8a9a5b".into(),
+            message: "#9a9fd6".into(),
+            hub: "#fabd2f".into(),
+            needs_you: "#fe8019".into(),
+        }
     }
 }
 
@@ -401,7 +418,9 @@ impl Default for AgentNames {
     fn default() -> Self {
         AgentNames {
             color_by: "agent".into(),
-            palette: ["#7fb3d5", "#b8bb26", "#b9a6e0", "#8ec07c", "#e5a8a0"].map(String::from).to_vec(),
+            palette: ["#7fb3d5", "#b8bb26", "#b9a6e0", "#8ec07c", "#e5a8a0"]
+                .map(String::from)
+                .to_vec(),
             self_in_transcript: false,
         }
     }
@@ -420,7 +439,10 @@ pub struct AgentBoxes {
 
 impl Default for AgentBoxes {
     fn default() -> Self {
-        AgentBoxes { strength: "normal".into(), fold_pairs: true }
+        AgentBoxes {
+            strength: "normal".into(),
+            fold_pairs: true,
+        }
     }
 }
 
@@ -436,7 +458,14 @@ impl Default for AgentsSettings {
             openshell: None,
         };
         AgentsSettings {
-            harnesses: vec![h("pi", "Pi", &["-y", "pi-acp"]), h("claude", "Claude Code", &["-y", "@agentclientprotocol/claude-agent-acp"])],
+            harnesses: vec![
+                h("pi", "Pi", &["-y", "pi-acp"]),
+                h(
+                    "claude",
+                    "Claude Code",
+                    &["-y", "@agentclientprotocol/claude-agent-acp"],
+                ),
+            ],
             accept_edits: true,
             openshell: OpenShellSettings::default(),
             colors: AgentColors::default(),
@@ -464,13 +493,22 @@ pub struct PeopleSettings {
 
 impl Default for PeopleSettings {
     fn default() -> Self {
-        PeopleSettings { my_color: 0, me: vec![], suggest_after: 3, suggest_days: 7 }
+        PeopleSettings {
+            my_color: 0,
+            me: vec![],
+            suggest_after: 3,
+            suggest_days: 7,
+        }
     }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let cat = |key: &str, label: &str, color: &str| Category { key: key.into(), label: label.into(), color: color.into() };
+        let cat = |key: &str, label: &str, color: &str| Category {
+            key: key.into(),
+            label: label.into(),
+            color: color.into(),
+        };
         Settings {
             categories: Categories::List(vec![
                 cat("work", "Important · Work", "#fabd2f"),
@@ -490,8 +528,18 @@ impl Default for Settings {
                 aws_profile: String::new(),
                 // US inference profiles only; the org's BAA covers Bedrock in US regions.
                 // Suggestions are simple picks: low effort keeps them fast and cheap.
-                small: AiTier { provider: "bedrock".into(), enabled: true, model: "us.openai.gpt-6-luna".into(), effort: "low".into() },
-                large: AiTier { provider: "bedrock".into(), enabled: true, model: "us.anthropic.claude-opus-5-5".into(), effort: String::new() },
+                small: AiTier {
+                    provider: "bedrock".into(),
+                    enabled: true,
+                    model: "us.openai.gpt-6-luna".into(),
+                    effort: "low".into(),
+                },
+                large: AiTier {
+                    provider: "bedrock".into(),
+                    enabled: true,
+                    model: "us.anthropic.claude-opus-5-5".into(),
+                    effort: String::new(),
+                },
                 prices: BTreeMap::new(),
             },
             fake_now: String::new(),
@@ -541,7 +589,13 @@ impl Settings {
         }
         let hex = |c: &str| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit());
         let a = &self.agents;
-        for (k, c) in [("you", &a.colors.you), ("tool", &a.colors.tool), ("message", &a.colors.message), ("hub", &a.colors.hub), ("needs_you", &a.colors.needs_you)] {
+        for (k, c) in [
+            ("you", &a.colors.you),
+            ("tool", &a.colors.tool),
+            ("message", &a.colors.message),
+            ("hub", &a.colors.hub),
+            ("needs_you", &a.colors.needs_you),
+        ] {
             if !hex(c) {
                 anyhow::bail!("agents.colors.{k} must be a #rrggbb colour");
             }

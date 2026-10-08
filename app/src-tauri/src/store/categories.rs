@@ -10,7 +10,13 @@ impl CategoryViews for Sql<'_> {
         Ok(self
             .conn()
             .prepare_cached("SELECT key, label, color FROM categories ORDER BY position, label")?
-            .query_map([], |r| Ok(Category { key: r.get(0)?, label: r.get(1)?, color: r.get(2)? }))?
+            .query_map([], |r| {
+                Ok(Category {
+                    key: r.get(0)?,
+                    label: r.get(1)?,
+                    color: r.get(2)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?)
     }
 

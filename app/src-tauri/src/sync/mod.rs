@@ -18,12 +18,12 @@ pub use worker::{nudge, poll_now};
 pub const PERSONAL_RULES: &str = "Personal sources only store untitled busy blocks: never sent to the AI, never in Incoming or search, nothing written back.";
 pub mod http;
 
+use crate::clock::Clock;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
-use crate::clock::Clock;
-use crate::time::Ts;
 use crate::settings::SourceConfig;
 use crate::state::App;
+use crate::time::Ts;
 use http::Http;
 #[cfg(test)]
 use rusqlite::Connection;
@@ -122,7 +122,8 @@ pub fn register(uow: &dyn UnitOfWork, configs: &[SourceConfig]) -> Result<()> {
         if c.tag != "work" && c.tag != "personal" {
             return Err(msg(format!("source '{}': tag must be work or personal", c.name)));
         }
-        uow.sources().register(&c.kind, &c.name, &c.tag, &c.config.to_string(), c.enabled)?;
+        uow.sources()
+            .register(&c.kind, &c.name, &c.tag, &c.config.to_string(), c.enabled)?;
     }
     Ok(())
 }
@@ -136,7 +137,14 @@ pub fn register_sources(conn: &Connection, configs: &[SourceConfig]) -> Result<(
 /// A source as connectors see it.
 pub fn source(r: &dyn Reads, id: i64) -> Result<Source> {
     let s = r.sources().get(id)?.ok_or_else(|| msg(format!("no source {id}")))?;
-    Ok(Source { id: s.id, kind: s.kind, tag: s.tag, name: s.name, config: serde_json::from_str(&s.config_json).unwrap_or(Value::Null), cursor: s.cursor })
+    Ok(Source {
+        id: s.id,
+        kind: s.kind,
+        tag: s.tag,
+        name: s.name,
+        config: serde_json::from_str(&s.config_json).unwrap_or(Value::Null),
+        cursor: s.cursor,
+    })
 }
 
 /// `source` over a test's connection.
@@ -148,7 +156,12 @@ pub fn load_source(conn: &Connection, id: i64) -> Result<Source> {
 /// Write a batch, in the caller's unit of work. Returns the number of items
 /// that became new signal.
 pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> Result<usize> {
-    if source.tag == "personal" && (!batch.items.is_empty() || !batch.cancelled.is_empty() || !batch.seen.is_empty() || !batch.profiles.is_empty()) {
+    if source.tag == "personal"
+        && (!batch.items.is_empty()
+            || !batch.cancelled.is_empty()
+            || !batch.seen.is_empty()
+            || !batch.profiles.is_empty())
+    {
         return Err(msg(format!(
             "personal source '{}' tried to store items; only busy blocks are allowed",
             source.name
@@ -158,12 +171,21 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
     let mut new_signal = 0;
     let mut touched = std::collections::BTreeSet::new();
     for it in &batch.items {
-        let author = it.author.as_ref().map(|h| ingest.handle_person(&source.kind, h)).transpose()?;
+        let author = it
+            .author
+            .as_ref()
+            .map(|h| ingest.handle_person(&source.kind, h))
+            .transpose()?;
         // Split children own some messages of this item (queries::split): those
         // are never re-added here, and a run made only of them isn't new signal.
         let owned = uow.splits().owned_keys(source.id, &it.external_id)?;
         let ats: Vec<String> = it.messages.iter().map(|m| m.at.to_db()).collect();
-        let tuples: Vec<(&str, &str, &str)> = it.messages.iter().zip(&ats).map(|(m, at)| (at.as_str(), m.author.as_str(), m.text.as_str())).collect();
+        let tuples: Vec<(&str, &str, &str)> = it
+            .messages
+            .iter()
+            .zip(&ats)
+            .map(|(m, at)| (at.as_str(), m.author.as_str(), m.text.as_str()))
+            .collect();
         let keys = crate::domain::splits::keys(&it.raw_json, &tuples);
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
@@ -191,7 +213,11 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
                 continue;
             }
         }
-        debug_assert!(it.occurred_at != Ts::default(), "{}: occurred_at not set", it.external_id);
+        debug_assert!(
+            it.occurred_at != Ts::default(),
+            "{}: occurred_at not set",
+            it.external_id
+        );
         let item_id = match existing {
             None => {
                 let id = ingest.insert_item(source.id, it, author)?;
@@ -216,7 +242,13 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
             }
         };
         if !it.messages.is_empty() {
-            let rows: Vec<(&Message, &str)> = it.messages.iter().zip(&keys).filter(|(_, k)| !owned.contains(*k)).map(|(m, k)| (m, k.as_str())).collect();
+            let rows: Vec<(&Message, &str)> = it
+                .messages
+                .iter()
+                .zip(&keys)
+                .filter(|(_, k)| !owned.contains(*k))
+                .map(|(m, k)| (m, k.as_str()))
+                .collect();
             ingest.upsert_messages(item_id, &rows)?;
             if skipped > 0 {
                 uow.splits().recount(item_id, skipped)?;
@@ -291,7 +323,9 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let lock = worker::poll_lock(app, source_id);
     let _polling = lock.lock().unwrap_or_else(|e| e.into_inner());
     let _running = Running::start(source_id);
-    let (mut source, failing) = app.store().read(|r| Ok((source(r, source_id)?, r.sources().failing_streams(source_id)?)))?;
+    let (mut source, failing) = app
+        .store()
+        .read(|r| Ok((source(r, source_id)?, r.sources().failing_streams(source_id)?)))?;
     if source.kind == "slack" {
         source.cursor = app.store().read(|r| connectors::slack::close_triaged(r, &source))?;
     }
@@ -300,27 +334,47 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let connector: &dyn Connector = match &test {
         Some(c) => c.as_ref(),
         None => {
-            boxed = connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
+            boxed =
+                connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
             boxed.as_ref()
         }
     };
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
-    let ctx = Ctx { source: &source, http: &http, secret: &secret, now: app.clock.now(), clock: app.clock.clone() };
+    let ctx = Ctx {
+        source: &source,
+        http: &http,
+        secret: &secret,
+        now: app.clock.now(),
+        clock: app.clock.clone(),
+    };
     // What earlier polls left, read before this one goes out.
     let (revs, stale_open) = if connector.wants_known() {
         let before = app.clock.now() - jiff::SignedDuration::from_hours(REFETCH_EVERY_HOURS);
-        app.store().read(|r| Ok((r.sources().item_revs(source_id)?, r.sources().stale_open(source_id, before, REFETCH_PER_POLL)?)))?
+        app.store().read(|r| {
+            Ok((
+                r.sources().item_revs(source_id)?,
+                r.sources().stale_open(source_id, before, REFETCH_PER_POLL)?,
+            ))
+        })?
     } else {
         Default::default()
     };
     // Streams read so far, written as the poll goes.
     let mut committed = 0;
     let mut commit = |b: Batch| -> anyhow::Result<()> {
-        committed += app.store().write(|uow| apply(uow, &source, &b, ctx.now)).map_err(|e| anyhow::anyhow!("{e}"))?;
+        committed += app
+            .store()
+            .write(|uow| apply(uow, &source, &b, ctx.now))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(())
     };
-    let mut known = Polling { failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(), revs, stale_open, commit: &mut commit };
+    let mut known = Polling {
+        failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(),
+        revs,
+        stale_open,
+        commit: &mut commit,
+    };
     let polled = connector.poll_known(&ctx, &mut known);
     let result = polled.map_err(|e| msg(e.to_string())).and_then(|batch| {
         let n = app.store().write(|uow| {
@@ -346,7 +400,8 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     });
     let result = result.map(|n| n + committed);
     if let Err(e) = &result {
-        app.store().write(|uow| uow.sources().set_error(source_id, &e.to_string()))?;
+        app.store()
+            .write(|uow| uow.sources().set_error(source_id, &e.to_string()))?;
     }
     result
 }
@@ -368,7 +423,8 @@ pub fn suggest_after_sync(app: &App, source_id: i64) {
 /// Each source's loops carry the generation they were started with and stop
 /// once it moves on: restarting a source (its settings changed) or disabling it
 /// bumps the generation, so only that connector restarts.
-static GENERATIONS: std::sync::Mutex<std::collections::BTreeMap<i64, u64>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+static GENERATIONS: std::sync::Mutex<std::collections::BTreeMap<i64, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 pub(crate) fn bump_generation(id: i64) -> u64 {
     let mut g = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
@@ -407,7 +463,12 @@ pub fn running_threads() -> bool {
 /// Background polling for every enabled source. One thread per source.
 pub fn start(app: std::sync::Arc<App>) {
     THREADS.store(true, std::sync::atomic::Ordering::Relaxed);
-    let Ok(ids) = app.store().read(|r| Ok(r.sources().all()?.into_iter().map(|s| s.id).collect::<Vec<i64>>())) else { return };
+    let Ok(ids) = app
+        .store()
+        .read(|r| Ok(r.sources().all()?.into_iter().map(|s| s.id).collect::<Vec<i64>>()))
+    else {
+        return;
+    };
     for id in ids {
         start_source(app.clone(), id);
     }
@@ -420,7 +481,10 @@ pub fn start_source(app: std::sync::Arc<App>, id: i64) {
     let plan = (|| {
         let source = app.store().read(|r| source(r, id)).ok()?;
         let settings = app.settings();
-        let cfg = settings.sources.iter().find(|s| s.kind == source.kind && s.name == source.name)?;
+        let cfg = settings
+            .sources
+            .iter()
+            .find(|s| s.kind == source.kind && s.name == source.name)?;
         // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
         if !cfg.enabled || cfg.kind == "glean" || cfg.kind == "scion" {
             return None;
@@ -478,15 +542,19 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
                 .filter(|s| s.kind != "scion" && s.kind != "agents")
                 .map(|s| -> Result<SourceStatus> {
                     Ok(SourceStatus {
-                    failing: r.sources().failing_streams(s.id)?,
-                    syncing: is_running(s.id),
-                    live: if s.kind == "slack" { connectors::slack::socket::connected(s.id) } else { None },
-                    id: s.id,
-                    kind: s.kind,
-                    tag: s.tag,
-                    name: s.name,
-                    last_sync_at: s.last_sync_at,
-                    last_error: s.last_error,
+                        failing: r.sources().failing_streams(s.id)?,
+                        syncing: is_running(s.id),
+                        live: if s.kind == "slack" {
+                            connectors::slack::socket::connected(s.id)
+                        } else {
+                            None
+                        },
+                        id: s.id,
+                        kind: s.kind,
+                        tag: s.tag,
+                        name: s.name,
+                        last_sync_at: s.last_sync_at,
+                        last_error: s.last_error,
                     })
                 })
                 .collect::<Result<_>>()?;
@@ -550,7 +618,10 @@ mod tests {
             title: "Fix retries".into(),
             occurred_at: crate::time::t("2026-09-28T09:00:00"),
             status: "open".into(),
-            author: Some(Handle { handle: "acc-1".into(), display_name: "Jordan".into() }),
+            author: Some(Handle {
+                handle: "acc-1".into(),
+                display_name: "Jordan".into(),
+            }),
             bump,
             ..Default::default()
         }
@@ -559,18 +630,36 @@ mod tests {
     #[test]
     fn upsert_marks_new_then_only_bumps_resurface() {
         let (conn, src) = setup("work");
-        let b = Batch { items: vec![issue(false)], cursor: Some("c1".into()), ..Default::default() };
-        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
+        let b = Batch {
+            items: vec![issue(false)],
+            cursor: Some("c1".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            1
+        );
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
-        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
+        assert_eq!(
+            apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            0
+        );
         let seen: i64 = conn.query_row("SELECT seen FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(seen, 1);
-        let b2 = Batch { items: vec![issue(true)], ..Default::default() };
-        assert_eq!(apply_in(&conn, &src, &b2, crate::time::t("2026-09-28T10:52:00")).unwrap(), 1);
+        let b2 = Batch {
+            items: vec![issue(true)],
+            ..Default::default()
+        };
+        assert_eq!(
+            apply_in(&conn, &src, &b2, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            1
+        );
         let (seen, n, cursor): (i64, i64, String) = conn
-            .query_row("SELECT seen, (SELECT count(*) FROM items), (SELECT cursor FROM sources) FROM items", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
+            .query_row(
+                "SELECT seen, (SELECT count(*) FROM items), (SELECT cursor FROM sources) FROM items",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
             .unwrap();
         assert_eq!((seen, n, cursor.as_str()), (0, 1, "c1"));
         // One person per handle.
@@ -582,7 +671,12 @@ mod tests {
     fn long_run(from: usize, n: usize) -> ItemUpsert {
         let ts: Vec<String> = (from..from + n).map(|i| format!("1700000{i:03}.000100")).collect();
         let messages = (from..from + n)
-            .map(|i| Message { at: Ts::from_unix_secs(1_700_000_000.0 + i as f64).unwrap(), author: "Priya".into(), text: format!("msg {i}"), ..Default::default() })
+            .map(|i| Message {
+                at: Ts::from_unix_secs(1_700_000_000.0 + i as f64).unwrap(),
+                author: "Priya".into(),
+                text: format!("msg {i}"),
+                ..Default::default()
+            })
             .collect();
         ItemUpsert {
             external_id: "D1/run".into(),
@@ -598,25 +692,57 @@ mod tests {
     }
 
     fn stored(conn: &Connection) -> Vec<(i64, String)> {
-        conn.prepare("SELECT id, text FROM item_messages ORDER BY at, id").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+        conn.prepare("SELECT id, text FROM item_messages ORDER BY at, id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     }
 
     #[test]
     fn a_long_run_keeps_every_message_and_their_ids() {
         let (conn, src) = setup("work");
         let now = crate::time::t("2026-09-28T10:52:00");
-        apply_in(&conn, &src, &Batch { items: vec![long_run(0, 60)], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![long_run(0, 60)],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         let first = stored(&conn);
         assert_eq!(first.len(), 60, "all 60 stored");
         // The next poll sends only the latest 50 plus 10 new: nothing stored is lost or renumbered.
-        apply_in(&conn, &src, &Batch { items: vec![long_run(10, 60)], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![long_run(10, 60)],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         let second = stored(&conn);
         assert_eq!(second.len(), 70);
         assert_eq!(second[..60], first[..], "the same rows, the same ids");
         // An edited message is updated in place.
         let mut edited = long_run(10, 60);
         edited.messages[0].text = "msg 10 (edited)".into();
-        apply_in(&conn, &src, &Batch { items: vec![edited], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![edited],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         let third = stored(&conn);
         assert_eq!(third.len(), 70);
         assert_eq!(third[10], (second[10].0, "msg 10 (edited)".into()));
@@ -632,28 +758,83 @@ mod tests {
         let (conn, src) = setup("work");
         let now = crate::time::t("2026-09-28T10:52:00");
         let mut it = issue(true);
-        it.messages = vec![Message { at: now, author: "Kim".into(), text: "first draft".into(), ..Default::default() }];
-        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        it.messages = vec![Message {
+            at: now,
+            author: "Kim".into(),
+            text: "first draft".into(),
+            ..Default::default()
+        }];
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it.clone()],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         it.messages[0].text = "final".into();
-        apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         let texts: Vec<String> = stored(&conn).into_iter().map(|(_, t)| t).collect();
-        assert_eq!(texts, ["final"], "no key to match on: the source's current version only");
+        assert_eq!(
+            texts,
+            ["final"],
+            "no key to match on: the source's current version only"
+        );
     }
 
     #[test]
     fn a_comment_keyed_by_id_keeps_the_read_state_it_had_under_its_hash() {
         let (conn, src) = setup("work");
         let now = crate::time::t("2026-09-28T10:52:00");
-        let comment = Message { at: now, author: "Kim".into(), text: "looks good".into(), ..Default::default() };
+        let comment = Message {
+            at: now,
+            author: "Kim".into(),
+            text: "looks good".into(),
+            ..Default::default()
+        };
         let mut it = issue(true);
         it.messages = vec![comment.clone()];
-        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it.clone()],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         conn.execute("UPDATE item_messages SET read = 1", []).unwrap();
         // The connector now keys comments by id.
         it.raw_json = serde_json::json!({ "msgs": ["jira:10001"] });
-        apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap();
-        let rows: Vec<(String, bool)> =
-            conn.prepare("SELECT ext_key, read FROM item_messages").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
+        let rows: Vec<(String, bool)> = conn
+            .prepare("SELECT ext_key, read FROM item_messages")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         assert_eq!(rows, vec![("jira:10001".to_owned(), true)]);
     }
 
@@ -661,14 +842,33 @@ mod tests {
     fn a_failing_stream_counts_its_failures_until_it_reads_again() {
         let (conn, src) = setup("work");
         let now = crate::time::t("2026-09-28T10:52:00");
-        let outcome = |error: Option<&str>| Batch { streams: vec![StreamOutcome { key: "C1".into(), error: error.map(str::to_owned) }], ..Default::default() };
-        let failing = || Reads::sources(&crate::store::over(&conn)).failing_streams(src.id).unwrap();
+        let outcome = |error: Option<&str>| Batch {
+            streams: vec![StreamOutcome {
+                key: "C1".into(),
+                error: error.map(str::to_owned),
+            }],
+            ..Default::default()
+        };
+        let failing = || {
+            Reads::sources(&crate::store::over(&conn))
+                .failing_streams(src.id)
+                .unwrap()
+        };
         apply_in(&conn, &src, &outcome(Some("not_in_channel")), now).unwrap();
         apply_in(&conn, &src, &outcome(Some("not_in_channel")), now).unwrap();
-        assert_eq!(failing(), vec![crate::domain::sources::FailingStream { stream: "C1".into(), error: "not_in_channel".into(), failures: 2 }]);
+        assert_eq!(
+            failing(),
+            vec![crate::domain::sources::FailingStream {
+                stream: "C1".into(),
+                error: "not_in_channel".into(),
+                failures: 2
+            }]
+        );
         apply_in(&conn, &src, &outcome(None), now).unwrap();
         assert!(failing().is_empty());
-        let synced: Option<String> = conn.query_row("SELECT synced_at FROM sync_streams", [], |r| r.get(0)).unwrap();
+        let synced: Option<String> = conn
+            .query_row("SELECT synced_at FROM sync_streams", [], |r| r.get(0))
+            .unwrap();
         assert!(synced.is_some());
     }
 
@@ -678,17 +878,54 @@ mod tests {
         let now = crate::time::t("2026-09-28T10:52:00");
         let mut it = issue(true);
         it.remote_rev = Some("r1".into());
-        apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it.clone()],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
         // An overlap window reads it again, bump and all: it's the same revision.
         it.title = "Fix retries (stale copy)".into();
-        assert_eq!(apply_in(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }, now).unwrap(), 0);
-        let (seen, title): (bool, String) = conn.query_row("SELECT seen, title FROM items", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(
+            apply_in(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![it.clone()],
+                    ..Default::default()
+                },
+                now
+            )
+            .unwrap(),
+            0
+        );
+        let (seen, title): (bool, String) = conn
+            .query_row("SELECT seen, title FROM items", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
         assert_eq!((seen, title.as_str()), (true, "Fix retries"));
         // A new revision is applied.
         it.remote_rev = Some("r2".into());
-        assert_eq!(apply_in(&conn, &src, &Batch { items: vec![it], ..Default::default() }, now).unwrap(), 1);
-        let (seen, rev): (bool, String) = conn.query_row("SELECT seen, remote_rev FROM items", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(
+            apply_in(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![it],
+                    ..Default::default()
+                },
+                now
+            )
+            .unwrap(),
+            1
+        );
+        let (seen, rev): (bool, String) = conn
+            .query_row("SELECT seen, remote_rev FROM items", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
         assert_eq!((seen, rev.as_str()), (false, "r2"));
     }
 
@@ -696,34 +933,104 @@ mod tests {
     fn stale_open_items_come_least_recently_read_first() {
         let (conn, src) = setup("work");
         let now = crate::time::t("2026-09-28T10:52:00");
-        let item = |ext: &str, status: &str| ItemUpsert { external_id: ext.into(), status: status.into(), ..issue(false) };
-        let b = Batch { items: vec![item("A-1", "open"), item("A-2", "open"), item("A-3", "done"), item("A-4", "open")], ..Default::default() };
+        let item = |ext: &str, status: &str| ItemUpsert {
+            external_id: ext.into(),
+            status: status.into(),
+            ..issue(false)
+        };
+        let b = Batch {
+            items: vec![
+                item("A-1", "open"),
+                item("A-2", "open"),
+                item("A-3", "done"),
+                item("A-4", "open"),
+            ],
+            ..Default::default()
+        };
         apply_in(&conn, &src, &b, now).unwrap();
-        let read = |ext: &str, error: Option<&str>| StreamOutcome { key: format!("item:{ext}"), error: error.map(str::to_owned) };
+        let read = |ext: &str, error: Option<&str>| StreamOutcome {
+            key: format!("item:{ext}"),
+            error: error.map(str::to_owned),
+        };
         let gone = Some("Jira 404");
-        apply_in(&conn, &src, &Batch { streams: vec![read("A-1", None), read("A-4", gone), read("A-4", gone), read("A-4", gone)], ..Default::default() }, now).unwrap();
-        let stale = |before: &str| Reads::sources(&crate::store::over(&conn)).stale_open(src.id, Ts::parse(before).unwrap(), 10).unwrap();
+        apply_in(
+            &conn,
+            &src,
+            &Batch {
+                streams: vec![
+                    read("A-1", None),
+                    read("A-4", gone),
+                    read("A-4", gone),
+                    read("A-4", gone),
+                ],
+                ..Default::default()
+            },
+            now,
+        )
+        .unwrap();
+        let stale = |before: &str| {
+            Reads::sources(&crate::store::over(&conn))
+                .stale_open(src.id, Ts::parse(before).unwrap(), 10)
+                .unwrap()
+        };
         // A-1 was just read; A-3 is done; A-4 failed three times.
         assert_eq!(stale("2000-01-01T00:00:00Z"), vec!["A-2"]);
-        assert_eq!(stale("2100-01-01T00:00:00Z"), vec!["A-2", "A-1"], "never read first, then the oldest read");
+        assert_eq!(
+            stale("2100-01-01T00:00:00Z"),
+            vec!["A-2", "A-1"],
+            "never read first, then the oldest read"
+        );
     }
 
     #[test]
     fn profiles_are_stored_newest_wins() {
         let conn = crate::db::open_in_memory().unwrap();
-        conn.execute("INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')", []).unwrap();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name) VALUES ('slack', 'work', 'Slack')",
+            [],
+        )
+        .unwrap();
         let src = load_source(&conn, 1).unwrap();
-        let p = |email: Option<&str>| Profile { kind: "slack".into(), account: "U1".into(), real_name: Some("Ann Lee".into()), email: email.map(str::to_owned), is_bot: false };
-        apply_now(&conn, &src, &Batch { profiles: vec![p(Some("Ann@X.com"))], ..Default::default() }).unwrap();
-        apply_now(&conn, &src, &Batch { profiles: vec![p(Some("ann.lee@x.com"))], ..Default::default() }).unwrap();
-        let got: (String, String) = conn.query_row("SELECT real_name, email FROM account_profiles", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let p = |email: Option<&str>| Profile {
+            kind: "slack".into(),
+            account: "U1".into(),
+            real_name: Some("Ann Lee".into()),
+            email: email.map(str::to_owned),
+            is_bot: false,
+        };
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                profiles: vec![p(Some("Ann@X.com"))],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                profiles: vec![p(Some("ann.lee@x.com"))],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let got: (String, String) = conn
+            .query_row("SELECT real_name, email FROM account_profiles", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!(got, ("Ann Lee".into(), "ann.lee@x.com".into()));
     }
 
     #[test]
     fn personal_source_cannot_store_items() {
         let (conn, src) = setup("personal");
-        let b = Batch { items: vec![issue(false)], ..Default::default() };
+        let b = Batch {
+            items: vec![issue(false)],
+            ..Default::default()
+        };
         assert!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).is_err());
         let n: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
@@ -732,12 +1039,21 @@ mod tests {
     #[test]
     fn busy_blocks_replace_and_keep_buffer_overrides() {
         let (conn, src) = setup("personal");
-        let busy = |s: &str, e: &str| Busy { start: s.into(), end: e.into() };
-        let b = Batch { busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00")]), ..Default::default() };
+        let busy = |s: &str, e: &str| Busy {
+            start: s.into(),
+            end: e.into(),
+        };
+        let b = Batch {
+            busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00")]),
+            ..Default::default()
+        };
         apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         conn.execute("UPDATE events SET buffer_min = 25", []).unwrap();
         let b = Batch {
-            busy: Some(vec![busy("2026-09-28T12:00:00", "2026-09-28T13:00:00"), busy("2026-09-28T17:30:00", "2026-09-28T18:00:00")]),
+            busy: Some(vec![
+                busy("2026-09-28T12:00:00", "2026-09-28T13:00:00"),
+                busy("2026-09-28T17:30:00", "2026-09-28T18:00:00"),
+            ]),
             ..Default::default()
         };
         apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
@@ -767,25 +1083,58 @@ mod tests {
             ..Default::default()
         };
         let b = Batch {
-            items: vec![inst("past", "2000-01-01T09:00:00"), inst("feb", "2099-02-01T09:00:00"), inst("jan", "2099-01-01T09:00:00")],
+            items: vec![
+                inst("past", "2000-01-01T09:00:00"),
+                inst("feb", "2099-02-01T09:00:00"),
+                inst("jan", "2099-01-01T09:00:00"),
+            ],
             ..Default::default()
         };
         apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let unseen = |c: &Connection| -> Vec<String> {
-            c.prepare("SELECT external_id FROM items WHERE seen = 0").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+            c.prepare("SELECT external_id FROM items WHERE seen = 0")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
         };
         assert_eq!(unseen(&conn), ["jan"]);
 
-        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Standups', 'work')", []).unwrap();
-        let jan: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'jan'", [], |r| r.get(0)).unwrap();
-        crate::queries::incoming::move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), jan, 1, None).unwrap();
+        conn.execute(
+            "INSERT INTO topics (id, name, category) VALUES (1, 'Standups', 'work')",
+            [],
+        )
+        .unwrap();
+        let jan: i64 = conn
+            .query_row("SELECT id FROM items WHERE external_id = 'jan'", [], |r| r.get(0))
+            .unwrap();
+        crate::queries::incoming::move_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            jan,
+            1,
+            None,
+        )
+        .unwrap();
         let linked = |c: &Connection| -> i64 {
-            c.query_row("SELECT count(*) FROM topic_links WHERE topic_id = 1 AND state = 'confirmed'", [], |r| r.get(0)).unwrap()
+            c.query_row(
+                "SELECT count(*) FROM topic_links WHERE topic_id = 1 AND state = 'confirmed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
         };
         assert_eq!(linked(&conn), 3);
 
-        let b = Batch { items: vec![inst("mar", "2099-03-01T09:00:00")], ..Default::default() };
-        assert_eq!(apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(), 0);
+        let b = Batch {
+            items: vec![inst("mar", "2099-03-01T09:00:00")],
+            ..Default::default()
+        };
+        assert_eq!(
+            apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            0
+        );
         assert!(unseen(&conn).is_empty());
         assert_eq!(linked(&conn), 4);
     }

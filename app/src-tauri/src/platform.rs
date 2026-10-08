@@ -40,19 +40,44 @@ pub trait Platform: Send + Sync {
             line.push_str(c);
         }
         if cfg!(target_os = "macos") {
-            let script = format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", line.replace('\\', "\\\\").replace('"', "\\\""));
-            std::process::Command::new("osascript").arg("-e").arg(script).spawn().map(|_| ())
+            let script = format!(
+                "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
+                line.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(script)
+                .spawn()
+                .map(|_| ())
         } else {
-            let line = if line.is_empty() { "exec $SHELL".to_string() } else { format!("{line}; exec $SHELL") };
-            std::process::Command::new("x-terminal-emulator").arg("-e").arg("sh").arg("-c").arg(line).spawn().map(|_| ())
+            let line = if line.is_empty() {
+                "exec $SHELL".to_string()
+            } else {
+                format!("{line}; exec $SHELL")
+            };
+            std::process::Command::new("x-terminal-emulator")
+                .arg("-e")
+                .arg("sh")
+                .arg("-c")
+                .arg(line)
+                .spawn()
+                .map(|_| ())
         }
     }
     /// Open `path` in an app by name ("Zed"), falling back to its CLI.
     fn open_in_app(&self, app: &str, path: &str) -> std::io::Result<()> {
         if cfg!(target_os = "macos") {
-            std::process::Command::new("open").arg("-a").arg(app).arg(path).spawn().map(|_| ())
+            std::process::Command::new("open")
+                .arg("-a")
+                .arg(app)
+                .arg(path)
+                .spawn()
+                .map(|_| ())
         } else {
-            std::process::Command::new(app.to_lowercase()).arg(path).spawn().map(|_| ())
+            std::process::Command::new(app.to_lowercase())
+                .arg(path)
+                .spawn()
+                .map(|_| ())
         }
     }
 }
@@ -71,11 +96,18 @@ pub struct FileSecrets {
 
 impl FileSecrets {
     pub fn new(data_dir: &std::path::Path) -> FileSecrets {
-        FileSecrets { path: data_dir.join("secrets.json"), meta: data_dir.join("secrets.meta.json"), write: Default::default() }
+        FileSecrets {
+            path: data_dir.join("secrets.json"),
+            meta: data_dir.join("secrets.meta.json"),
+            write: Default::default(),
+        }
     }
 
     fn read_meta(&self) -> BTreeMap<String, String> {
-        std::fs::read_to_string(&self.meta).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        std::fs::read_to_string(&self.meta)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
     }
 
     /// The secrets; none when the file doesn't exist yet.
@@ -84,7 +116,10 @@ impl FileSecrets {
             Ok(t) => serde_json::from_str(&t).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("{} doesn't parse ({e}); fix it by hand or move it aside, nothing was written", self.path.display()),
+                    format!(
+                        "{} doesn't parse ({e}); fix it by hand or move it aside, nothing was written",
+                        self.path.display()
+                    ),
                 )
             }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
@@ -133,7 +168,11 @@ mod tests {
         // A hand edit gone wrong (or a crash from before writes were atomic).
         std::fs::write(d.path().join("secrets.json"), "{ \"a\": \"1\", \"b\": ").unwrap();
         assert!(s.secret_set("c", "3").is_err());
-        assert_eq!(std::fs::read_to_string(d.path().join("secrets.json")).unwrap(), "{ \"a\": \"1\", \"b\": ", "left for the user to fix");
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("secrets.json")).unwrap(),
+            "{ \"a\": \"1\", \"b\": ",
+            "left for the user to fix"
+        );
         assert_eq!(s.secret_get("a"), None);
     }
 
@@ -167,6 +206,13 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();
         FileSecrets::new(d.path()).secret_set("a", "1").unwrap();
-        assert_eq!(std::fs::metadata(d.path().join("secrets.json")).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(d.path().join("secrets.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
     }
 }

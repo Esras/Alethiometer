@@ -2,16 +2,16 @@
 //! topic's Obsidian note.
 
 use super::{arg_i64, arg_str, due_label, dur_label, ts_label, Pill};
-use crate::clock::Clock;
-use crate::time::{Due, Ts};
-use jiff::{SignedDuration, ToSpan};
 use crate::api::{unknown, Route};
+use crate::clock::Clock;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::msg;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
 use crate::sync::connectors::obsidian::save;
+use crate::time::{Due, Ts};
+use jiff::{SignedDuration, ToSpan};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -79,7 +79,9 @@ struct Entry {
 
 pub fn route(name: &str) -> Option<Route> {
     Some(match name {
-        "list" => Route::Read(|r, ctx, args| list(r, ctx, args.get("archived").and_then(Value::as_bool).unwrap_or(false))),
+        "list" => {
+            Route::Read(|r, ctx, args| list(r, ctx, args.get("archived").and_then(Value::as_bool).unwrap_or(false)))
+        }
         "get" => Route::ReadFiles(|app, args| get(app, arg_i64(args, "id")?)),
         "set_category" => Route::Write(|uow, _, args| {
             let (id, cat) = (arg_i64(args, "id")?, arg_str(args, "category")?);
@@ -93,7 +95,13 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         "archive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, true)),
         "unarchive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, false)),
-        "create" => Route::Write(|uow, _, args| create(uow, &arg_str(args, "name")?, args.get("category").and_then(Value::as_str))),
+        "create" => Route::Write(|uow, _, args| {
+            create(
+                uow,
+                &arg_str(args, "name")?,
+                args.get("category").and_then(Value::as_str),
+            )
+        }),
         "rename" => Route::Write(|uow, _, args| rename(uow, arg_i64(args, "id")?, &arg_str(args, "name")?)),
         // Priorities' topic priority: H, M, L, or null for none.
         "set_priority" => Route::Write(|uow, _, args| {
@@ -113,7 +121,12 @@ pub fn route(name: &str) -> Option<Route> {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "merge" => merge(app, arg_i64(args, "from")?, arg_i64(args, "into")?),
-        "save_note" => save_note(app, arg_i64(args, "id")?, &arg_str(args, "text")?, args.get("base").and_then(Value::as_str)),
+        "save_note" => save_note(
+            app,
+            arg_i64(args, "id")?,
+            &arg_str(args, "text")?,
+            args.get("base").and_then(Value::as_str),
+        ),
         "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
         _ => Err(unknown(name)),
@@ -181,8 +194,16 @@ fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
         return Err(msg("a topic can't be merged into itself"));
     }
     let (a, b) = app.store().write(|uow| {
-        let a = uow.reads().topics().head(from)?.ok_or_else(|| msg("the topic to merge is gone"))?;
-        let b = uow.reads().topics().head(into)?.ok_or_else(|| msg("the topic to merge into is gone"))?;
+        let a = uow
+            .reads()
+            .topics()
+            .head(from)?
+            .ok_or_else(|| msg("the topic to merge is gone"))?;
+        let b = uow
+            .reads()
+            .topics()
+            .head(into)?
+            .ok_or_else(|| msg("the topic to merge into is gone"))?;
         if b.archived {
             return Err(msg(format!("'{}' is archived: unarchive it first", b.name)));
         }
@@ -205,9 +226,18 @@ fn merge(app: &App, from: i64, into: i64) -> Result<Value> {
 
 /// Append the merged topic's note to the surviving topic's note. Returns
 /// `none` (nothing to append), `appended`, `queued` or `conflict`.
-fn append_merged_note(app: &App, into: i64, from_name: &str, from_path: Option<&str>, into_name: &str, into_path: Option<String>) -> Result<&'static str> {
+fn append_merged_note(
+    app: &App,
+    into: i64,
+    from_name: &str,
+    from_path: Option<&str>,
+    into_name: &str,
+    into_path: Option<String>,
+) -> Result<&'static str> {
     let Some(from_path) = from_path else { return Ok("none") };
-    let Some(text) = save::disk_text(app, from_path.trim_start_matches("./").trim_start_matches('/')) else { return Ok("none") };
+    let Some(text) = save::disk_text(app, from_path.trim_start_matches("./").trim_start_matches('/')) else {
+        return Ok("none");
+    };
     let body = strip_frontmatter(&text).trim();
     if body.is_empty() {
         return Ok("none");
@@ -223,7 +253,8 @@ fn append_merged_note(app: &App, into: i64, from_name: &str, from_path: Option<&
     after.push_str(&format!("## Merged from {from_name}\n\n{body}\n"));
     let saved = save::save_note(app, &rel, before.as_deref(), &after)?;
     if !linked {
-        app.store().write(|uow| uow.topics().set_note_path_if_unset(into, &path))?;
+        app.store()
+            .write(|uow| uow.topics().set_note_path_if_unset(into, &path))?;
     }
     Ok(match saved {
         save::Saved::Written => "appended",
@@ -237,7 +268,11 @@ fn strip_frontmatter(text: &str) -> &str {
     if let Some(rest) = t.strip_prefix("---\n").or_else(|| t.strip_prefix("---\r\n")) {
         if let Some(end) = rest.find("\n---") {
             let after = &rest[end + 4..];
-            return after.strip_prefix('\r').unwrap_or(after).strip_prefix('\n').unwrap_or(after);
+            return after
+                .strip_prefix('\r')
+                .unwrap_or(after)
+                .strip_prefix('\n')
+                .unwrap_or(after);
         }
     }
     t
@@ -248,13 +283,17 @@ fn strip_frontmatter(text: &str) -> &str {
 /// Answers `{state: "saved"}`, `{state: "conflict", disk}` or
 /// `{state: "saving", outbox_id}` (follow it with `note_status`).
 fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value> {
-    let head = app.store().read(|r| r.topics().head(id))?.ok_or_else(|| msg("no such topic"))?;
+    let head = app
+        .store()
+        .read(|r| r.topics().head(id))?
+        .ok_or_else(|| msg("no such topic"))?;
     let linked = head.obsidian_path.is_some();
     let path = head.obsidian_path.unwrap_or_else(|| default_note_path(&head.name));
     let rel = path.trim_start_matches("./").trim_start_matches('/');
     let saved = save::save_note(app, rel, base, text)?;
     if !linked {
-        app.store().write(|uow| uow.topics().set_note_path_if_unset(id, &path))?;
+        app.store()
+            .write(|uow| uow.topics().set_note_path_if_unset(id, &path))?;
     }
     Ok(match saved {
         save::Saved::Written => json!({ "state": "saved" }),
@@ -264,7 +303,16 @@ fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value
 }
 
 fn default_note_path(name: &str) -> String {
-    let file: String = name.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) || c.is_control() { '-' } else { c }).collect();
+    let file: String = name
+        .chars()
+        .map(|c| {
+            if r#"/\:*?"<>|"#.contains(c) || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
     format!("Topics/{}.md", file.trim().trim_start_matches('.'))
 }
 
@@ -336,7 +384,10 @@ fn source_label(kind: &str) -> &'static str {
 /// A topic's page. The note is read from the vault after the snapshot is closed.
 fn get(app: &App, id: i64) -> Result<Value> {
     let settings = app.settings();
-    let ctx = crate::api::Ctx { clock: &app.clock, settings: &settings };
+    let ctx = crate::api::Ctx {
+        clock: &app.clock,
+        settings: &settings,
+    };
     let (mut page, path) = app.store().read(|r| page(r, &ctx, id))?;
     // `base` is what an edit starts from and must still be there when it saves
     // (null: no file yet). The file on disk is what Obsidian last saved.
@@ -351,8 +402,12 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let clock = ctx.clock;
     let now = clock.now();
     let today = clock.today();
-    let head = reads.topics().head(id)?.ok_or_else(|| crate::error::msg("no such topic"))?;
-    let (name, category, path, score, priority) = (head.name, head.category, head.obsidian_path, head.score, head.priority);
+    let head = reads
+        .topics()
+        .head(id)?
+        .ok_or_else(|| crate::error::msg("no such topic"))?;
+    let (name, category, path, score, priority) =
+        (head.name, head.category, head.obsidian_path, head.score, head.priority);
     let pills: Vec<Pill> = serde_json::from_str(&head.pills_json).unwrap_or_default();
 
     // All confirmed links; suggestions still waiting in Incoming are left out.
@@ -377,19 +432,22 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
         let is_event = r.kind == "event";
         let mins = r.ended.map(|e| (e - at).as_mins());
         if is_event && at > now && (clock.day_of(at) - today).get_days() <= 7 {
-            upcoming.push((at, Upcoming {
-                item_id: r.id,
-                when: ts_label(at, clock, true),
-                today: clock.day_of(at) == today,
-                source: r.source_kind.clone(),
-                title: r.title.clone(),
-                sub: match (mins, &r.summary) {
-                    (Some(m), Some(s)) => Some(format!("{} · {s}", dur_label(m))),
-                    (Some(m), None) => Some(dur_label(m)),
-                    (None, s) => s.clone(),
+            upcoming.push((
+                at,
+                Upcoming {
+                    item_id: r.id,
+                    when: ts_label(at, clock, true),
+                    today: clock.day_of(at) == today,
+                    source: r.source_kind.clone(),
+                    title: r.title.clone(),
+                    sub: match (mins, &r.summary) {
+                        (Some(m), Some(s)) => Some(format!("{} · {s}", dur_label(m))),
+                        (Some(m), None) => Some(dur_label(m)),
+                        (None, s) => s.clone(),
+                    },
+                    rsvp: rsvps.get(&r.id).cloned(),
                 },
-                rsvp: rsvps.get(&r.id).cloned(),
-            }));
+            ));
         }
         let is_task = matches!(r.kind.as_str(), "task" | "issue" | "email") && r.owner.is_some();
         if is_task && r.status == "open" {
@@ -408,7 +466,12 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
         // Timeline: open tasks sit at their due date; everything else at when it happened.
         let (t, title, sub, right) = if is_task && r.status == "open" {
             match r.due {
-                Some(d) => (d.deadline(clock), r.title.clone(), Some("due".to_string()), source_label(&r.source_kind).to_string()),
+                Some(d) => (
+                    d.deadline(clock),
+                    r.title.clone(),
+                    Some("due".to_string()),
+                    source_label(&r.source_kind).to_string(),
+                ),
                 None => continue,
             }
         } else {
@@ -428,33 +491,50 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
         // Events show their time; due dates show one only when they have it.
         let has_time = is_event || (is_due && matches!(r.due, Some(Due::At(_))));
         let range = if r.kind == "thread" {
-            r.ended.map(|e| format!("{}–{}", clock.local(at).strftime("%H:%M"), clock.local(e).strftime("%H:%M")))
+            r.ended.map(|e| {
+                format!(
+                    "{}–{}",
+                    clock.local(at).strftime("%H:%M"),
+                    clock.local(e).strftime("%H:%M")
+                )
+            })
         } else {
             None
         };
-        if r.series.as_deref().is_some_and(|s| r.at > now && next_of_series.get(s) != Some(&r.at)) {
+        if r.series
+            .as_deref()
+            .is_some_and(|s| r.at > now && next_of_series.get(s) != Some(&r.at))
+        {
             continue;
         }
-        chron.push((t, Entry {
-            item_id: r.id,
-            when: ts_label(t, clock, has_time),
-            // Only today's meetings are lit; due dates stay grey like everything else.
-            today: !is_due && clock.day_of(t) == today,
-            source: r.source_kind.clone(),
-            title,
-            range,
-            sub,
-            right,
-            open: t > now || (is_task && r.status == "open"),
-            rsvp: rsvps.get(&r.id).cloned(),
-        }));
+        chron.push((
+            t,
+            Entry {
+                item_id: r.id,
+                when: ts_label(t, clock, has_time),
+                // Only today's meetings are lit; due dates stay grey like everything else.
+                today: !is_due && clock.day_of(t) == today,
+                source: r.source_kind.clone(),
+                title,
+                range,
+                sub,
+                right,
+                open: t > now || (is_task && r.status == "open"),
+                rsvp: rsvps.get(&r.id).cloned(),
+            },
+        ));
     }
     upcoming.sort_by(|a, b| a.0.cmp(&b.0));
     chron.sort_by(|a, b| b.0.cmp(&a.0));
     // Yours and other people's mixed, by Priority score (user, 2026-10-07).
     let scores = super::priorities::topic_scores(reads, clock, ctx.settings, id)?;
     let prio = |o: &OpenItem| scores.get(&o.item_id).copied().unwrap_or(0.0);
-    open.sort_by(|a, b| prio(b).partial_cmp(&prio(a)).unwrap_or(std::cmp::Ordering::Equal).then(a.item_id.cmp(&b.item_id)));
+    open.sort_by(|a, b| {
+        prio(b)
+            .partial_cmp(&prio(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.item_id.cmp(&b.item_id))
+    });
 
     let mut filters: Vec<(String, i64)> = vec![];
     for (_, e) in &chron {
@@ -471,20 +551,25 @@ fn page(reads: &dyn Reads, ctx: &crate::api::Ctx, id: i64) -> Result<(Value, Str
     let repos = reads.topics().repos(id)?;
     let path = path.unwrap_or_else(|| default_note_path(&name));
 
-    Ok((json!({
-        "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills, "priority": priority },
-        "upcoming": upcoming.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
-        "open": open,
-        "chronology": chron.into_iter().map(|(_, e)| e).collect::<Vec<_>>(),
-        "filters": filters.into_iter().map(|(source, count)| json!({ "source": source, "count": count })).collect::<Vec<_>>(),
-        "people": people,
-        "repos": repos,
-    }), path))
+    Ok((
+        json!({
+            "topic": { "id": id, "name": name, "category": category, "score": score, "pills": pills, "priority": priority },
+            "upcoming": upcoming.into_iter().map(|(_, u)| u).collect::<Vec<_>>(),
+            "open": open,
+            "chronology": chron.into_iter().map(|(_, e)| e).collect::<Vec<_>>(),
+            "filters": filters.into_iter().map(|(source, count)| json!({ "source": source, "count": count })).collect::<Vec<_>>(),
+            "people": people,
+            "repos": repos,
+        }),
+        path,
+    ))
 }
 
 /// Attendee summaries ("Ravi, Kim") read better inline with the title.
 fn is_names(s: &str) -> bool {
-    !s.is_empty() && s.split(", ").all(|w| w.chars().next().map_or(false, char::is_uppercase) && !w.contains(' '))
+    !s.is_empty()
+        && s.split(", ")
+            .all(|w| w.chars().next().map_or(false, char::is_uppercase) && !w.contains(' '))
 }
 
 pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
@@ -504,9 +589,20 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
 
     // Today's prep meeting (already on the strip as "DD prep"): give it the long title.
     let patch = |id: i64, title: Option<&str>, summary: &str| {
-        sample.patch_item(id, &crate::domain::sample::ItemPatch { title, summary: Some(summary), ..Default::default() })
+        sample.patch_item(
+            id,
+            &crate::domain::sample::ItemPatch {
+                title,
+                summary: Some(summary),
+                ..Default::default()
+            },
+        )
     };
-    patch(ctx.meeting_id(0, "DD prep"), Some("Prep with Kim before Thursday"), "agree walk-away number")?;
+    patch(
+        ctx.meeting_id(0, "DD prep"),
+        Some("Prep with Kim before Thursday"),
+        "agree walk-away number",
+    )?;
 
     let link = |id: i64| ctx.link(id, dd, "confirmed");
     // An invite you haven't answered yet, overlapping another meeting (14b).
@@ -517,7 +613,15 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
     let negotiation = ctx.meeting(-4, "15:00", "15:45", "Negotiation call", "work", "Ravi, Kim", false);
     link(negotiation);
     patch(negotiation, None, "they offered 12% off for 3 years")?;
-    link(ctx.meeting(-16, "10:00", "10:30", "Internal usage review", "work", "Ana, Kim", false));
+    link(ctx.meeting(
+        -16,
+        "10:00",
+        "10:30",
+        "Internal usage review",
+        "work",
+        "Ana, Kim",
+        false,
+    ));
     link(ctx.meeting(-25, "11:00", "11:30", "Kickoff", "work", "Ravi", false));
 
     let item = |it: ItemSeed| link(ctx.item(it));
@@ -639,9 +743,9 @@ pub fn seed(ctx: &Ctx, vault: &std::path::Path) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::strip_frontmatter;
     use crate::settings::Settings;
     use crate::state::App;
-    use super::strip_frontmatter;
     use rusqlite::params;
     use serde_json::{json, Value};
 
@@ -653,7 +757,9 @@ mod tests {
     }
 
     fn topic_id(app: &App, name: &str) -> i64 {
-        app.db().query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+        app.db()
+            .query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0))
+            .unwrap()
     }
 
     #[test]
@@ -662,15 +768,26 @@ mod tests {
         let r = crate::api::call(&app, "topics.create", &json!({ "name": "New thing" })).unwrap();
         let id = r["id"].as_i64().unwrap();
         assert_eq!(topic_id(&app, "New thing"), id);
-        let cat: String = app.db().query_row("SELECT category FROM topics WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        let cat: String = app
+            .db()
+            .query_row("SELECT category FROM topics WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
         assert_eq!(cat, "", "new topics start uncategorized");
-        let e = crate::api::call(&app, "topics.create", &json!({ "name": "new thing" })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "new thing" }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("already exists"), "{e}");
-        let e = crate::api::call(&app, "topics.create", &json!({ "name": "Datadog renewal" })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "Datadog renewal" }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("already exists"), "{e}");
-        let e = crate::api::call(&app, "topics.create", &json!({ "name": "X", "category": "nope" })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "X", "category": "nope" }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("unknown category"), "{e}");
-        let e = crate::api::call(&app, "topics.create", &json!({ "name": "  " })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.create", &json!({ "name": "  " }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("empty"), "{e}");
     }
 
@@ -681,12 +798,20 @@ mod tests {
         let id = r["id"].as_i64().unwrap();
         crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "Renamed thing" })).unwrap();
         assert_eq!(topic_id(&app, "Renamed thing"), id);
-        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "Datadog renewal" })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "Datadog renewal" }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("already exists"), "{e}");
-        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": " " })).unwrap_err().to_string();
+        let e = crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": " " }))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("empty"), "{e}");
         crate::api::call(&app, "topics.rename", &json!({ "id": id, "name": "renamed thing" })).unwrap();
-        assert_eq!(topic_id(&app, "renamed thing"), id, "renaming to its own name (case-only) is fine");
+        assert_eq!(
+            topic_id(&app, "renamed thing"),
+            id,
+            "renaming to its own name (case-only) is fine"
+        );
     }
 
     #[test]
@@ -714,10 +839,28 @@ mod tests {
         let (app, _dir) = app();
         let dd = topic_id(&app, "Datadog renewal");
         let q4 = topic_id(&app, "Q4 planning");
-        let links = |t: i64| -> i64 { app.db().query_row("SELECT count(*) FROM topic_links WHERE topic_id = ?1", [t], |r| r.get(0)).unwrap() };
+        let links = |t: i64| -> i64 {
+            app.db()
+                .query_row("SELECT count(*) FROM topic_links WHERE topic_id = ?1", [t], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
         // An item on both: Datadog's confirmed link beats Q4's wrong one.
-        let both: i64 = app.db().query_row("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1", [dd], |r| r.get(0)).unwrap();
-        app.db().execute("INSERT OR REPLACE INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![both, q4]).unwrap();
+        let both: i64 = app
+            .db()
+            .query_row(
+                "SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1",
+                [dd],
+                |r| r.get(0),
+            )
+            .unwrap();
+        app.db()
+            .execute(
+                "INSERT OR REPLACE INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+                params![both, q4],
+            )
+            .unwrap();
         let (dd_links, q4_links) = (links(dd), links(q4));
         assert!(dd_links > 0);
         let conn = app.db();
@@ -730,26 +873,61 @@ mod tests {
         assert_eq!(links(dd), 0);
         assert_eq!(links(q4), dd_links + q4_links - 1, "the shared item counts once");
         let conn = app.db();
-        let state: String = conn.query_row("SELECT state FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![both, q4], |r| r.get(0)).unwrap();
+        let state: String = conn
+            .query_row(
+                "SELECT state FROM topic_links WHERE item_id = ?1 AND topic_id = ?2",
+                params![both, q4],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(state, "confirmed");
-        let gone: bool = conn.query_row("SELECT NOT EXISTS (SELECT 1 FROM topics WHERE id = ?1)", [dd], |r| r.get(0)).unwrap();
+        let gone: bool = conn
+            .query_row("SELECT NOT EXISTS (SELECT 1 FROM topics WHERE id = ?1)", [dd], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert!(gone);
-        let people: i64 = conn.query_row("SELECT count(*) FROM topic_people WHERE topic_id = ?1", [q4], |r| r.get(0)).unwrap();
+        let people: i64 = conn
+            .query_row("SELECT count(*) FROM topic_people WHERE topic_id = ?1", [q4], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert!(people >= 3, "Kim, Ravi and Ana came along");
-        let repo: i64 = conn.query_row("SELECT count(*) FROM topic_repos WHERE topic_id = ?1", [q4], |r| r.get(0)).unwrap();
+        let repo: i64 = conn
+            .query_row("SELECT count(*) FROM topic_repos WHERE topic_id = ?1", [q4], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(repo, 1);
-        let target: String = conn.query_row("SELECT target_json FROM notes_lines WHERE text = 'x'", [], |r| r.get(0)).unwrap();
+        let target: String = conn
+            .query_row("SELECT target_json FROM notes_lines WHERE text = 'x'", [], |r| r.get(0))
+            .unwrap();
         let target: Value = serde_json::from_str(&target).unwrap();
-        assert_eq!((target["id"].as_i64(), target["label"].as_str()), (Some(q4), Some("Q4 planning")));
+        assert_eq!(
+            (target["id"].as_i64(), target["label"].as_str()),
+            (Some(q4), Some("Q4 planning"))
+        );
         let note = std::fs::read_to_string(app.vault.join("Topics/Q4 planning.md")).unwrap();
         if let Some(before) = q4_note {
-            assert!(note.starts_with(before.trim_end()), "the surviving note is kept as it was");
+            assert!(
+                note.starts_with(before.trim_end()),
+                "the surviving note is kept as it was"
+            );
         }
-        assert!(note.contains("## Merged from Datadog renewal\n\n## Where we are"), "{note}");
-        assert!(app.vault.join("Topics/Datadog renewal.md").exists(), "the merged topic's file stays");
+        assert!(
+            note.contains("## Merged from Datadog renewal\n\n## Where we are"),
+            "{note}"
+        );
+        assert!(
+            app.vault.join("Topics/Datadog renewal.md").exists(),
+            "the merged topic's file stays"
+        );
         drop(conn);
         assert!(crate::api::call(&app, "topics.merge", &json!({ "from": q4, "into": q4 })).is_err());
-        assert!(crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).is_err(), "already gone");
+        assert!(
+            crate::api::call(&app, "topics.merge", &json!({ "from": dd, "into": q4 })).is_err(),
+            "already gone"
+        );
     }
 
     #[test]
@@ -775,7 +953,16 @@ mod tests {
             })
             .collect();
         referring.sort();
-        assert_eq!(referring, ["search_feedback", "topic_links", "topic_people", "topic_repos", "topic_tags"]);
+        assert_eq!(
+            referring,
+            [
+                "search_feedback",
+                "topic_links",
+                "topic_people",
+                "topic_repos",
+                "topic_tags"
+            ]
+        );
     }
 
     #[test]
@@ -786,8 +973,16 @@ mod tests {
         let q4 = topic_id(&app, "Q4 headcount");
         {
             let conn = app.db();
-            for (t, key, verdict) in [(dd, "https://a", "pin"), (dd, "https://b", "reject"), (q4, "https://b", "pin")] {
-                conn.execute("INSERT INTO search_feedback (topic_id, key, verdict) VALUES (?1, ?2, ?3)", params![t, key, verdict]).unwrap();
+            for (t, key, verdict) in [
+                (dd, "https://a", "pin"),
+                (dd, "https://b", "reject"),
+                (q4, "https://b", "pin"),
+            ] {
+                conn.execute(
+                    "INSERT INTO search_feedback (topic_id, key, verdict) VALUES (?1, ?2, ?3)",
+                    params![t, key, verdict],
+                )
+                .unwrap();
             }
         }
         app.store()
@@ -805,11 +1000,30 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert_eq!(fb, [("https://a".to_owned(), "pin".to_owned()), ("https://b".to_owned(), "pin".to_owned())], "moved; the surviving topic's own verdict wins");
+        assert_eq!(
+            fb,
+            [
+                ("https://a".to_owned(), "pin".to_owned()),
+                ("https://b".to_owned(), "pin".to_owned())
+            ],
+            "moved; the surviving topic's own verdict wins"
+        );
         drop(conn);
-        assert!(app.store().read(|r| r.vectors().vector(VecKind::Topic, dd)).unwrap().is_none(), "the merged topic's vector is gone");
+        assert!(
+            app.store()
+                .read(|r| r.vectors().vector(VecKind::Topic, dd))
+                .unwrap()
+                .is_none(),
+            "the merged topic's vector is gone"
+        );
         let conn = app.db();
-        let stale: i64 = conn.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![dd, q4], |r| r.get(0)).unwrap();
+        let stale: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)",
+                params![dd, q4],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(stale, 0, "the surviving topic is re-embedded");
     }
 
@@ -818,13 +1032,24 @@ mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
         // Kim's item gets a due date today: it outranks your undated todos.
-        app.db().execute("UPDATE items SET due_day = ?1 WHERE title = 'Legal redlines back to vendor'", [app.clock.today().to_string()]).unwrap();
+        app.db()
+            .execute(
+                "UPDATE items SET due_day = ?1 WHERE title = 'Legal redlines back to vendor'",
+                [app.clock.today().to_string()],
+            )
+            .unwrap();
         let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
-        let scores = app.store().read(|r| crate::queries::priorities::topic_scores(r, &app.clock, &app.settings(), id)).unwrap();
+        let scores = app
+            .store()
+            .read(|r| crate::queries::priorities::topic_scores(r, &app.clock, &app.settings(), id))
+            .unwrap();
         let open = v["open"].as_array().unwrap();
         let s: Vec<f64> = open.iter().map(|o| scores[&o["item_id"].as_i64().unwrap()]).collect();
         assert!(s.windows(2).all(|w| w[0] >= w[1]), "{s:?}");
-        let kim = open.iter().position(|o| o["owner"] == "Kim").expect("other people's items stay");
+        let kim = open
+            .iter()
+            .position(|o| o["owner"] == "Kim")
+            .expect("other people's items stay");
         let yours_after = open.iter().skip(kim + 1).any(|o| o["owner"] == "you");
         assert!(yours_after, "Kim's dated item sits among yours, not after them");
     }
@@ -845,7 +1070,12 @@ mod tests {
         assert!(v["chronology"].as_array().unwrap().len() >= 14);
         assert!(v["note"]["text"].as_str().unwrap().contains("## Where we are"));
         // Timeline is newest first.
-        let whens: Vec<i64> = v["chronology"].as_array().unwrap().iter().map(|e| e["item_id"].as_i64().unwrap()).collect();
+        let whens: Vec<i64> = v["chronology"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["item_id"].as_i64().unwrap())
+            .collect();
         assert!(!whens.is_empty());
     }
 
@@ -858,14 +1088,29 @@ mod tests {
         let base = note["base"].as_str().unwrap().to_string();
         assert_eq!(note["text"], note["base"]);
         // Reordered sections, a line edited in the middle.
-        let mine = base.replace("## Links", "## Links (moved)").replace("Prefer 2y", "Prefer 1y");
-        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": mine, "base": base })).unwrap();
+        let mine = base
+            .replace("## Links", "## Links (moved)")
+            .replace("Prefer 2y", "Prefer 1y");
+        let r = crate::api::call(
+            &app,
+            "topics.save_note",
+            &json!({ "id": id, "text": mine, "base": base }),
+        )
+        .unwrap();
         assert_eq!(r["state"], "saved");
         let got = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
         assert_eq!(got["note"]["text"], mine);
         // A stale base (the note changed in Obsidian meanwhile) writes nothing.
-        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": "x", "base": base })).unwrap();
-        assert_eq!((r["state"].as_str(), r["disk"].as_str()), (Some("conflict"), Some(mine.as_str())));
+        let r = crate::api::call(
+            &app,
+            "topics.save_note",
+            &json!({ "id": id, "text": "x", "base": base }),
+        )
+        .unwrap();
+        assert_eq!(
+            (r["state"].as_str(), r["disk"].as_str()),
+            (Some("conflict"), Some(mine.as_str()))
+        );
     }
 
     #[test]
@@ -873,9 +1118,17 @@ mod tests {
         use crate::sync::http::FakeHttp;
         let (app, _dir) = crate::sync::connectors::obsidian::save::tests::app_with_source("obsidian");
         let id = topic_id(&app, "Datadog renewal");
-        let base = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["note"]["base"].as_str().unwrap().to_string();
+        let base = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["note"]["base"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let mine = format!("{base}- [ ] Ask about SSO seats\n");
-        let r = crate::api::call(&app, "topics.save_note", &json!({ "id": id, "text": mine, "base": base })).unwrap();
+        let r = crate::api::call(
+            &app,
+            "topics.save_note",
+            &json!({ "id": id, "text": mine, "base": base }),
+        )
+        .unwrap();
         assert_eq!(r["state"], "saving");
         let ob = r["outbox_id"].as_i64().unwrap();
         let http = FakeHttp::default();
@@ -890,12 +1143,25 @@ mod tests {
         assert_eq!(put.2.as_deref(), Some(mine.as_str()));
         // A topic without a note gets Topics/<name>.md, linked on first save.
         let q4 = topic_id(&app, "Q4 headcount");
-        app.db().execute("UPDATE topics SET name = 'Q4 CI/CD', obsidian_path = NULL WHERE id = ?1", [q4]).unwrap();
+        app.db()
+            .execute(
+                "UPDATE topics SET name = 'Q4 CI/CD', obsidian_path = NULL WHERE id = ?1",
+                [q4],
+            )
+            .unwrap();
         let g = crate::api::call(&app, "topics.get", &json!({ "id": q4 })).unwrap();
         assert_eq!(g["note"]["path"], "Topics/Q4 CI-CD.md");
         assert!(g["note"]["base"].is_null());
-        crate::api::call(&app, "topics.save_note", &json!({ "id": q4, "text": "x", "base": null })).unwrap();
-        let p: String = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0)).unwrap();
+        crate::api::call(
+            &app,
+            "topics.save_note",
+            &json!({ "id": q4, "text": "x", "base": null }),
+        )
+        .unwrap();
+        let p: String = app
+            .db()
+            .query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0))
+            .unwrap();
         assert_eq!(p, "Topics/Q4 CI-CD.md");
     }
 
@@ -904,19 +1170,34 @@ mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
         let conn = app.db();
-        let src: i64 = conn.query_row("SELECT id FROM sources LIMIT 1", [], |r| r.get(0)).unwrap();
-        for (ext, at) in [("s0", "2000-01-01T09:00:00.000Z"), ("s1", "2099-01-01T09:00:00.000Z"), ("s2", "2099-01-08T09:00:00.000Z")] {
+        let src: i64 = conn
+            .query_row("SELECT id FROM sources LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        for (ext, at) in [
+            ("s0", "2000-01-01T09:00:00.000Z"),
+            ("s1", "2099-01-01T09:00:00.000Z"),
+            ("s2", "2099-01-08T09:00:00.000Z"),
+        ] {
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at, seen, raw_json)
                  VALUES (?1, ?2, 'event', 'Weekly sync', ?3, 1, '{\"recurringEventId\":\"S\"}')",
                 rusqlite::params![src, ext, at],
             )
             .unwrap();
-            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", rusqlite::params![conn.last_insert_rowid(), id]).unwrap();
+            conn.execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')",
+                rusqlite::params![conn.last_insert_rowid(), id],
+            )
+            .unwrap();
         }
         drop(conn);
         let v = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap();
-        let n = v["chronology"].as_array().unwrap().iter().filter(|e| e["title"] == "Weekly sync").count();
+        let n = v["chronology"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["title"] == "Weekly sync")
+            .count();
         assert_eq!(n, 2);
     }
 
@@ -924,14 +1205,20 @@ mod tests {
     fn wrong_links_leave_the_topic() {
         let (app, _dir) = app();
         let id = topic_id(&app, "Datadog renewal");
-        let before = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["chronology"].as_array().unwrap().len();
+        let before = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["chronology"]
+            .as_array()
+            .unwrap()
+            .len();
         app.db()
             .execute(
                 "UPDATE topic_links SET state = 'wrong' WHERE topic_id = ?1 AND item_id = (SELECT min(item_id) FROM topic_links WHERE topic_id = ?1)",
                 [id],
             )
             .unwrap();
-        let after = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["chronology"].as_array().unwrap().len();
+        let after = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["chronology"]
+            .as_array()
+            .unwrap()
+            .len();
         assert_eq!(after, before - 1);
     }
 
@@ -954,11 +1241,17 @@ mod tests {
         let (app, _dir) = app();
         let id = topic_id(&app, "Alerting · P2");
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": id })).unwrap();
-        assert!(v["note"].as_str().unwrap().starts_with("No linked meetings today · next"));
+        assert!(v["note"]
+            .as_str()
+            .unwrap()
+            .starts_with("No linked meetings today · next"));
         let dd = topic_id(&app, "Datadog renewal");
         let today = app.clock.today();
         let (day_start, day_end) = app.clock.day_range(today);
-        let at = |hm: &str| app.clock.from_local(today.to_datetime(jiff::civil::Time::strptime("%H:%M:%S", hm).unwrap()));
+        let at = |hm: &str| {
+            app.clock
+                .from_local(today.to_datetime(jiff::civil::Time::strptime("%H:%M:%S", hm).unwrap()))
+        };
         let set = |start: &str, end: &str| {
             app.db()
                 .execute(
@@ -973,18 +1266,36 @@ mod tests {
         assert!(v["note"].is_null(), "a linked meeting still to come today");
         set("00:01:00", "00:02:00");
         let v = crate::api::call(&app, "daystrip.get", &json!({ "topic_id": dd })).unwrap();
-        assert!(v["note"].as_str().unwrap().starts_with("No more linked meetings today"), "{}", v["note"]);
+        assert!(
+            v["note"].as_str().unwrap().starts_with("No more linked meetings today"),
+            "{}",
+            v["note"]
+        );
     }
 
     #[test]
     fn buffer_override_only_applies_to_life_blocks() {
         let (app, _dir) = app();
-        let life: i64 = app.db().query_row("SELECT id FROM events WHERE is_life_busy = 1 LIMIT 1", [], |r| r.get(0)).unwrap();
+        let life: i64 = app
+            .db()
+            .query_row("SELECT id FROM events WHERE is_life_busy = 1 LIMIT 1", [], |r| r.get(0))
+            .unwrap();
         crate::api::call(&app, "daystrip.set_buffer", &json!({ "event_id": life, "minutes": 25 })).unwrap();
         let v = crate::api::call(&app, "daystrip.get", &json!({})).unwrap();
-        let b = v["blocks"].as_array().unwrap().iter().find(|b| b["id"] == life).unwrap().clone();
+        let b = v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == life)
+            .unwrap()
+            .clone();
         assert_eq!(b["buffer_min"], 25);
-        assert!(crate::api::call(&app, "daystrip.set_buffer", &json!({ "event_id": life, "minutes": 999 })).is_err());
+        assert!(crate::api::call(
+            &app,
+            "daystrip.set_buffer",
+            &json!({ "event_id": life, "minutes": 999 })
+        )
+        .is_err());
     }
 
     #[test]

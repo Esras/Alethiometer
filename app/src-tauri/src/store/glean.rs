@@ -18,14 +18,24 @@ impl GleanViews for Sql<'_> {
                    FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
                   WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'",
             )?
-            .query_map([topic_id], |r| Ok(EntitySignal { title: r.get(0)?, url: r.get(1)?, channel: r.get(2)? }))?
+            .query_map([topic_id], |r| {
+                Ok(EntitySignal {
+                    title: r.get(0)?,
+                    url: r.get(1)?,
+                    channel: r.get(2)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn email_of(&self, person_id: i64) -> Result<Option<String>> {
         Ok(self
             .conn()
-            .query_row("SELECT account FROM person_accounts WHERE person_id = ?1 AND kind = 'email' LIMIT 1", [person_id], |r| r.get(0))
+            .query_row(
+                "SELECT account FROM person_accounts WHERE person_id = ?1 AND kind = 'email' LIMIT 1",
+                [person_id],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
@@ -56,7 +66,17 @@ impl GleanViews for Sql<'_> {
                 "SELECT i.title, i.url, s.kind, s.tag, coalesce(i.summary, ''), coalesce(i.body, ''), i.occurred_at
                    FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1",
                 [id],
-                |r| Ok(EvidenceItem { title: r.get(0)?, url: r.get(1)?, source_kind: r.get(2)?, tag: r.get(3)?, summary: r.get(4)?, body: r.get(5)?, at: r.get(6)? }),
+                |r| {
+                    Ok(EvidenceItem {
+                        title: r.get(0)?,
+                        url: r.get(1)?,
+                        source_kind: r.get(2)?,
+                        tag: r.get(3)?,
+                        summary: r.get(4)?,
+                        body: r.get(5)?,
+                        at: r.get(6)?,
+                    })
+                },
             )
             .optional()?)
     }
@@ -68,7 +88,13 @@ impl GleanViews for Sql<'_> {
                 "SELECT t.id, t.name, t.category FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
                   WHERE tl.item_id = ?1 AND tl.state = 'confirmed' LIMIT 1",
                 [item_id],
-                |r| Ok(TopicRef { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? }),
+                |r| {
+                    Ok(TopicRef {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        category: r.get(2)?,
+                    })
+                },
             )
             .optional()?)
     }
@@ -108,7 +134,14 @@ impl GleanViews for Sql<'_> {
                   WHERE tl.item_id = ?1 AND tl.state != 'wrong' AND t.archived_at IS NULL
                   ORDER BY tl.state = 'confirmed' DESC, tl.updated_at DESC LIMIT 1",
                 [item_id],
-                |r| Ok(HitTopic { id: r.get(0)?, name: r.get(1)?, category: r.get(2)?, state: r.get(3)? }),
+                |r| {
+                    Ok(HitTopic {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        category: r.get(2)?,
+                        state: r.get(3)?,
+                    })
+                },
             )
             .optional()?)
     }
@@ -141,7 +174,10 @@ impl SearchFeedback for Sql<'_> {
     }
 
     fn clear(&self, topic_id: i64, key: &str) -> Result<()> {
-        self.conn().execute("DELETE FROM search_feedback WHERE topic_id = ?1 AND key = ?2", params![topic_id, key])?;
+        self.conn().execute(
+            "DELETE FROM search_feedback WHERE topic_id = ?1 AND key = ?2",
+            params![topic_id, key],
+        )?;
         Ok(())
     }
 }

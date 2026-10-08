@@ -31,7 +31,9 @@ pub struct JiraExt {
 
 impl JiraExt {
     pub fn is_epic(&self) -> bool {
-        self.issue_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("epic"))
+        self.issue_type
+            .as_deref()
+            .is_some_and(|t| t.eq_ignore_ascii_case("epic"))
     }
 }
 
@@ -73,7 +75,13 @@ impl TodoExt {
     pub(crate) fn parse(source: &str, raw: Value) -> Option<TodoExt> {
         match source {
             "notes" => serde_json::from_value(raw).ok().map(TodoExt::Local),
-            "jira" => serde_json::from_value::<JiraRaw>(raw).ok().map(|j| TodoExt::Jira(JiraExt { key: j.key, status: j.fields.status.name, issue_type: j.fields.issuetype.map(|t| t.name) })),
+            "jira" => serde_json::from_value::<JiraRaw>(raw).ok().map(|j| {
+                TodoExt::Jira(JiraExt {
+                    key: j.key,
+                    status: j.fields.status.name,
+                    issue_type: j.fields.issuetype.map(|t| t.name),
+                })
+            }),
             "obsidian" => serde_json::from_value(raw).ok().map(TodoExt::Obsidian),
             _ => None,
         }
@@ -117,21 +125,45 @@ pub fn route(name: &str) -> Option<Route> {
             Ok(json!({ "todos": todos, "jira": jira_target(r)? }))
         }),
         "schedule" => Route::Write(|uow, _, args| {
-            let day = args.get("sched").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(parse_date).transpose()?;
+            let day = args
+                .get("sched")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(parse_date)
+                .transpose()?;
             schedule(uow, arg_i64(args, "item_id")?, day)?;
             Ok(json!({ "ok": true }))
         }),
         "complete" | "reopen" => Route::Write(|uow, _, args| {
-            complete(uow, arg_i64(args, "item_id")?, args.get("done").and_then(Value::as_bool).unwrap_or(true))?;
+            complete(
+                uow,
+                arg_i64(args, "item_id")?,
+                args.get("done").and_then(Value::as_bool).unwrap_or(true),
+            )?;
             Ok(json!({ "ok": true }))
         }),
         "create" => Route::Write(|uow, ctx, args| {
-            create(uow, ctx.clock.now(), &Draft::from_args(args)?, opt_i64(args, "topic_id"), None)?;
+            create(
+                uow,
+                ctx.clock.now(),
+                &Draft::from_args(args)?,
+                opt_i64(args, "topic_id"),
+                None,
+            )?;
             Ok(json!({ "ok": true }))
         }),
         "hold" => Route::Write(|uow, _, args| {
             let d = Draft::from_args(args)?;
-            uow.todos().hold(arg_i64(args, "item_id")?, &Held { target: d.target, text: d.text, due: d.due, sched: d.sched })?;
+            uow.todos().hold(
+                arg_i64(args, "item_id")?,
+                &Held {
+                    target: d.target,
+                    text: d.text,
+                    due: d.due,
+                    sched: d.sched,
+                },
+            )?;
             Ok(json!({ "ok": true }))
         }),
         "estimate" => Route::Write(|uow, _, args| {
@@ -154,7 +186,9 @@ pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
     let skip = excluded_projects(r)?;
     let mut out = vec![];
     for t in rows {
-        let Some(ext) = TodoExt::parse(&t.source_kind, serde_json::from_str(&t.raw_json).unwrap_or_default()) else { continue };
+        let Some(ext) = TodoExt::parse(&t.source_kind, serde_json::from_str(&t.raw_json).unwrap_or_default()) else {
+            continue;
+        };
         if matches!(&ext, TodoExt::Jira(j) if project_excluded(&j.key, &skip)) {
             continue;
         }
@@ -185,7 +219,8 @@ pub fn list(r: &dyn Reads, clock: &Clock) -> Result<Vec<Todo>> {
 
 /// Whether a Jira key's project is one of `skip`.
 pub(crate) fn project_excluded(key: &str, skip: &[String]) -> bool {
-    key.split_once('-').is_some_and(|(p, _)| skip.iter().any(|s| s.eq_ignore_ascii_case(p)))
+    key.split_once('-')
+        .is_some_and(|(p, _)| skip.iter().any(|s| s.eq_ignore_ascii_case(p)))
 }
 
 /// Jira projects whose issues aren't todos (`todo_exclude_projects`).
@@ -194,7 +229,12 @@ pub(crate) fn excluded_projects(r: &dyn Reads) -> Result<Vec<String>> {
         .of_kind("jira")?
         .iter()
         .filter_map(|s| serde_json::from_str::<Value>(&s.config_json).ok())
-        .flat_map(|c| c.get("todo_exclude_projects").and_then(Value::as_array).cloned().unwrap_or_default())
+        .flat_map(|c| {
+            c.get("todo_exclude_projects")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
         .filter_map(|p| p.as_str().map(str::to_owned))
         .collect())
 }
@@ -205,7 +245,9 @@ fn jira_source(r: &dyn Reads) -> Result<Option<SourceRow>> {
 }
 
 fn jira_target(r: &dyn Reads) -> Result<Option<Value>> {
-    let cfg: Value = jira_source(r)?.and_then(|s| serde_json::from_str(&s.config_json).ok()).unwrap_or(Value::Null);
+    let cfg: Value = jira_source(r)?
+        .and_then(|s| serde_json::from_str(&s.config_json).ok())
+        .unwrap_or(Value::Null);
     Ok(cfg.get("create_project").and_then(Value::as_str).map(|p| {
         json!({ "project": p, "issue_type": cfg.get("create_issue_type").and_then(Value::as_str).unwrap_or("Task") })
     }))
@@ -214,14 +256,37 @@ fn jira_target(r: &dyn Reads) -> Result<Option<Value>> {
 pub fn complete(uow: &dyn UnitOfWork, item_id: i64, done: bool) -> Result<()> {
     let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
     let status = if done { "done" } else { "open" };
-    match TodoExt::parse(&item.source_kind, serde_json::from_str(&item.raw_json).unwrap_or_default()).ok_or_else(|| msg("not a todo"))? {
+    match TodoExt::parse(
+        &item.source_kind,
+        serde_json::from_str(&item.raw_json).unwrap_or_default(),
+    )
+    .ok_or_else(|| msg("not a todo"))?
+    {
         TodoExt::Local(_) => uow.items().set_status(item_id, status)?,
         TodoExt::Jira(j) => {
-            let to = if done { "Done".to_string() } else if j.status.eq_ignore_ascii_case("done") { "To Do".into() } else { j.status };
-            request(uow, item.source_id, "jira.transition", &json!({ "key": j.key, "transition_name": to, "done": done }), Some(item_id))?;
+            let to = if done {
+                "Done".to_string()
+            } else if j.status.eq_ignore_ascii_case("done") {
+                "To Do".into()
+            } else {
+                j.status
+            };
+            request(
+                uow,
+                item.source_id,
+                "jira.transition",
+                &json!({ "key": j.key, "transition_name": to, "done": done }),
+                Some(item_id),
+            )?;
         }
         TodoExt::Obsidian(o) => {
-            request(uow, item.source_id, "obsidian.toggle_task", &json!({ "path": o.path, "task_text": o.text, "done": done }), Some(item_id))?;
+            request(
+                uow,
+                item.source_id,
+                "obsidian.toggle_task",
+                &json!({ "path": o.path, "task_text": o.text, "done": done }),
+                Some(item_id),
+            )?;
         }
     }
     Ok(())
@@ -231,7 +296,10 @@ pub fn complete(uow: &dyn UnitOfWork, item_id: i64, done: bool) -> Result<()> {
 /// day on). Jira and Obsidian todos have none.
 pub fn schedule(uow: &dyn UnitOfWork, item_id: i64, day: Option<Date>) -> Result<()> {
     let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
-    match TodoExt::parse(&item.source_kind, serde_json::from_str(&item.raw_json).unwrap_or_default()) {
+    match TodoExt::parse(
+        &item.source_kind,
+        serde_json::from_str(&item.raw_json).unwrap_or_default(),
+    ) {
         Some(TodoExt::Local(_)) => uow.items().set_sched_day(item_id, day),
         Some(_) => Err(msg("only local todos have a scheduled date")),
         None => Err(msg("not a todo")),
@@ -264,7 +332,12 @@ impl Draft {
             return Err(msg("a todo needs its text"));
         }
         let date = |k: &str| -> Result<Option<String>> {
-            let v = args.get(k).and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty()).map(str::to_owned);
+            let v = args
+                .get(k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_owned);
             if let Some(d) = &v {
                 parse_date(d)?;
             }
@@ -274,14 +347,25 @@ impl Draft {
         if sched.is_some() && target != "local" {
             return Err(msg("only local todos have a scheduled date"));
         }
-        Ok(Draft { target, text, due, sched })
+        Ok(Draft {
+            target,
+            text,
+            due,
+            sched,
+        })
     }
 }
 
 pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, from_item: Option<i64>) -> Result<()> {
     if d.target == "jira" {
         let jira = jira_source(uow.reads())?.ok_or_else(|| msg("no Jira source to create the issue in"))?;
-        request(uow, jira.id, "jira.create_issue", &json!({ "summary": d.text, "assign_me": true, "due": d.due, "topic_id": topic_id }), None)?;
+        request(
+            uow,
+            jira.id,
+            "jira.create_issue",
+            &json!({ "summary": d.text, "assign_me": true, "due": d.due, "topic_id": topic_id }),
+            None,
+        )?;
         return Ok(());
     }
     let (from, url) = match from_item.map(|id| uow.items().get(id)).transpose()?.flatten() {
@@ -289,7 +373,11 @@ pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, f
         None => (None, None),
     };
     let src = uow.sources().ensure_local("notes", super::notes::NOTES_SOURCE)?;
-    let ext = LocalExt { from, from_item, notes_line_id: None };
+    let ext = LocalExt {
+        from,
+        from_item,
+        notes_line_id: None,
+    };
     let id = uow.items().insert(&NewItem {
         source_id: src,
         external_id: "todo-new".into(),
@@ -314,8 +402,21 @@ pub fn create(uow: &dyn UnitOfWork, now: Ts, d: &Draft, topic_id: Option<i64>, f
 
 /// A todo held on a signal is made when the signal is filed under `topic_id`.
 pub fn settle(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64) -> Result<bool> {
-    let Some(h) = uow.todos().held(item_id)? else { return Ok(false) };
-    create(uow, now, &Draft { target: h.target, text: h.text, due: h.due, sched: h.sched }, Some(topic_id), Some(item_id))?;
+    let Some(h) = uow.todos().held(item_id)? else {
+        return Ok(false);
+    };
+    create(
+        uow,
+        now,
+        &Draft {
+            target: h.target,
+            text: h.text,
+            due: h.due,
+            sched: h.sched,
+        },
+        Some(topic_id),
+        Some(item_id),
+    )?;
     uow.todos().unhold(item_id)?;
     Ok(true)
 }
@@ -324,12 +425,20 @@ pub use crate::domain::todos::Held;
 
 /// Jira confirmed an issue made as your todo: it's a todo now, before the next poll.
 pub fn issue_created(uow: &dyn UnitOfWork, now: Ts, payload: &Value, receipt: &Value) -> Result<()> {
-    let (Some(key), Some(url)) = (receipt.get("key").and_then(Value::as_str), receipt.get("url").and_then(Value::as_str)) else {
+    let (Some(key), Some(url)) = (
+        receipt.get("key").and_then(Value::as_str),
+        receipt.get("url").and_then(Value::as_str),
+    ) else {
         return Ok(());
     };
-    let Some(jira) = jira_source(uow.reads())? else { return Ok(()) };
+    let Some(jira) = jira_source(uow.reads())? else {
+        return Ok(());
+    };
     let summary = payload.get("summary").and_then(Value::as_str).unwrap_or_default();
-    let due = payload.get("due").and_then(Value::as_str).and_then(|d| d.parse::<Date>().ok());
+    let due = payload
+        .get("due")
+        .and_then(Value::as_str)
+        .and_then(|d| d.parse::<Date>().ok());
     let raw = json!({ "key": key, "fields": { "summary": summary, "status": { "name": "To Do" } } });
     let id = uow.items().insert_or_get(&NewItem {
         source_id: jira.id,
@@ -382,8 +491,15 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        call(&app, "hold", &json!({ "item_id": item, "target": "jira", "text": "File the ticket" })).unwrap();
-        app.db().execute("UPDATE sources SET enabled = 0 WHERE kind = 'jira'", []).unwrap();
+        call(
+            &app,
+            "hold",
+            &json!({ "item_id": item, "target": "jira", "text": "File the ticket" }),
+        )
+        .unwrap();
+        app.db()
+            .execute("UPDATE sources SET enabled = 0 WHERE kind = 'jira'", [])
+            .unwrap();
         let state = || -> (String, bool, i64) {
             app.db()
                 .query_row(
@@ -395,7 +511,8 @@ mod tests {
                 .unwrap()
         };
         let before = state();
-        let err = crate::api::call(&app, "incoming.confirm", &json!({ "item_id": item, "topic_id": topic })).unwrap_err();
+        let err =
+            crate::api::call(&app, "incoming.confirm", &json!({ "item_id": item, "topic_id": topic })).unwrap_err();
         assert!(err.to_string().contains("no Jira source"), "{err}");
         assert_eq!(state(), before, "link, seen and the held todo all as they were");
         assert_eq!(before, ("suggested".to_string(), false, 1));
@@ -406,7 +523,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
         let conn = app.db();
-        conn.execute("UPDATE sources SET config_json = '{\"create_project\": \"PLAT\"}' WHERE kind = 'jira'", []).unwrap();
+        conn.execute(
+            "UPDATE sources SET config_json = '{\"create_project\": \"PLAT\"}' WHERE kind = 'jira'",
+            [],
+        )
+        .unwrap();
         let (item, topic, _note): (i64, i64, String) = conn
             .query_row(
                 "SELECT tl.item_id, tl.topic_id, t.obsidian_path FROM topic_links tl JOIN items i ON i.id = tl.item_id
@@ -416,24 +537,51 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-        let other: i64 = conn.query_row("SELECT id FROM topics WHERE id != ?1 LIMIT 1", [topic], |r| r.get(0)).unwrap();
+        let other: i64 = conn
+            .query_row("SELECT id FROM topics WHERE id != ?1 LIMIT 1", [topic], |r| r.get(0))
+            .unwrap();
         let now = app.clock.clone();
         let before = list(&crate::store::over(&conn), &now).unwrap().len();
-        let hold = |target: &str, text: &str| call(&app, "hold", &json!({ "item_id": item, "target": target, "text": text, "due": "2026-10-02" })).unwrap();
+        let hold = |target: &str, text: &str| {
+            call(
+                &app,
+                "hold",
+                &json!({ "item_id": item, "target": target, "text": text, "due": "2026-10-02" }),
+            )
+            .unwrap()
+        };
         drop(conn);
-        assert!(call(&app, "hold", &json!({ "item_id": item, "target": "marvin", "text": "x" })).is_err());
+        assert!(call(
+            &app,
+            "hold",
+            &json!({ "item_id": item, "target": "marvin", "text": "x" })
+        )
+        .is_err());
         hold("local", "Reply to Kim");
         crate::queries::incoming::dismiss(&crate::store::over(&app.db()), item, true).unwrap();
         assert!(held(&app.db(), item).is_empty());
         crate::queries::incoming::dismiss(&crate::store::over(&app.db()), item, false).unwrap();
-        crate::queries::incoming::move_to(&crate::store::over(&app.db()), crate::time::Ts::new(jiff::Timestamp::now()), item, other, Some(topic)).unwrap();
+        crate::queries::incoming::move_to(
+            &crate::store::over(&app.db()),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            other,
+            Some(topic),
+        )
+        .unwrap();
         let conn = app.db();
         assert!(held(&conn, item).is_empty());
         let todos = list(&crate::store::over(&conn), &now).unwrap();
         assert_eq!(todos.len(), before + 1);
         let t = todos.iter().find(|t| t.title == "Reply to Kim").unwrap();
         // Due on that day: its deadline is the end of Oct 2 here.
-        assert_eq!((t.topic.as_ref().map(|t| t.id), t.due), (Some(other), Some(Due::Day(jiff::civil::date(2026, 10, 2)).deadline(&app.clock))));
+        assert_eq!(
+            (t.topic.as_ref().map(|t| t.id), t.due),
+            (
+                Some(other),
+                Some(Due::Day(jiff::civil::date(2026, 10, 2)).deadline(&app.clock))
+            )
+        );
         assert!(matches!(&t.ext, TodoExt::Local(l) if l.from_item == Some(item) && l.from.is_some()));
         complete(&crate::store::over(&conn), t.item_id, true).unwrap();
         assert_eq!(list(&crate::store::over(&conn), &now).unwrap().len(), before);
@@ -443,30 +591,75 @@ mod tests {
         conn_confirm(&app, item, topic);
         let conn = app.db();
         let payload: Value = conn
-            .query_row("SELECT payload_json FROM outbox WHERE op = 'jira.create_issue'", [], |r| r.get::<_, String>(0))
+            .query_row(
+                "SELECT payload_json FROM outbox WHERE op = 'jira.create_issue'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
             .map(|p| serde_json::from_str(&p).unwrap())
             .unwrap();
-        assert_eq!(payload, json!({ "summary": "Retry budget for ingest", "assign_me": true, "due": "2026-10-02", "topic_id": topic }));
-        crate::outbox::tests_on_confirmed(&conn, "jira.create_issue", &payload, &json!({ "key": "PLAT-77", "url": "https://j/browse/PLAT-77" }));
-        let t = list(&crate::store::over(&conn), &now).unwrap().into_iter().find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77")).unwrap();
+        assert_eq!(
+            payload,
+            json!({ "summary": "Retry budget for ingest", "assign_me": true, "due": "2026-10-02", "topic_id": topic })
+        );
+        crate::outbox::tests_on_confirmed(
+            &conn,
+            "jira.create_issue",
+            &payload,
+            &json!({ "key": "PLAT-77", "url": "https://j/browse/PLAT-77" }),
+        );
+        let t = list(&crate::store::over(&conn), &now)
+            .unwrap()
+            .into_iter()
+            .find(|t| matches!(&t.ext, TodoExt::Jira(j) if j.key == "PLAT-77"))
+            .unwrap();
         assert_eq!(t.topic.map(|t| t.id), Some(topic));
-        let appended: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op LIKE 'obsidian.%'", [], |r| r.get(0)).unwrap();
+        let appended: i64 = conn
+            .query_row("SELECT count(*) FROM outbox WHERE op LIKE 'obsidian.%'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(appended, 0, "making a todo never writes to the topic's note");
 
         complete(&crate::store::over(&conn), t.item_id, true).unwrap();
-        let tr: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'jira.transition'", [], |r| r.get(0)).unwrap();
+        let tr: String = conn
+            .query_row(
+                "SELECT payload_json FROM outbox WHERE op = 'jira.transition'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         let tr: Value = serde_json::from_str(&tr).unwrap();
         assert_eq!(tr, json!({ "key": "PLAT-77", "transition_name": "Done", "done": true }));
-        assert!(list(&crate::store::over(&conn), &now).unwrap().iter().any(|x| x.item_id == t.item_id), "open until Jira confirms");
+        assert!(
+            list(&crate::store::over(&conn), &now)
+                .unwrap()
+                .iter()
+                .any(|x| x.item_id == t.item_id),
+            "open until Jira confirms"
+        );
         crate::outbox::tests_on_confirmed_item(&conn, "jira.transition", t.item_id, &tr);
-        assert!(!list(&crate::store::over(&conn), &now).unwrap().iter().any(|x| x.item_id == t.item_id));
+        assert!(!list(&crate::store::over(&conn), &now)
+            .unwrap()
+            .iter()
+            .any(|x| x.item_id == t.item_id));
     }
 
     fn conn_confirm(app: &App, item: i64, topic: i64) {
         let conn = app.db();
         conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
-        conn.execute("UPDATE topic_links SET state = 'suggested' WHERE item_id = ?1 AND topic_id = ?2", [item, topic]).unwrap();
-        crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
+        conn.execute(
+            "UPDATE topic_links SET state = 'suggested' WHERE item_id = ?1 AND topic_id = ?2",
+            [item, topic],
+        )
+        .unwrap();
+        crate::queries::incoming::confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            topic,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -483,16 +676,39 @@ mod tests {
             )
             .unwrap();
         }
-        conn.execute("UPDATE sources SET config_json = '{\"todo_exclude_projects\": [\"dpr\"]}' WHERE kind = 'jira'", []).unwrap();
-        let keys: Vec<String> =
-            list(&crate::store::over(&conn), &app.clock).unwrap().into_iter().filter_map(|t| if let TodoExt::Jira(j) = t.ext { Some(j.key) } else { None }).collect();
-        assert!(keys.contains(&"DEVOPS-9".to_string()) && !keys.contains(&"DPR-7".to_string()), "{keys:?}");
+        conn.execute(
+            "UPDATE sources SET config_json = '{\"todo_exclude_projects\": [\"dpr\"]}' WHERE kind = 'jira'",
+            [],
+        )
+        .unwrap();
+        let keys: Vec<String> = list(&crate::store::over(&conn), &app.clock)
+            .unwrap()
+            .into_iter()
+            .filter_map(|t| {
+                if let TodoExt::Jira(j) = t.ext {
+                    Some(j.key)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            keys.contains(&"DEVOPS-9".to_string()) && !keys.contains(&"DPR-7".to_string()),
+            "{keys:?}"
+        );
     }
 
     #[test]
     fn a_row_that_does_not_fit_its_source_is_not_a_todo() {
         assert!(TodoExt::parse("jira", json!({ "key": "X-1" })).is_none());
         assert!(TodoExt::parse("obsidian", json!({ "path": "a.md" })).is_none());
-        assert_eq!(TodoExt::parse("notes", json!({ "notes_line_id": 4 })), Some(TodoExt::Local(LocalExt { from: None, from_item: None, notes_line_id: Some(4) })));
+        assert_eq!(
+            TodoExt::parse("notes", json!({ "notes_line_id": 4 })),
+            Some(TodoExt::Local(LocalExt {
+                from: None,
+                from_item: None,
+                notes_line_id: Some(4)
+            }))
+        );
     }
 }

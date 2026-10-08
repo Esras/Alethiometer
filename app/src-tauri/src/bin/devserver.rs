@@ -18,7 +18,9 @@ use tiny_http::{Header, Method, Request, Response, Server};
 const HEADER: &str = "x-alethiometer";
 
 fn main() -> anyhow::Result<()> {
-    let dir: std::path::PathBuf = std::env::var_os("ALETHIOMETER_DATA_DIR").map(Into::into).unwrap_or_else(|| ".alethiometer-dev".into());
+    let dir: std::path::PathBuf = std::env::var_os("ALETHIOMETER_DATA_DIR")
+        .map(Into::into)
+        .unwrap_or_else(|| ".alethiometer-dev".into());
     let app = App::shared(App::open(&dir)?);
     alethiometer_lib::sync::start(app.clone());
     alethiometer_lib::settings::live::watch(app.clone());
@@ -28,7 +30,10 @@ fn main() -> anyhow::Result<()> {
     alethiometer_lib::agents::start(app.clone());
     let addr = std::env::var("ALETHIOMETER_DEVSERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:1421".into());
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("{e}"))?;
-    eprintln!("alethiometer devserver on http://{addr} (data: {})", app.data_dir.display());
+    eprintln!(
+        "alethiometer devserver on http://{addr} (data: {})",
+        app.data_dir.display()
+    );
     let json_h = Header::from_bytes("Content-Type", "application/json").unwrap();
     for mut req in server.incoming_requests() {
         if let Err(why) = allowed(&req) {
@@ -47,30 +52,52 @@ fn main() -> anyhow::Result<()> {
                 Ok(v) => (200, v),
                 Err(e) => (400, serde_json::json!({ "error": e.to_string() })),
             };
-            let _ = req.respond(Response::from_string(out.to_string()).with_status_code(status).with_header(json_h));
+            let _ = req.respond(
+                Response::from_string(out.to_string())
+                    .with_status_code(status)
+                    .with_header(json_h),
+            );
         });
     }
     Ok(())
 }
 
 fn header<'a>(req: &'a Request, name: &'static str) -> Option<&'a str> {
-    req.headers().iter().find(|h| h.field.equiv(name)).map(|h| h.value.as_str())
+    req.headers()
+        .iter()
+        .find(|h| h.field.equiv(name))
+        .map(|h| h.value.as_str())
 }
 
 fn allowed(req: &Request) -> Result<(), &'static str> {
-    check(req.method(), req.url(), header(req, "host"), header(req, "origin"), header(req, HEADER))
+    check(
+        req.method(),
+        req.url(),
+        header(req, "host"),
+        header(req, "origin"),
+        header(req, HEADER),
+    )
 }
 
 /// A loopback host name, with or without a port.
 fn loopback(host: &str) -> bool {
     let name = match host.strip_prefix('[') {
         Some(v6) => v6.split(']').next().unwrap_or(""),
-        None => host.rsplit_once(':').map_or(host, |(h, p)| if p.chars().all(|c| c.is_ascii_digit()) { h } else { host }),
+        None => host.rsplit_once(':').map_or(
+            host,
+            |(h, p)| if p.chars().all(|c| c.is_ascii_digit()) { h } else { host },
+        ),
     };
     matches!(name, "127.0.0.1" | "localhost" | "::1")
 }
 
-fn check(method: &Method, url: &str, host: Option<&str>, origin: Option<&str>, marker: Option<&str>) -> Result<(), &'static str> {
+fn check(
+    method: &Method,
+    url: &str,
+    host: Option<&str>,
+    origin: Option<&str>,
+    marker: Option<&str>,
+) -> Result<(), &'static str> {
     if method != &Method::Post || !url.starts_with("/call/") {
         return Err("POST /call/<cmd> only");
     }
@@ -99,7 +126,10 @@ mod tests {
 
     #[test]
     fn the_ui_and_local_tools_get_through() {
-        assert!(ok(Some("127.0.0.1:1421"), Some("http://localhost:1420"), Some("1")), "the Vite UI through its proxy");
+        assert!(
+            ok(Some("127.0.0.1:1421"), Some("http://localhost:1420"), Some("1")),
+            "the Vite UI through its proxy"
+        );
         assert!(ok(Some("127.0.0.1:1421"), None, Some("1")), "curl and tests");
         assert!(ok(Some("localhost:1421"), Some("http://127.0.0.1:1420"), Some("1")));
         assert!(ok(Some("[::1]:1421"), None, Some("1")));
@@ -107,12 +137,39 @@ mod tests {
 
     #[test]
     fn other_sites_are_refused() {
-        assert!(!ok(Some("127.0.0.1:1421"), None, None), "a plain cross-site form or text/plain POST has no marker");
-        assert!(!ok(Some("127.0.0.1:1421"), Some("https://evil.example"), Some("1")), "another origin");
-        assert!(!ok(Some("127.0.0.1:1421"), Some("http://localhost.evil.example"), Some("1")));
-        assert!(!ok(Some("rebound.evil.example:1421"), Some("http://rebound.evil.example:1421"), Some("1")), "DNS rebinding");
+        assert!(
+            !ok(Some("127.0.0.1:1421"), None, None),
+            "a plain cross-site form or text/plain POST has no marker"
+        );
+        assert!(
+            !ok(Some("127.0.0.1:1421"), Some("https://evil.example"), Some("1")),
+            "another origin"
+        );
+        assert!(!ok(
+            Some("127.0.0.1:1421"),
+            Some("http://localhost.evil.example"),
+            Some("1")
+        ));
+        assert!(
+            !ok(
+                Some("rebound.evil.example:1421"),
+                Some("http://rebound.evil.example:1421"),
+                Some("1")
+            ),
+            "DNS rebinding"
+        );
         assert!(!ok(None, None, Some("1")));
         assert!(check(&Method::Get, "/call/app.info", Some("127.0.0.1:1421"), None, Some("1")).is_err());
-        assert!(check(&Method::Options, "/call/app.info", Some("127.0.0.1:1421"), None, Some("1")).is_err(), "no preflight approval");
+        assert!(
+            check(
+                &Method::Options,
+                "/call/app.info",
+                Some("127.0.0.1:1421"),
+                None,
+                Some("1")
+            )
+            .is_err(),
+            "no preflight approval"
+        );
     }
 }

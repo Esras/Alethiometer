@@ -94,7 +94,10 @@ fn run(app: &App, cmd: &str, args: &Value) -> Result<(Value, BTreeSet<String>)> 
     match read_route(cmd)? {
         Route::Read(f) => {
             let settings = app.settings();
-            let ctx = Ctx { clock: &app.clock, settings: &settings };
+            let ctx = Ctx {
+                clock: &app.clock,
+                settings: &settings,
+            };
             app.store().read_traced(|r| f(r, &ctx, args))
         }
         Route::ReadFiles(f) => {
@@ -133,7 +136,11 @@ pub fn subscribe(app: &App, client: &str, cmd: &str, args: Value) -> Result<Valu
         return Err(e);
     }
     let st = app.live.lock();
-    let (result, seq) = st.subs.get(&id).map(|s| (s.result.clone(), s.changed)).unwrap_or((Value::Null, seq));
+    let (result, seq) = st
+        .subs
+        .get(&id)
+        .map(|s| (s.result.clone(), s.changed))
+        .unwrap_or((Value::Null, seq));
     Ok(json!({ "id": id, "result": result, "seq": seq }))
 }
 
@@ -190,7 +197,11 @@ pub fn wait(app: &App, client: &str, since: u64, ids: &[u64], timeout: Duration)
         if !changed.is_empty() || !gone.is_empty() || now >= deadline {
             return json!({ "seq": st.seq, "changed": changed, "gone": gone });
         }
-        st = live.cv.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
+        st = live
+            .cv
+            .wait_timeout(st, deadline - now)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 
@@ -238,14 +249,23 @@ fn start(app: &App) {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     let client = || crate::queries::arg_str(args, "client");
     match name {
-        "subscribe" => subscribe(app, &client()?, &crate::queries::arg_str(args, "cmd")?, args.get("args").cloned().unwrap_or(json!({}))),
+        "subscribe" => subscribe(
+            app,
+            &client()?,
+            &crate::queries::arg_str(args, "cmd")?,
+            args.get("args").cloned().unwrap_or(json!({})),
+        ),
         "unsubscribe" => {
             unsubscribe(app, crate::queries::arg_i64(args, "id")? as u64);
             Ok(json!({ "ok": true }))
         }
         "wait" => {
             let since = args.get("since").and_then(Value::as_u64).unwrap_or(0);
-            let ids: Vec<u64> = args.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+            let ids: Vec<u64> = args
+                .get("ids")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default();
             Ok(wait(app, &client()?, since, &ids, WAIT))
         }
         _ => Err(crate::api::unknown(name)),
@@ -285,20 +305,30 @@ mod tests {
         let strip = subscribe(&app, "c1", "daystrip.get", json!({})).unwrap();
         let (t_id, s_id) = (topics["id"].as_u64().unwrap(), strip["id"].as_u64().unwrap());
         let since = topics["seq"].as_u64().unwrap();
-        assert!(app.live.lock().subs[&t_id].tables.contains("topics"), "the tables it read are known");
+        assert!(
+            app.live.lock().subs[&t_id].tables.contains("topics"),
+            "the tables it read are known"
+        );
         let (t0, s0) = (ticket(&app, t_id), ticket(&app, s_id));
 
         // A Notes line touches neither query's tables.
         let today = app.clock.today();
-        app.store().write(|uow| uow.note_lines().insert(today, 0, "note", "x", &Default::default())).unwrap();
+        app.store()
+            .write(|uow| uow.note_lines().insert(today, 0, "note", "x", &Default::default()))
+            .unwrap();
         let tables = changed(&app);
         assert_eq!(tables, BTreeSet::from(["notes_lines".to_owned()]));
         assert_eq!(rerun_now(&app, &tables), 0);
         assert_eq!((ticket(&app, t_id), ticket(&app, s_id)), (t0, s0), "neither re-ran");
 
         // Renaming a topic re-runs the topics list, and its new result is pushed.
-        let id: i64 = app.store().read(|r| Ok(r.topics().list(false, app.clock.now(), app.clock.now())?[0].id)).unwrap();
-        app.store().write(|uow| uow.topics().rename(id, "Renamed live")).unwrap();
+        let id: i64 = app
+            .store()
+            .read(|r| Ok(r.topics().list(false, app.clock.now(), app.clock.now())?[0].id))
+            .unwrap();
+        app.store()
+            .write(|uow| uow.topics().rename(id, "Renamed live"))
+            .unwrap();
         let tables = changed(&app);
         assert!(tables.contains("topics"));
         // The day strip reads topics only to name today's blocks: it re-runs
@@ -312,7 +342,12 @@ mod tests {
         let topics_now = pushed.iter().find(|c| c["id"].as_u64() == Some(t_id)).unwrap();
         assert!(topics_now["result"].to_string().contains("Renamed live"));
         // Nothing new since then.
-        assert!(wait(&app, "c1", w["seq"].as_u64().unwrap(), &[t_id, s_id], Duration::ZERO)["changed"].as_array().unwrap().is_empty());
+        assert!(
+            wait(&app, "c1", w["seq"].as_u64().unwrap(), &[t_id, s_id], Duration::ZERO)["changed"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -331,7 +366,9 @@ mod tests {
     #[test]
     fn a_dropped_subscription_is_reported_gone() {
         let (app, _d) = app();
-        let id = subscribe(&app, "c1", "topics.list", json!({})).unwrap()["id"].as_u64().unwrap();
+        let id = subscribe(&app, "c1", "topics.list", json!({})).unwrap()["id"]
+            .as_u64()
+            .unwrap();
         unsubscribe(&app, id);
         let w = wait(&app, "c1", 0, &[id], Duration::from_secs(5));
         assert_eq!(w["gone"], json!([id]));
@@ -349,14 +386,20 @@ mod tests {
     #[test]
     fn a_query_that_reads_notes_reruns_when_the_vault_or_its_tables_change() {
         let (app, _d) = app();
-        let id: i64 = app.store().read(|r| Ok(r.topics().list(false, app.clock.now(), app.clock.now())?[0].id)).unwrap();
+        let id: i64 = app
+            .store()
+            .read(|r| Ok(r.topics().list(false, app.clock.now(), app.clock.now())?[0].id))
+            .unwrap();
         let sub = subscribe(&app, "c1", "topics.get", json!({ "id": id })).unwrap();
         let sid = sub["id"].as_u64().unwrap();
         let path = sub["result"]["note"]["abs_path"].as_str().unwrap().to_owned();
         {
             let st = app.live.lock();
             let tables = &st.subs[&sid].tables;
-            assert!(tables.contains("topics") && tables.contains("topic_links") && tables.contains(VAULT), "{tables:?}");
+            assert!(
+                tables.contains("topics") && tables.contains("topic_links") && tables.contains(VAULT),
+                "{tables:?}"
+            );
         }
         changed(&app);
         let t0 = ticket(&app, sid);
@@ -366,16 +409,23 @@ mod tests {
         Live::vault_changed(&app);
         let tables = changed(&app);
         assert_eq!(rerun_now(&app, &tables), 1);
-        assert_eq!(app.live.lock().subs[&sid].result["note"]["text"], "Edited in Obsidian\n");
+        assert_eq!(
+            app.live.lock().subs[&sid].result["note"]["text"],
+            "Edited in Obsidian\n"
+        );
 
         // A Notes line touches nothing it read; a rename does.
         let today = app.clock.today();
-        app.store().write(|uow| uow.note_lines().insert(today, 0, "note", "x", &Default::default())).unwrap();
+        app.store()
+            .write(|uow| uow.note_lines().insert(today, 0, "note", "x", &Default::default()))
+            .unwrap();
         let t1 = ticket(&app, sid);
         assert!(t1 > t0);
         assert_eq!(rerun_now(&app, &changed(&app)), 0);
         assert_eq!(ticket(&app, sid), t1);
-        app.store().write(|uow| uow.topics().rename(id, "Renamed live")).unwrap();
+        app.store()
+            .write(|uow| uow.topics().rename(id, "Renamed live"))
+            .unwrap();
         assert_eq!(rerun_now(&app, &changed(&app)), 1);
         assert!(app.live.lock().subs[&sid].result.to_string().contains("Renamed live"));
     }
@@ -401,12 +451,15 @@ mod tests {
         let ((), tables) = app
             .store()
             .traced(|| {
-                app.store().read(|r| r.topics().list(false, app.clock.now(), app.clock.now()).map(drop))?;
+                app.store()
+                    .read(|r| r.topics().list(false, app.clock.now(), app.clock.now()).map(drop))?;
                 app.store().read(|r| r.categories().list().map(drop))
             })
             .unwrap();
         assert!(tables.contains("topics") && tables.contains("categories"), "{tables:?}");
-        let refused = app.store().traced(|| app.store().write(|uow| uow.topics().rename(1, "nope")));
+        let refused = app
+            .store()
+            .traced(|| app.store().write(|uow| uow.topics().rename(1, "nope")));
         assert!(refused.is_err());
         // Tracing ended with the closure: reads and writes are ordinary again.
         app.store().write(|uow| uow.categories().replace(&[])).unwrap();

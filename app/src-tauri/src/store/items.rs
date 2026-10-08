@@ -43,28 +43,45 @@ impl Items for Sql<'_> {
     fn get(&self, id: i64) -> Result<Option<ItemRef>> {
         Ok(self
             .conn()
-            .query_row(&format!("SELECT {REF} FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1"), [id], item_ref)
+            .query_row(
+                &format!("SELECT {REF} FROM items i JOIN sources s ON s.id = i.source_id WHERE i.id = ?1"),
+                [id],
+                item_ref,
+            )
             .optional()?)
     }
 
     fn find(&self, source_id: i64, external_id: &str) -> Result<Option<i64>> {
         Ok(self
             .conn()
-            .query_row("SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM items WHERE source_id = ?1 AND external_id = ?2",
+                params![source_id, external_id],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
     fn set_external_id(&self, id: i64, external_id: &str) -> Result<()> {
-        self.conn().execute("UPDATE items SET external_id = ?2 WHERE id = ?1", params![id, external_id])?;
+        self.conn().execute(
+            "UPDATE items SET external_id = ?2 WHERE id = ?1",
+            params![id, external_id],
+        )?;
         Ok(())
     }
 
     fn set_seen(&self, id: i64, seen: bool) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![id, seen])? == 1)
+        Ok(self
+            .conn()
+            .execute("UPDATE items SET seen = ?2 WHERE id = ?1", params![id, seen])?
+            == 1)
     }
 
     fn rev(&self, id: i64) -> Result<Option<i64>> {
-        Ok(self.conn().query_row("SELECT rev FROM items WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn()
+            .query_row("SELECT rev FROM items WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?)
     }
 
     fn mark_read(&self, id: i64, keys: &[String]) -> Result<()> {
@@ -76,8 +93,12 @@ impl Items for Sql<'_> {
     }
 
     fn unread_keys(&self, id: i64) -> Result<Vec<String>> {
-        let mut st = self.conn().prepare_cached("SELECT ext_key FROM item_messages WHERE item_id = ?1 AND read = 0 AND ext_key IS NOT NULL")?;
-        let keys = st.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+        let mut st = self.conn().prepare_cached(
+            "SELECT ext_key FROM item_messages WHERE item_id = ?1 AND read = 0 AND ext_key IS NOT NULL",
+        )?;
+        let keys = st
+            .query_map([id], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
         Ok(keys)
     }
 
@@ -98,17 +119,22 @@ impl Items for Sql<'_> {
     }
 
     fn set_status(&self, id: i64, status: &str) -> Result<()> {
-        self.conn().execute("UPDATE items SET status = ?2 WHERE id = ?1", params![id, status])?;
+        self.conn()
+            .execute("UPDATE items SET status = ?2 WHERE id = ?1", params![id, status])?;
         Ok(())
     }
 
     fn set_sched_day(&self, id: i64, day: Option<Date>) -> Result<()> {
-        self.conn().execute("UPDATE items SET sched_day = ?2 WHERE id = ?1", params![id, day])?;
+        self.conn()
+            .execute("UPDATE items SET sched_day = ?2 WHERE id = ?1", params![id, day])?;
         Ok(())
     }
 
     fn set_status_by_external(&self, source_id: i64, external_id: &str, status: &str) -> Result<()> {
-        self.conn().execute("UPDATE items SET status = ?3 WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id, status])?;
+        self.conn().execute(
+            "UPDATE items SET status = ?3 WHERE source_id = ?1 AND external_id = ?2",
+            params![source_id, external_id, status],
+        )?;
         Ok(())
     }
 
@@ -134,7 +160,10 @@ impl Items for Sql<'_> {
     }
 
     fn set_url_and_summary(&self, id: i64, url: Option<&str>, summary: &str) -> Result<()> {
-        self.conn().execute("UPDATE items SET url = coalesce(?2, url), summary = ?3 WHERE id = ?1", params![id, url, summary])?;
+        self.conn().execute(
+            "UPDATE items SET url = coalesce(?2, url), summary = ?3 WHERE id = ?1",
+            params![id, url, summary],
+        )?;
         Ok(())
     }
 
@@ -168,12 +197,19 @@ impl ItemViews for Sql<'_> {
     fn seen_by_external(&self, source_id: i64, external_id: &str) -> Result<Option<bool>> {
         Ok(self
             .conn()
-            .query_row("SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2", params![source_id, external_id], |r| r.get(0))
+            .query_row(
+                "SELECT seen FROM items WHERE source_id = ?1 AND external_id = ?2",
+                params![source_id, external_id],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
     fn seen(&self, id: i64) -> Result<Option<bool>> {
-        Ok(self.conn().query_row("SELECT seen FROM items WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn()
+            .query_row("SELECT seen FROM items WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?)
     }
 
     fn holder(&self, source_id: i64, channel: Option<&str>, key: &str) -> Result<Option<i64>> {

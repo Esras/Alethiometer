@@ -13,8 +13,8 @@ pub mod socket;
 #[cfg(test)]
 mod tests;
 
-use crate::sync::{Batch, Connector, Ctx};
 use crate::domain::ports::Reads;
+use crate::sync::{Batch, Connector, Ctx};
 use api::Client;
 use serde_json::{json, Value};
 
@@ -23,7 +23,9 @@ pub use poll::State;
 /// Conversations whose open run you triaged in Alethiometer are closed in
 /// the cursor: the next message starts a new run.
 pub fn close_triaged(r: &dyn Reads, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
-    let Some(cursor) = source.cursor.as_deref() else { return Ok(None) };
+    let Some(cursor) = source.cursor.as_deref() else {
+        return Ok(None);
+    };
     let mut state = State::parse(Some(cursor));
     let mut done = vec![];
     for (key, o) in &state.open {
@@ -66,7 +68,10 @@ pub fn deep_link(r: &dyn Reads, url: &str) -> Option<String> {
         .team_id;
     let (secs, micros) = p.split_at(p.len() - 6);
     let mut link = format!("slack://channel?team={team}&id={channel}&message={secs}.{micros}");
-    if let Some(t) = cap.get(4).and_then(|q| q.as_str().split('&').find_map(|kv| kv.strip_prefix("thread_ts="))) {
+    if let Some(t) = cap
+        .get(4)
+        .and_then(|q| q.as_str().split('&').find_map(|kv| kv.strip_prefix("thread_ts=")))
+    {
         link.push_str(&format!("&thread_ts={t}"));
     }
     Some(link)
@@ -75,14 +80,30 @@ pub fn deep_link(r: &dyn Reads, url: &str) -> Option<String> {
 pub struct Slack;
 
 /// Channels you're a member of, as (id, name, private), for Settings → Review….
-pub fn member_channels(http: &dyn crate::sync::http::Http, token: String) -> anyhow::Result<Vec<(String, String, bool)>> {
+pub fn member_channels(
+    http: &dyn crate::sync::http::Http,
+    token: String,
+) -> anyhow::Result<Vec<(String, String, bool)>> {
     let client = api::Client::new(http, token);
-    let raw = client.get_paged("users.conversations", &[("types", "public_channel,private_channel"), ("exclude_archived", "true"), ("limit", "200")], "channels", 20)?;
+    let raw = client.get_paged(
+        "users.conversations",
+        &[
+            ("types", "public_channel,private_channel"),
+            ("exclude_archived", "true"),
+            ("limit", "200"),
+        ],
+        "channels",
+        20,
+    )?;
     let mut out: Vec<(String, String, bool)> = raw
         .iter()
         .filter_map(|c| {
             let s = |k: &str| c.get(k).and_then(Value::as_str).map(str::to_owned);
-            Some((s("id")?, s("name")?, c.get("is_private").and_then(Value::as_bool).unwrap_or(false)))
+            Some((
+                s("id")?,
+                s("name")?,
+                c.get("is_private").and_then(Value::as_bool).unwrap_or(false),
+            ))
         })
         .collect();
     out.sort_by(|a, b| a.1.cmp(&b.1));
@@ -145,7 +166,12 @@ impl Config {
             muted: v
                 .get("muted")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(|c| c.trim().trim_start_matches('#').to_owned()).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(|c| c.trim().trim_start_matches('#').to_owned())
+                        .collect()
+                })
                 .unwrap_or_default(),
             dms: b("dms", true),
             mentions: b("mentions", true),
@@ -205,7 +231,11 @@ fn send(ctx: &Ctx, cfg: &Config, op: &str, payload: &Value) -> anyhow::Result<Va
     client.sleep = cfg.sleep;
     match op {
         "slack.mark_read" => {
-            if payload.get("thread_ts").and_then(Value::as_str).is_some_and(|t| !t.is_empty()) {
+            if payload
+                .get("thread_ts")
+                .and_then(Value::as_str)
+                .is_some_and(|t| !t.is_empty())
+            {
                 anyhow::bail!("Slack has no API to mark a thread read");
             }
             let (channel, ts) = (field("channel")?, field("ts")?);
@@ -234,7 +264,10 @@ fn send(ctx: &Ctx, cfg: &Config, op: &str, payload: &Value) -> anyhow::Result<Va
         "slack.react" => {
             let (channel, ts, name) = (field("channel")?, field("ts")?, field("name")?);
             let name = name.trim_matches(':').to_owned();
-            match client.post("reactions.add", &[("channel", &channel), ("timestamp", &ts), ("name", &name)]) {
+            match client.post(
+                "reactions.add",
+                &[("channel", &channel), ("timestamp", &ts), ("name", &name)],
+            ) {
                 Ok(_) => Ok(json!({ "channel": channel, "ts": ts, "name": name })),
                 // The remote state is what was asked for; confirm rather than fail.
                 Err(e) if e.to_string().ends_with(": already_reacted") => {

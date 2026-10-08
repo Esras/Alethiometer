@@ -33,7 +33,11 @@ pub fn tables(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         .collect::<rusqlite::Result<_>>()?;
     // Not every module marks its shadow tables (`type = 'shadow'`), so also
     // leave out anything named after a virtual table.
-    let virtuals: Vec<&str> = all.iter().filter(|(_, t)| t == "virtual").map(|(n, _)| n.as_str()).collect();
+    let virtuals: Vec<&str> = all
+        .iter()
+        .filter(|(_, t)| t == "virtual")
+        .map(|(n, _)| n.as_str())
+        .collect();
     let mut out: Vec<String> = all
         .iter()
         .filter(|(n, t)| t == "table" && !virtuals.iter().any(|v| n.starts_with(&format!("{v}_"))))
@@ -60,7 +64,9 @@ pub fn ensure(conn: &Connection) -> anyhow::Result<()> {
         let had_created = cols.iter().any(|c| c == "created_at");
         let had_updated = cols.iter().any(|c| c == "updated_at");
         if !had_created {
-            conn.execute_batch(&format!("ALTER TABLE {t} ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"))?;
+            conn.execute_batch(&format!(
+                "ALTER TABLE {t} ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
+            ))?;
             let from = if table == "items" {
                 format!("CASE WHEN occurred_at < {SQL_NOW} THEN occurred_at ELSE {SQL_NOW} END")
             } else if had_updated {
@@ -71,12 +77,18 @@ pub fn ensure(conn: &Connection) -> anyhow::Result<()> {
             conn.execute_batch(&format!("UPDATE {t} SET created_at = {from}"))?;
         }
         if !had_updated {
-            conn.execute_batch(&format!("ALTER TABLE {t} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"))?;
+            conn.execute_batch(&format!(
+                "ALTER TABLE {t} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+            ))?;
             conn.execute_batch(&format!("UPDATE {t} SET updated_at = created_at"))?;
         }
 
         let cols = columns(conn, &table)?;
-        let changed: Vec<String> = cols.iter().filter(|c| *c != "updated_at").map(|c| format!("NEW.{0} IS NOT OLD.{0}", quote(c))).collect();
+        let changed: Vec<String> = cols
+            .iter()
+            .filter(|c| *c != "updated_at")
+            .map(|c| format!("NEW.{0} IS NOT OLD.{0}", quote(c)))
+            .collect();
         let created = quote(&format!("{table}_created_at"));
         let updated = quote(&format!("{table}_updated_at"));
         conn.execute_batch(&format!(
@@ -113,48 +125,75 @@ mod tests {
         let conn = db();
         let tables = tables(&conn).unwrap();
         assert!(tables.contains(&"items".to_string()) && tables.contains(&"topics".to_string()));
-        assert!(!tables.iter().any(|t| t.starts_with("items_fts") || t.starts_with("vec_")), "{tables:?}");
+        assert!(
+            !tables
+                .iter()
+                .any(|t| t.starts_with("items_fts") || t.starts_with("vec_")),
+            "{tables:?}"
+        );
         for t in &tables {
             let cols = columns(&conn, t).unwrap();
-            assert!(cols.contains(&"created_at".into()) && cols.contains(&"updated_at".into()), "{t}: {cols:?}");
+            assert!(
+                cols.contains(&"created_at".into()) && cols.contains(&"updated_at".into()),
+                "{t}: {cols:?}"
+            );
             let sql: String = conn
-                .query_row("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1", [format!("{t}_updated_at")], |r| r.get(0))
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+                    [format!("{t}_updated_at")],
+                    |r| r.get(0),
+                )
                 .unwrap_or_else(|_| panic!("{t} has no updated_at trigger"));
             for c in cols.iter().filter(|c| *c != "updated_at") {
-                assert!(sql.contains(&format!("NEW.\"{c}\" IS NOT OLD.\"{c}\"")), "{t}'s trigger misses {c}");
+                assert!(
+                    sql.contains(&format!("NEW.\"{c}\" IS NOT OLD.\"{c}\"")),
+                    "{t}'s trigger misses {c}"
+                );
             }
         }
     }
 
     fn times(conn: &Connection) -> (String, String) {
-        conn.query_row("SELECT created_at, updated_at FROM topics WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+        conn.query_row("SELECT created_at, updated_at FROM topics WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap()
     }
 
     #[test]
     fn stored_rows_get_both_and_only_a_real_change_moves_updated_at() {
         let conn = db();
-        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'work')", []).unwrap();
+        conn.execute("INSERT INTO topics (id, name, category) VALUES (1, 'Acme', 'work')", [])
+            .unwrap();
         let (c, u) = times(&conn);
         assert!(crate::time::Ts::parse(&c).is_some(), "{c}");
         assert_eq!(c, u);
 
         let old = "2026-01-01T00:00:00.000Z";
-        conn.execute("UPDATE topics SET created_at = ?1, updated_at = ?1", [old]).unwrap();
-        assert_eq!(times(&conn), (old.into(), old.into()), "a write that sets updated_at itself wins");
+        conn.execute("UPDATE topics SET created_at = ?1, updated_at = ?1", [old])
+            .unwrap();
+        assert_eq!(
+            times(&conn),
+            (old.into(), old.into()),
+            "a write that sets updated_at itself wins"
+        );
 
         let before = conn.total_changes();
-        conn.execute("UPDATE topics SET name = 'Acme' WHERE id = 1", []).unwrap();
+        conn.execute("UPDATE topics SET name = 'Acme' WHERE id = 1", [])
+            .unwrap();
         assert_eq!(conn.total_changes() - before, 1, "an unchanged rewrite fires nothing");
         assert_eq!(times(&conn).1, old);
 
-        conn.execute("UPDATE topics SET name = 'Acme outage' WHERE id = 1", []).unwrap();
+        conn.execute("UPDATE topics SET name = 'Acme outage' WHERE id = 1", [])
+            .unwrap();
         let (c, u) = times(&conn);
         assert_eq!(c, old);
         assert!(u.as_str() > old, "{u}");
 
         // A NULL to a value is a change too.
         conn.execute("UPDATE topics SET updated_at = ?1", [old]).unwrap();
-        conn.execute("UPDATE topics SET obsidian_path = 'Topics/Acme.md' WHERE id = 1", []).unwrap();
+        conn.execute("UPDATE topics SET obsidian_path = 'Topics/Acme.md' WHERE id = 1", [])
+            .unwrap();
         assert!(times(&conn).1.as_str() > old);
     }
 
@@ -162,7 +201,10 @@ mod tests {
     fn explicit_times_on_insert_are_kept() {
         let conn = db();
         conn.execute("INSERT INTO topics (id, name, category, created_at, updated_at) VALUES (1, 'A', 'work', '2026-02-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z')", []).unwrap();
-        assert_eq!(times(&conn), ("2026-02-01T00:00:00.000Z".into(), "2026-03-01T00:00:00.000Z".into()));
+        assert_eq!(
+            times(&conn),
+            ("2026-02-01T00:00:00.000Z".into(), "2026-03-01T00:00:00.000Z".into())
+        );
     }
 
     #[test]
@@ -182,8 +224,16 @@ mod tests {
         )
         .unwrap();
         ensure(&conn).unwrap();
-        let item = |id: i64| conn.query_row("SELECT created_at, updated_at FROM items WHERE id = ?1", [id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).unwrap();
-        assert_eq!(item(1), ("2026-09-01T10:00:00.000Z".into(), "2026-09-01T10:00:00.000Z".into()));
+        let item = |id: i64| {
+            conn.query_row("SELECT created_at, updated_at FROM items WHERE id = ?1", [id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            item(1),
+            ("2026-09-01T10:00:00.000Z".into(), "2026-09-01T10:00:00.000Z".into())
+        );
         assert!(item(2).0.as_str() < "2999", "never later than now");
         let (c, u) = times(&conn);
         assert_eq!(c, u);

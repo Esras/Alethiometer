@@ -43,7 +43,14 @@ fn source(cursor: Option<String>) -> Source {
 }
 
 fn source_with(id: i64, config: Value, cursor: Option<String>) -> Source {
-    Source { id, kind: "slack".into(), tag: "work".into(), name: "Slack".into(), config, cursor }
+    Source {
+        id,
+        kind: "slack".into(),
+        tag: "work".into(),
+        name: "Slack".into(),
+        config,
+        cursor,
+    }
 }
 
 fn user(id: &str, display: &str, real: &str) -> String {
@@ -118,7 +125,13 @@ fn with_ops_thread(http: &FakeHttp) {
 
 fn run_poll(http: &dyn Http, src: &Source) -> anyhow::Result<Batch> {
     let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
-    let ctx = Ctx { source: src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
+    let ctx = Ctx {
+        source: src,
+        http,
+        secret: &secret,
+        now: now(),
+        clock: crate::sync::test_clock(&now().to_db()),
+    };
     let mut cfg = Config::from_json(&src.config);
     cfg.sleep = fake_sleep;
     poll::poll(&ctx, &cfg)
@@ -131,7 +144,10 @@ fn fresh(b: &Batch) -> Vec<&str> {
 }
 
 fn find<'a>(b: &'a Batch, id: &str) -> &'a crate::sync::ItemUpsert {
-    b.items.iter().find(|i| i.external_id == id).unwrap_or_else(|| panic!("no item {id}: {:?}", ids(b)))
+    b.items
+        .iter()
+        .find(|i| i.external_id == id)
+        .unwrap_or_else(|| panic!("no item {id}: {:?}", ids(b)))
 }
 
 fn ids(b: &Batch) -> Vec<&str> {
@@ -145,11 +161,19 @@ fn count(http: &FakeHttp, part: &str) -> usize {
 }
 
 fn texts(it: &crate::sync::ItemUpsert) -> Vec<&str> {
-    it.messages.iter().filter(|m| !m.context).map(|m| m.text.as_str()).collect()
+    it.messages
+        .iter()
+        .filter(|m| !m.context)
+        .map(|m| m.text.as_str())
+        .collect()
 }
 
 fn context(it: &crate::sync::ItemUpsert) -> Vec<&str> {
-    it.messages.iter().filter(|m| m.context).map(|m| m.text.as_str()).collect()
+    it.messages
+        .iter()
+        .filter(|m| m.context)
+        .map(|m| m.text.as_str())
+        .collect()
 }
 
 #[test]
@@ -157,10 +181,20 @@ fn a_run_of_sixty_messages_is_sent_whole() {
     let http = workspace(HISTORY_INC_1);
     // Newest first, as conversations.history pages.
     let msgs: Vec<Value> = (0..60).rev().map(|i| json!({ "type": "message", "user": "U0PRIYA", "text": format!("m{i}"), "ts": format!("{}.000800", 1789997000 + i * 10), "team": "T0ACME" })).collect();
-    http.on("GET", "conversations.history?channel=D0PRIYA", 200, json!({ "ok": true, "messages": msgs, "has_more": false, "response_metadata": { "next_cursor": "" } }).to_string());
+    http.on(
+        "GET",
+        "conversations.history?channel=D0PRIYA",
+        200,
+        json!({ "ok": true, "messages": msgs, "has_more": false, "response_metadata": { "next_cursor": "" } })
+            .to_string(),
+    );
     let b = run_poll(&http, &source(None)).unwrap();
     let dm = find(&b, "D0PRIYA/1789997000.000800");
-    assert_eq!(texts(dm).len(), 60, "views cap what they show; the connector sends every message");
+    assert_eq!(
+        texts(dm).len(),
+        60,
+        "views cap what they show; the connector sends every message"
+    );
     assert_eq!(dm.raw_json["msgs"].as_array().map(Vec::len), Some(60));
 }
 
@@ -182,7 +216,10 @@ fn first_catch_up_turns_unread_runs_into_items() {
 
     // Followed channel: read back to the lookback floor, both pages.
     assert_eq!(count(&http, "conversations.history?channel=C0INC&oldest"), 2);
-    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&oldest=1789740800.000000&inclusive=true&limit=200")));
+    assert!(http
+        .requests()
+        .iter()
+        .any(|(_, u, _)| u.contains("channel=C0INC&oldest=1789740800.000000&inclusive=true&limit=200")));
     // The group DM has nothing unread per conversations.info: no history call.
     assert_eq!(count(&http, "conversations.history?channel=G0MPIM"), 0);
     // The deleted user's DM is skipped.
@@ -191,32 +228,74 @@ fn first_catch_up_turns_unread_runs_into_items() {
     // Top level: everything within the lookback, read in Slack or not (Sam's
     // and Marco's messages were), your own included.
     let inc = find(&b, "C0INC/1789960000.000100");
-    assert_eq!((inc.kind.as_str(), inc.title.as_str(), inc.msg_count), ("thread", "#inc-2291", Some(5)));
+    assert_eq!(
+        (inc.kind.as_str(), inc.title.as_str(), inc.msg_count),
+        ("thread", "#inc-2291", Some(5))
+    );
     assert_eq!(inc.occurred_at, Ts::from_unix_secs(1789960000.0).unwrap());
     assert_eq!(inc.ended_at, Ts::from_unix_secs(1789995600.0));
-    let authors: Vec<&str> = inc.messages.iter().filter(|m| !m.context).map(|m| m.author.as_str()).collect();
+    let authors: Vec<&str> = inc
+        .messages
+        .iter()
+        .filter(|m| !m.context)
+        .map(|m| m.author.as_str())
+        .collect();
     assert_eq!(authors, vec!["Sam", "Marco Rossi", "PagerDuty", "me", "Jordan"]);
     assert_eq!(texts(inc)[2], "Incident acknowledged by @Jordan");
     assert!(context(inc).is_empty(), "nothing older in the channel");
     assert_eq!(inc.messages[0].author_id.as_deref(), Some("U0SAM"));
     // Profiles for People: real name always, email when the token may read it.
     let marco = b.profiles.iter().find(|p| p.account == "U0MARCO").unwrap();
-    assert_eq!((marco.kind.as_str(), marco.real_name.as_deref(), marco.email.as_deref()), ("slack", Some("Marco Rossi"), Some("Marco.Rossi@acme.com")));
-    assert_eq!(b.profiles.iter().find(|p| p.account == "U0SAM").and_then(|p| p.email.clone()), None);
-    assert_eq!(b.profiles.iter().filter(|p| p.account == "U0SAM").count(), 1, "one per user per poll");
-    assert!(http.requests().iter().any(|(_, u, _)| u.contains("channel=C0INC&latest=1789960000.000100&inclusive=false&limit=12")));
+    assert_eq!(
+        (marco.kind.as_str(), marco.real_name.as_deref(), marco.email.as_deref()),
+        ("slack", Some("Marco Rossi"), Some("Marco.Rossi@acme.com"))
+    );
+    assert_eq!(
+        b.profiles
+            .iter()
+            .find(|p| p.account == "U0SAM")
+            .and_then(|p| p.email.clone()),
+        None
+    );
+    assert_eq!(
+        b.profiles.iter().filter(|p| p.account == "U0SAM").count(),
+        1,
+        "one per user per poll"
+    );
+    assert!(http
+        .requests()
+        .iter()
+        .any(|(_, u, _)| u.contains("channel=C0INC&latest=1789960000.000100&inclusive=false&limit=12")));
     assert_eq!(inc.author.as_ref().map(|h| h.handle.as_str()), Some("U0JORDAN"));
-    assert_eq!(inc.url.as_deref(), Some("https://acme.slack.com/archives/C0INC/p1789995600000500"));
+    assert_eq!(
+        inc.url.as_deref(),
+        Some("https://acme.slack.com/archives/C0INC/p1789995600000500")
+    );
     assert_eq!(inc.raw_json["channel"], "C0INC");
     assert_eq!(inc.raw_json["mark_ts"], "1789995600.000500");
-    assert_eq!(inc.raw_json["msgs"], json!(["1789960000.000100", "1789990000.000200", "1789992000.000300", "1789994000.000400", "1789995600.000500"]));
+    assert_eq!(
+        inc.raw_json["msgs"],
+        json!([
+            "1789960000.000100",
+            "1789990000.000200",
+            "1789992000.000300",
+            "1789994000.000400",
+            "1789995600.000500"
+        ])
+    );
     assert_eq!(inc.messages.iter().filter(|m| m.context).count(), 0);
     assert!(inc.bump);
 
     // The thread is its own item, with its own (thread) read marker.
     let thread = find(&b, "C0INC/thread/1789990000.000200");
-    assert_eq!((thread.kind.as_str(), thread.title.as_str()), ("thread", "#inc-2291 · thread: Backoff patch is up, needs a…"));
-    assert_eq!(texts(thread), vec!["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291"]);
+    assert_eq!(
+        (thread.kind.as_str(), thread.title.as_str()),
+        ("thread", "#inc-2291 · thread: Backoff patch is up, needs a…")
+    );
+    assert_eq!(
+        texts(thread),
+        vec!["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291"]
+    );
     assert_eq!(context(thread), vec!["Backoff patch is up, needs a second reviewer."]);
     assert!(thread.raw_json.get("mark_ts").is_none());
     assert_eq!(thread.raw_json["thread_ts"], "1789990000.000200");
@@ -226,20 +305,35 @@ fn first_catch_up_turns_unread_runs_into_items() {
     );
 
     let dm = find(&b, "D0PRIYA/1789997000.000800");
-    assert_eq!((dm.kind.as_str(), dm.title.as_str(), dm.msg_count), ("message", "DM · Priya", Some(1)));
+    assert_eq!(
+        (dm.kind.as_str(), dm.title.as_str(), dm.msg_count),
+        ("message", "DM · Priya", Some(1))
+    );
     assert_eq!(dm.raw_json["mark_ts"], "1789997000.000800");
 
     // Only the real mention outside followed channels and DMs. You're in
     // #random, so confirming it marks #random read up to the mention.
     let mention = find(&b, "C0RANDOM/mention/1789998000.000900");
     assert_eq!(mention.title, "#random · mention");
-    assert_eq!(mention.summary.as_deref(), Some("@me can you approve the Q4 headcount sheet?"));
-    assert_eq!((&mention.raw_json["channel"], &mention.raw_json["mark_ts"]), (&json!("C0RANDOM"), &json!("1789998000.000900")));
+    assert_eq!(
+        mention.summary.as_deref(),
+        Some("@me can you approve the Q4 headcount sheet?")
+    );
+    assert_eq!(
+        (&mention.raw_json["channel"], &mention.raw_json["mark_ts"]),
+        (&json!("C0RANDOM"), &json!("1789998000.000900"))
+    );
 
     // An old thread you replied in, found through search: its replies within the lookback, yours too.
     let old = find(&b, "C0RANDOM/thread/1789000000.000100");
     assert_eq!(old.title, "#random · thread: Dashboard migration plan: who owns what?");
-    assert_eq!(texts(old), vec!["I think Alice's team owns it now", "Not anymore, @me: it moved to platform in June."]);
+    assert_eq!(
+        texts(old),
+        vec![
+            "I think Alice's team owns it now",
+            "Not anymore, @me: it moved to platform in June."
+        ]
+    );
     assert!(old.bump);
 
     // Names resolved once per user per poll.
@@ -247,9 +341,21 @@ fn first_catch_up_turns_unread_runs_into_items() {
     assert_eq!(count(&http, "users.info?user=U0JORDAN"), 1);
 
     let state = State::parse(b.cursor.as_deref());
-    assert_eq!((state.me.as_str(), state.follow.clone()), ("U0ME", vec!["C0INC".to_owned()]));
+    assert_eq!(
+        (state.me.as_str(), state.follow.clone()),
+        ("U0ME", vec!["C0INC".to_owned()])
+    );
     let open: Vec<&str> = state.open.keys().map(String::as_str).collect();
-    assert_eq!(open, vec!["C0INC", "C0INC/1789990000.000200", "C0RANDOM/1789000000.000100", "C0RANDOM/mention/1789998000.000900", "D0PRIYA"]);
+    assert_eq!(
+        open,
+        vec![
+            "C0INC",
+            "C0INC/1789990000.000200",
+            "C0RANDOM/1789000000.000100",
+            "C0RANDOM/mention/1789998000.000900",
+            "D0PRIYA"
+        ]
+    );
     assert_eq!(state.threads["C0RANDOM/1789000000.000100"].seen, "1789999800.001200");
     assert_eq!(state.mention_ts.as_deref(), Some("1789998000.000900"));
     assert_eq!(state.reply_ts.as_deref(), Some("1789999500.001100"));
@@ -279,10 +385,36 @@ fn unseen(conn: &rusqlite::Connection) -> Vec<String> {
 }
 
 fn read_all_in_slack(http: &FakeHttp) {
-    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789995600.000500"))
-        .on("GET", "conversations.info?channel=D0PRIYA", 200, INFO_PRIYA.replace("\"last_read\": \"1789990000.000000\"", "\"last_read\": \"1789997000.000800\""))
-        .on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"))
-        .on("GET", "conversations.replies?channel=C0INC", 200, REPLIES_INC.replace("\"last_read\": \"1789990000.000200\"", "\"last_read\": \"1789996000.000700\""));
+    http.on(
+        "GET",
+        "conversations.info?channel=C0INC",
+        200,
+        INFO_INC.replace("1789991000.000250", "1789995600.000500"),
+    )
+    .on(
+        "GET",
+        "conversations.info?channel=D0PRIYA",
+        200,
+        INFO_PRIYA.replace(
+            "\"last_read\": \"1789990000.000000\"",
+            "\"last_read\": \"1789997000.000800\"",
+        ),
+    )
+    .on(
+        "GET",
+        "conversations.info?channel=C0RANDOM",
+        200,
+        INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"),
+    )
+    .on(
+        "GET",
+        "conversations.replies?channel=C0INC",
+        200,
+        REPLIES_INC.replace(
+            "\"last_read\": \"1789990000.000200\"",
+            "\"last_read\": \"1789996000.000700\"",
+        ),
+    );
 }
 
 #[test]
@@ -310,7 +442,11 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
-    conn.execute("UPDATE items SET seen = 1 WHERE external_id = 'C0INC/1789960000.000100'", []).unwrap();
+    conn.execute(
+        "UPDATE items SET seen = 1 WHERE external_id = 'C0INC/1789960000.000100'",
+        [],
+    )
+    .unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
     src.cursor = close_triaged(&crate::store::over(&conn), &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
@@ -327,7 +463,10 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     http.on("GET", "conversations.replies?channel=C0INC", 200, replies.to_string());
     let b = run_poll(&http, &src).unwrap();
     let inc = find(&b, "C0INC/1789999000.001000");
-    assert_eq!((texts(inc), inc.msg_count, inc.bump), (vec!["Postmortem draft is up."], Some(1), true));
+    assert_eq!(
+        (texts(inc), inc.msg_count, inc.bump),
+        (vec!["Postmortem draft is up."], Some(1), true)
+    );
     let thread = find(&b, "C0INC/thread/1789990000.000200");
     assert_eq!((texts(thread), thread.bump), (vec!["Merged."], true));
     assert_eq!(context(thread)[0], "Backoff patch is up, needs a second reviewer.");
@@ -335,7 +474,16 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
 
     // The new reply lands under its parent and brings the triaged run back.
     apply_now(&conn, &src, &b).unwrap();
-    assert_eq!(unseen(&conn), ["C0INC/1789960000.000100", "C0INC/1789999000.001000", "C0RANDOM/mention/1789998000.000900", "C0RANDOM/thread/1789000000.000100", "D0PRIYA/1789997000.000800"]);
+    assert_eq!(
+        unseen(&conn),
+        [
+            "C0INC/1789960000.000100",
+            "C0INC/1789999000.001000",
+            "C0RANDOM/mention/1789998000.000900",
+            "C0RANDOM/thread/1789000000.000100",
+            "D0PRIYA/1789997000.000800"
+        ]
+    );
     let replies: Vec<(String, String)> = conn
         .prepare("SELECT m.text, m.reply_to FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.reply_to IS NOT NULL ORDER BY m.at")
         .unwrap()
@@ -343,7 +491,14 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    assert_eq!(replies.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["@Marco Rossi I can review & merge", "thanks, see PR 812 and #inc-2291", "Merged."]);
+    assert_eq!(
+        replies.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(),
+        [
+            "@Marco Rossi I can review & merge",
+            "thanks, see PR 812 and #inc-2291",
+            "Merged."
+        ]
+    );
     assert!(replies.iter().all(|r| r.1 == "1789990000.000200"));
     // What you'd triaged comes back read (faded); only the new reply is new.
     let read: Vec<(String, bool)> = conn
@@ -359,7 +514,10 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
 fn with_new_message(user: &str, text: &str) -> String {
     let mut page: Value = serde_json::from_str(HISTORY_INC_1).unwrap();
     let msgs = page["messages"].as_array_mut().unwrap();
-    msgs.insert(0, json!({ "type": "message", "user": user, "text": text, "ts": "1789999000.001000", "team": "T0ACME" }));
+    msgs.insert(
+        0,
+        json!({ "type": "message", "user": user, "text": text, "ts": "1789999000.001000", "team": "T0ACME" }),
+    );
     page.to_string()
 }
 
@@ -386,7 +544,12 @@ fn new_messages_in_an_unread_run_update_and_bump_the_same_item() {
 #[test]
 fn channel_mentions_without_a_label_resolve_to_names() {
     let http = workspace(&with_new_message("U0JORDAN", "Ask in <#C0RANDOM> or <#C0SECRET>"));
-    http.on("GET", "conversations.info?channel=C0SECRET", 200, r#"{"ok": false, "error": "channel_not_found"}"#);
+    http.on(
+        "GET",
+        "conversations.info?channel=C0SECRET",
+        200,
+        r#"{"ok": false, "error": "channel_not_found"}"#,
+    );
     let b = run_poll(&http, &source(None)).unwrap();
     let inc = find(&b, "C0INC/1789960000.000100");
     assert!(texts(inc).contains(&"Ask in #random or #C0SECRET"), "{:?}", texts(inc));
@@ -396,17 +559,33 @@ fn channel_mentions_without_a_label_resolve_to_names() {
 fn partly_read_run_keeps_every_message() {
     let b1 = run_poll(&workspace(HISTORY_INC_1), &source(None)).unwrap();
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC.replace("1789991000.000250", "1789992000.000300"));
+    http.on(
+        "GET",
+        "conversations.info?channel=C0INC",
+        200,
+        INFO_INC.replace("1789991000.000250", "1789992000.000300"),
+    );
     let b2 = run_poll(&http, &source(b1.cursor.clone())).unwrap();
     assert!(!ids(&b2).contains(&"C0INC/1789960000.000100"), "{:?}", ids(&b2));
-    assert_eq!(State::parse(b2.cursor.as_deref()).open["C0INC"].first, "1789960000.000100");
+    assert_eq!(
+        State::parse(b2.cursor.as_deref()).open["C0INC"].first,
+        "1789960000.000100"
+    );
 }
 
 #[test]
 fn live_sync_reads_only_what_events_flagged() {
     let b1 = run_poll(&workspace(HISTORY_INC_1), &source(None)).unwrap();
     let src = source_with(7, json!({ "channels": ["#inc-2291"] }), b1.cursor.clone());
-    socket::test_set(7, true, true, &[Flag::Thread("C0OPS".into(), "1780000000.000100".into()), Flag::Conv("D0PRIYA".into())]);
+    socket::test_set(
+        7,
+        true,
+        true,
+        &[
+            Flag::Thread("C0OPS".into(), "1780000000.000100".into()),
+            Flag::Conv("D0PRIYA".into()),
+        ],
+    );
 
     let http = FakeHttp::default();
     with_ops_thread(&http);
@@ -424,11 +603,17 @@ fn live_sync_reads_only_what_events_flagged() {
             ], "has_more": false, "response_metadata": {"next_cursor": ""}}"#,
         );
     let b = run_poll(&http, &src).unwrap();
-    assert_eq!(ids(&b), vec!["C0OPS/thread/1780000000.000100", "D0PRIYA/1789997000.000800"]);
+    assert_eq!(
+        ids(&b),
+        vec!["C0OPS/thread/1780000000.000100", "D0PRIYA/1789997000.000800"]
+    );
 
     // A reply to a thread you started months ago.
     let ops = find(&b, "C0OPS/thread/1780000000.000100");
-    assert_eq!((ops.title.as_str(), ops.bump), ("#ops · thread: Runbook for disk pressure alerts", true));
+    assert_eq!(
+        (ops.title.as_str(), ops.bump),
+        ("#ops · thread: Runbook for disk pressure alerts", true)
+    );
     assert_eq!(texts(ops), vec!["Seeing this again after the upgrade"]);
     // The DM's unread run grows.
     let dm = find(&b, "D0PRIYA/1789997000.000800");
@@ -450,29 +635,73 @@ fn without_the_socket_dms_are_capped_to_the_most_recently_active() {
     // Nothing known yet: newest conversation first (the group DM).
     let http = workspace(HISTORY_INC_1);
     run_poll(&http, &source_with(1, config.clone(), None)).unwrap();
-    assert_eq!((count(&http, "conversations.info?channel=G0MPIM"), count(&http, "conversations.info?channel=D0PRIYA")), (1, 0));
+    assert_eq!(
+        (
+            count(&http, "conversations.info?channel=G0MPIM"),
+            count(&http, "conversations.info?channel=D0PRIYA")
+        ),
+        (1, 0)
+    );
 
     // Activity Alethiometer has seen wins.
-    let mut state = State { me: "U0ME".into(), team_url: "https://acme.slack.com/".into(), ..Default::default() };
-    state.convs.insert("D0PRIYA".into(), poll::ConvState { seen: "1789997000.000800".into() });
+    let mut state = State {
+        me: "U0ME".into(),
+        team_url: "https://acme.slack.com/".into(),
+        ..Default::default()
+    };
+    state.convs.insert(
+        "D0PRIYA".into(),
+        poll::ConvState {
+            seen: "1789997000.000800".into(),
+        },
+    );
     let http = workspace(HISTORY_INC_1);
-    run_poll(&http, &source_with(1, config, Some(serde_json::to_string(&state).unwrap()))).unwrap();
-    assert_eq!((count(&http, "conversations.info?channel=G0MPIM"), count(&http, "conversations.info?channel=D0PRIYA")), (0, 1));
+    run_poll(
+        &http,
+        &source_with(1, config, Some(serde_json::to_string(&state).unwrap())),
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            count(&http, "conversations.info?channel=G0MPIM"),
+            count(&http, "conversations.info?channel=D0PRIYA")
+        ),
+        (0, 1)
+    );
 }
 
 #[test]
 fn without_the_socket_quiet_threads_are_checked_hourly() {
     let config = json!({ "channels": [], "dms": false, "mentions": false });
-    let mut state = State { me: "U0ME".into(), team_url: "https://acme.slack.com/".into(), ..Default::default() };
+    let mut state = State {
+        me: "U0ME".into(),
+        team_url: "https://acme.slack.com/".into(),
+        ..Default::default()
+    };
     let key = "C0OPS/1780000000.000100";
-    state.threads.insert(key.into(), poll::ThreadState { seen: "1785000000.000000".into(), title: String::new(), checked: NOW - 600.0 });
+    state.threads.insert(
+        key.into(),
+        poll::ThreadState {
+            seen: "1785000000.000000".into(),
+            title: String::new(),
+            checked: NOW - 600.0,
+        },
+    );
     let http = workspace(HISTORY_INC_1);
     with_ops_thread(&http);
-    run_poll(&http, &source_with(1, config.clone(), Some(serde_json::to_string(&state).unwrap()))).unwrap();
+    run_poll(
+        &http,
+        &source_with(1, config.clone(), Some(serde_json::to_string(&state).unwrap())),
+    )
+    .unwrap();
     assert_eq!(count(&http, "conversations.replies"), 0);
 
     state.threads.get_mut(key).unwrap().checked = NOW - 3600.0;
-    let b = run_poll(&http, &source_with(1, config, Some(serde_json::to_string(&state).unwrap()))).unwrap();
+    let b = run_poll(
+        &http,
+        &source_with(1, config, Some(serde_json::to_string(&state).unwrap())),
+    )
+    .unwrap();
     assert_eq!(count(&http, "conversations.replies?channel=C0OPS"), 1);
     assert_eq!(ids(&b), vec!["C0OPS/thread/1780000000.000100"]);
 }
@@ -480,17 +709,34 @@ fn without_the_socket_quiet_threads_are_checked_hourly() {
 #[test]
 fn ok_false_is_an_error_with_slacks_reason_and_no_token() {
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "users.conversations", 200, r#"{"ok": false, "error": "missing_scope", "needed": "im:read", "provided": "channels:history"}"#);
+    http.on(
+        "GET",
+        "users.conversations",
+        200,
+        r#"{"ok": false, "error": "missing_scope", "needed": "im:read", "provided": "channels:history"}"#,
+    );
     let err = run_poll(&http, &source(None)).unwrap_err().to_string();
-    assert!(err.contains("users.conversations: missing_scope (needs scope im:read)"), "{err}");
+    assert!(
+        err.contains("users.conversations: missing_scope (needs scope im:read)"),
+        "{err}"
+    );
     assert!(!err.contains("xoxp"));
 }
 
 #[test]
 fn all_follows_every_channel_you_are_in() {
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.history?channel=C0RANDOM", 200, r#"{"ok": true, "messages": [], "has_more": false}"#);
-    let b = run_poll(&http, &source_with(1, json!({ "channels": "all", "dms": false, "mentions": false }), None)).unwrap();
+    http.on(
+        "GET",
+        "conversations.history?channel=C0RANDOM",
+        200,
+        r#"{"ok": true, "messages": [], "has_more": false}"#,
+    );
+    let b = run_poll(
+        &http,
+        &source_with(1, json!({ "channels": "all", "dms": false, "mentions": false }), None),
+    )
+    .unwrap();
     let state: State = serde_json::from_str(b.cursor.as_deref().unwrap()).unwrap();
     assert_eq!(state.follow, ["C0INC", "C0RANDOM"]);
     assert_eq!(count(&http, "conversations.history?channel=C0RANDOM"), 1);
@@ -504,7 +750,11 @@ fn muted_channels_are_stored_but_never_new() {
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     assert!(b.items.iter().any(|i| i.external_id.starts_with("C0INC/")));
     apply_now(&conn, &src, &b).unwrap();
-    assert!(unseen(&conn).iter().all(|id| !id.starts_with("C0INC/")), "{:?}", unseen(&conn));
+    assert!(
+        unseen(&conn).iter().all(|id| !id.starts_with("C0INC/")),
+        "{:?}",
+        unseen(&conn)
+    );
     assert!(!unseen(&conn).is_empty());
 }
 
@@ -516,7 +766,11 @@ fn a_muted_dm_by_the_other_users_id_is_stored_but_never_new() {
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     assert!(b.items.iter().any(|i| i.external_id.starts_with("D0PRIYA/")));
     apply_now(&conn, &src, &b).unwrap();
-    assert!(unseen(&conn).iter().all(|id| !id.starts_with("D0PRIYA/")), "{:?}", unseen(&conn));
+    assert!(
+        unseen(&conn).iter().all(|id| !id.starts_with("D0PRIYA/")),
+        "{:?}",
+        unseen(&conn)
+    );
     assert!(!unseen(&conn).is_empty());
 }
 
@@ -534,7 +788,13 @@ fn missing_token_is_reported_by_name() {
     let http = FakeHttp::default();
     let secret = |_: &str| None;
     let src = source(None);
-    let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
+    let ctx = Ctx {
+        source: &src,
+        http: &http,
+        secret: &secret,
+        now: now(),
+        clock: crate::sync::test_clock(&now().to_db()),
+    };
     let err = Slack.poll(&ctx).unwrap_err().to_string();
     assert!(err.contains("slack.user_token"), "{err}");
 }
@@ -554,7 +814,9 @@ fn resp(status: u16, body: &str, retry_after: Option<&str>) -> Response {
     Response {
         status,
         body: body.into(),
-        headers: retry_after.map(|v| vec![("retry-after".into(), v.into())]).unwrap_or_default(),
+        headers: retry_after
+            .map(|v| vec![("retry-after".into(), v.into())])
+            .unwrap_or_default(),
     }
 }
 
@@ -568,7 +830,8 @@ fn rate_limits_wait_for_retry_after_then_retry() {
     ]));
     let mut c = api::Client::new(&http, "xoxp-test".into());
     c.sleep = fake_sleep;
-    c.post("conversations.mark", &[("channel", "C0INC"), ("ts", "1.2")]).unwrap();
+    c.post("conversations.mark", &[("channel", "C0INC"), ("ts", "1.2")])
+        .unwrap();
     assert_eq!(SLEPT.with(Cell::get), 9);
 
     // Too long a wait fails this attempt instead of blocking the thread.
@@ -582,7 +845,13 @@ fn rate_limits_wait_for_retry_after_then_retry() {
 fn send_op(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
     let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
     let src = source(None);
-    let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
+    let ctx = Ctx {
+        source: &src,
+        http,
+        secret: &secret,
+        now: now(),
+        clock: crate::sync::test_clock(&now().to_db()),
+    };
     Slack.send(&ctx, op, &payload)
 }
 
@@ -594,15 +863,35 @@ fn last_body(http: &FakeHttp) -> (String, String) {
 #[test]
 fn mark_read_calls_conversations_mark() {
     let http = FakeHttp::default();
-    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC).on("POST", "conversations.mark", 200, r#"{"ok": true}"#);
-    let r = send_op(&http, "slack.mark_read", json!({ "channel": "C0INC", "ts": "1789995600.000500" })).unwrap();
+    http.on("GET", "conversations.info?channel=C0INC", 200, INFO_INC).on(
+        "POST",
+        "conversations.mark",
+        200,
+        r#"{"ok": true}"#,
+    );
+    let r = send_op(
+        &http,
+        "slack.mark_read",
+        json!({ "channel": "C0INC", "ts": "1789995600.000500" }),
+    )
+    .unwrap();
     assert_eq!(r, json!({ "channel": "C0INC", "ts": "1789995600.000500" }));
-    assert_eq!(last_body(&http), ("https://slack.com/api/conversations.mark".into(), "channel=C0INC&ts=1789995600.000500".into()));
+    assert_eq!(
+        last_body(&http),
+        (
+            "https://slack.com/api/conversations.mark".into(),
+            "channel=C0INC&ts=1789995600.000500".into()
+        )
+    );
 
     // Threads: no public API; fail visibly, call nothing.
     let n = http.requests().len();
-    let err = send_op(&http, "slack.mark_read", json!({ "channel": "C0INC", "ts": "1789996000.000700", "thread_ts": "1789990000.000200" }))
-        .unwrap_err();
+    let err = send_op(
+        &http,
+        "slack.mark_read",
+        json!({ "channel": "C0INC", "ts": "1789996000.000700", "thread_ts": "1789990000.000200" }),
+    )
+    .unwrap_err();
     assert_eq!(err.to_string(), "Slack has no API to mark a thread read");
     assert_eq!(http.requests().len(), n);
 }
@@ -611,19 +900,47 @@ fn mark_read_calls_conversations_mark() {
 fn mark_read_never_moves_the_read_marker_backwards() {
     // You confirm a mention in #random, but have since read #random further in Slack.
     let http = FakeHttp::default();
-    http.on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"))
-        .on("POST", "conversations.mark", 200, r#"{"ok": true}"#);
-    let r = send_op(&http, "slack.mark_read", json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" })).unwrap();
-    assert_eq!(r, json!({ "channel": "C0RANDOM", "ts": "1789998000.000900", "already": "1789999000.000000" }));
+    http.on(
+        "GET",
+        "conversations.info?channel=C0RANDOM",
+        200,
+        INFO_RANDOM.replace("1789990000.000000", "1789999000.000000"),
+    )
+    .on("POST", "conversations.mark", 200, r#"{"ok": true}"#);
+    let r = send_op(
+        &http,
+        "slack.mark_read",
+        json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }),
+    )
+    .unwrap();
+    assert_eq!(
+        r,
+        json!({ "channel": "C0RANDOM", "ts": "1789998000.000900", "already": "1789999000.000000" })
+    );
     assert_eq!(count(&http, "conversations.mark"), 0);
     // Read exactly up to it: nothing to do either.
-    http.on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("1789990000.000000", "1789998000.000900"));
-    send_op(&http, "slack.mark_read", json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" })).unwrap();
+    http.on(
+        "GET",
+        "conversations.info?channel=C0RANDOM",
+        200,
+        INFO_RANDOM.replace("1789990000.000000", "1789998000.000900"),
+    );
+    send_op(
+        &http,
+        "slack.mark_read",
+        json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }),
+    )
+    .unwrap();
     assert_eq!(count(&http, "conversations.mark"), 0);
 
     // Marker before the mention: marked up to the mention.
     http.on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM);
-    let r = send_op(&http, "slack.mark_read", json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" })).unwrap();
+    let r = send_op(
+        &http,
+        "slack.mark_read",
+        json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }),
+    )
+    .unwrap();
     assert_eq!(r, json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }));
     assert_eq!(last_body(&http).1, "channel=C0RANDOM&ts=1789998000.000900");
 }
@@ -635,23 +952,54 @@ fn confirming_a_mention_queues_mark_read_up_to_it() {
     let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
     apply_now(&conn, &src, &b).unwrap();
     let item: i64 = conn
-        .query_row("SELECT id FROM items WHERE external_id = 'C0RANDOM/mention/1789998000.000900'", [], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM items WHERE external_id = 'C0RANDOM/mention/1789998000.000900'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
-    conn.execute("INSERT INTO topics (name, category) VALUES ('Headcount', 'work')", []).unwrap();
+    conn.execute("INSERT INTO topics (name, category) VALUES ('Headcount', 'work')", [])
+        .unwrap();
     let topic = conn.last_insert_rowid();
-    conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", [item, topic]).unwrap();
-    crate::queries::incoming::confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
-    let payload: String =
-        conn.query_row("SELECT payload_json FROM outbox WHERE op = 'slack.mark_read' AND item_id = ?1", [item], |r| r.get(0)).unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" }));
+    conn.execute(
+        "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+        [item, topic],
+    )
+    .unwrap();
+    crate::queries::incoming::confirm(
+        &crate::store::over(&conn),
+        crate::time::Ts::new(jiff::Timestamp::now()),
+        item,
+        topic,
+    )
+    .unwrap();
+    let payload: String = conn
+        .query_row(
+            "SELECT payload_json FROM outbox WHERE op = 'slack.mark_read' AND item_id = ?1",
+            [item],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&payload).unwrap(),
+        json!({ "channel": "C0RANDOM", "ts": "1789998000.000900" })
+    );
 }
 
 #[test]
 fn a_mention_in_a_channel_you_are_not_in_is_not_markable() {
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.info?channel=C0RANDOM", 200, INFO_RANDOM.replace("\"is_member\": true", "\"is_member\": false"));
+    http.on(
+        "GET",
+        "conversations.info?channel=C0RANDOM",
+        200,
+        INFO_RANDOM.replace("\"is_member\": true", "\"is_member\": false"),
+    );
     let b = run_poll(&http, &source(None)).unwrap();
-    assert!(find(&b, "C0RANDOM/mention/1789998000.000900").raw_json.get("mark_ts").is_none());
+    assert!(find(&b, "C0RANDOM/mention/1789998000.000900")
+        .raw_json
+        .get("mark_ts")
+        .is_none());
 }
 
 #[test]
@@ -666,15 +1014,26 @@ fn live_mode_runs_a_full_catch_up_every_catchup_hours() {
     state.read_checked = NOW;
     socket::test_set(8, true, true, &[]);
     let http = workspace(HISTORY_INC_1);
-    let b = run_poll(&http, &source_with(8, config.clone(), Some(serde_json::to_string(&state).unwrap()))).unwrap();
-    assert_eq!((count(&http, "users.conversations"), count(&http, "search.messages")), (0, 0));
+    let b = run_poll(
+        &http,
+        &source_with(8, config.clone(), Some(serde_json::to_string(&state).unwrap())),
+    )
+    .unwrap();
+    assert_eq!(
+        (count(&http, "users.conversations"), count(&http, "search.messages")),
+        (0, 0)
+    );
     assert_eq!(State::parse(b.cursor.as_deref()).caught_up, NOW - 3.0 * 3600.0 + 60.0);
 
     // Three hours: the same pass as on reconnect, though the socket never dropped.
     state.caught_up = NOW - 3.0 * 3600.0;
     socket::test_set(8, true, true, &[]);
     let http = workspace(HISTORY_INC_1);
-    let b = run_poll(&http, &source_with(8, config, Some(serde_json::to_string(&state).unwrap()))).unwrap();
+    let b = run_poll(
+        &http,
+        &source_with(8, config, Some(serde_json::to_string(&state).unwrap())),
+    )
+    .unwrap();
     assert_eq!(count(&http, "users.conversations"), 2);
     assert_eq!(count(&http, "search.messages"), 2);
     // Cheap where it can be: DMs with nothing new aren't re-read.
@@ -695,16 +1054,29 @@ fn reply_posts_the_users_text_in_the_thread_or_the_conversation() {
         200,
         r#"{"ok": true, "channel": "C0INC", "ts": "1790000100.000100", "message": {"type": "message", "user": "U0ME", "text": "On it & looking", "ts": "1790000100.000100", "thread_ts": "1789990000.000200"}}"#,
     );
-    let r = send_op(&http, "slack.reply", json!({ "channel": "C0INC", "thread_ts": "1789990000.000200", "text": "On it & looking" })).unwrap();
+    let r = send_op(
+        &http,
+        "slack.reply",
+        json!({ "channel": "C0INC", "thread_ts": "1789990000.000200", "text": "On it & looking" }),
+    )
+    .unwrap();
     assert_eq!(r, json!({ "channel": "C0INC", "ts": "1790000100.000100" }));
-    assert_eq!(last_body(&http).1, "channel=C0INC&thread_ts=1789990000.000200&text=On%20it%20%26%20looking");
+    assert_eq!(
+        last_body(&http).1,
+        "channel=C0INC&thread_ts=1789990000.000200&text=On%20it%20%26%20looking"
+    );
 
     // No thread: the message goes to the conversation itself.
     send_op(&http, "slack.reply", json!({ "channel": "D0PRIYA", "text": "sure" })).unwrap();
     assert_eq!(last_body(&http).1, "channel=D0PRIYA&text=sure");
 
     // Nothing to send without the user's words.
-    let err = send_op(&http, "slack.reply", json!({ "channel": "C0INC", "thread_ts": "1", "text": "  " })).unwrap_err();
+    let err = send_op(
+        &http,
+        "slack.reply",
+        json!({ "channel": "C0INC", "thread_ts": "1", "text": "  " }),
+    )
+    .unwrap_err();
     assert!(err.to_string().contains("'text'"));
 }
 
@@ -712,25 +1084,58 @@ fn reply_posts_the_users_text_in_the_thread_or_the_conversation() {
 fn react_adds_a_reaction_and_treats_already_reacted_as_done() {
     let http = FakeHttp::default();
     http.on("POST", "reactions.add", 200, r#"{"ok": true}"#);
-    let r = send_op(&http, "slack.react", json!({ "channel": "C0INC", "ts": "1789995600.000500", "name": ":eyes:" })).unwrap();
+    let r = send_op(
+        &http,
+        "slack.react",
+        json!({ "channel": "C0INC", "ts": "1789995600.000500", "name": ":eyes:" }),
+    )
+    .unwrap();
     assert_eq!(r["name"], "eyes");
-    assert_eq!(last_body(&http).1, "channel=C0INC&timestamp=1789995600.000500&name=eyes");
+    assert_eq!(
+        last_body(&http).1,
+        "channel=C0INC&timestamp=1789995600.000500&name=eyes"
+    );
 
-    http.on("POST", "reactions.add", 200, r#"{"ok": false, "error": "already_reacted"}"#);
-    let r = send_op(&http, "slack.react", json!({ "channel": "C0INC", "ts": "1789995600.000500", "name": "eyes" })).unwrap();
+    http.on(
+        "POST",
+        "reactions.add",
+        200,
+        r#"{"ok": false, "error": "already_reacted"}"#,
+    );
+    let r = send_op(
+        &http,
+        "slack.react",
+        json!({ "channel": "C0INC", "ts": "1789995600.000500", "name": "eyes" }),
+    )
+    .unwrap();
     assert_eq!(r["already"], true);
 }
 
 #[test]
 fn send_failures_carry_slacks_error() {
     let http = FakeHttp::default();
-    http.on("GET", "conversations.info", 200, r#"{"ok": false, "error": "channel_not_found"}"#);
+    http.on(
+        "GET",
+        "conversations.info",
+        200,
+        r#"{"ok": false, "error": "channel_not_found"}"#,
+    );
     let err = send_op(&http, "slack.mark_read", json!({ "channel": "C0NOPE", "ts": "1.0" })).unwrap_err();
     assert_eq!(err.to_string(), "Slack conversations.info: channel_not_found");
     assert_eq!(count(&http, "conversations.mark"), 0);
     // No marker reported (not a member): try, and show Slack's answer.
-    http.on("GET", "conversations.info", 200, r#"{"ok": true, "channel": {"id": "C0NEW", "is_channel": true, "is_member": false}}"#)
-        .on("POST", "conversations.mark", 200, r#"{"ok": false, "error": "not_in_channel"}"#);
+    http.on(
+        "GET",
+        "conversations.info",
+        200,
+        r#"{"ok": true, "channel": {"id": "C0NEW", "is_channel": true, "is_member": false}}"#,
+    )
+    .on(
+        "POST",
+        "conversations.mark",
+        200,
+        r#"{"ok": false, "error": "not_in_channel"}"#,
+    );
     let err = send_op(&http, "slack.mark_read", json!({ "channel": "C0NEW", "ts": "1.0" })).unwrap_err();
     assert_eq!(err.to_string(), "Slack conversations.mark: not_in_channel");
     assert!(send_op(&http, "slack.delete", json!({})).is_err());
@@ -741,20 +1146,43 @@ fn web_permalinks_open_in_the_desktop_app() {
     let conn = db();
     let src = crate::sync::load_source(&conn, 1).unwrap();
     let link = |u: &str| crate::sync::connectors::slack::deep_link(&crate::store::over(&conn), u);
-    assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100"), None, "no team id before the first sync");
-    apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
-    assert_eq!(link("https://acme.slack.com/archives/C0INC/p1789960000000100").as_deref(), Some("slack://channel?team=T0ACME&id=C0INC&message=1789960000.000100"));
     assert_eq!(
-        link("https://acme.slack.com/archives/C0INC/p1789990000000300?thread_ts=1789990000.000200&cid=C0INC").as_deref(),
+        link("https://acme.slack.com/archives/C0INC/p1789960000000100"),
+        None,
+        "no team id before the first sync"
+    );
+    apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    assert_eq!(
+        link("https://acme.slack.com/archives/C0INC/p1789960000000100").as_deref(),
+        Some("slack://channel?team=T0ACME&id=C0INC&message=1789960000.000100")
+    );
+    assert_eq!(
+        link("https://acme.slack.com/archives/C0INC/p1789990000000300?thread_ts=1789990000.000200&cid=C0INC")
+            .as_deref(),
         Some("slack://channel?team=T0ACME&id=C0INC&message=1789990000.000300&thread_ts=1789990000.000200")
     );
-    assert_eq!(link("https://other.slack.com/archives/C0INC/p1789960000000100"), None, "another workspace");
+    assert_eq!(
+        link("https://other.slack.com/archives/C0INC/p1789960000000100"),
+        None,
+        "another workspace"
+    );
     assert_eq!(link("https://github.com/acme/x/pull/1"), None);
 }
 
-fn run_streams(http: &dyn Http, src: &Source, failures: &[(&str, i64)], committed: &mut Vec<Batch>) -> anyhow::Result<Batch> {
+fn run_streams(
+    http: &dyn Http,
+    src: &Source,
+    failures: &[(&str, i64)],
+    committed: &mut Vec<Batch>,
+) -> anyhow::Result<Batch> {
     let secret = |k: &str| (k == USER_TOKEN).then(|| "xoxp-test-token".to_owned());
-    let ctx = Ctx { source: src, http, secret: &secret, now: now(), clock: crate::sync::test_clock(&now().to_db()) };
+    let ctx = Ctx {
+        source: src,
+        http,
+        secret: &secret,
+        now: now(),
+        clock: crate::sync::test_clock(&now().to_db()),
+    };
     let mut cfg = Config::from_json(&src.config);
     cfg.sleep = fake_sleep;
     let mut commit = |b: Batch| -> anyhow::Result<()> {
@@ -773,15 +1201,34 @@ fn run_streams(http: &dyn Http, src: &Source, failures: &[(&str, i64)], committe
 #[test]
 fn one_failing_conversation_doesnt_stop_the_others() {
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.history?channel=C0INC", 200, r#"{"ok": false, "error": "not_in_channel"}"#);
+    http.on(
+        "GET",
+        "conversations.history?channel=C0INC",
+        200,
+        r#"{"ok": false, "error": "not_in_channel"}"#,
+    );
     let mut committed = vec![];
     let last = run_streams(&http, &source(None), &[], &mut committed).unwrap();
-    let all: Vec<&crate::sync::ItemUpsert> = committed.iter().chain(std::iter::once(&last)).flat_map(|b| &b.items).collect();
-    assert!(all.iter().any(|i| i.external_id == "D0PRIYA/1789997000.000800"), "the DM still came in");
+    let all: Vec<&crate::sync::ItemUpsert> = committed
+        .iter()
+        .chain(std::iter::once(&last))
+        .flat_map(|b| &b.items)
+        .collect();
+    assert!(
+        all.iter().any(|i| i.external_id == "D0PRIYA/1789997000.000800"),
+        "the DM still came in"
+    );
     assert!(!all.iter().any(|i| i.external_id == "C0INC/1789960000.000100"));
-    let outcomes: Vec<&StreamOutcome> = committed.iter().chain(std::iter::once(&last)).flat_map(|b| &b.streams).collect();
+    let outcomes: Vec<&StreamOutcome> = committed
+        .iter()
+        .chain(std::iter::once(&last))
+        .flat_map(|b| &b.streams)
+        .collect();
     let inc = outcomes.iter().find(|o| o.key == "C0INC").unwrap();
-    assert_eq!(inc.error.as_deref(), Some("Slack conversations.history: not_in_channel"));
+    assert_eq!(
+        inc.error.as_deref(),
+        Some("Slack conversations.history: not_in_channel")
+    );
     assert!(outcomes.iter().any(|o| o.key == "D0PRIYA" && o.error.is_none()));
 }
 
@@ -792,13 +1239,28 @@ fn a_bad_token_or_the_network_ends_the_poll_but_keeps_what_was_read() {
     http.on("GET", "conversations.history?channel=D0PRIYA", 503, "upstream down");
     let mut committed = vec![];
     assert!(run_streams(&http, &source(None), &[], &mut committed).is_err());
-    let kept: Vec<&str> = committed.iter().flat_map(|b| &b.items).map(|i| i.external_id.as_str()).collect();
+    let kept: Vec<&str> = committed
+        .iter()
+        .flat_map(|b| &b.items)
+        .map(|i| i.external_id.as_str())
+        .collect();
     assert!(kept.contains(&"C0INC/1789960000.000100"), "{kept:?}");
-    assert!(committed.iter().all(|b| b.cursor.is_some()), "each commit carries the cursor so far");
+    assert!(
+        committed.iter().all(|b| b.cursor.is_some()),
+        "each commit carries the cursor so far"
+    );
 
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.history?channel=C0INC", 200, r#"{"ok": false, "error": "invalid_auth"}"#);
-    assert!(run_streams(&http, &source(None), &[], &mut vec![]).is_err(), "every call would fail alike");
+    http.on(
+        "GET",
+        "conversations.history?channel=C0INC",
+        200,
+        r#"{"ok": false, "error": "invalid_auth"}"#,
+    );
+    assert!(
+        run_streams(&http, &source(None), &[], &mut vec![]).is_err(),
+        "every call would fail alike"
+    );
 }
 
 #[test]
@@ -807,10 +1269,24 @@ fn a_missing_thread_is_dropped_after_three_tries() {
     let key = "C0RANDOM/1789000000.000100";
     assert!(State::parse(first.cursor.as_deref()).threads.contains_key(key));
     let http = workspace(HISTORY_INC_1);
-    http.on("GET", "conversations.replies?channel=C0RANDOM&ts=1789000000.000100", 200, r#"{"ok": false, "error": "thread_not_found"}"#);
+    http.on(
+        "GET",
+        "conversations.replies?channel=C0RANDOM&ts=1789000000.000100",
+        200,
+        r#"{"ok": false, "error": "thread_not_found"}"#,
+    );
     let b = run_streams(&http, &source(first.cursor.clone()), &[], &mut vec![]).unwrap();
-    assert!(State::parse(b.cursor.as_deref()).threads.contains_key(key), "one miss: still tracked");
-    assert_eq!(b.streams.iter().find(|o| o.key == key).and_then(|o| o.error.as_deref()), Some("Slack conversations.replies: thread_not_found"));
+    assert!(
+        State::parse(b.cursor.as_deref()).threads.contains_key(key),
+        "one miss: still tracked"
+    );
+    assert_eq!(
+        b.streams.iter().find(|o| o.key == key).and_then(|o| o.error.as_deref()),
+        Some("Slack conversations.replies: thread_not_found")
+    );
     let b = run_streams(&http, &source(first.cursor.clone()), &[(key, 2)], &mut vec![]).unwrap();
-    assert!(!State::parse(b.cursor.as_deref()).threads.contains_key(key), "the third miss in a row: forgotten");
+    assert!(
+        !State::parse(b.cursor.as_deref()).threads.contains_key(key),
+        "the third miss in a row: forgotten"
+    );
 }

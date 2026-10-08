@@ -4,16 +4,19 @@
 //! PR is a GitHub item for that branch or key; the todo is one naming the key.
 
 use super::model::{Fact, Facts};
-use crate::state::App;
 use crate::domain::ports::Reads;
 use crate::error::Result;
+use crate::state::App;
 use std::path::Path;
 use std::process::Command;
 
 /// The repo a directory belongs to (its git top level's name), else the directory's name.
 pub fn project_of(cwd: &str) -> String {
     let top = git(cwd, &["rev-parse", "--show-toplevel"]).unwrap_or_else(|| cwd.to_owned());
-    Path::new(top.trim_end_matches('/')).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    Path::new(top.trim_end_matches('/'))
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn git(cwd: &str, args: &[&str]) -> Option<String> {
@@ -21,7 +24,10 @@ fn git(cwd: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|s| !s.is_empty())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        .filter(|s| !s.is_empty())
 }
 
 /// The first Jira-style key (`ALE-92`) in the branch (any case: fix/ale-92-header)
@@ -36,7 +42,9 @@ pub fn ticket_key(branch: &str, texts: &[&str]) -> Option<String> {
 
 /// Branch and how far ahead of its upstream (or origin's default) it is.
 pub fn branch_fact(cwd: &str, branch: Option<&str>) -> Option<Fact> {
-    let name = branch.map(str::to_owned).or_else(|| git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]))?;
+    let name = branch
+        .map(str::to_owned)
+        .or_else(|| git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]))?;
     if name == "HEAD" {
         return None;
     }
@@ -47,20 +55,39 @@ pub fn branch_fact(cwd: &str, branch: Option<&str>) -> Option<Fact> {
         Some(0) | None => String::new(),
         Some(n) => format!("{n} ahead"),
     };
-    Some(Fact { label: name, detail, url: String::new(), done: false })
+    Some(Fact {
+        label: name,
+        detail,
+        url: String::new(),
+        done: false,
+    })
 }
 
 /// Ticket, PR and todo from the local database.
-pub fn from_db(r: &dyn Reads, clock: &crate::clock::Clock, key: Option<&str>, branch: Option<&str>) -> Result<(Option<Fact>, Option<Fact>, Option<Fact>)> {
+pub fn from_db(
+    r: &dyn Reads,
+    clock: &crate::clock::Clock,
+    key: Option<&str>,
+    branch: Option<&str>,
+) -> Result<(Option<Fact>, Option<Fact>, Option<Fact>)> {
     let ticket = match key {
         Some(k) => Some(match r.agents().ticket(k)? {
             Some(t) => Fact {
                 label: k.to_owned(),
-                detail: t.summary.unwrap_or_default().split(" · ").next().unwrap_or("").to_owned(),
+                detail: t
+                    .summary
+                    .unwrap_or_default()
+                    .split(" · ")
+                    .next()
+                    .unwrap_or("")
+                    .to_owned(),
                 url: t.url.unwrap_or_default(),
                 done: t.done,
             },
-            None => Fact { label: k.to_owned(), ..Default::default() },
+            None => Fact {
+                label: k.to_owned(),
+                ..Default::default()
+            },
         }),
         None => None,
     };
@@ -76,20 +103,38 @@ pub fn from_db(r: &dyn Reads, clock: &crate::clock::Clock, key: Option<&str>, br
         } else {
             ""
         };
-        Fact { label: format!("#{n}"), detail: detail.into(), url, done: p.merged }
+        Fact {
+            label: format!("#{n}"),
+            detail: detail.into(),
+            url,
+            done: p.merged,
+        }
     });
     // The open task for this ticket due soonest (by its real deadline here; undated last).
     let todo = match key {
-        Some(k) => r.agents().open_tasks_for(k)?.into_iter().min_by_key(|t| (t.due.is_none(), t.due.map(|d| d.deadline(clock)))).map(|t| {
-            let from = match t.source_kind.as_str() {
-                "notes" => "Local",
-                "jira" => "Jira",
-                "obsidian" => "Obsidian",
-                other => other,
-            };
-            let due = t.due.map(|d| clock.zoned(d.deadline(clock)).strftime("%a").to_string()).unwrap_or_default();
-            Fact { label: format!("{from} · {}", t.title), detail: due, url: t.url.unwrap_or_default(), done: false }
-        }),
+        Some(k) => r
+            .agents()
+            .open_tasks_for(k)?
+            .into_iter()
+            .min_by_key(|t| (t.due.is_none(), t.due.map(|d| d.deadline(clock))))
+            .map(|t| {
+                let from = match t.source_kind.as_str() {
+                    "notes" => "Local",
+                    "jira" => "Jira",
+                    "obsidian" => "Obsidian",
+                    other => other,
+                };
+                let due = t
+                    .due
+                    .map(|d| clock.zoned(d.deadline(clock)).strftime("%a").to_string())
+                    .unwrap_or_default();
+                Fact {
+                    label: format!("{from} · {}", t.title),
+                    detail: due,
+                    url: t.url.unwrap_or_default(),
+                    done: false,
+                }
+            }),
         None => None,
     };
     Ok((ticket, pr, todo))
@@ -100,7 +145,9 @@ pub fn refresh(app: &App, id: &str) {
     let Some(app) = app.arc() else { return };
     let id = id.to_owned();
     std::thread::spawn(move || {
-        let Some(s) = app.agents.store.lock().sessions.get(&id).cloned() else { return };
+        let Some(s) = app.agents.store.lock().sessions.get(&id).cloned() else {
+            return;
+        };
         let first_prompt = app
             .agents
             .store
@@ -108,11 +155,29 @@ pub fn refresh(app: &App, id: &str) {
             .find_row(&super::session_thread(&id), |r| r.kind == super::model::Kind::You)
             .map(|r| r.text.clone())
             .unwrap_or_default();
-        let scion_branch = s.facts.branch.as_ref().filter(|_| s.source == "scion").map(|b| b.label.clone());
+        let scion_branch = s
+            .facts
+            .branch
+            .as_ref()
+            .filter(|_| s.source == "scion")
+            .map(|b| b.label.clone());
         let branch = branch_fact(&s.cwd, scion_branch.as_deref()).or(s.facts.branch.clone());
-        let key = ticket_key(branch.as_ref().map_or("", |b| b.label.as_str()), &[&s.title, &first_prompt]);
-        let Ok((ticket, pr, todo)) = app.store().read(|r| from_db(r, &app.clock, key.as_deref(), branch.as_ref().map(|b| b.label.as_str()))) else { return };
-        let facts = Facts { ticket, pr, branch, todo };
+        let key = ticket_key(
+            branch.as_ref().map_or("", |b| b.label.as_str()),
+            &[&s.title, &first_prompt],
+        );
+        let Ok((ticket, pr, todo)) = app
+            .store()
+            .read(|r| from_db(r, &app.clock, key.as_deref(), branch.as_ref().map(|b| b.label.as_str())))
+        else {
+            return;
+        };
+        let facts = Facts {
+            ticket,
+            pr,
+            branch,
+            todo,
+        };
         app.agents.store.lock().update_session(&id, |s| s.facts = facts);
     });
 }
@@ -124,7 +189,10 @@ mod tests {
     #[test]
     fn finds_ticket_keys_in_branches_and_text() {
         assert_eq!(ticket_key("fix/ale-92-settings-header", &[]).as_deref(), Some("ALE-92"));
-        assert_eq!(ticket_key("main", &["Replace the poller (ING-31)"]).as_deref(), Some("ING-31"));
+        assert_eq!(
+            ticket_key("main", &["Replace the poller (ING-31)"]).as_deref(),
+            Some("ING-31")
+        );
         assert_eq!(ticket_key("main", &["utf-8 fixes"]), None);
     }
 
@@ -141,7 +209,13 @@ mod tests {
                (3, 'l1', 'task', 'ING-31 webhooks cutover', '2026-10-01T10:00:00.000Z', '2026-10-08T00:00:00.000Z');",
         )
         .unwrap();
-        let (t, p, d) = from_db(&crate::store::over(&c), &crate::sync::test_clock("2026-09-28T10:52:00Z"), Some("ING-31"), Some("feat/jira-webhooks")).unwrap();
+        let (t, p, d) = from_db(
+            &crate::store::over(&c),
+            &crate::sync::test_clock("2026-09-28T10:52:00Z"),
+            Some("ING-31"),
+            Some("feat/jira-webhooks"),
+        )
+        .unwrap();
         let t = t.unwrap();
         assert_eq!((t.label.as_str(), t.detail.as_str()), ("ING-31", "In progress"));
         let p = p.unwrap();

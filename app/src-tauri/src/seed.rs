@@ -42,7 +42,10 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn source(&self, kind: &str) -> i64 {
-        *self.sources.get(kind).unwrap_or_else(|| panic!("no seed source {kind}"))
+        *self
+            .sources
+            .get(kind)
+            .unwrap_or_else(|| panic!("no seed source {kind}"))
     }
 
     pub fn person(&self, name: &str) -> i64 {
@@ -59,7 +62,11 @@ impl<'a> Ctx<'a> {
 
     /// The item of a meeting `ctx.meeting` added.
     pub fn meeting_id(&self, days: i64, title: &str) -> i64 {
-        *self.meetings.borrow().get(&(days, title.to_owned())).unwrap_or_else(|| panic!("no seed meeting {title} on day {days}"))
+        *self
+            .meetings
+            .borrow()
+            .get(&(days, title.to_owned()))
+            .unwrap_or_else(|| panic!("no seed meeting {title} on day {days}"))
     }
 
     /// Insert an item and return its id. Use `ItemSeed { ..Default::default() }`.
@@ -88,7 +95,9 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn link(&self, item_id: i64, topic: &str, state: &str) {
-        self.sample().link(item_id, self.topic(topic), state).expect("seed link");
+        self.sample()
+            .link(item_id, self.topic(topic), state)
+            .expect("seed link");
     }
 
     /// A Slack message: its author id is `U0` and the name's first word in
@@ -98,26 +107,63 @@ impl<'a> Ctx<'a> {
     }
 
     /// `slack` with the message's key (Slack ts) and, for a thread reply, its parent's key.
-    pub fn slack_keyed(&self, item_id: i64, at: Ts, author: &str, text: &str, key: Option<&str>, reply_to: Option<&str>) -> i64 {
+    pub fn slack_keyed(
+        &self,
+        item_id: i64,
+        at: Ts,
+        author: &str,
+        text: &str,
+        key: Option<&str>,
+        reply_to: Option<&str>,
+    ) -> i64 {
         let author_id = slack_id(author);
         self.sample()
-            .message(&SampleMessage { item_id, at, author, text, author_id: Some(&author_id), ext_key: key, reply_to })
+            .message(&SampleMessage {
+                item_id,
+                at,
+                author,
+                text,
+                author_id: Some(&author_id),
+                ext_key: key,
+                reply_to,
+            })
             .expect("seed message")
     }
 
     pub fn message(&self, item_id: i64, at: Ts, author: &str, text: &str) {
-        self.sample().message(&SampleMessage { item_id, at, author, text, ..Default::default() }).expect("seed message");
+        self.sample()
+            .message(&SampleMessage {
+                item_id,
+                at,
+                author,
+                text,
+                ..Default::default()
+            })
+            .expect("seed message");
     }
 
     /// Work calendar event with a backing item. Returns the item id.
-    pub fn meeting(&self, days: i64, start: &str, end: &str, title: &str, category: &str, attendees: &str, tentative: bool) -> i64 {
+    pub fn meeting(
+        &self,
+        days: i64,
+        start: &str,
+        end: &str,
+        title: &str,
+        category: &str,
+        attendees: &str,
+        tentative: bool,
+    ) -> i64 {
         let item = self.item(ItemSeed {
             source: "gcal",
             kind: "event",
             title: title.into(),
             occurred_at: self.at(days, start),
             ended_at: Some(self.at(days, end)),
-            summary: if attendees.is_empty() { None } else { Some(attendees.into()) },
+            summary: if attendees.is_empty() {
+                None
+            } else {
+                Some(attendees.into())
+            },
             seen: true,
             ..Default::default()
         });
@@ -148,14 +194,27 @@ impl<'a> Ctx<'a> {
             ],
         })
         .to_string();
-        self.sample().patch_item(item_id, &crate::domain::sample::ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
+        self.sample().patch_item(
+            item_id,
+            &crate::domain::sample::ItemPatch {
+                raw_json: Some(&raw),
+                ..Default::default()
+            },
+        )?;
         Ok(())
     }
 
     /// Untitled busy block from a Proton "Limited view" link.
     pub fn life_block(&self, days: i64, start: &str, end: &str) {
         self.sample()
-            .event(&SampleEvent { source_id: self.source("protoncal"), start: self.at(days, start), end: self.at(days, end), category: "life", life: true, ..Default::default() })
+            .event(&SampleEvent {
+                source_id: self.source("protoncal"),
+                start: self.at(days, start),
+                end: self.at(days, end),
+                category: "life",
+                life: true,
+                ..Default::default()
+            })
             .expect("seed life block");
     }
 }
@@ -201,12 +260,18 @@ impl Default for ItemSeed {
 /// Sample Slack user id for a name: "Marco R." → "U0MARCO".
 pub fn slack_id(name: &str) -> String {
     let first = name.split_whitespace().next().unwrap_or("");
-    format!("U0{}", first.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_uppercase())
+    format!(
+        "U0{}",
+        first
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_uppercase()
+    )
 }
 
 /// Your Slack user id in the sample data (the Slack source's `me`).
 pub const ME: &str = "Zach";
-
 
 pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     // Sample People, Topics and daily notes are files: never in a real vault.
@@ -227,7 +292,11 @@ pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
 /// People notes (17a/17b) for the sample people, in the stand-in vault, and
 /// the rows `queries::people::scan` would make from them. Marco has none, so
 /// Incoming can suggest one for him.
-fn seed_people_notes(sample: &dyn SampleData, vault: &std::path::Path, people: &HashMap<&'static str, (i64, &str)>) -> anyhow::Result<()> {
+fn seed_people_notes(
+    sample: &dyn SampleData,
+    vault: &std::path::Path,
+    people: &HashMap<&'static str, (i64, &str)>,
+) -> anyhow::Result<()> {
     let notes: [(&str, Option<&str>, Option<&str>, &str); 8] = [
         ("Jordan", Some("jordan.lee@work.com"), Some("jlee-work"), "[[Platform]]"),
         ("Priya", Some("priya.n@work.com"), None, "[[Data eng]]"),
@@ -260,8 +329,10 @@ fn seed_people_notes(sample: &dyn SampleData, vault: &std::path::Path, people: &
             std::fs::write(&path, text)?;
         }
         let rel = format!("{}/{name}.md", crate::queries::people::PEOPLE_DIR);
-        let accounts: Vec<(&str, &str)> =
-            [("slack", Some(slack.as_str())), ("email", email), ("github", github)].into_iter().filter_map(|(k, a)| a.map(|a| (k, a))).collect();
+        let accounts: Vec<(&str, &str)> = [("slack", Some(slack.as_str())), ("email", email), ("github", github)]
+            .into_iter()
+            .filter_map(|(k, a)| a.map(|a| (k, a)))
+            .collect();
         sample.person_note(id, &rel, &accounts)?;
     }
     Ok(())
@@ -289,7 +360,11 @@ pub fn seed(uow: &dyn UnitOfWork, clock: &Clock, vault: &std::path::Path) -> any
     }
 
     // The built-in source local todos live on, as the app makes it.
-    sources.insert("notes", uow.sources().ensure_local("notes", crate::queries::notes::NOTES_SOURCE)?);
+    sources.insert(
+        "notes",
+        uow.sources()
+            .ensure_local("notes", crate::queries::notes::NOTES_SOURCE)?,
+    );
 
     let mut people = HashMap::new();
     for (name, role) in [
@@ -329,15 +404,40 @@ pub fn seed(uow: &dyn UnitOfWork, clock: &Clock, vault: &std::path::Path) -> any
         topics.insert(name, sample.topic(name, category, path)?);
     }
 
-    let ctx = Ctx { uow, clock: clock.clone(), today, sources, people, topics, counter: std::cell::Cell::new(0), meetings: RefCell::default() };
+    let ctx = Ctx {
+        uow,
+        clock: clock.clone(),
+        today,
+        sources,
+        people,
+        topics,
+        counter: std::cell::Cell::new(0),
+        meetings: RefCell::default(),
+    };
 
     // Today's calendar (the strip in every mock). Now is ~10:52 in the mocks.
     ctx.meeting(0, "08:00", "08:30", "Coffee", "self", "", false);
     ctx.life_block(0, "08:30", "08:45");
-    ctx.meeting(0, "09:00", "10:00", "Eng leads", "work", "Priya, Jordan, Marco +4", false);
+    ctx.meeting(
+        0,
+        "09:00",
+        "10:00",
+        "Eng leads",
+        "work",
+        "Priya, Jordan, Marco +4",
+        false,
+    );
     ctx.meeting(0, "10:15", "10:30", "Standup", "work", "Platform team", false);
     ctx.meeting(0, "10:30", "10:50", "1:1 Marco", "work", "Marco", false);
-    let q4 = ctx.meeting(0, "11:00", "11:45", "Q4 headcount", "work", "Priya, Jordan, Lee +2", false);
+    let q4 = ctx.meeting(
+        0,
+        "11:00",
+        "11:45",
+        "Q4 headcount",
+        "work",
+        "Priya, Jordan, Lee +2",
+        false,
+    );
     ctx.link(q4, "Q4 headcount", "confirmed");
     ctx.life_block(0, "12:00", "13:00");
     ctx.meeting(0, "13:00", "13:30", "Lunch", "self", "", false);
@@ -372,24 +472,56 @@ mod tests {
     fn sample_data_never_goes_into_a_real_vault() {
         let dir = tempfile::tempdir().unwrap();
         let vault = tempfile::tempdir().unwrap();
-        let s = Settings { demo_data: true, obsidian_vault: vault.path().display().to_string(), ..Default::default() };
+        let s = Settings {
+            demo_data: true,
+            obsidian_vault: vault.path().display().to_string(),
+            ..Default::default()
+        };
         let app = App::from_parts(crate::db::open_in_memory().unwrap(), s, dir.path()).unwrap();
-        assert_eq!(std::fs::read_dir(vault.path()).unwrap().count(), 0, "nothing written to the vault");
-        let n: i64 = app.db().query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            std::fs::read_dir(vault.path()).unwrap().count(),
+            0,
+            "nothing written to the vault"
+        );
+        let n: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0);
     }
 
     #[test]
     fn a_real_source_added_later_gets_its_own_row() {
         let dir = tempfile::tempdir().unwrap();
-        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings { demo_data: true, ..Default::default() }, dir.path()).unwrap();
-        let cfg = serde_json::from_value::<crate::settings::SourceConfig>(serde_json::json!({ "kind": "slack", "tag": "work", "name": "Slack" })).unwrap();
+        let app = App::from_parts(
+            crate::db::open_in_memory().unwrap(),
+            Settings {
+                demo_data: true,
+                ..Default::default()
+            },
+            dir.path(),
+        )
+        .unwrap();
+        let cfg = serde_json::from_value::<crate::settings::SourceConfig>(
+            serde_json::json!({ "kind": "slack", "tag": "work", "name": "Slack" }),
+        )
+        .unwrap();
         crate::sync::register_sources(&app.db(), &[cfg]).unwrap();
         let conn = app.db();
-        let real: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack' AND name = 'Slack'", [], |r| r.get(0)).unwrap();
-        let items: i64 = conn.query_row("SELECT count(*) FROM items WHERE source_id = ?1", [real], |r| r.get(0)).unwrap();
+        let real: i64 = conn
+            .query_row(
+                "SELECT id FROM sources WHERE kind = 'slack' AND name = 'Slack'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let items: i64 = conn
+            .query_row("SELECT count(*) FROM items WHERE source_id = ?1", [real], |r| r.get(0))
+            .unwrap();
         assert_eq!(items, 0, "none of the sample Slack items");
-        let cursor: Option<String> = conn.query_row("SELECT cursor FROM sources WHERE id = ?1", [real], |r| r.get(0)).unwrap();
+        let cursor: Option<String> = conn
+            .query_row("SELECT cursor FROM sources WHERE id = ?1", [real], |r| r.get(0))
+            .unwrap();
         assert_eq!(cursor, None, "nor the sample cursor");
     }
 }

@@ -14,12 +14,12 @@
 //! - Unanchored, nothing is dropped; results rank by match and recency.
 
 use super::{Hit, Unavailable};
+use crate::domain::glean::LocalHit;
+use crate::domain::search::HitTopic;
 use crate::error::Result;
 use crate::state::App;
 use crate::sync::http::Http;
 use crate::time::Ts;
-use crate::domain::glean::LocalHit;
-use crate::domain::search::HitTopic;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -87,11 +87,19 @@ pub struct Entities {
 
 fn jira_keys(text: &str) -> Vec<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b").expect("regex")).find_iter(text).map(|m| m.as_str().to_string()).collect()
+    RE.get_or_init(|| regex::Regex::new(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b").expect("regex"))
+        .find_iter(text)
+        .map(|m| m.as_str().to_string())
+        .collect()
 }
 
 fn norm_url(u: &str) -> String {
-    u.trim().trim_end_matches('/').split('#').next().unwrap_or("").to_lowercase()
+    u.trim()
+        .trim_end_matches('/')
+        .split('#')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
 }
 
 pub fn entities(app: &App, topic_id: i64) -> Result<Entities> {
@@ -123,7 +131,11 @@ pub fn entities_with_note(app: &App, topic_id: i64, name: &str, note: &str) -> R
     }
     for s in signals {
         e.keys.extend(jira_keys(&s.title));
-        if let Some(c) = s.title.strip_prefix('#').and_then(|t| t.split(|ch: char| ch.is_whitespace() || ch == '·').next()) {
+        if let Some(c) = s
+            .title
+            .strip_prefix('#')
+            .and_then(|t| t.split(|ch: char| ch.is_whitespace() || ch == '·').next())
+        {
             e.channels.insert(c.to_lowercase());
         }
         if !s.channel.is_empty() {
@@ -172,13 +184,17 @@ pub fn shared_entity(e: &Entities, hit: &Hit) -> Option<String> {
 }
 
 fn recency(at: Option<&str>, now: Ts) -> f32 {
-    let Some(t) = at.and_then(crate::queries::parse_ts) else { return 0.0 };
+    let Some(t) = at.and_then(crate::queries::parse_ts) else {
+        return 0.0;
+    };
     let days = (now - t).as_hours().max(0) as f32 / 24.0;
     (-days / 30.0).exp()
 }
 
 fn when(at: Option<&str>, now: Ts) -> String {
-    let Some(t) = at.and_then(crate::queries::parse_ts) else { return String::new() };
+    let Some(t) = at.and_then(crate::queries::parse_ts) else {
+        return String::new();
+    };
     let days = (now - t).as_hours() / 24;
     match days {
         d if d < 1 => format!("{}h", (now - t).as_hours().max(1)),
@@ -226,7 +242,23 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
         })?,
         None => vec![],
     };
-    for (rank, (LocalHit { id, title, url, source_kind: kind, at, summary, snippet: snip, msgs }, topic)) in local.into_iter().enumerate() {
+    for (
+        rank,
+        (
+            LocalHit {
+                id,
+                title,
+                url,
+                source_kind: kind,
+                at,
+                summary,
+                snippet: snip,
+                msgs,
+            },
+            topic,
+        ),
+    ) in local.into_iter().enumerate()
+    {
         let at = at.to_db();
         let topic = topic.map(|t| json!({ "id": t.id, "name": t.name, "category": t.category, "state": t.state }));
         if let Some(u) = &url {
@@ -241,7 +273,11 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
             routes: vec!["local"],
             when: when(Some(&at), now),
             at: Some(at),
-            snippet: if snip.contains(crate::queries::search::HIT_START) || summary.is_none() { snip } else { summary.unwrap_or_default() },
+            snippet: if snip.contains(crate::queries::search::HIT_START) || summary.is_none() {
+                snip
+            } else {
+                summary.unwrap_or_default()
+            },
             item_id: Some(id),
             msgs,
             topic,
@@ -310,7 +346,10 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
         let feedback = app.store().read(|r| r.glean().feedback(topic))?;
         let tv = crate::embed::topic_vector(app, topic);
         // Similarity: stored vectors for local items, embedded now for Glean results.
-        let texts: Vec<String> = rows[glean_start..].iter().map(|r| format!("{}\n{}\n{}", r.title, r.container, r.snippet)).collect();
+        let texts: Vec<String> = rows[glean_start..]
+            .iter()
+            .map(|r| format!("{}\n{}\n{}", r.title, r.container, r.snippet))
+            .collect();
         let glean_vecs = match (&tv, texts.is_empty()) {
             (Some(_), false) => crate::embed::embed_now(app, &texts),
             _ => None,
@@ -318,14 +357,26 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
         let hits_by_url: HashMap<String, &Hit> = glean_hits.iter().map(|h| (norm_url(&h.url), h)).collect();
         for (i, row) in rows.iter_mut().enumerate() {
             let sim = match (&tv, row.item_id) {
-                (Some(t), Some(id)) => app.store().read(|r| r.vectors().vector(crate::domain::embed::VecKind::Item, id)).ok().flatten().map(|v| crate::embed::cosine(t, &v)),
-                (Some(t), None) => glean_vecs.as_ref().and_then(|v| v.get(i - glean_start)).map(|v| crate::embed::cosine(t, v)),
+                (Some(t), Some(id)) => app
+                    .store()
+                    .read(|r| r.vectors().vector(crate::domain::embed::VecKind::Item, id))
+                    .ok()
+                    .flatten()
+                    .map(|v| crate::embed::cosine(t, &v)),
+                (Some(t), None) => glean_vecs
+                    .as_ref()
+                    .and_then(|v| v.get(i - glean_start))
+                    .map(|v| crate::embed::cosine(t, v)),
                 (None, _) => None,
             };
             row.similarity = sim;
-            let fb = feedback.get(&row.key).or_else(|| row.url.as_ref().and_then(|u| feedback.get(u)));
+            let fb = feedback
+                .get(&row.key)
+                .or_else(|| row.url.as_ref().and_then(|u| feedback.get(u)));
             let in_topic = row.topic.as_ref().is_some_and(|t| t["id"] == topic);
-            let sim_label = sim.map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)).unwrap_or_default();
+            let sim_label = sim
+                .map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32))
+                .unwrap_or_default();
             let (kept, reason) = if let Some((v, at)) = fb.filter(|(v, _)| v == "reject") {
                 let _ = v;
                 (false, format!("rejected {}", short_date(*at, &app.clock)))
@@ -342,7 +393,11 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
                 }
             } else {
                 let h = hits_by_url.get(&norm_url(row.url.as_deref().unwrap_or("")));
-                let old = row.at.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).as_hours() / 24 > window);
+                let old = row
+                    .at
+                    .as_deref()
+                    .and_then(crate::queries::parse_ts)
+                    .is_some_and(|t| (now - t).as_hours() / 24 > window);
                 let shared = h.and_then(|h| shared_entity(&ents, h));
                 match (old, shared, sim) {
                     (true, _, _) => (false, format!("outside {window}d")),
@@ -354,14 +409,21 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
             };
             row.kept = kept;
             row.reason = reason;
-            row.score = if row.pinned { 10.0 } else { 0.0 } + if in_topic { 0.3 } else { 0.0 } + sim.unwrap_or(0.5) + 0.2 * recency(row.at.as_deref(), now);
+            row.score = if row.pinned { 10.0 } else { 0.0 }
+                + if in_topic { 0.3 } else { 0.0 }
+                + sim.unwrap_or(0.5)
+                + 0.2 * recency(row.at.as_deref(), now);
         }
     } else {
         for row in &mut rows {
             row.score = 0.6 * row.score + 0.4 * recency(row.at.as_deref(), now);
         }
     }
-    rows.sort_by(|a, b| b.kept.cmp(&a.kept).then(b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)));
+    rows.sort_by(|a, b| {
+        b.kept
+            .cmp(&a.kept)
+            .then(b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal))
+    });
 
     let facet = |route: &'static str, status: Value| {
         let mut sources: BTreeMap<(String, String), usize> = BTreeMap::new();
@@ -372,7 +434,15 @@ pub fn run(app: &App, http: &dyn Http, query: &Query) -> Result<Value> {
         }
         let mut sources: Vec<((String, String), usize)> = sources.into_iter().collect();
         sources.sort_by(|a, b| b.1.cmp(&a.1));
-        Facet { route, count, sources: sources.into_iter().map(|((icon, system), n)| json!({ "icon": icon, "system": system, "count": n })).collect(), status }
+        Facet {
+            route,
+            count,
+            sources: sources
+                .into_iter()
+                .map(|((icon, system), n)| json!({ "icon": icon, "system": system, "count": n }))
+                .collect(),
+            status,
+        }
     };
     let facets = vec![facet("glean", glean_status), facet("local", json!({ "state": "ok" }))];
     let hidden = rows.iter().filter(|r| !r.kept).count();
@@ -418,7 +488,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 glean: args.get("glean").and_then(Value::as_bool).unwrap_or(false),
                 limit: crate::queries::opt_i64(args, "limit").unwrap_or(40).clamp(5, 100) as usize,
             };
-            let timeout = super::config(app).map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2).unwrap_or(10);
+            let timeout = super::config(app)
+                .map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2)
+                .unwrap_or(10);
             let http = crate::sync::http::UreqHttp::with_timeout(timeout);
             run(app, &http, &query)
         }
@@ -445,10 +517,24 @@ mod tests {
         let (app, _dir) = app();
         with_glean(&app);
         let h = http();
-        let v = run(&app, &h, &Query { q: "renewal", anchor: None, glean: false, limit: 40 }).unwrap();
+        let v = run(
+            &app,
+            &h,
+            &Query {
+                q: "renewal",
+                anchor: None,
+                glean: false,
+                limit: 40,
+            },
+        )
+        .unwrap();
         assert!(h.requests().is_empty(), "no Glean call before ⌥↵");
         assert_eq!(v["facets"][0]["status"]["state"], "not_asked");
-        assert!(v["rows"].as_array().unwrap().iter().all(|r| r["routes"] == json!(["local"])));
+        assert!(v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["routes"] == json!(["local"])));
         assert!(v["facets"][1]["count"].as_u64().unwrap() > 0);
     }
 
@@ -456,18 +542,49 @@ mod tests {
     fn unanchored_keeps_everything_and_merges_same_urls() {
         let (app, _dir) = app();
         with_glean(&app);
-        let proc412: i64 = app.db().query_row("SELECT id FROM items WHERE title LIKE 'PROC-412%' LIMIT 1", [], |r| r.get(0)).unwrap();
-        app.db().execute("UPDATE items SET url = 'https://jira.example.com/browse/PROC-412' WHERE id = ?1", [proc412]).unwrap();
-        let v = run(&app, &http(), &Query { q: "renewal", anchor: None, glean: true, limit: 40 }).unwrap();
+        let proc412: i64 = app
+            .db()
+            .query_row("SELECT id FROM items WHERE title LIKE 'PROC-412%' LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        app.db()
+            .execute(
+                "UPDATE items SET url = 'https://jira.example.com/browse/PROC-412' WHERE id = ?1",
+                [proc412],
+            )
+            .unwrap();
+        let v = run(
+            &app,
+            &http(),
+            &Query {
+                q: "renewal",
+                anchor: None,
+                glean: true,
+                limit: 40,
+            },
+        )
+        .unwrap();
         let rows = v["rows"].as_array().unwrap();
         assert_eq!(v["hidden"], 0);
         let merged = rows.iter().find(|r| r["item_id"] == proc412).unwrap();
         assert_eq!(merged["routes"], json!(["local", "glean"]), "one row, both routes");
-        assert_eq!(rows.iter().filter(|r| r["url"] == "https://jira.example.com/browse/PROC-412").count(), 1);
-        assert!(rows.iter().any(|r| r["title"] == "Renewal: Adobe Creative Cloud" && r["icon"] == "word"));
+        assert_eq!(
+            rows.iter()
+                .filter(|r| r["url"] == "https://jira.example.com/browse/PROC-412")
+                .count(),
+            1
+        );
+        assert!(rows
+            .iter()
+            .any(|r| r["title"] == "Renewal: Adobe Creative Cloud" && r["icon"] == "word"));
         let glean = &v["facets"][0];
         assert_eq!(glean["status"]["state"], "ok");
-        assert!(glean["sources"].as_array().unwrap().iter().any(|s| s["icon"] == "gdrive"));
+        assert!(glean["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["icon"] == "gdrive"));
     }
 
     #[test]
@@ -479,11 +596,28 @@ mod tests {
         // The stub embedder's scores are low; judge by entities here.
         app.update_settings(|s| s.sources.last_mut().unwrap().config["min_similarity"] = json!(0.0));
         let dd = topic_id(&app, "Datadog renewal");
-        let v = run(&app, &http(), &Query { q: "renewal", anchor: Some(dd), glean: true, limit: 40 }).unwrap();
+        let v = run(
+            &app,
+            &http(),
+            &Query {
+                q: "renewal",
+                anchor: Some(dd),
+                glean: true,
+                limit: 40,
+            },
+        )
+        .unwrap();
         let rows = v["rows"].as_array().unwrap();
-        let row = |t: &str| rows.iter().find(|r| r["title"] == t).unwrap_or_else(|| panic!("{t}: {rows:#?}"));
+        let row = |t: &str| {
+            rows.iter()
+                .find(|r| r["title"] == t)
+                .unwrap_or_else(|| panic!("{t}: {rows:#?}"))
+        };
         assert_eq!(row("Datadog order form v2")["kept"], true, "Kim owns it");
-        assert!(row("Datadog order form v2")["reason"].as_str().unwrap().starts_with("Kim"));
+        assert!(row("Datadog order form v2")["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("Kim"));
         assert_eq!(row("Finance sync · renewal notes")["kept"], true, "Ana and Kim");
         assert_eq!(row("Payroll vendor renewal sync")["kept"], false);
         assert_eq!(row("Payroll vendor renewal sync")["reason"], "shared words only");
@@ -495,22 +629,61 @@ mod tests {
         // Reject and pin, per topic.
         app.store()
             .write(|uow| {
-                crate::glean::feedback(uow, dd, "https://docs.google.com/document/d/dd-order-form-v2", "reject", "", "", "")?;
-                crate::glean::feedback(uow, dd, "https://teams.microsoft.com/l/meeting/payroll-renewal", "pin", "", "", "")
+                crate::glean::feedback(
+                    uow,
+                    dd,
+                    "https://docs.google.com/document/d/dd-order-form-v2",
+                    "reject",
+                    "",
+                    "",
+                    "",
+                )?;
+                crate::glean::feedback(
+                    uow,
+                    dd,
+                    "https://teams.microsoft.com/l/meeting/payroll-renewal",
+                    "pin",
+                    "",
+                    "",
+                    "",
+                )
             })
             .unwrap();
-        let v = run(&app, &http(), &Query { q: "renewal", anchor: Some(dd), glean: true, limit: 40 }).unwrap();
+        let v = run(
+            &app,
+            &http(),
+            &Query {
+                q: "renewal",
+                anchor: Some(dd),
+                glean: true,
+                limit: 40,
+            },
+        )
+        .unwrap();
         let rows = v["rows"].as_array().unwrap();
         let row = |t: &str| rows.iter().find(|r| r["title"] == t).unwrap();
         assert_eq!(row("Datadog order form v2")["kept"], false);
-        assert!(row("Datadog order form v2")["reason"].as_str().unwrap().starts_with("rejected"));
+        assert!(row("Datadog order form v2")["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("rejected"));
         assert_eq!(rows[0]["title"], "Payroll vendor renewal sync", "pins come first");
     }
 
     #[test]
     fn without_a_glean_source_the_route_says_so() {
         let (app, _dir) = app();
-        let v = run(&app, &http(), &Query { q: "renewal", anchor: None, glean: true, limit: 40 }).unwrap();
+        let v = run(
+            &app,
+            &http(),
+            &Query {
+                q: "renewal",
+                anchor: None,
+                glean: true,
+                limit: 40,
+            },
+        )
+        .unwrap();
         assert_eq!(v["facets"][0]["status"]["state"], "off");
     }
 }

@@ -20,11 +20,11 @@
 pub mod rest;
 pub mod save;
 
+use crate::domain::ports::UnitOfWork;
 use crate::error::Result;
 use crate::sync::{Batch, Connector, Ctx, ItemUpsert, Source};
 use crate::time::{Date, Due, Ts};
 use regex::Regex;
-use crate::domain::ports::UnitOfWork;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -60,7 +60,11 @@ impl Connector for Obsidian {
             items.extend(note_items(&vault, rel, at, &text));
         }
         let cursor = serde_json::to_string(&Cursor { files })?;
-        Ok(Batch { items, cursor: Some(cursor), ..Default::default() })
+        Ok(Batch {
+            items,
+            cursor: Some(cursor),
+            ..Default::default()
+        })
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -69,10 +73,20 @@ impl Connector for Obsidian {
             WriteMode::File => write_op(&Store::File, &vault, op, payload),
             WriteMode::Obsidian => {
                 // Tests hand in a FakeHttp through ctx; the app needs the pinned client.
-                let own = if cfg!(test) { None } else { Some(rest::transport(&ctx.source.config, &vault)?) };
+                let own = if cfg!(test) {
+                    None
+                } else {
+                    Some(rest::transport(&ctx.source.config, &vault)?)
+                };
                 let url = match &own {
                     Some((url, _)) => url.clone(),
-                    None => ctx.source.config.get("rest_url").and_then(Value::as_str).unwrap_or(rest::DEFAULT_URL).to_string(),
+                    None => ctx
+                        .source
+                        .config
+                        .get("rest_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or(rest::DEFAULT_URL)
+                        .to_string(),
                 };
                 let http = own.as_ref().map_or(ctx.http, |(_, h)| h.as_ref());
                 let key = ctx.require_secret(rest::API_KEY)?;
@@ -144,7 +158,10 @@ impl Store<'_> {
 }
 
 fn write_op(store: &Store, vault: &Path, op: &str, payload: &Value) -> anyhow::Result<Value> {
-    let path = payload.get("path").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("{op}: payload needs path"))?;
+    let path = payload
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{op}: payload needs path"))?;
     let str_arg = |k: &str| payload.get(k).and_then(Value::as_str);
     match op {
         // The whole note, as the user edited it in Alethiometer. `base` is the
@@ -168,7 +185,10 @@ fn write_op(store: &Store, vault: &Path, op: &str, payload: &Value) -> anyhow::R
                 return Ok(store.receipt(&abs, &rel, false, None));
             }
             if now.as_deref() != base {
-                anyhow::bail!("{} the note changed in Obsidian since you started editing; nothing was written", rest::CONFLICT);
+                anyhow::bail!(
+                    "{} the note changed in Obsidian since you started editing; nothing was written",
+                    rest::CONFLICT
+                );
             }
             store.write(&abs, &rel, now.as_deref(), text)?;
             Ok(store.receipt(&abs, &rel, true, None))
@@ -188,10 +208,16 @@ fn write_op(store: &Store, vault: &Path, op: &str, payload: &Value) -> anyhow::R
             Ok(store.receipt(&abs, &rel, after.is_some(), Some(line)))
         }
         "obsidian.toggle_task" => {
-            let task = str_arg("task_text").ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs task_text"))?;
-            let done = payload.get("done").and_then(Value::as_bool).ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs done"))?;
+            let task =
+                str_arg("task_text").ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs task_text"))?;
+            let done = payload
+                .get("done")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| anyhow::anyhow!("obsidian.toggle_task: payload needs done"))?;
             let (abs, rel) = target(vault, path, false)?;
-            let before = store.read(&abs, &rel)?.ok_or_else(|| anyhow::anyhow!("note not found: {path}"))?;
+            let before = store
+                .read(&abs, &rel)?
+                .ok_or_else(|| anyhow::anyhow!("note not found: {path}"))?;
             let (after, line) = toggle_text(&before, task, done).map_err(|e| anyhow::anyhow!("{rel}: {e}"))?;
             if let Some(after) = &after {
                 store.write(&abs, &rel, Some(&before), after)?;
@@ -248,7 +274,12 @@ struct Ignore(Vec<String>);
 
 impl Ignore {
     fn from_config(config: &Value) -> Ignore {
-        let extra = config.get("ignore").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
+        let extra = config
+            .get("ignore")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str);
         Ignore(DEFAULT_IGNORE.iter().copied().chain(extra).map(str::to_owned).collect())
     }
 
@@ -279,7 +310,9 @@ fn glob(p: &str, s: &str) -> bool {
                 let rest = rest.strip_prefix(b"/").unwrap_or(rest);
                 (0..=s.len()).any(|i| go(rest, &s[i..]))
             }
-            [b'*', rest @ ..] => (0..=s.len()).take_while(|&i| i == 0 || s[i - 1] != b'/').any(|i| go(rest, &s[i..])),
+            [b'*', rest @ ..] => (0..=s.len())
+                .take_while(|&i| i == 0 || s[i - 1] != b'/')
+                .any(|i| go(rest, &s[i..])),
             [b'?', rest @ ..] => !s.is_empty() && s[0] != b'/' && go(rest, &s[1..]),
             [c, rest @ ..] => s.first() == Some(c) && go(rest, &s[1..]),
         }
@@ -325,7 +358,10 @@ fn wanted(ignore: &Ignore, rel: &str) -> bool {
 
 fn rel_str(root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(root).ok()?;
-    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
     Some(parts.join("/"))
 }
 
@@ -384,7 +420,12 @@ fn clean_task(text: &str) -> String {
 /// `📅 2026-10-01`: a calendar day.
 fn due_of(text: &str) -> Option<Due> {
     let c = due_re().captures(text)?;
-    c.get(1).or_else(|| c.get(2))?.as_str().parse::<Date>().ok().map(Due::Day)
+    c.get(1)
+        .or_else(|| c.get(2))?
+        .as_str()
+        .parse::<Date>()
+        .ok()
+        .map(Due::Day)
 }
 
 /// `x`, `X` and `-` (cancelled) close a task; other markers (` `, `/`, `>`…) leave it open.
@@ -393,7 +434,8 @@ fn is_done(mark: &str) -> bool {
 }
 
 fn hash(s: &str) -> u64 {
-    s.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+    s.bytes()
+        .fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
 }
 
 /// Lines outside fenced code blocks, with their index.
@@ -423,7 +465,12 @@ fn summary_of(text: &str) -> Option<String> {
     lines
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("```"))
-        .map(|l| l.trim_start_matches(['-', '*', '+', '>', ' ']).chars().take(200).collect())
+        .map(|l| {
+            l.trim_start_matches(['-', '*', '+', '>', ' '])
+                .chars()
+                .take(200)
+                .collect()
+        })
 }
 
 fn cap(s: &str, n: usize) -> &str {
@@ -438,7 +485,12 @@ fn cap(s: &str, n: usize) -> &str {
 }
 
 fn note_items(vault: &Path, rel: &str, at: Ts, text: &str) -> Vec<ItemUpsert> {
-    let stem = rel.rsplit('/').next().unwrap_or(rel).trim_end_matches(".md").to_string();
+    let stem = rel
+        .rsplit('/')
+        .next()
+        .unwrap_or(rel)
+        .trim_end_matches(".md")
+        .to_string();
     let url = obsidian_url(&vault.join(rel));
     let mut out = vec![ItemUpsert {
         external_id: format!("note:{rel}"),
@@ -510,8 +562,12 @@ pub fn after_apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch) -> Resu
     let mut quieted = 0;
     let mut present: HashMap<&str, HashSet<&str>> = HashMap::new();
     for it in &batch.items {
-        let Some(path) = it.raw_json.get("path").and_then(Value::as_str) else { continue };
-        let Some(id) = uow.items().find(source.id, &it.external_id)? else { continue };
+        let Some(path) = it.raw_json.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(id) = uow.items().find(source.id, &it.external_id)? else {
+            continue;
+        };
         let seen = uow.reads().items().seen(id)?.unwrap_or(true);
         let topic = topics.get(path);
         if let Some(t) = topic {
@@ -535,7 +591,8 @@ pub fn after_apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch) -> Resu
     if let Some(new) = &batch.cursor {
         let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(Some(new)));
         for path in old.files.keys().filter(|p| !new.files.contains_key(*p)) {
-            uow.items().set_status_by_external(source.id, &format!("note:{path}"), "done")?;
+            uow.items()
+                .set_status_by_external(source.id, &format!("note:{path}"), "done")?;
             close_tasks(uow, source.id, path, &HashSet::new())?;
         }
     }
@@ -546,9 +603,19 @@ pub fn after_apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch) -> Resu
 /// (or it's the first sync).
 pub fn people_touched(source: &Source, batch: &Batch) -> Option<PathBuf> {
     let vault = vault_root(&source.config).ok()?;
-    let (old, new) = (Cursor::parse(source.cursor.as_deref()), Cursor::parse(batch.cursor.as_deref()));
-    let gone = old.files.keys().filter(|p| !new.files.contains_key(*p)).map(String::as_str);
-    let read = batch.items.iter().filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
+    let (old, new) = (
+        Cursor::parse(source.cursor.as_deref()),
+        Cursor::parse(batch.cursor.as_deref()),
+    );
+    let gone = old
+        .files
+        .keys()
+        .filter(|p| !new.files.contains_key(*p))
+        .map(String::as_str);
+    let read = batch
+        .items
+        .iter()
+        .filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
     let prefix = format!("{}/", crate::queries::people::PEOPLE_DIR);
     let touched = source.cursor.is_none() || read.chain(gone).any(|p| p.starts_with(&prefix));
     touched.then_some(vault)
@@ -576,7 +643,11 @@ pub fn watch(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, n
 
     // Watching before this returns, so the worker's first poll can't miss a save.
     let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
-    let config = app.store().read(|r| crate::sync::source(r, source_id)).map(|s| s.config).unwrap_or(Value::Null);
+    let config = app
+        .store()
+        .read(|r| crate::sync::source(r, source_id))
+        .map(|s| s.config)
+        .unwrap_or(Value::Null);
     let ignore = Ignore::from_config(&config);
     let Ok(root) = vault_root(&config) else { return };
     let mut w = match notify::recommended_watcher(move |ev| {
@@ -593,7 +664,11 @@ pub fn watch(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, n
         .spawn(move || {
             let _watcher = w;
             let relevant = |ev: &notify::Event| {
-                !matches!(ev.kind, notify::EventKind::Access(_)) && ev.paths.iter().any(|p| rel_str(&root, p).is_some_and(|rel| wanted(&ignore, &rel)))
+                !matches!(ev.kind, notify::EventKind::Access(_))
+                    && ev
+                        .paths
+                        .iter()
+                        .any(|p| rel_str(&root, p).is_some_and(|rel| wanted(&ignore, &rel)))
             };
             while crate::sync::alive(source_id, gen) {
                 match rx.recv_timeout(Duration::from_secs(1)) {
@@ -618,11 +693,16 @@ pub fn watch(app: std::sync::Arc<crate::state::App>, source_id: i64, gen: u64, n
 fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(PathBuf, String)> {
     let p = Path::new(path);
     let rel: &Path = if p.is_absolute() {
-        p.strip_prefix(vault).map_err(|_| anyhow::anyhow!("refusing a path outside the vault: {path}"))?
+        p.strip_prefix(vault)
+            .map_err(|_| anyhow::anyhow!("refusing a path outside the vault: {path}"))?
     } else {
         p
     };
-    if rel.as_os_str().is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir)) {
+    if rel.as_os_str().is_empty()
+        || rel
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    {
         anyhow::bail!("refusing a path outside the vault: {path}");
     }
     if rel.extension().and_then(|e| e.to_str()) != Some("md") {
@@ -633,7 +713,11 @@ fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(Path
         abs.canonicalize()?
     } else if allow_missing {
         // The nearest folder that exists decides (a symlink there could lead out).
-        let dir = abs.ancestors().skip(1).find(|a| a.exists()).ok_or_else(|| anyhow::anyhow!("bad path: {path}"))?;
+        let dir = abs
+            .ancestors()
+            .skip(1)
+            .find(|a| a.exists())
+            .ok_or_else(|| anyhow::anyhow!("bad path: {path}"))?;
         dir.canonicalize()?
     } else {
         anyhow::bail!("note not found: {path}");
@@ -653,7 +737,10 @@ fn read_text(abs: &Path) -> anyhow::Result<String> {
 /// holds `before` (None = must not exist yet). Returns the new mtime.
 fn write_checked(abs: &Path, before: Option<&str>, after: &str) -> anyhow::Result<SystemTime> {
     use std::io::Write;
-    let name = abs.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = abs
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     // Hidden name: the scanner and the watcher filter skip it.
     let tmp = abs.with_file_name(format!(".{name}.alethiometer-tmp"));
     {
@@ -716,7 +803,11 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
     };
     let Some(h) = under_heading.map(str::trim).filter(|h| !h.is_empty()) else {
         let lines: Vec<&str> = orig.lines().collect();
-        if let Some(i) = (0..lines.len()).rev().find(|&i| !lines[i].trim().is_empty()).filter(|&i| lines[i] == text) {
+        if let Some(i) = (0..lines.len())
+            .rev()
+            .find(|&i| !lines[i].trim().is_empty())
+            .filter(|&i| lines[i] == text)
+        {
             return Ok((None, i + 1));
         }
         ensure_break(&mut out);
@@ -732,8 +823,10 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
     let headings: Vec<(usize, usize, String)> = prose_lines(orig)
         .filter_map(|(i, l)| heading_re().captures(l).map(|c| (i, c[1].len(), c[2].to_string())))
         .collect();
-    let hits: Vec<&(usize, usize, String)> =
-        headings.iter().filter(|(_, lvl, t)| *t == want_text && want_level.is_none_or(|w| w == *lvl)).collect();
+    let hits: Vec<&(usize, usize, String)> = headings
+        .iter()
+        .filter(|(_, lvl, t)| *t == want_text && want_level.is_none_or(|w| w == *lvl))
+        .collect();
     match hits.as_slice() {
         [] => {
             ensure_break(&mut out);
@@ -747,8 +840,14 @@ fn append_text(orig: &str, text: &str, under_heading: Option<&str>) -> anyhow::R
         }
         [(at, lvl, _)] => {
             let lines: Vec<&str> = orig.lines().collect();
-            let end = headings.iter().find(|(i, l, _)| i > at && l <= lvl).map_or(lines.len(), |(i, _, _)| *i);
-            let last = (at + 1..end).rev().find(|&i| !lines[i].trim().is_empty()).unwrap_or(*at);
+            let end = headings
+                .iter()
+                .find(|(i, l, _)| i > at && l <= lvl)
+                .map_or(lines.len(), |(i, _, _)| *i);
+            let last = (at + 1..end)
+                .rev()
+                .find(|&i| !lines[i].trim().is_empty())
+                .unwrap_or(*at);
             if last != *at && lines[last] == text {
                 return Ok((None, last + 1));
             }
@@ -792,13 +891,12 @@ fn toggle_text(orig: &str, task_text: &str, done: bool) -> anyhow::Result<(Optio
     Ok((Some(out), i + 1))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
     use crate::settings::SourceConfig;
     use crate::sync::http::FakeHttp;
+    use rusqlite::Connection;
 
     struct Vault {
         dir: tempfile::TempDir,
@@ -806,7 +904,9 @@ mod tests {
 
     impl Vault {
         fn new() -> Vault {
-            Vault { dir: tempfile::tempdir().unwrap() }
+            Vault {
+                dir: tempfile::tempdir().unwrap(),
+            }
         }
         fn root(&self) -> PathBuf {
             self.dir.path().canonicalize().unwrap()
@@ -825,13 +925,26 @@ mod tests {
     }
 
     fn src(v: &Vault, cursor: Option<String>) -> Source {
-        Source { id: 1, kind: "obsidian".into(), tag: "work".into(), name: "Vault".into(), config: v.config(), cursor }
+        Source {
+            id: 1,
+            kind: "obsidian".into(),
+            tag: "work".into(),
+            name: "Vault".into(),
+            config: v.config(),
+            cursor,
+        }
     }
 
     fn poll(s: &Source) -> Batch {
         let http = FakeHttp::default();
         let secret = |_: &str| None;
-        let ctx = Ctx { source: s, http: &http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
+        let ctx = Ctx {
+            source: s,
+            http: &http,
+            secret: &secret,
+            now: crate::time::Ts::new(jiff::Timestamp::now()),
+            clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
+        };
         Obsidian.poll(&ctx).unwrap()
     }
 
@@ -839,7 +952,13 @@ mod tests {
         let s = src(v, None);
         let http = FakeHttp::default();
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &s, http: &http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
+        let ctx = Ctx {
+            source: &s,
+            http: &http,
+            secret: &secret,
+            now: crate::time::Ts::new(jiff::Timestamp::now()),
+            clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
+        };
         Obsidian.send(&ctx, op, &payload)
     }
 
@@ -848,7 +967,13 @@ mod tests {
         let mut s = src(v, None);
         s.config["write_mode"] = json!("obsidian");
         let secret = |k: &str| (k == rest::API_KEY).then(|| "k3y".to_string());
-        let ctx = Ctx { source: &s, http, secret: &secret, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
+        let ctx = Ctx {
+            source: &s,
+            http,
+            secret: &secret,
+            now: crate::time::Ts::new(jiff::Timestamp::now()),
+            clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
+        };
         Obsidian.send(&ctx, op, &payload)
     }
 
@@ -859,7 +984,11 @@ mod tests {
     }
 
     fn puts(http: &FakeHttp) -> Vec<(String, Option<String>)> {
-        http.requests().into_iter().filter(|r| r.0 == "PUT").map(|r| (r.1, r.2)).collect()
+        http.requests()
+            .into_iter()
+            .filter(|r| r.0 == "PUT")
+            .map(|r| (r.1, r.2))
+            .collect()
     }
 
     #[test]
@@ -869,13 +998,30 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "/vault/Topics/T.md", 200, note_json("## A\n- one\n"));
         http.on("PUT", "/vault/Topics/T.md", 204, "");
-        let r = send_rest(&v, &http, "obsidian.replace", json!({ "path": "Topics/T.md", "base": "## A\n- one\n", "text": "## B\n- moved\n\n## A\n- one\n" })).unwrap();
-        assert_eq!((r["changed"].as_bool(), r["via"].as_str()), (Some(true), Some("obsidian")));
-        assert_eq!(puts(&http), vec![("https://127.0.0.1:27124/vault/Topics/T.md".to_string(), Some("## B\n- moved\n\n## A\n- one\n".to_string()))]);
+        let r = send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": "Topics/T.md", "base": "## A\n- one\n", "text": "## B\n- moved\n\n## A\n- one\n" }),
+        )
+        .unwrap();
+        assert_eq!(
+            (r["changed"].as_bool(), r["via"].as_str()),
+            (Some(true), Some("obsidian"))
+        );
+        assert_eq!(
+            puts(&http),
+            vec![(
+                "https://127.0.0.1:27124/vault/Topics/T.md".to_string(),
+                Some("## B\n- moved\n\n## A\n- one\n".to_string())
+            )]
+        );
         // The file on disk is Obsidian's business in this mode.
         assert_eq!(v.read("Topics/T.md"), "old on disk\n");
         let h = http.header_log.lock().unwrap();
-        assert!(h.iter().all(|h| h.contains(&("Authorization".to_string(), "Bearer k3y".to_string()))));
+        assert!(h
+            .iter()
+            .all(|h| h.contains(&("Authorization".to_string(), "Bearer k3y".to_string()))));
     }
 
     #[test]
@@ -883,13 +1029,31 @@ mod tests {
         let v = Vault::new();
         v.write("T.md", "x");
         let http = FakeHttp::default();
-        http.on("GET", "/vault/T.md", 200, note_json("## A\n- one\n- added in Obsidian\n"));
-        let e = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" })).unwrap_err().to_string();
+        http.on(
+            "GET",
+            "/vault/T.md",
+            200,
+            note_json("## A\n- one\n- added in Obsidian\n"),
+        );
+        let e = send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" }),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.starts_with(rest::CONFLICT), "{e}");
         assert!(puts(&http).is_empty());
         // A retry after the write already landed is a no-op, not a conflict.
         http.on("GET", "/vault/T.md", 200, note_json("mine"));
-        let r = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" })).unwrap();
+        let r = send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": "T.md", "base": "## A\n- one\n", "text": "mine" }),
+        )
+        .unwrap();
         assert_eq!(r["changed"], false);
         assert!(puts(&http).is_empty());
         // base is required, so nothing is written unguarded.
@@ -900,14 +1064,39 @@ mod tests {
     fn rest_replace_creates_a_missing_note_only_from_a_null_base() {
         let v = Vault::new();
         let http = FakeHttp::default();
-        http.on("GET", "/vault/Reflections/Daily/2026-09-28.md", 404, r#"{"errorCode":40400,"message":"Not Found"}"#);
+        http.on(
+            "GET",
+            "/vault/Reflections/Daily/2026-09-28.md",
+            404,
+            r#"{"errorCode":40400,"message":"Not Found"}"#,
+        );
         http.on("PUT", "/vault/Reflections/Daily/2026-09-28.md", 204, "");
         let p = "Reflections/Daily/2026-09-28.md";
-        assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": p, "base": "old", "text": "new" })).unwrap_err().to_string().starts_with("conflict"));
-        send_rest(&v, &http, "obsidian.replace", json!({ "path": p, "base": null, "text": "Calm.\n" })).unwrap();
+        assert!(send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": p, "base": "old", "text": "new" })
+        )
+        .unwrap_err()
+        .to_string()
+        .starts_with("conflict"));
+        send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": p, "base": null, "text": "Calm.\n" }),
+        )
+        .unwrap();
         assert_eq!(puts(&http).len(), 1);
         // Paths are still checked against the vault.
-        assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": "../out.md", "base": null, "text": "x" })).is_err());
+        assert!(send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": "../out.md", "base": null, "text": "x" })
+        )
+        .is_err());
     }
 
     #[test]
@@ -915,24 +1104,70 @@ mod tests {
         let v = Vault::new();
         v.write("Topics/T.md", "");
         let http = FakeHttp::default();
-        http.on("GET", "/vault/Topics/T.md", 200, note_json("# T\n\n## Asks\n- [ ] one\n\n## Links\n- x\n"));
+        http.on(
+            "GET",
+            "/vault/Topics/T.md",
+            200,
+            note_json("# T\n\n## Asks\n- [ ] one\n\n## Links\n- x\n"),
+        );
         http.on("PUT", "/vault/Topics/T.md", 204, "");
-        let r = send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" })).unwrap();
+        let r = send_rest(
+            &v,
+            &http,
+            "obsidian.append",
+            json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" }),
+        )
+        .unwrap();
         assert_eq!((r["changed"].as_bool(), r["line"].as_i64()), (Some(true), Some(5)));
-        assert_eq!(puts(&http)[0].1.as_deref(), Some("# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n"));
+        assert_eq!(
+            puts(&http)[0].1.as_deref(),
+            Some("# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n")
+        );
         // Idempotent through the API too: the line is already there, no PUT.
-        http.on("GET", "/vault/Topics/T.md", 200, note_json("# T\n\n## Asks\n- [ ] one\n- [ ] two\n"));
-        let r = send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" })).unwrap();
+        http.on(
+            "GET",
+            "/vault/Topics/T.md",
+            200,
+            note_json("# T\n\n## Asks\n- [ ] one\n- [ ] two\n"),
+        );
+        let r = send_rest(
+            &v,
+            &http,
+            "obsidian.append",
+            json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" }),
+        )
+        .unwrap();
         assert_eq!(r["changed"], false);
         assert_eq!(puts(&http).len(), 1);
 
-        let r = send_rest(&v, &http, "obsidian.toggle_task", json!({ "path": "Topics/T.md", "task_text": "one", "done": true })).unwrap();
+        let r = send_rest(
+            &v,
+            &http,
+            "obsidian.toggle_task",
+            json!({ "path": "Topics/T.md", "task_text": "one", "done": true }),
+        )
+        .unwrap();
         assert_eq!(r["line"], 4);
-        assert_eq!(puts(&http)[1].1.as_deref(), Some("# T\n\n## Asks\n- [x] one\n- [ ] two\n"));
+        assert_eq!(
+            puts(&http)[1].1.as_deref(),
+            Some("# T\n\n## Asks\n- [x] one\n- [ ] two\n")
+        );
         // A missing note is refused for toggles and for appends without create.
         http.on("GET", "/vault/Topics/T.md", 404, "{}");
-        assert!(send_rest(&v, &http, "obsidian.toggle_task", json!({ "path": "Topics/T.md", "task_text": "one", "done": true })).is_err());
-        assert!(send_rest(&v, &http, "obsidian.append", json!({ "path": "Topics/T.md", "text": "x" })).is_err());
+        assert!(send_rest(
+            &v,
+            &http,
+            "obsidian.toggle_task",
+            json!({ "path": "Topics/T.md", "task_text": "one", "done": true })
+        )
+        .is_err());
+        assert!(send_rest(
+            &v,
+            &http,
+            "obsidian.append",
+            json!({ "path": "Topics/T.md", "text": "x" })
+        )
+        .is_err());
     }
 
     #[test]
@@ -940,14 +1175,39 @@ mod tests {
         let v = Vault::new();
         v.write("T.md", "a\n");
         let http = FakeHttp::default();
-        http.on("GET", "/vault/T.md", 401, r#"{"errorCode":40101,"message":"Authorization required."}"#);
-        let e = send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "base": "a\n", "text": "b" })).unwrap_err().to_string();
+        http.on(
+            "GET",
+            "/vault/T.md",
+            401,
+            r#"{"errorCode":40101,"message":"Authorization required."}"#,
+        );
+        let e = send_rest(
+            &v,
+            &http,
+            "obsidian.replace",
+            json!({ "path": "T.md", "base": "a\n", "text": "b" }),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.contains("refused the API key"), "{e}");
         let mut s = src(&v, None);
         s.config["write_mode"] = json!("obsidian");
         let none = |_: &str| None;
-        let ctx = Ctx { source: &s, http: &http, secret: &none, now: crate::time::Ts::new(jiff::Timestamp::now()), clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC) };
-        let e = Obsidian.send(&ctx, "obsidian.replace", &json!({ "path": "T.md", "base": "a\n", "text": "b" })).unwrap_err().to_string();
+        let ctx = Ctx {
+            source: &s,
+            http: &http,
+            secret: &none,
+            now: crate::time::Ts::new(jiff::Timestamp::now()),
+            clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
+        };
+        let e = Obsidian
+            .send(
+                &ctx,
+                "obsidian.replace",
+                &json!({ "path": "T.md", "base": "a\n", "text": "b" }),
+            )
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("obsidian.api_key"), "{e}");
         assert!(write_mode(&json!({ "write_mode": "disk" })).is_err());
     }
@@ -956,21 +1216,41 @@ mod tests {
     fn file_mode_replace_checks_the_base() {
         let v = Vault::new();
         v.write("T.md", "theirs\n");
-        let e = send(&v, "obsidian.replace", json!({ "path": "T.md", "base": "mine before\n", "text": "mine\n" })).unwrap_err().to_string();
+        let e = send(
+            &v,
+            "obsidian.replace",
+            json!({ "path": "T.md", "base": "mine before\n", "text": "mine\n" }),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.starts_with("conflict"), "{e}");
         assert_eq!(v.read("T.md"), "theirs\n");
-        let r = send(&v, "obsidian.replace", json!({ "path": "T.md", "base": "theirs\n", "text": "mine\n" })).unwrap();
+        let r = send(
+            &v,
+            "obsidian.replace",
+            json!({ "path": "T.md", "base": "theirs\n", "text": "mine\n" }),
+        )
+        .unwrap();
         assert_eq!((r["changed"].as_bool(), r["via"].as_str()), (Some(true), Some("file")));
         assert_eq!(v.read("T.md"), "mine\n");
         // New notes in new folders.
-        send(&v, "obsidian.replace", json!({ "path": "Reflections/Daily/d.md", "base": null, "text": "x\n" })).unwrap();
+        send(
+            &v,
+            "obsidian.replace",
+            json!({ "path": "Reflections/Daily/d.md", "base": null, "text": "x\n" }),
+        )
+        .unwrap();
         assert_eq!(v.read("Reflections/Daily/d.md"), "x\n");
     }
 
     /// Move a file's mtime forward so the next scan sees a change even within the same ms.
     fn touch_later(v: &Vault, rel: &str) {
-        let f = std::fs::File::options().write(true).open(v.dir.path().join(rel)).unwrap();
-        f.set_modified(SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+        let f = std::fs::File::options()
+            .write(true)
+            .open(v.dir.path().join(rel))
+            .unwrap();
+        f.set_modified(SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
     }
 
     const TOPIC_NOTE: &str = "---\ntags: [vendor]\n---\n## Where we are\n- Offer: 12% off for 3y\n\n## Asks for Thu\n- [ ] True-down at 12 months 📅 2026-10-01\n- [x] 30d log retention included\n- [ ] Cap on overage rate [due:: 2026-10-03]\n\n```\n- [ ] not a task, in code\n```\n";
@@ -990,9 +1270,15 @@ mod tests {
         let b = poll(&s);
         let ids: Vec<&str> = b.items.iter().map(|i| i.external_id.as_str()).collect();
         assert_eq!(ids.iter().filter(|i| i.starts_with("note:")).count(), 2, "{ids:?}");
-        assert!(ids.iter().all(|i| !i.contains("Reflections") && !i.contains("Templates") && !i.contains("Archive")));
+        assert!(ids
+            .iter()
+            .all(|i| !i.contains("Reflections") && !i.contains("Templates") && !i.contains("Archive")));
 
-        let note = b.items.iter().find(|i| i.external_id == "note:Topics/Datadog renewal.md").unwrap();
+        let note = b
+            .items
+            .iter()
+            .find(|i| i.external_id == "note:Topics/Datadog renewal.md")
+            .unwrap();
         assert_eq!(note.title, "Datadog renewal");
         assert_eq!(note.summary.as_deref(), Some("Offer: 12% off for 3y"));
         assert!(note.body.contains("True-down"));
@@ -1001,16 +1287,26 @@ mod tests {
         assert!(url.ends_with("%2FTopics%2FDatadog%20renewal.md"), "{url}");
         assert!(!note.bump);
 
-        let tasks: Vec<&ItemUpsert> =
-            b.items.iter().filter(|i| i.kind == "task" && i.raw_json["path"] == "Topics/Datadog renewal.md").collect();
+        let tasks: Vec<&ItemUpsert> = b
+            .items
+            .iter()
+            .filter(|i| i.kind == "task" && i.raw_json["path"] == "Topics/Datadog renewal.md")
+            .collect();
         assert_eq!(tasks.len(), 3);
         assert_eq!(tasks[0].title, "True-down at 12 months");
         assert_eq!(tasks[0].due, Some(Due::Day(jiff::civil::date(2026, 10, 1))));
         assert_eq!(tasks[0].owner.as_deref(), Some("you"));
         assert_eq!(tasks[0].summary.as_deref(), Some("Datadog renewal"));
         assert_eq!((tasks[1].status.as_str(), tasks[1].due), ("done", None));
-        assert_eq!((tasks[2].title.as_str(), tasks[2].due), ("Cap on overage rate", Some(Due::Day(jiff::civil::date(2026, 10, 3)))));
-        let numbered = b.items.iter().find(|i| i.kind == "task" && i.title == "numbered task").unwrap();
+        assert_eq!(
+            (tasks[2].title.as_str(), tasks[2].due),
+            ("Cap on overage rate", Some(Due::Day(jiff::civil::date(2026, 10, 3))))
+        );
+        let numbered = b
+            .items
+            .iter()
+            .find(|i| i.kind == "task" && i.title == "numbered task")
+            .unwrap();
         assert_eq!(numbered.status, "open");
         let idea = b.items.iter().find(|i| i.title == "Idea #1").unwrap();
         assert_eq!(idea.summary.as_deref(), Some("First real line"));
@@ -1029,17 +1325,33 @@ mod tests {
         v.write("a.md", "- [ ] one\n- [ ] two\n");
         touch_later(&v, "a.md");
         let b3 = poll(&src(&v, b2.cursor.clone()));
-        assert_eq!(b3.items.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), vec!["a", "one", "two"]);
+        assert_eq!(
+            b3.items.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
+            vec!["a", "one", "two"]
+        );
         // A rename keeps the mtime but shows up as a new path.
         std::fs::rename(v.dir.path().join("b.md"), v.dir.path().join("c.md")).unwrap();
         let b4 = poll(&src(&v, b3.cursor.clone()));
-        assert_eq!(b4.items.iter().map(|i| i.external_id.as_str()).collect::<Vec<_>>(), vec!["note:c.md"]);
+        assert_eq!(
+            b4.items.iter().map(|i| i.external_id.as_str()).collect::<Vec<_>>(),
+            vec!["note:c.md"]
+        );
     }
 
     #[test]
     fn task_ids_are_stable_and_ignore_due_edits() {
-        let a = note_items(Path::new("/v"), "n.md", Ts::parse("2026-09-28T10:00:00Z").unwrap(), "- [ ] Ship it\n- [ ] Ship it\n");
-        let b = note_items(Path::new("/v"), "n.md", Ts::parse("2026-09-28T10:00:00Z").unwrap(), "- [ ] Ship it 📅 2026-10-09\n- [ ] Ship it\n");
+        let a = note_items(
+            Path::new("/v"),
+            "n.md",
+            Ts::parse("2026-09-28T10:00:00Z").unwrap(),
+            "- [ ] Ship it\n- [ ] Ship it\n",
+        );
+        let b = note_items(
+            Path::new("/v"),
+            "n.md",
+            Ts::parse("2026-09-28T10:00:00Z").unwrap(),
+            "- [ ] Ship it 📅 2026-10-09\n- [ ] Ship it\n",
+        );
         assert_eq!(a[1].external_id, b[1].external_id);
         assert_eq!(a[2].external_id, format!("{}-2", a[1].external_id));
         assert_eq!(b[1].due, Some(Due::Day(jiff::civil::date(2026, 10, 9))));
@@ -1091,7 +1403,10 @@ mod tests {
     }
 
     fn row(r: &[Row], title: &str) -> Row {
-        r.iter().find(|x| x.0 == title).unwrap_or_else(|| panic!("{title} not in {r:?}")).clone()
+        r.iter()
+            .find(|x| x.0 == title)
+            .unwrap_or_else(|| panic!("{title} not in {r:?}"))
+            .clone()
     }
 
     #[test]
@@ -1106,18 +1421,28 @@ mod tests {
         sync(&conn, s.id);
         let r = rows(&conn);
         assert!(r.iter().all(|x| x.2), "{r:?}");
-        let linked: Vec<&str> = r.iter().filter(|x| x.3.as_deref() == Some("confirmed")).map(|x| x.0.as_str()).collect();
+        let linked: Vec<&str> = r
+            .iter()
+            .filter(|x| x.3.as_deref() == Some("confirmed"))
+            .map(|x| x.0.as_str())
+            .collect();
         assert_eq!(linked, vec!["Datadog renewal", "True-down"]);
 
         // A new task in a daily note is signal; one in the topic note is already filed.
         v.write("Daily/2026-09-28.md", "- [ ] Old task\n- [ ] Call Kim\n");
         touch_later(&v, "Daily/2026-09-28.md");
-        v.write("Topics/Datadog renewal.md", "## Asks\n- [x] True-down\n- [ ] Cap overage\n");
+        v.write(
+            "Topics/Datadog renewal.md",
+            "## Asks\n- [x] True-down\n- [ ] Cap overage\n",
+        );
         touch_later(&v, "Topics/Datadog renewal.md");
         sync(&conn, s.id);
         let r = rows(&conn);
         assert_eq!(row(&r, "Call Kim"), ("Call Kim".into(), "open".into(), false, None));
-        assert_eq!(row(&r, "Cap overage"), ("Cap overage".into(), "open".into(), true, Some("confirmed".into())));
+        assert_eq!(
+            row(&r, "Cap overage"),
+            ("Cap overage".into(), "open".into(), true, Some("confirmed".into()))
+        );
         assert_eq!(row(&r, "True-down").1, "done");
         // Editing a note never resurfaces it.
         assert!(row(&r, "2026-09-28").2);
@@ -1137,7 +1462,10 @@ mod tests {
 
         // A link the user marked wrong stays wrong.
         conn.execute("UPDATE topic_links SET state = 'wrong'", []).unwrap();
-        v.write("Topics/Datadog renewal.md", "## Asks\n- [ ] Cap overage\n- [ ] One more\n");
+        v.write(
+            "Topics/Datadog renewal.md",
+            "## Asks\n- [ ] Cap overage\n- [ ] One more\n",
+        );
         touch_later(&v, "Topics/Datadog renewal.md");
         sync(&conn, s.id);
         let r = rows(&conn);
@@ -1149,13 +1477,26 @@ mod tests {
     fn append_under_heading_and_at_end() {
         let v = Vault::new();
         v.write("Topics/T.md", "# T\n\n## Asks\n- [ ] one\n\n## Links\n- x\n");
-        let r = send(&v, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" })).unwrap();
-        assert_eq!(v.read("Topics/T.md"), "# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n");
+        let r = send(
+            &v,
+            "obsidian.append",
+            json!({ "path": "Topics/T.md", "text": "- [ ] two", "under_heading": "Asks" }),
+        )
+        .unwrap();
+        assert_eq!(
+            v.read("Topics/T.md"),
+            "# T\n\n## Asks\n- [ ] one\n- [ ] two\n\n## Links\n- x\n"
+        );
         assert_eq!(r["line"], 5);
         assert_eq!(r["changed"], true);
         assert!(crate::time::Ts::parse(r["mtime"].as_str().unwrap()).is_some());
         // A missing heading is created at the end.
-        send(&v, "obsidian.append", json!({ "path": "Topics/T.md", "text": "- note", "under_heading": "### Log" })).unwrap();
+        send(
+            &v,
+            "obsidian.append",
+            json!({ "path": "Topics/T.md", "text": "- note", "under_heading": "### Log" }),
+        )
+        .unwrap();
         assert!(v.read("Topics/T.md").ends_with("- x\n\n### Log\n- note\n"));
         // No heading, no trailing newline, CRLF kept.
         v.write("c.md", "a\r\nb");
@@ -1163,7 +1504,12 @@ mod tests {
         assert_eq!(v.read("c.md"), "a\r\nb\r\nc\r\n");
         // A section that runs to the end of the file.
         v.write("e.md", "## Asks\n- one");
-        send(&v, "obsidian.append", json!({ "path": "e.md", "text": "- two", "under_heading": "Asks" })).unwrap();
+        send(
+            &v,
+            "obsidian.append",
+            json!({ "path": "e.md", "text": "- two", "under_heading": "Asks" }),
+        )
+        .unwrap();
         assert_eq!(v.read("e.md"), "## Asks\n- one\n- two\n");
     }
 
@@ -1182,12 +1528,24 @@ mod tests {
         assert_eq!(v.read("T.md"), after);
 
         // Only the section's last line counts: the same words elsewhere are appended.
-        assert_eq!(append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Links" }))["changed"], true);
-        assert_eq!(append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Asks" }))["changed"], true);
-        assert_eq!(v.read("T.md"), "# T\n\n## Asks\n- [ ] one\n- [ ] two\n- [ ] one\n\n## Links\n- x\n- [ ] one\n");
+        assert_eq!(
+            append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Links" }))["changed"],
+            true
+        );
+        assert_eq!(
+            append(json!({ "path": "T.md", "text": "- [ ] one", "under_heading": "Asks" }))["changed"],
+            true
+        );
+        assert_eq!(
+            v.read("T.md"),
+            "# T\n\n## Asks\n- [ ] one\n- [ ] two\n- [ ] one\n\n## Links\n- x\n- [ ] one\n"
+        );
         // A heading alone isn't mistaken for the line.
         v.write("h.md", "## Asks\n");
-        assert_eq!(append(json!({ "path": "h.md", "text": "## Asks", "under_heading": "Asks" }))["changed"], true);
+        assert_eq!(
+            append(json!({ "path": "h.md", "text": "## Asks", "under_heading": "Asks" }))["changed"],
+            true
+        );
 
         // End of file, past trailing blank lines; CRLF files too.
         v.write("e.md", "a\r\nb\r\n\r\n");
@@ -1212,11 +1570,21 @@ mod tests {
     fn append_refuses_ambiguity_and_multiline() {
         let v = Vault::new();
         v.write("d.md", "## Notes\n- a\n## Notes\n- b\n```\n## Notes\n```\n");
-        let e = send(&v, "obsidian.append", json!({ "path": "d.md", "text": "x", "under_heading": "Notes" })).unwrap_err();
+        let e = send(
+            &v,
+            "obsidian.append",
+            json!({ "path": "d.md", "text": "x", "under_heading": "Notes" }),
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("more than once"), "{e}");
         assert!(send(&v, "obsidian.append", json!({ "path": "d.md", "text": "x\ny" })).is_err());
         assert!(send(&v, "obsidian.append", json!({ "path": "missing.md", "text": "x" })).is_err());
-        send(&v, "obsidian.append", json!({ "path": "new.md", "text": "x", "create": true })).unwrap();
+        send(
+            &v,
+            "obsidian.append",
+            json!({ "path": "new.md", "text": "x", "create": true }),
+        )
+        .unwrap();
         assert_eq!(v.read("new.md"), "x\n");
     }
 
@@ -1224,15 +1592,35 @@ mod tests {
     fn toggle_flips_exactly_one_checkbox() {
         let v = Vault::new();
         v.write("t.md", "- [ ] Alpha 📅 2026-10-01\n  - [ ] Beta\n- [x] Gamma\n");
-        let r = send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Beta", "done": true })).unwrap();
+        let r = send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Beta", "done": true }),
+        )
+        .unwrap();
         assert_eq!(v.read("t.md"), "- [ ] Alpha 📅 2026-10-01\n  - [x] Beta\n- [x] Gamma\n");
         assert_eq!((r["line"].as_i64(), r["changed"].as_bool()), (Some(2), Some(true)));
         // Found by its words even without the due marker; reopening works.
-        send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Alpha", "done": true })).unwrap();
-        send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Gamma", "done": false })).unwrap();
+        send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Alpha", "done": true }),
+        )
+        .unwrap();
+        send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Gamma", "done": false }),
+        )
+        .unwrap();
         assert_eq!(v.read("t.md"), "- [x] Alpha 📅 2026-10-01\n  - [x] Beta\n- [ ] Gamma\n");
         // Already in that state: no write.
-        let r = send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Beta", "done": true })).unwrap();
+        let r = send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Beta", "done": true }),
+        )
+        .unwrap();
         assert_eq!(r["changed"], false);
     }
 
@@ -1240,9 +1628,19 @@ mod tests {
     fn toggle_detects_conflicts() {
         let v = Vault::new();
         v.write("t.md", "- [ ] Same\n- [ ] Same\n- [ ] Other\n");
-        let e = send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Same", "done": true })).unwrap_err();
+        let e = send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Same", "done": true }),
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("2 times"), "{e}");
-        let e = send(&v, "obsidian.toggle_task", json!({ "path": "t.md", "task_text": "Renamed", "done": true })).unwrap_err();
+        let e = send(
+            &v,
+            "obsidian.toggle_task",
+            json!({ "path": "t.md", "task_text": "Renamed", "done": true }),
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("not found"), "{e}");
         assert_eq!(v.read("t.md"), "- [ ] Same\n- [ ] Same\n- [ ] Other\n");
         // The file changing between read and rename is caught, and the temp file cleaned up.
@@ -1260,10 +1658,18 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("out.md"), "secret\n").unwrap();
         for p in ["../out.md", "a/../../out.md", "/etc/passwd", "in.txt", ""] {
-            assert!(send(&v, "obsidian.append", json!({ "path": p, "text": "x", "create": true })).is_err(), "{p}");
+            assert!(
+                send(&v, "obsidian.append", json!({ "path": p, "text": "x", "create": true })).is_err(),
+                "{p}"
+            );
         }
         let abs_out = outside.path().join("out.md");
-        assert!(send(&v, "obsidian.append", json!({ "path": abs_out.to_string_lossy(), "text": "x" })).is_err());
+        assert!(send(
+            &v,
+            "obsidian.append",
+            json!({ "path": abs_out.to_string_lossy(), "text": "x" })
+        )
+        .is_err());
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(outside.path(), v.dir.path().join("link")).unwrap();
@@ -1273,7 +1679,12 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&abs_out).unwrap(), "secret\n");
         // Absolute paths inside the vault are fine.
         let abs_in = v.root().join("in.md");
-        send(&v, "obsidian.append", json!({ "path": abs_in.to_string_lossy(), "text": "y" })).unwrap();
+        send(
+            &v,
+            "obsidian.append",
+            json!({ "path": abs_in.to_string_lossy(), "text": "y" }),
+        )
+        .unwrap();
         assert_eq!(v.read("in.md"), "x\ny\n");
     }
 
@@ -1299,7 +1710,9 @@ mod tests {
         let app = std::sync::Arc::new(crate::state::App::from_parts(conn, settings, data.path()).unwrap());
         crate::sync::start_source(app.clone(), 1);
         let count = |t: &str| -> i64 {
-            app.db().query_row("SELECT count(*) FROM items WHERE title = ?1", [t], |r| r.get(0)).unwrap()
+            app.db()
+                .query_row("SELECT count(*) FROM items WHERE title = ?1", [t], |r| r.get(0))
+                .unwrap()
         };
         let wait = |t: &str| {
             let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -1316,7 +1729,11 @@ mod tests {
 
     #[test]
     fn ignore_globs() {
-        let ig = Ignore(vec!["Archive/".into(), "*.excalidraw.md".into(), "/Daily/**/old-*.md".into()]);
+        let ig = Ignore(vec![
+            "Archive/".into(),
+            "*.excalidraw.md".into(),
+            "/Daily/**/old-*.md".into(),
+        ]);
         assert!(ig.matches("Archive", true));
         assert!(!ig.matches("Archive", false));
         assert!(ig.matches("x/y.excalidraw.md", false));

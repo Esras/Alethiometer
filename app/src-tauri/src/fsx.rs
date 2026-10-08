@@ -11,9 +11,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// file into place; the last rename wins whole.
 pub fn write_atomic(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
     static N: AtomicU64 = AtomicU64::new(0);
-    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.{}.{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = dir.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -85,6 +95,9 @@ mod tests {
         }
         let s = std::fs::read_to_string(&*p).unwrap();
         assert_eq!(s.len(), 10_000);
-        assert!(s.chars().all(|c| c == s.chars().next().unwrap()), "one writer's whole file");
+        assert!(
+            s.chars().all(|c| c == s.chars().next().unwrap()),
+            "one writer's whole file"
+        );
     }
 }

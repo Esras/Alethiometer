@@ -10,7 +10,11 @@ fn main() {
             "--dir" => dir = args.next(),
             "--idle-secs" => idle = args.next().and_then(|v| v.parse().ok()).unwrap_or(idle),
             "--version" => {
-                println!("alethiometer-agentd {} protocol {}", agentd::proto::VERSION, agentd::proto::PROTOCOL);
+                println!(
+                    "alethiometer-agentd {} protocol {}",
+                    agentd::proto::VERSION,
+                    agentd::proto::PROTOCOL
+                );
                 return;
             }
             other => {
@@ -25,10 +29,17 @@ fn main() {
     };
     #[cfg(unix)]
     {
-        let opts = agentd::server::Options { dir: dir.into(), idle: std::time::Duration::from_secs(idle.max(10)) };
+        let opts = agentd::server::Options {
+            dir: dir.into(),
+            idle: std::time::Duration::from_secs(idle.max(10)),
+        };
         if let Err(e) = agentd::server::run(opts) {
             eprintln!("agentd: {e}");
-            std::process::exit(if e.kind() == std::io::ErrorKind::AddrInUse { 0 } else { 1 });
+            std::process::exit(if e.kind() == std::io::ErrorKind::AddrInUse {
+                0
+            } else {
+                1
+            });
         }
     }
     #[cfg(not(unix))]

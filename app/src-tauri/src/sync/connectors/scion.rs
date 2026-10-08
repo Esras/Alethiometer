@@ -15,11 +15,18 @@ impl Connector for Scion {
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         let cfg = ScionConfig::from_json(&ctx.source.config)?;
-        let client = Client { http: ctx.http, base: cfg.hub_url.clone(), token: ctx.require_secret(&cfg.token_secret)?.trim().to_owned() };
+        let client = Client {
+            http: ctx.http,
+            base: cfg.hub_url.clone(),
+            token: ctx.require_secret(&cfg.token_secret)?.trim().to_owned(),
+        };
         match op {
             // Archiving (app/docs/agents.md › Archive).
             "scion.delete_agent" => {
-                let agent = payload["agent"].as_str().filter(|a| !a.is_empty()).ok_or_else(|| anyhow::anyhow!("no agent id"))?;
+                let agent = payload["agent"]
+                    .as_str()
+                    .filter(|a| !a.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("no agent id"))?;
                 client.delete_agent(agent)
             }
             _ => anyhow::bail!("Scion doesn't support '{op}'"),

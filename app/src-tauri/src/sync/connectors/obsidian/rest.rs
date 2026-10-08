@@ -47,7 +47,11 @@ pub struct Rest<'a> {
 
 impl<'a> Rest<'a> {
     pub fn new(http: &'a dyn Http, base_url: &str, api_key: &str) -> Rest<'a> {
-        Rest { http, base: base_url.trim_end_matches('/').to_string(), auth: format!("Bearer {api_key}") }
+        Rest {
+            http,
+            base: base_url.trim_end_matches('/').to_string(),
+            auth: format!("Bearer {api_key}"),
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -58,15 +62,26 @@ impl<'a> Rest<'a> {
     pub fn read(&self, path: &str) -> anyhow::Result<Option<Note>> {
         let resp = self
             .http
-            .request("GET", &self.url(path), &[("Authorization", &self.auth), ("Accept", NOTE_JSON)], None)
+            .request(
+                "GET",
+                &self.url(path),
+                &[("Authorization", &self.auth), ("Accept", NOTE_JSON)],
+                None,
+            )
             .map_err(explain)?;
         if resp.status == 404 {
             return Ok(None);
         }
         let v = check(resp)?.json()?;
-        let content = v.get("content").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Obsidian's answer has no content"))?;
+        let content = v
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Obsidian's answer has no content"))?;
         let mtime_ms = v.pointer("/stat/mtime").and_then(Value::as_f64).map(|m| m as i64);
-        Ok(Some(Note { content: content.to_string(), mtime_ms }))
+        Ok(Some(Note {
+            content: content.to_string(),
+            mtime_ms,
+        }))
     }
 
     /// Replace (or create) the whole file.
@@ -76,7 +91,10 @@ impl<'a> Rest<'a> {
             .request(
                 "PUT",
                 &self.url(path),
-                &[("Authorization", &self.auth), ("Content-Type", "text/markdown; charset=utf-8")],
+                &[
+                    ("Authorization", &self.auth),
+                    ("Content-Type", "text/markdown; charset=utf-8"),
+                ],
                 Some(text),
             )
             .map_err(explain)?;
@@ -122,7 +140,17 @@ fn check(resp: Response) -> anyhow::Result<Response> {
 /// Turn transport errors into something the user can act on.
 fn explain(e: anyhow::Error) -> anyhow::Error {
     use std::io::ErrorKind as K;
-    let down = |k: K| matches!(k, K::ConnectionRefused | K::ConnectionReset | K::ConnectionAborted | K::NotConnected | K::TimedOut | K::AddrNotAvailable);
+    let down = |k: K| {
+        matches!(
+            k,
+            K::ConnectionRefused
+                | K::ConnectionReset
+                | K::ConnectionAborted
+                | K::NotConnected
+                | K::TimedOut
+                | K::AddrNotAvailable
+        )
+    };
     for cause in e.chain() {
         if let Some(u) = cause.downcast_ref::<ureq::Error>() {
             match u {
@@ -152,9 +180,15 @@ fn explain(e: anyhow::Error) -> anyhow::Error {
 /// pinned CA for https, loopback-only for http. Never proxied.
 pub fn transport(config: &Value, vault: &Path) -> anyhow::Result<(String, Box<dyn Http>)> {
     use ureq::tls::{PemItem, RootCerts, TlsConfig};
-    let url = config.get("rest_url").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_URL);
+    let url = config
+        .get("rest_url")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_URL);
     let url = url.trim_end_matches('/').to_string();
-    let (scheme, rest) = url.split_once("://").ok_or_else(|| anyhow::anyhow!("obsidian config.rest_url must start with https:// or http://"))?;
+    let (scheme, rest) = url
+        .split_once("://")
+        .ok_or_else(|| anyhow::anyhow!("obsidian config.rest_url must start with https:// or http://"))?;
     let host = host_of(rest);
     let builder = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -200,7 +234,11 @@ fn host_of(authority: &str) -> &str {
 /// certificate). The file also holds the API key and private keys; those are
 /// never read into anything but this parse, and never logged.
 fn pinned_pem(config: &Value, vault: &Path) -> anyhow::Result<(String, PathBuf)> {
-    let path = match config.get("cert_path").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+    let path = match config
+        .get("cert_path")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
         Some(p) => PathBuf::from(p),
         None => vault.join(".obsidian/plugins").join(PLUGIN_ID).join("data.json"),
     };
@@ -212,9 +250,18 @@ fn pinned_pem(config: &Value, vault: &Path) -> anyhow::Result<(String, PathBuf)>
         )
     })?;
     if text.trim_start().starts_with('{') {
-        let v: Value = serde_json::from_str(&text).map_err(|_| anyhow::anyhow!("{} isn't valid JSON", path.display()))?;
-        let pem = v.pointer("/crypto/caCert").or_else(|| v.pointer("/crypto/cert")).and_then(Value::as_str);
-        let pem = pem.ok_or_else(|| anyhow::anyhow!("no certificate in {} yet; open Obsidian once with the plugin enabled", path.display()))?;
+        let v: Value =
+            serde_json::from_str(&text).map_err(|_| anyhow::anyhow!("{} isn't valid JSON", path.display()))?;
+        let pem = v
+            .pointer("/crypto/caCert")
+            .or_else(|| v.pointer("/crypto/cert"))
+            .and_then(Value::as_str);
+        let pem = pem.ok_or_else(|| {
+            anyhow::anyhow!(
+                "no certificate in {} yet; open Obsidian once with the plugin enabled",
+                path.display()
+            )
+        })?;
         return Ok((pem.to_string(), path));
     }
     Ok((text, path))
@@ -250,21 +297,39 @@ mod tests {
         let api = Rest::new(&http, DEFAULT_URL, "k");
         assert!(api.read("nope.md").unwrap().is_none());
 
-        http.on("GET", "/vault/", 401, r#"{"errorCode":40101,"message":"Authorization required."}"#);
+        http.on(
+            "GET",
+            "/vault/",
+            401,
+            r#"{"errorCode":40101,"message":"Authorization required."}"#,
+        );
         let e = api.read("a.md").unwrap_err().to_string();
-        assert!(e.contains("refused the API key") && e.contains("obsidian.api_key"), "{e}");
+        assert!(
+            e.contains("refused the API key") && e.contains("obsidian.api_key"),
+            "{e}"
+        );
         assert!(!e.contains("Bearer"), "{e}");
 
-        http.on("PUT", "/vault/", 405, r#"{"errorCode":40510,"message":"Request method is valid only for file paths, not directories."}"#);
+        http.on(
+            "PUT",
+            "/vault/",
+            405,
+            r#"{"errorCode":40510,"message":"Request method is valid only for file paths, not directories."}"#,
+        );
         let e = api.write("dir/", "x").unwrap_err().to_string();
-        assert!(e.contains("HTTP 405: Request method is valid only for file paths"), "{e}");
+        assert!(
+            e.contains("HTTP 405: Request method is valid only for file paths"),
+            "{e}"
+        );
     }
 
     #[test]
     fn write_puts_markdown() {
         let http = FakeHttp::default();
         http.on("PUT", "/vault/a%23b/n%3F.md", 204, "");
-        Rest::new(&http, DEFAULT_URL, "k").write("a#b/n?.md", "hello\n").unwrap();
+        Rest::new(&http, DEFAULT_URL, "k")
+            .write("a#b/n?.md", "hello\n")
+            .unwrap();
         assert_eq!(http.requests()[0].2.as_deref(), Some("hello\n"));
         let h = &http.header_log.lock().unwrap()[0];
         assert!(h.contains(&("Content-Type".into(), "text/markdown; charset=utf-8".into())));
@@ -273,10 +338,17 @@ mod tests {
     #[test]
     fn connection_refused_means_obsidian_is_closed() {
         // A port that was just free: nothing listens there.
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let vault = tempfile::tempdir().unwrap();
         let (url, http) = transport(&json!({ "rest_url": format!("http://127.0.0.1:{port}") }), vault.path()).unwrap();
-        let e = Rest::new(http.as_ref(), &url, "k").read("a.md").unwrap_err().to_string();
+        let e = Rest::new(http.as_ref(), &url, "k")
+            .read("a.md")
+            .unwrap_err()
+            .to_string();
         assert_eq!(e, NOT_OPEN);
     }
 
@@ -293,7 +365,11 @@ mod tests {
         // The CA is read from the plugin's data.json (only the certificate).
         let dir = vault.path().join(".obsidian/plugins/obsidian-local-rest-api");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("data.json"), json!({ "apiKey": "secret", "crypto": { "cert": "x" } }).to_string()).unwrap();
+        std::fs::write(
+            dir.join("data.json"),
+            json!({ "apiKey": "secret", "crypto": { "cert": "x" } }).to_string(),
+        )
+        .unwrap();
         let e = transport(&json!({}), vault.path()).err().unwrap().to_string();
         assert!(e.contains("no certificate found"), "{e}");
         assert!(!e.contains("secret"));
@@ -310,7 +386,11 @@ mod tests {
             eprintln!("pinned_ca_is_the_only_trust: skipped (no openssl CLI)");
             return;
         };
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let mut server = std::process::Command::new("openssl")
             .args(["s_server", "-quiet", "-www", "-accept"])
             .arg(format!("127.0.0.1:{port}"))
@@ -350,7 +430,13 @@ mod tests {
             let dir = tempfile::tempdir().ok()?;
             let d = dir.path();
             let run = |args: &[&str]| {
-                std::process::Command::new("openssl").current_dir(d).args(args).output().ok().filter(|o| o.status.success()).map(|_| ())
+                std::process::Command::new("openssl")
+                    .current_dir(d)
+                    .args(args)
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|_| ())
             };
             // The plugin's shape (src/certificates.ts): a name-constrained CA, and a
             // leaf for 127.0.0.1 with serverAuth.
@@ -361,14 +447,59 @@ mod tests {
             )
             .ok()?;
             for ca in ["ca", "other"] {
-                run(&["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", &format!("{ca}.key"), "-out", &format!("{ca}.pem"),
-                    "-days", "2", "-subj", "/CN=Obsidian Local REST API CA", "-addext", "basicConstraints=critical,CA:TRUE",
-                    "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-                    "-addext", "nameConstraints=critical,permitted;IP:127.0.0.1/255.255.255.255,permitted;DNS:localhost"])?;
+                run(&[
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-keyout",
+                    &format!("{ca}.key"),
+                    "-out",
+                    &format!("{ca}.pem"),
+                    "-days",
+                    "2",
+                    "-subj",
+                    "/CN=Obsidian Local REST API CA",
+                    "-addext",
+                    "basicConstraints=critical,CA:TRUE",
+                    "-addext",
+                    "keyUsage=critical,keyCertSign,cRLSign",
+                    "-addext",
+                    "nameConstraints=critical,permitted;IP:127.0.0.1/255.255.255.255,permitted;DNS:localhost",
+                ])?;
             }
-            run(&["req", "-newkey", "rsa:2048", "-nodes", "-keyout", "leaf.key", "-out", "leaf.csr", "-subj", "/CN=Obsidian Local REST API"])?;
-            run(&["x509", "-req", "-in", "leaf.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "leaf.pem", "-days", "2",
-                "-extfile", "leaf.cnf", "-extensions", "leaf"])?;
+            run(&[
+                "req",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                "leaf.key",
+                "-out",
+                "leaf.csr",
+                "-subj",
+                "/CN=Obsidian Local REST API",
+            ])?;
+            run(&[
+                "x509",
+                "-req",
+                "-in",
+                "leaf.csr",
+                "-CA",
+                "ca.pem",
+                "-CAkey",
+                "ca.key",
+                "-CAcreateserial",
+                "-out",
+                "leaf.pem",
+                "-days",
+                "2",
+                "-extfile",
+                "leaf.cnf",
+                "-extensions",
+                "leaf",
+            ])?;
             Some(TestPki { dir })
         }
     }

@@ -95,7 +95,10 @@ pub fn ms(t: &str) -> i64 {
 
 /// Hub time (RFC 3339) → the store's form (`Ts::to_db`); empty for empty or Go's zero time.
 pub fn local(t: &str) -> String {
-    Ts::parse(t).filter(|d| d.unix_ms() > 0).map(Ts::to_db).unwrap_or_default()
+    Ts::parse(t)
+        .filter(|d| d.unix_ms() > 0)
+        .map(Ts::to_db)
+        .unwrap_or_default()
 }
 
 /// "claude" → "Claude Code".
@@ -110,7 +113,9 @@ pub fn harness_label(h: &str) -> String {
         "generic" => "Generic".into(),
         other => {
             let mut c = other.chars();
-            c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect())
+                .unwrap_or_default()
         }
     }
 }
@@ -160,7 +165,12 @@ pub fn parse_choices(text: &str) -> (String, Vec<Choice>) {
         if let Some(body) = option_body(t) {
             if choices.len() < 3 {
                 let (title, detail) = split_detail(body);
-                choices.push(Choice { key: (choices.len() + 1).to_string(), title, detail, ..Default::default() });
+                choices.push(Choice {
+                    key: (choices.len() + 1).to_string(),
+                    title,
+                    detail,
+                    ..Default::default()
+                });
             }
         } else if choices.is_empty() && !t.is_empty() {
             question.push(t);
@@ -183,7 +193,10 @@ fn option_body(t: &str) -> Option<&str> {
         return None;
     }
     let rest = &t[digits..];
-    rest.strip_prefix(')').or_else(|| rest.strip_prefix('.')).filter(|r| r.starts_with(' ')).map(str::trim)
+    rest.strip_prefix(')')
+        .or_else(|| rest.strip_prefix('.'))
+        .filter(|r| r.starts_with(' '))
+        .map(str::trim)
 }
 
 fn split_detail(body: &str) -> (String, String) {
@@ -201,7 +214,10 @@ pub fn title_from(task: &str) -> (String, String) {
     let first = t.lines().next().unwrap_or("");
     let cut = first.find(". ").map(|i| i + 1).unwrap_or(first.len());
     let rest = t[cut..].trim().replace('\n', " ");
-    (crate::ai::context::clip(first[..cut].trim(), 90), crate::ai::context::clip(&rest, 140))
+    (
+        crate::ai::context::clip(first[..cut].trim(), 90),
+        crate::ai::context::clip(&rest, 140),
+    )
 }
 
 #[derive(Clone, PartialEq)]
@@ -242,14 +258,24 @@ impl<'a> Ix<'a> {
         let agents: HashMap<&str, &Value> = st.agents.iter().map(|a| (s(a, "id"), a)).collect();
         let slugs = st.agents.iter().map(|a| (s(a, "slug"), a)).collect();
         let mut last_sent: HashMap<String, i64> = HashMap::new();
-        let all = st.convs.values().flat_map(|c| c.messages.iter()).chain(st.interagent.values().flatten());
+        let all = st
+            .convs
+            .values()
+            .flat_map(|c| c.messages.iter())
+            .chain(st.interagent.values().flatten());
         for m in all {
             if s(m, "sender").starts_with("agent:") && !s(m, "senderId").is_empty() {
                 let e = last_sent.entry(s(m, "senderId").to_owned()).or_default();
                 *e = (*e).max(ms(s(m, "createdAt")));
             }
         }
-        Ix { cx, st, agents, slugs, last_sent }
+        Ix {
+            cx,
+            st,
+            agents,
+            slugs,
+            last_sent,
+        }
     }
 
     fn sid(&self, agent: &str) -> String {
@@ -259,7 +285,9 @@ impl<'a> Ix<'a> {
     fn party(&self, addr: &str, id: &str) -> Party {
         let (kind, rest) = addr.split_once(':').unwrap_or((addr, ""));
         match kind {
-            "user" if (!id.is_empty() && id == self.st.me_id) || rest == self.st.me_email || rest == self.st.me_id => Party::Me,
+            "user" if (!id.is_empty() && id == self.st.me_id) || rest == self.st.me_email || rest == self.st.me_id => {
+                Party::Me
+            }
             "user" => Party::User(rest.to_owned()),
             "agent" => {
                 let a = self.agents.get(id).or_else(|| self.slugs.get(rest));
@@ -276,9 +304,17 @@ impl<'a> Ix<'a> {
     fn who(&self, p: &Party) -> Option<Who> {
         match p {
             Party::Me => Some(Who::you()),
-            Party::User(u) => Some(Who { name: u.split('@').next().unwrap_or(u).to_owned(), session: None, kind: "user".into() }),
+            Party::User(u) => Some(Who {
+                name: u.split('@').next().unwrap_or(u).to_owned(),
+                session: None,
+                kind: "user".into(),
+            }),
             Party::Agent(id, name, _) => Some(Who::agent(name, (!id.is_empty()).then(|| self.sid(id)))),
-            Party::Hub => Some(Who { name: "Hub".into(), session: None, kind: "hub".into() }),
+            Party::Hub => Some(Who {
+                name: "Hub".into(),
+                session: None,
+                kind: "hub".into(),
+            }),
             Party::Thread => None,
         }
     }
@@ -299,7 +335,10 @@ impl<'a> Ix<'a> {
         let mut out: Vec<Post> = vec![];
         for (m, conv) in msgs {
             let same = out.last().is_some_and(|p| {
-                ["sender", "createdAt", "msg", "conversationId"].iter().all(|k| s(p.main, k) == s(m, k)) && !s(m, "msg").is_empty()
+                ["sender", "createdAt", "msg", "conversationId"]
+                    .iter()
+                    .all(|k| s(p.main, k) == s(m, k))
+                    && !s(m, "msg").is_empty()
             });
             if same {
                 let p = out.last_mut().unwrap();
@@ -308,7 +347,11 @@ impl<'a> Ix<'a> {
                     p.main = m;
                 }
             } else {
-                out.push(Post { main: m, all: vec![m], conv });
+                out.push(Post {
+                    main: m,
+                    all: vec![m],
+                    conv,
+                });
             }
         }
         out
@@ -319,25 +362,42 @@ impl<'a> Ix<'a> {
             return None;
         }
         let failed: Vec<&&Value> = p.all.iter().filter(|m| s(m, "dispatchState") == "failed").collect();
-        let reason = failed.iter().map(|m| s(m, "dispatchFailureReason")).find(|r| !r.is_empty()).unwrap_or("").to_owned();
+        let reason = failed
+            .iter()
+            .map(|m| s(m, "dispatchFailureReason"))
+            .find(|r| !r.is_empty())
+            .unwrap_or("")
+            .to_owned();
         let delivered: Vec<&&Value> = p.all.iter().filter(|m| s(m, "dispatchState") == "dispatched").collect();
         let names = |rows: &[&&Value]| -> Vec<String> {
-            rows.iter().filter_map(|m| match self.recipient(m) {
-                Party::Agent(_, n, _) => Some(n),
-                Party::User(u) => Some(u),
-                _ => None,
-            })
-            .collect()
+            rows.iter()
+                .filter_map(|m| match self.recipient(m) {
+                    Party::Agent(_, n, _) => Some(n),
+                    Party::User(u) => Some(u),
+                    _ => None,
+                })
+                .collect()
         };
         let mut d = Delivery {
             count: delivered.len(),
             at: local(s(p.main, "createdAt")),
-            delivered_at: delivered.first().map(|m| local(s(m, "dispatchedAt"))).unwrap_or_default(),
-            seen_by: names(&p.all.iter().filter(|m| m["read"].as_bool() == Some(true)).collect::<Vec<_>>()),
+            delivered_at: delivered
+                .first()
+                .map(|m| local(s(m, "dispatchedAt")))
+                .unwrap_or_default(),
+            seen_by: names(
+                &p.all
+                    .iter()
+                    .filter(|m| m["read"].as_bool() == Some(true))
+                    .collect::<Vec<_>>(),
+            ),
             ..Default::default()
         };
         let has = |st: &str| p.all.iter().any(|m| s(m, "dispatchState") == st);
-        if failed.iter().any(|m| s(m, "dispatchFailureReason").starts_with("Agent unreachable")) {
+        if failed
+            .iter()
+            .any(|m| s(m, "dispatchFailureReason").starts_with("Agent unreachable"))
+        {
             d.state = "unreachable".into();
             d.reason = reason;
         } else if !failed.is_empty() {
@@ -345,7 +405,16 @@ impl<'a> Ix<'a> {
             d.reason = reason;
         } else if has("deferred") {
             d.state = "deferred".into();
-            d.reason = format!("{} is reincarnating", names(&p.all.iter().filter(|m| s(m, "dispatchState") == "deferred").collect::<Vec<_>>()).join(", "));
+            d.reason = format!(
+                "{} is reincarnating",
+                names(
+                    &p.all
+                        .iter()
+                        .filter(|m| s(m, "dispatchState") == "deferred")
+                        .collect::<Vec<_>>()
+                )
+                .join(", ")
+            );
         } else if has("pending") {
             d.state = "pending".into();
         } else {
@@ -357,7 +426,13 @@ impl<'a> Ix<'a> {
                 .all
                 .iter()
                 .filter_map(|m| match self.recipient(m) {
-                    Party::Agent(id, n, _) if from_me && self.agents.get(id.as_str()).is_some_and(|a| busy(a)) && self.last_sent.get(&id).is_none_or(|t| *t <= at) => Some(n),
+                    Party::Agent(id, n, _)
+                        if from_me
+                            && self.agents.get(id.as_str()).is_some_and(|a| busy(a))
+                            && self.last_sent.get(&id).is_none_or(|t| *t <= at) =>
+                    {
+                        Some(n)
+                    }
                     _ => None,
                 })
                 .collect();
@@ -378,9 +453,14 @@ impl<'a> Ix<'a> {
         let sender = self.sender(m);
         let rcpts: Vec<Party> = p.all.iter().map(|m| self.recipient(m)).collect();
         let text = s(m, "msg");
-        let room = p.conv.filter(|c| s(&c.meta, "kind") == "group").map(|c| Who::room(s(&c.meta, "displayName"), s(&c.meta, "id")));
+        let room = p
+            .conv
+            .filter(|c| s(&c.meta, "kind") == "group")
+            .map(|c| Who::room(s(&c.meta, "displayName"), s(&c.meta, "id")));
         let mentioned = match rcpts.as_slice() {
-            [Party::Agent(id, name, slug)] if !slug.is_empty() && text.contains(&format!("@{slug}")) => Some(Party::Agent(id.clone(), name.clone(), slug.clone())),
+            [Party::Agent(id, name, slug)] if !slug.is_empty() && text.contains(&format!("@{slug}")) => {
+                Some(Party::Agent(id.clone(), name.clone(), slug.clone()))
+            }
             _ => None,
         };
         let own = |pt: &Party| matches!((view, pt), (View::Own(a), Party::Agent(id, _, _)) if id == a);
@@ -443,10 +523,15 @@ impl<'a> Ix<'a> {
         let at = ms(s(m, "createdAt"));
         let asker = s(m, "senderId");
         let slug = self.agents.get(asker).map(|a| format!("@{}", s(a, "slug")));
-        let alive = self.agents.get(asker).is_none_or(|a| !matches!(s(a, "phase"), "stopped" | "stopping" | "error" | "suspended"));
+        let alive = self
+            .agents
+            .get(asker)
+            .is_none_or(|a| !matches!(s(a, "phase"), "stopped" | "stopping" | "error" | "suspended"));
         let answers = |x: &Value| {
-            let to_asker = s(x, "recipientId") == asker || slug.as_ref().is_some_and(|sl| s(x, "msg").contains(sl.as_str()));
-            (self.party(s(x, "sender"), s(x, "senderId")) == Party::Me && to_asker) || (!asker.is_empty() && s(x, "senderId") == asker)
+            let to_asker =
+                s(x, "recipientId") == asker || slug.as_ref().is_some_and(|sl| s(x, "msg").contains(sl.as_str()));
+            (self.party(s(x, "sender"), s(x, "senderId")) == Party::Me && to_asker)
+                || (!asker.is_empty() && s(x, "senderId") == asker)
         };
         alive && !conv.messages.iter().any(|x| ms(s(x, "createdAt")) > at && answers(x))
     }
@@ -498,18 +583,59 @@ impl<'a> Ix<'a> {
             }
         }
         msgs.sort_by(|(a, _), (b, _)| (ms(s(a, "createdAt")), s(a, "id")).cmp(&(ms(s(b, "createdAt")), s(b, "id"))));
-        let mut rows: Vec<(i64, Row)> = self.posts(msgs).iter().map(|p| (ms(s(p.main, "createdAt")), self.row(p, View::Own(id)))).collect();
+        let mut rows: Vec<(i64, Row)> = self
+            .posts(msgs)
+            .iter()
+            .map(|p| (ms(s(p.main, "createdAt")), self.row(p, View::Own(id))))
+            .collect();
         let broker = s(a, "runtimeBrokerName");
-        let started = [s(a, "template"), broker].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+        let started = [s(a, "template"), broker]
+            .iter()
+            .filter(|x| !x.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" · ");
         let created = s(a, "created");
-        rows.push((ms(created), Row { at: local(created), kind: Kind::State, text: format!("started · {started}").trim_end_matches(" · ").into(), ext: "created".into(), ..Default::default() }));
+        rows.push((
+            ms(created),
+            Row {
+                at: local(created),
+                kind: Kind::State,
+                text: format!("started · {started}").trim_end_matches(" · ").into(),
+                ext: "created".into(),
+                ..Default::default()
+            },
+        ));
         // The task it was started with isn't a message on the Hub; it opens the thread as yours, unless the Hub also sent it as one.
         let task = s(&a["appliedConfig"], "task");
-        if !task.is_empty() && !rows.iter().any(|(_, r)| r.kind == Kind::You && r.text.trim() == task.trim()) {
-            rows.push((ms(created), Row { at: local(created), kind: Kind::You, label: "task".into(), text: task.into(), ext: "task".into(), ..Default::default() }));
+        if !task.is_empty()
+            && !rows
+                .iter()
+                .any(|(_, r)| r.kind == Kind::You && r.text.trim() == task.trim())
+        {
+            rows.push((
+                ms(created),
+                Row {
+                    at: local(created),
+                    kind: Kind::You,
+                    label: "task".into(),
+                    text: task.into(),
+                    ext: "task".into(),
+                    ..Default::default()
+                },
+            ));
         }
         for (at, text) in self.st.transitions.get(id).into_iter().flatten() {
-            rows.push((ms(at), Row { at: local(at), kind: Kind::State, text: text.clone(), ext: format!("st:{at}"), ..Default::default() }));
+            rows.push((
+                ms(at),
+                Row {
+                    at: local(at),
+                    kind: Kind::State,
+                    text: text.clone(),
+                    ext: format!("st:{at}"),
+                    ..Default::default()
+                },
+            ));
         }
         rows.sort_by_key(|(t, _)| *t);
         rows.into_iter().map(|(_, r)| r).collect()
@@ -517,18 +643,31 @@ impl<'a> Ix<'a> {
 
     fn room_rows(&self, c: &'a Conv) -> Vec<Row> {
         let msgs = c.messages.iter().map(|m| (m, Some(c))).collect();
-        let mut rows: Vec<(i64, Row)> = self.posts(msgs).iter().map(|p| (ms(s(p.main, "createdAt")), self.row(p, View::Room))).collect();
-        for p in c.participants.iter().filter(|p| s(p, "principalKind") == "agent" && p["leftAt"].is_null()) {
-            let Some(a) = self.agents.get(s(p, "principalId")) else { continue };
+        let mut rows: Vec<(i64, Row)> = self
+            .posts(msgs)
+            .iter()
+            .map(|p| (ms(s(p.main, "createdAt")), self.row(p, View::Room)))
+            .collect();
+        for p in c
+            .participants
+            .iter()
+            .filter(|p| s(p, "principalKind") == "agent" && p["leftAt"].is_null())
+        {
+            let Some(a) = self.agents.get(s(p, "principalId")) else {
+                continue;
+            };
             let at = s(p, "joinedAt");
-            rows.push((ms(at), Row {
-                at: local(at),
-                kind: Kind::State,
-                who: self.who(&Party::Agent(s(a, "id").into(), name_of(a).into(), s(a, "slug").into())),
-                text: "joined".into(),
-                ext: format!("join:{}", s(a, "id")),
-                ..Default::default()
-            }));
+            rows.push((
+                ms(at),
+                Row {
+                    at: local(at),
+                    kind: Kind::State,
+                    who: self.who(&Party::Agent(s(a, "id").into(), name_of(a).into(), s(a, "slug").into())),
+                    text: "joined".into(),
+                    ext: format!("join:{}", s(a, "id")),
+                    ..Default::default()
+                },
+            ));
         }
         rows.sort_by_key(|(t, _)| *t);
         rows.into_iter().map(|(_, r)| r).collect()
@@ -559,7 +698,11 @@ impl<'a> Ix<'a> {
 
 fn name_of(a: &Value) -> &str {
     let n = s(a, "name");
-    if n.is_empty() { s(a, "slug") } else { n }
+    if n.is_empty() {
+        s(a, "slug")
+    } else {
+        n
+    }
 }
 
 fn group_kind(c: &Conv) -> bool {
@@ -577,13 +720,19 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
     let ix = Ix::new(cx, st);
     let mut snap = Snapshot::default();
     let projects: HashMap<&str, &Value> = st.projects.iter().map(|p| (s(p, "id"), p)).collect();
-    let rooms: Vec<&Conv> = st.convs.values().filter(|c| group_kind(c) && projects.contains_key(s(&c.meta, "projectId"))).collect();
+    let rooms: Vec<&Conv> = st
+        .convs
+        .values()
+        .filter(|c| group_kind(c) && projects.contains_key(s(&c.meta, "projectId")))
+        .collect();
 
     // Each agent's room: the most recently active thread it's in.
     let mut home: HashMap<String, &Conv> = HashMap::new();
     for c in &rooms {
         for id in ix.members(c) {
-            let newer = home.get(&id).is_none_or(|h| ms(s(&h.meta, "lastActivityAt")) < ms(s(&c.meta, "lastActivityAt")));
+            let newer = home
+                .get(&id)
+                .is_none_or(|h| ms(s(&h.meta, "lastActivityAt")) < ms(s(&c.meta, "lastActivityAt")));
             if newer {
                 home.insert(id, *c);
             }
@@ -595,12 +744,20 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
         for a in ids {
             *n.entry(s(a, "runtimeBrokerName")).or_default() += 1;
         }
-        n.into_iter().filter(|(b, _)| !b.is_empty()).max_by_key(|(_, c)| *c).map(|(b, _)| b.to_owned()).unwrap_or_else(|| cx.source.to_owned())
+        n.into_iter()
+            .filter(|(b, _)| !b.is_empty())
+            .max_by_key(|(_, c)| *c)
+            .map(|(b, _)| b.to_owned())
+            .unwrap_or_else(|| cx.source.to_owned())
     };
 
     for c in &rooms {
         let (pid, cid) = (s(&c.meta, "projectId"), s(&c.meta, "id"));
-        let members: Vec<&Value> = ix.members(c).iter().filter_map(|id| ix.agents.get(id.as_str()).copied()).collect();
+        let members: Vec<&Value> = ix
+            .members(c)
+            .iter()
+            .filter_map(|id| ix.agents.get(id.as_str()).copied())
+            .collect();
         let broker = broker_of(&members);
         let mode = s(&c.meta, "defaultAgentId");
         let mode = match ix.agents.get(mode) {
@@ -636,14 +793,22 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
             created_at: local(s(&c.meta, "createdAt")),
         });
         snap.threads.push((format!("r:{cid}"), rows));
-        for m in c.messages.iter().filter(|m| s(m, "type") == "input-needed" && ix.ask_open(m, c)) {
+        for m in c
+            .messages
+            .iter()
+            .filter(|m| s(m, "type") == "input-needed" && ix.ask_open(m, c))
+        {
             snap.requests.push(ix.request(m, format!("r:{cid}")));
         }
     }
 
     // DM asks are pinned in the agent's own thread.
     for c in st.convs.values().filter(|c| s(&c.meta, "kind") == "direct") {
-        for m in c.messages.iter().filter(|m| s(m, "type") == "input-needed" && ix.ask_open(m, c)) {
+        for m in c
+            .messages
+            .iter()
+            .filter(|m| s(m, "type") == "input-needed" && ix.ask_open(m, c))
+        {
             let thread = match ix.sender(m) {
                 Party::Agent(id, _, _) if !id.is_empty() => format!("s:{}", ix.sid(&id)),
                 _ => continue,
@@ -689,15 +854,33 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
         };
         let ask = snap.requests.iter().any(|r| r.session_id == sid);
         let cfg = &a["appliedConfig"];
-        let task = if s(cfg, "task").is_empty() { s(a, "taskSummary") } else { s(cfg, "task") };
+        let task = if s(cfg, "task").is_empty() {
+            s(a, "taskSummary")
+        } else {
+            s(cfg, "task")
+        };
         let (title, rest) = title_from(task);
         let running = s(a, "phase") == "running";
         let detail = s(a, "message");
         let project = projects[s(a, "projectId")];
-        let branch = if s(cfg, "branch").is_empty() { s(a, "slug") } else { s(cfg, "branch") };
-        let parent = a["ancestry"].as_array().and_then(|v| v.last()).and_then(Value::as_str).filter(|p| ix.agents.contains_key(p));
+        let branch = if s(cfg, "branch").is_empty() {
+            s(a, "slug")
+        } else {
+            s(cfg, "branch")
+        };
+        let parent = a["ancestry"]
+            .as_array()
+            .and_then(|v| v.last())
+            .and_then(Value::as_str)
+            .filter(|p| ix.agents.contains_key(p));
         let problem = match (s(a, "phase"), s(a, "activity")) {
-            ("error", _) => format!("error{}", Some(s(a, "exitReason")).filter(|r| !r.is_empty()).map(|r| format!(" · {r}")).unwrap_or_default()),
+            ("error", _) => format!(
+                "error{}",
+                Some(s(a, "exitReason"))
+                    .filter(|r| !r.is_empty())
+                    .map(|r| format!(" · {r}"))
+                    .unwrap_or_default()
+            ),
             (_, "offline") => "offline: no heartbeat from the agent".into(),
             (_, "limits_exceeded") => "limits exceeded".into(),
             (_, "stalled") => "stalled".into(),
@@ -707,7 +890,11 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
         if let Some(c) = room {
             context.push_str(&format!(" · #{}", s(&c.meta, "displayName")));
         }
-        let harness = if s(a, "resolvedHarness").is_empty() { s(a, "harnessConfig") } else { s(a, "resolvedHarness") };
+        let harness = if s(a, "resolvedHarness").is_empty() {
+            s(a, "harnessConfig")
+        } else {
+            s(a, "resolvedHarness")
+        };
         let model = s(cfg, "model");
         snap.sessions.push(Session {
             id: sid.clone(),
@@ -719,16 +906,41 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
             template: s(a, "template").into(),
             harness: harness_label(harness),
             model: model_label(model),
-            host: format!("Scion · {}", if s(a, "runtimeBrokerName").is_empty() { cx.source } else { s(a, "runtimeBrokerName") }),
+            host: format!(
+                "Scion · {}",
+                if s(a, "runtimeBrokerName").is_empty() {
+                    cx.source
+                } else {
+                    s(a, "runtimeBrokerName")
+                }
+            ),
             cwd: String::new(),
             status: status(a, ask),
             title: if title.is_empty() { name_of(a).into() } else { title },
-            subtitle: if running && !detail.is_empty() && detail != "Ready" { detail.into() } else { rest },
+            subtitle: if running && !detail.is_empty() && detail != "Ready" {
+                detail.into()
+            } else {
+                rest
+            },
             context,
             created_at: local(s(a, "created")),
-            active_at: [s(a, "lastActivityEvent"), s(a, "updated")].iter().map(|t| local(t)).find(|t| !t.is_empty()).unwrap_or_default(),
-            stats: Stats { turns: a["currentTurns"].as_u64().unwrap_or(0), started_at: local(s(a, "startedAt")), ..Default::default() },
-            facts: crate::agents::model::Facts { branch: Some(Fact { label: branch.into(), ..Default::default() }), ..Default::default() },
+            active_at: [s(a, "lastActivityEvent"), s(a, "updated")]
+                .iter()
+                .map(|t| local(t))
+                .find(|t| !t.is_empty())
+                .unwrap_or_default(),
+            stats: Stats {
+                turns: a["currentTurns"].as_u64().unwrap_or(0),
+                started_at: local(s(a, "startedAt")),
+                ..Default::default()
+            },
+            facts: crate::agents::model::Facts {
+                branch: Some(Fact {
+                    label: branch.into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
             live: cx.live && running,
             problem,
             url: format!("{}/agents/{id}", cx.web),
@@ -741,7 +953,12 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
     // Your sends the Hub hasn't listed yet, and nothing you discarded.
     for (key, rows) in &mut snap.threads {
         let have: HashSet<String> = rows.iter().map(|r| r.ext.clone()).collect();
-        rows.extend(st.pending.iter().filter(|p| p.key == *key && !have.contains(&p.row.ext)).map(|p| p.row.clone()));
+        rows.extend(
+            st.pending
+                .iter()
+                .filter(|p| p.key == *key && !have.contains(&p.row.ext))
+                .map(|p| p.row.clone()),
+        );
         rows.retain(|r| !st.hidden.contains(&r.ext));
     }
     snap
@@ -778,15 +995,37 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let room = fixture("conversation.json");
-        st.convs.insert(ROOM.into(), Conv { participants: room["participants"].as_array().cloned().unwrap(), meta: room, messages: oldest_first(fixture("room_messages.json")), read_at: String::new() });
+        st.convs.insert(
+            ROOM.into(),
+            Conv {
+                participants: room["participants"].as_array().cloned().unwrap(),
+                meta: room,
+                messages: oldest_first(fixture("room_messages.json")),
+                read_at: String::new(),
+            },
+        );
         let dm = fixture("conversations.json")["conversations"][1].clone();
-        st.convs.insert(DM.into(), Conv { meta: dm, messages: oldest_first(fixture("dm_messages.json")), ..Default::default() });
-        st.interagent.insert(DIFF.into(), fixture("interagent.json")["messages"].as_array().cloned().unwrap());
+        st.convs.insert(
+            DM.into(),
+            Conv {
+                meta: dm,
+                messages: oldest_first(fixture("dm_messages.json")),
+                ..Default::default()
+            },
+        );
+        st.interagent.insert(
+            DIFF.into(),
+            fixture("interagent.json")["messages"].as_array().cloned().unwrap(),
+        );
         st
     }
 
     pub fn snapshot(st: &State) -> Snapshot {
-        let cx = Cx { source: "work-hub", web: "https://hub.example.com", live: true };
+        let cx = Cx {
+            source: "work-hub",
+            web: "https://hub.example.com",
+            live: true,
+        };
         let mut n = 0;
         build(&cx, st, &mut |_, _| {
             n += 1;
@@ -799,7 +1038,9 @@ pub(crate) mod tests {
     }
 
     fn by_ext<'a>(rows: &'a [Row], ext: &str) -> &'a Row {
-        rows.iter().find(|r| r.ext == ext).unwrap_or_else(|| panic!("no row {ext}"))
+        rows.iter()
+            .find(|r| r.ext == ext)
+            .unwrap_or_else(|| panic!("no row {ext}"))
     }
 
     #[test]
@@ -810,7 +1051,11 @@ pub(crate) mod tests {
         p["name"] = "fresh".into();
         st.projects.push(p);
         let snap = snapshot(&st);
-        let g = snap.groups.iter().find(|g| g.id.ends_with("000000000099:agents")).expect("an empty project is listed");
+        let g = snap
+            .groups
+            .iter()
+            .find(|g| g.id.ends_with("000000000099:agents"))
+            .expect("an empty project is listed");
         assert_eq!((g.source.as_str(), g.room.is_none()), ("scion", true));
     }
 
@@ -819,21 +1064,36 @@ pub(crate) mod tests {
         let snap = snapshot(&state());
         let ids: Vec<&str> = snap.groups.iter().map(|g| g.id.as_str()).collect();
         let pid = "7d9a0c2e-5b1f-4c3a-8e7d-2f1a3b4c5d01";
-        assert_eq!(ids, [format!("scion:work-hub:{pid}:{ROOM}"), format!("scion:work-hub:{pid}:agents")]);
+        assert_eq!(
+            ids,
+            [
+                format!("scion:work-hub:{pid}:{ROOM}"),
+                format!("scion:work-hub:{pid}:agents")
+            ]
+        );
         let g = &snap.groups[0];
-        assert_eq!((g.project.as_str(), g.name.as_str(), g.host.as_str()), ("ingest-svc", "migration", "Scion · gcp-1"));
+        assert_eq!(
+            (g.project.as_str(), g.name.as_str(), g.host.as_str()),
+            ("ingest-svc", "migration", "Scion · gcp-1")
+        );
         let room = g.room.as_ref().unwrap();
         assert_eq!(room.members, 3);
         assert_eq!(room.thread_ref, "group thread c1000000");
         assert_eq!(room.mode, "routes to @planner");
         assert_eq!(room.loop_cap, LOOP_CAP);
-        assert_eq!(room.url, format!("https://hub.example.com/chat/space/{pid}/thread/b1000000-0000-4000-8000-0000000000bb"));
+        assert_eq!(
+            room.url,
+            format!("https://hub.example.com/chat/space/{pid}/thread/b1000000-0000-4000-8000-0000000000bb")
+        );
 
         let s = |name: &str| snap.sessions.iter().find(|s| s.name == name).unwrap();
         let planner = s("planner");
         assert_eq!(planner.id, format!("scion:work-hub:{PLANNER}"));
         assert_eq!(planner.group_id.as_deref(), Some(ids[0]));
-        assert_eq!((planner.harness.as_str(), planner.model.as_str(), planner.host.as_str()), ("Claude Code", "sonnet", "Scion · gcp-1"));
+        assert_eq!(
+            (planner.harness.as_str(), planner.model.as_str(), planner.host.as_str()),
+            ("Claude Code", "sonnet", "Scion · gcp-1")
+        );
         assert_eq!(planner.status, Status::Running);
         assert_eq!(planner.title, "Plan the schema migration.");
         assert_eq!(planner.facts.branch.as_ref().unwrap().label, "planner");
@@ -841,14 +1101,26 @@ pub(crate) mod tests {
         assert!(planner.live);
         let diff = s("schema-diff");
         assert_eq!(diff.status, Status::Waiting);
-        assert_eq!(diff.parent_id.as_deref(), Some(planner.id.as_str()), "ancestry's last agent is the parent");
+        assert_eq!(
+            diff.parent_id.as_deref(),
+            Some(planner.id.as_str()),
+            "ancestry's last agent is the parent"
+        );
         assert_eq!(diff.harness, "Gemini CLI");
         assert_eq!(s("reviewer").status, Status::Done);
         let loner = s("loner");
         assert_eq!(loner.status, Status::Failed);
-        assert_eq!(loner.group_id.as_deref(), Some(ids[1]), "not in a thread: the project's agents group");
+        assert_eq!(
+            loner.group_id.as_deref(),
+            Some(ids[1]),
+            "not in a thread: the project's agents group"
+        );
         assert_eq!(loner.problem, "error · crashed");
-        assert_eq!(loner.facts.branch.as_ref().unwrap().label, "loner", "the branch defaults to the slug");
+        assert_eq!(
+            loner.facts.branch.as_ref().unwrap().label,
+            "loner",
+            "the branch defaults to the slug"
+        );
     }
 
     #[test]
@@ -859,18 +1131,33 @@ pub(crate) mod tests {
         assert_eq!(post.kind, Kind::You);
         assert_eq!(post.who, Some(Who::you()));
         assert_eq!(post.to.as_ref().unwrap().kind, "room", "two recipients: to the room");
-        assert!(r.iter().all(|x| x.ext != "f0000000-0000-4000-8000-000000000002"), "the mention copy folds into its post");
+        assert!(
+            r.iter().all(|x| x.ext != "f0000000-0000-4000-8000-000000000002"),
+            "the mention copy folds into its post"
+        );
         let reply = by_ext(r, "f0000000-0000-4000-8000-000000000003");
         assert_eq!((reply.kind, reply.label.as_str()), (Kind::Message, "instruction"));
-        assert_eq!(reply.who.as_ref().unwrap().session.as_deref(), Some(format!("scion:work-hub:{DIFF}").as_str()));
-        assert_eq!(reply.to.as_ref().unwrap().name, "planner", "@planner addresses one member");
+        assert_eq!(
+            reply.who.as_ref().unwrap().session.as_deref(),
+            Some(format!("scion:work-hub:{DIFF}").as_str())
+        );
+        assert_eq!(
+            reply.to.as_ref().unwrap().name,
+            "planner",
+            "@planner addresses one member"
+        );
         assert_eq!(by_ext(r, "f0000000-0000-4000-8000-000000000004").kind, Kind::State);
         let ask = by_ext(r, "f0000000-0000-4000-8000-000000000005");
         assert_eq!((ask.kind, ask.label.as_str()), (Kind::Ask, "input-needed"));
-        assert!(ask.request.is_some(), "a later post from you would close it; there's none");
+        assert!(
+            ask.request.is_some(),
+            "a later post from you would close it; there's none"
+        );
         let hub = by_ext(r, "f0000000-0000-4000-8000-000000000006");
         assert_eq!((hub.kind, hub.who.as_ref().unwrap().kind.as_str()), (Kind::Hub, "hub"));
-        assert!(r.iter().any(|x| x.ext == format!("join:{DIFF}") && x.kind == Kind::State));
+        assert!(r
+            .iter()
+            .any(|x| x.ext == format!("join:{DIFF}") && x.kind == Kind::State));
     }
 
     #[test]
@@ -883,11 +1170,17 @@ pub(crate) mod tests {
         assert_eq!(both.seen_by, ["schema-diff"]);
         assert!(!both.delivered_at.is_empty());
         let gone = d("f0000000-0000-4000-8000-000000000007");
-        assert_eq!((gone.state.as_str(), gone.reason.as_str()), ("unreachable", "Agent unreachable (stopped)"));
+        assert_eq!(
+            (gone.state.as_str(), gone.reason.as_str()),
+            ("unreachable", "Agent unreachable (stopped)")
+        );
         let failed = by_ext(r, "f0000000-0000-4000-8000-000000000008");
         assert_eq!(failed.kind, Kind::Failed);
         let fd = failed.delivery.clone().unwrap();
-        assert_eq!((fd.state.as_str(), fd.reason.as_str(), fd.retry_at.as_str()), ("failed", "tmux exec error: session not found", ""));
+        assert_eq!(
+            (fd.state.as_str(), fd.reason.as_str(), fd.retry_at.as_str()),
+            ("failed", "tmux exec error: session not found", "")
+        );
         // planner is working and hasn't posted since: held by the broker.
         let later = d("f0000000-0000-4000-8000-000000000009");
         assert_eq!(later.state, "pending");
@@ -898,8 +1191,17 @@ pub(crate) mod tests {
             }
         });
         let snap = snapshot(&st);
-        let held = by_ext(rows(&snap, &format!("r:{ROOM}")), "f0000000-0000-4000-8000-000000000009").delivery.clone().unwrap();
-        assert_eq!((held.state.as_str(), held.reason.as_str()), ("deferred", "planner was mid-turn"));
+        let held = by_ext(
+            rows(&snap, &format!("r:{ROOM}")),
+            "f0000000-0000-4000-8000-000000000009",
+        )
+        .delivery
+        .clone()
+        .unwrap();
+        assert_eq!(
+            (held.state.as_str(), held.reason.as_str()),
+            ("deferred", "planner was mid-turn")
+        );
     }
 
     #[test]
@@ -907,11 +1209,25 @@ pub(crate) mod tests {
         let snap = snapshot(&state());
         assert_eq!(snap.requests.len(), 1);
         let q = &snap.requests[0];
-        assert_eq!((q.kind.as_str(), q.thread.as_str(), q.via.as_str()), ("ask", format!("r:{ROOM}").as_str(), "input-needed"));
+        assert_eq!(
+            (q.kind.as_str(), q.thread.as_str(), q.via.as_str()),
+            ("ask", format!("r:{ROOM}").as_str(), "input-needed")
+        );
         assert_eq!(q.session_id, format!("scion:work-hub:{DIFF}"));
         assert_eq!(q.question, "Which environment should I diff against?");
-        let c: Vec<(&str, &str, &str)> = q.choices.iter().map(|c| (c.key.as_str(), c.title.as_str(), c.detail.as_str())).collect();
-        assert_eq!(c, [("1", "staging", "the default"), ("2", "prod", "read-only replica"), ("3", "skip", "do nothing")]);
+        let c: Vec<(&str, &str, &str)> = q
+            .choices
+            .iter()
+            .map(|c| (c.key.as_str(), c.title.as_str(), c.detail.as_str()))
+            .collect();
+        assert_eq!(
+            c,
+            [
+                ("1", "staging", "the default"),
+                ("2", "prod", "read-only replica"),
+                ("3", "skip", "do nothing")
+            ]
+        );
         let mut st = state();
         st.answered.insert("f0000000-0000-4000-8000-000000000005".into());
         assert!(snapshot(&st).requests.is_empty());
@@ -932,31 +1248,85 @@ pub(crate) mod tests {
         let snap = snapshot(&state());
         let r = rows(&snap, &format!("s:scion:work-hub:{DIFF}"));
         let dm = by_ext(r, "d0000000-0000-4000-8000-000000000001");
-        assert_eq!((dm.kind, dm.to.clone()), (Kind::You, None), "a DM is to the session itself");
+        assert_eq!(
+            (dm.kind, dm.to.clone()),
+            (Kind::You, None),
+            "a DM is to the session itself"
+        );
         let out = by_ext(r, "d0000000-0000-4000-8000-000000000002");
-        assert_eq!((out.kind, out.who.clone()), (Kind::Output, None), "the turn's reply is its own output");
+        assert_eq!(
+            (out.kind, out.who.clone()),
+            (Kind::Output, None),
+            "the turn's reply is its own output"
+        );
         let from = by_ext(r, "90000000-0000-4000-8000-000000000001");
-        assert_eq!((from.kind, from.who.as_ref().unwrap().name.as_str(), from.to.clone()), (Kind::Message, "planner", None));
+        assert_eq!(
+            (from.kind, from.who.as_ref().unwrap().name.as_str(), from.to.clone()),
+            (Kind::Message, "planner", None)
+        );
         let sent = by_ext(r, "f0000000-0000-4000-8000-000000000003");
-        assert_eq!((sent.who.clone(), sent.to.as_ref().unwrap().name.as_str(), sent.note.as_str()), (None, "planner", "in #migration"));
-        assert_eq!(r.iter().filter(|x| x.ext == "f0000000-0000-4000-8000-000000000003").count(), 1, "room and agent mail overlap once");
+        assert_eq!(
+            (
+                sent.who.clone(),
+                sent.to.as_ref().unwrap().name.as_str(),
+                sent.note.as_str()
+            ),
+            (None, "planner", "in #migration")
+        );
+        assert_eq!(
+            r.iter()
+                .filter(|x| x.ext == "f0000000-0000-4000-8000-000000000003")
+                .count(),
+            1,
+            "room and agent mail overlap once"
+        );
         assert_eq!(r[0].ext, "created");
-        let task = r.iter().position(|x| x.ext == "task").expect("the start task is in the thread");
-        assert_eq!((task, r[task].kind, r[task].text.as_str()), (1, Kind::You, "Diff the staging schema against prod"));
-        assert!(r.iter().any(|x| x.kind == Kind::Ask), "its ask in the room is in its transcript too");
+        let task = r
+            .iter()
+            .position(|x| x.ext == "task")
+            .expect("the start task is in the thread");
+        assert_eq!(
+            (task, r[task].kind, r[task].text.as_str()),
+            (1, Kind::You, "Diff the staging schema against prod")
+        );
+        assert!(
+            r.iter().any(|x| x.kind == Kind::Ask),
+            "its ask in the room is in its transcript too"
+        );
     }
 
     #[test]
     fn pending_and_hidden_rows() {
         let mut st = state();
         let key = format!("r:{ROOM}");
-        st.pending.push(Pending { key: key.clone(), row: Row { kind: Kind::You, ext: "local:1".into(), text: "hi".into(), ..Default::default() } });
-        st.pending.push(Pending { key: key.clone(), row: Row { kind: Kind::You, ext: "f0000000-0000-4000-8000-000000000001".into(), ..Default::default() } });
+        st.pending.push(Pending {
+            key: key.clone(),
+            row: Row {
+                kind: Kind::You,
+                ext: "local:1".into(),
+                text: "hi".into(),
+                ..Default::default()
+            },
+        });
+        st.pending.push(Pending {
+            key: key.clone(),
+            row: Row {
+                kind: Kind::You,
+                ext: "f0000000-0000-4000-8000-000000000001".into(),
+                ..Default::default()
+            },
+        });
         st.hidden.insert("f0000000-0000-4000-8000-000000000008".into());
         let snap = snapshot(&st);
         let r = rows(&snap, &key);
         assert!(r.iter().any(|x| x.ext == "local:1"));
-        assert_eq!(r.iter().filter(|x| x.ext == "f0000000-0000-4000-8000-000000000001").count(), 1, "the Hub's copy wins once listed");
+        assert_eq!(
+            r.iter()
+                .filter(|x| x.ext == "f0000000-0000-4000-8000-000000000001")
+                .count(),
+            1,
+            "the Hub's copy wins once listed"
+        );
         assert!(r.iter().all(|x| x.ext != "f0000000-0000-4000-8000-000000000008"));
     }
 

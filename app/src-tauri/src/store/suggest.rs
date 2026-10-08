@@ -19,13 +19,22 @@ impl SuggestViews for Sql<'_> {
                   ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC LIMIT ?1"
             ))?
             .query_map([limit as i64], |r| {
-                Ok(UnsortedItem { id: r.get(0)?, source_kind: r.get(1)?, kind: r.get(2)?, title: r.get(3)?, summary: r.get(4)?, parent_id: r.get(5)? })
+                Ok(UnsortedItem {
+                    id: r.get(0)?,
+                    source_kind: r.get(1)?,
+                    kind: r.get(2)?,
+                    title: r.get(3)?,
+                    summary: r.get(4)?,
+                    parent_id: r.get(5)?,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn unsorted_count(&self) -> Result<i64> {
-        Ok(self.conn().query_row(&format!("SELECT count(*) {UNSORTED}"), [], |r| r.get(0))?)
+        Ok(self
+            .conn()
+            .query_row(&format!("SELECT count(*) {UNSORTED}"), [], |r| r.get(0))?)
     }
 
     fn wrong_topics(&self, item_id: i64) -> Result<Vec<i64>> {
@@ -70,21 +79,42 @@ impl SuggestViews for Sql<'_> {
                    FROM item_messages m JOIN items i ON i.id = m.item_id
                   WHERE m.item_id = ?1 AND m.context = 1 ORDER BY m.at, m.id",
             )?
-            .query_map([item_id], |r| Ok(ContextMessage { at: r.get(0)?, author: r.get(1)?, text: r.get(2)?, topic: r.get(3)? }))?
+            .query_map([item_id], |r| {
+                Ok(ContextMessage {
+                    at: r.get(0)?,
+                    author: r.get(1)?,
+                    text: r.get(2)?,
+                    topic: r.get(3)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn last_run(&self) -> Result<Option<SuggestRun>> {
         Ok(self
             .conn()
-            .query_row("SELECT status, message, suggested, at, last_ok_at FROM ai_suggest_run", [], |r| {
-                Ok(SuggestRun { status: r.get(0)?, message: r.get(1)?, suggested: r.get(2)?, at: r.get(3)?, last_ok_at: r.get(4)? })
-            })
+            .query_row(
+                "SELECT status, message, suggested, at, last_ok_at FROM ai_suggest_run",
+                [],
+                |r| {
+                    Ok(SuggestRun {
+                        status: r.get(0)?,
+                        message: r.get(1)?,
+                        suggested: r.get(2)?,
+                        at: r.get(3)?,
+                        last_ok_at: r.get(4)?,
+                    })
+                },
+            )
             .optional()?)
     }
 
     fn has_live_link(&self, item_id: i64) -> Result<bool> {
-        Ok(self.conn().query_row("SELECT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')", [item_id], |r| r.get(0))?)
+        Ok(self.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM topic_links WHERE item_id = ?1 AND state != 'wrong')",
+            [item_id],
+            |r| r.get(0),
+        )?)
     }
 }
 

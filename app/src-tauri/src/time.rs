@@ -164,7 +164,9 @@ impl Due {
 /// A fixture instant: "2026-09-28T09:00:00" (read as UTC) or any RFC 3339 time.
 #[cfg(test)]
 pub fn t(s: &str) -> Ts {
-    Ts::parse(s).or_else(|| Ts::parse(&format!("{s}Z"))).unwrap_or_else(|| panic!("not a fixture time: '{s}'"))
+    Ts::parse(s)
+        .or_else(|| Ts::parse(&format!("{s}Z")))
+        .unwrap_or_else(|| panic!("not a fixture time: '{s}'"))
 }
 
 /// Fixtures can write instants as strings (`"2026-09-28T09:00:00".into()`, read as UTC).
@@ -193,9 +195,19 @@ mod tests {
         let b = Ts::parse("2026-10-03T08:52:00.5Z").unwrap();
         assert!(a.to_db() < b.to_db() && a < b);
         assert_eq!(Ts::parse(&b.to_db()), Some(b), "round trip");
-        assert_eq!(Ts::parse("2026-09-27T10:15:30.123+0000").unwrap().to_db(), "2026-09-27T10:15:30.123Z", "Jira's offset form");
-        assert_eq!(Ts::from_unix_secs(1789995600.0005).unwrap().to_db(), "2026-09-21T13:00:00.000Z");
-        assert!(Ts::parse("2026-10-03T10:52:00").is_none(), "a time without an offset isn't an instant");
+        assert_eq!(
+            Ts::parse("2026-09-27T10:15:30.123+0000").unwrap().to_db(),
+            "2026-09-27T10:15:30.123Z",
+            "Jira's offset form"
+        );
+        assert_eq!(
+            Ts::from_unix_secs(1789995600.0005).unwrap().to_db(),
+            "2026-09-21T13:00:00.000Z"
+        );
+        assert!(
+            Ts::parse("2026-10-03T10:52:00").is_none(),
+            "a time without an offset isn't an instant"
+        );
     }
 
     #[test]

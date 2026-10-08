@@ -20,8 +20,8 @@ mod writeback;
 
 pub use oauth::call as auth_call;
 
-use crate::sync::http::Response;
 use crate::clock::Clock;
+use crate::sync::http::Response;
 use crate::sync::{Batch, Connector, Ctx, EventFields, Handle, ItemUpsert};
 use crate::time::{Date, Ts};
 use jiff::SignedDuration;
@@ -39,7 +39,10 @@ impl Connector for GoogleCalendar {
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
-        let api = Api { ctx, cache: &oauth::CACHE };
+        let api = Api {
+            ctx,
+            cache: &oauth::CACHE,
+        };
         let cfg = Config::from(&ctx.source.config);
         match op {
             "gcal.rsvp" => writeback::rsvp(&api, &cfg, payload),
@@ -89,7 +92,11 @@ impl Config {
             category_by_color: v
                 .get("category_by_color")
                 .and_then(Value::as_object)
-                .map(|m| m.iter().filter_map(|(k, c)| Some((k.clone(), c.as_str()?.to_string()))).collect())
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, c)| Some((k.clone(), c.as_str()?.to_string())))
+                        .collect()
+                })
                 .unwrap_or_default(),
             default_category: s("default_category", "work"),
             hold_minutes: n("hold_minutes", 30).clamp(5, 480),
@@ -115,7 +122,13 @@ pub struct Api<'c, 'a> {
 }
 
 impl Api<'_, '_> {
-    pub fn request(&self, method: &str, url: &str, body: Option<&Value>, extra: &[(&str, &str)]) -> anyhow::Result<Response> {
+    pub fn request(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        extra: &[(&str, &str)],
+    ) -> anyhow::Result<Response> {
         let body = body.map(Value::to_string);
         for attempt in 0..2 {
             let auth = format!("Bearer {}", oauth::access_token(self.ctx, self.cache)?);
@@ -162,7 +175,9 @@ struct Seen {
 
 impl Cursor {
     fn parse(s: Option<&str>) -> Cursor {
-        let Some(v) = s.and_then(|s| serde_json::from_str::<Value>(s).ok()) else { return Cursor::default() };
+        let Some(v) = s.and_then(|s| serde_json::from_str::<Value>(s).ok()) else {
+            return Cursor::default();
+        };
         let seen = v
             .get("seen")
             .and_then(Value::as_object)
@@ -173,7 +188,17 @@ impl Cursor {
                         let (end, hash, flag) = (Ts::parse(p.next()?)?, p.next()?, p.next()?);
                         let mut rest = || p.next().unwrap_or("").to_string();
                         let (start, guests, change) = (Ts::parse(&rest()), rest(), rest());
-                        Some((id.clone(), Seen { end, hash: hash.into(), needs_action: flag == "n", start, guests, change }))
+                        Some((
+                            id.clone(),
+                            Seen {
+                                end,
+                                hash: hash.into(),
+                                needs_action: flag == "n",
+                                start,
+                                guests,
+                                change,
+                            },
+                        ))
                     })
                     .collect()
             })
@@ -191,7 +216,18 @@ impl Cursor {
             .iter()
             .map(|(id, s)| {
                 let start = s.start.map(Ts::to_db).unwrap_or_default();
-                (id.clone(), json!(format!("{}|{}|{}|{}|{}|{}", s.end, s.hash, if s.needs_action { "n" } else { "a" }, start, s.guests, s.change)))
+                (
+                    id.clone(),
+                    json!(format!(
+                        "{}|{}|{}|{}|{}|{}",
+                        s.end,
+                        s.hash,
+                        if s.needs_action { "n" } else { "a" },
+                        start,
+                        s.guests,
+                        s.change
+                    )),
+                )
             })
             .collect();
         json!({ "sync_token": self.sync_token, "full_on": self.full_on, "seen": seen }).to_string()
@@ -218,7 +254,8 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
         // No token, a new day, or 410 Gone: full window sync.
         None => {
             cur.full_on = today;
-            list(&api, &cfg, None, ctx.now)?.ok_or_else(|| anyhow::anyhow!("Google Calendar returned 410 on a full sync"))?
+            list(&api, &cfg, None, ctx.now)?
+                .ok_or_else(|| anyhow::anyhow!("Google Calendar returned 410 on a full sync"))?
         }
     };
 
@@ -226,7 +263,9 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     let first = ctx.source.cursor.is_none();
     let mut batch = Batch::default();
     for ev in &events {
-        let Some(id) = ev.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = ev.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         if ev.get("status").and_then(Value::as_str) == Some("cancelled") {
             // Kept locally, marked done, off the strip (see Batch::cancelled).
             if cur.seen.remove(id).is_some() {
@@ -234,7 +273,9 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             }
             continue;
         }
-        let Some((item, seen)) = map_event(ev, &cfg, cur.seen.get(id), &ctx.clock) else { continue };
+        let Some((item, seen)) = map_event(ev, &cfg, cur.seen.get(id), &ctx.clock) else {
+            continue;
+        };
         if seen.end < floor || item.occurred_at > ceiling {
             continue;
         }
@@ -303,17 +344,30 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
     }
     let (start, start_all_day) = when(ev.get("start")?, clock)?;
     let (end, _) = when(ev.get("end")?, clock)?;
-    let attendees: Vec<&Value> = ev.get("attendees").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
-    let me = attendees.iter().find(|a| a.get("self").and_then(Value::as_bool) == Some(true));
+    let attendees: Vec<&Value> = ev
+        .get("attendees")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
+    let me = attendees
+        .iter()
+        .find(|a| a.get("self").and_then(Value::as_bool) == Some(true));
     // No own attendee entry: your own event without guests, so it's accepted.
-    let response = me.and_then(|a| a.get("responseStatus")).and_then(Value::as_str).unwrap_or("accepted");
+    let response = me
+        .and_then(|a| a.get("responseStatus"))
+        .and_then(Value::as_str)
+        .unwrap_or("accepted");
     let needs_action = response == "needsAction";
     let declined = response == "declined";
-    let tentative = needs_action || response == "tentative" || ev.get("status").and_then(Value::as_str) == Some("tentative");
+    let tentative =
+        needs_action || response == "tentative" || ev.get("status").and_then(Value::as_str) == Some("tentative");
 
     let others: Vec<&&Value> = attendees
         .iter()
-        .filter(|a| a.get("self").and_then(Value::as_bool) != Some(true) && a.get("resource").and_then(Value::as_bool) != Some(true))
+        .filter(|a| {
+            a.get("self").and_then(Value::as_bool) != Some(true)
+                && a.get("resource").and_then(Value::as_bool) != Some(true)
+        })
         .collect();
     let who = attendee_summary(&others);
 
@@ -330,7 +384,14 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
         Some(p) if !p.guests.is_empty() && p.guests != guests => "guests".to_string(),
         Some(_) => "updated".to_string(),
     };
-    let seen = Seen { end, hash, needs_action, start: Some(start), guests, change: change.clone() };
+    let seen = Seen {
+        end,
+        hash,
+        needs_action,
+        start: Some(start),
+        guests,
+        change: change.clone(),
+    };
 
     let category = ev
         .get("colorId")
@@ -338,7 +399,12 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
         .and_then(|c| cfg.category_by_color.get(c))
         .cloned()
         .unwrap_or_else(|| cfg.default_category.clone());
-    let title = ev.get("summary").and_then(Value::as_str).filter(|s| !s.trim().is_empty()).unwrap_or("(No title)").to_string();
+    let title = ev
+        .get("summary")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("(No title)")
+        .to_string();
 
     let mut notes: Vec<String> = who.iter().cloned().collect();
     if start_all_day {
@@ -351,7 +417,12 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
     } else if tentative {
         notes.push("tentative".into());
     }
-    if let Some(loc) = ev.get("location").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty() && !l.contains("://")) {
+    if let Some(loc) = ev
+        .get("location")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.contains("://"))
+    {
         notes.push(loc.to_string());
     }
 
@@ -360,8 +431,15 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
         .filter(|o| o.get("self").and_then(Value::as_bool) != Some(true))
         .and_then(|o| {
             let email = o.get("email")?.as_str()?;
-            let name = o.get("displayName").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| name_from_email(email));
-            Some(Handle { handle: email.to_string(), display_name: name })
+            let name = o
+                .get("displayName")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| name_from_email(email));
+            Some(Handle {
+                handle: email.to_string(),
+                display_name: name,
+            })
         });
 
     // All-day and declined events stay as items but don't draw a block on the day strip.
@@ -370,8 +448,16 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
         external_id: id.to_string(),
         kind: "event".into(),
         title,
-        body: ev.get("description").and_then(Value::as_str).map(strip_html).unwrap_or_default(),
-        summary: if notes.is_empty() { None } else { Some(notes.join(" · ")) },
+        body: ev
+            .get("description")
+            .and_then(Value::as_str)
+            .map(strip_html)
+            .unwrap_or_default(),
+        summary: if notes.is_empty() {
+            None
+        } else {
+            Some(notes.join(" · "))
+        },
         url: ev.get("htmlLink").and_then(Value::as_str).map(str::to_owned),
         author,
         occurred_at: start,
@@ -380,14 +466,22 @@ fn map_event(ev: &Value, cfg: &Config, prev: Option<&Seen>, clock: &Clock) -> Op
         status: if declined { "done".into() } else { "open".into() },
         raw_json: {
             let mut raw = ev.clone();
-            let (kind, from) = change.split_once('@').map_or((change.as_str(), None), |(k, f)| (k, Some(f)));
+            let (kind, from) = change
+                .split_once('@')
+                .map_or((change.as_str(), None), |(k, f)| (k, Some(f)));
             raw["change"] = json!(kind);
             if let Some(from) = from {
                 raw["moved_from"] = json!(from);
             }
             raw
         },
-        event: on_strip.then_some(EventFields { start, end, category, tentative, attendees: who }),
+        event: on_strip.then_some(EventFields {
+            start,
+            end,
+            category,
+            tentative,
+            attendees: who,
+        }),
         bump,
         drop_event: !on_strip,
         ..Default::default()
@@ -402,7 +496,10 @@ fn when(t: &Value, clock: &Clock) -> Option<(Ts, bool)> {
         // Offsets are always present in API responses; read a bare time in the event's own zone anyway.
         return Ts::parse(dt)
             .or_else(|| {
-                let tz = t.get("timeZone").and_then(Value::as_str).and_then(|z| jiff::tz::TimeZone::get(z).ok())?;
+                let tz = t
+                    .get("timeZone")
+                    .and_then(Value::as_str)
+                    .and_then(|z| jiff::tz::TimeZone::get(z).ok())?;
                 let wall: jiff::civil::DateTime = dt.parse().ok()?;
                 Some(Ts::new(tz.to_ambiguous_zoned(wall).compatible().ok()?.timestamp()))
             })
@@ -421,13 +518,22 @@ pub(crate) fn fingerprint(ev: &Value) -> (String, String) {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|a| a.get("self").and_then(Value::as_bool) != Some(true) && a.get("resource").and_then(Value::as_bool) != Some(true))
+        .filter(|a| {
+            a.get("self").and_then(Value::as_bool) != Some(true)
+                && a.get("resource").and_then(Value::as_bool) != Some(true)
+        })
         .filter_map(|a| a.get("email").and_then(Value::as_str))
         .collect();
     emails.sort_unstable();
     let status = ev.get("status").and_then(Value::as_str).unwrap_or("confirmed");
-    let (start, end) = (ev.get("start").map(Value::to_string).unwrap_or_default(), ev.get("end").map(Value::to_string).unwrap_or_default());
-    let hash = format!("{:08x}", fnv(format!("{start}|{end}|{status}|{}", emails.join(",")).as_bytes()) as u32);
+    let (start, end) = (
+        ev.get("start").map(Value::to_string).unwrap_or_default(),
+        ev.get("end").map(Value::to_string).unwrap_or_default(),
+    );
+    let hash = format!(
+        "{:08x}",
+        fnv(format!("{start}|{end}|{status}|{}", emails.join(",")).as_bytes()) as u32
+    );
     let guests = format!("{:08x}", fnv(emails.join(",").as_bytes()) as u32);
     (hash, guests)
 }
@@ -478,7 +584,13 @@ pub(crate) fn strip_html(s: &str) -> String {
             ""
         }
     });
-    text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&quot;", "\"").trim().to_string()
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .trim()
+        .to_string()
 }
 
 // ---------------------------------------------------------------- helpers
@@ -503,7 +615,9 @@ pub fn enc(s: &str) -> String {
 
 /// FNV-1a: stable across builds, unlike std's hasher.
 pub fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf29ce484222325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x100000001b3))
+    bytes.iter().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ *b as u64).wrapping_mul(0x100000001b3)
+    })
 }
 
 #[cfg(test)]
@@ -514,13 +628,24 @@ pub(crate) mod tests {
 
     macro_rules! fixture {
         ($name:literal) => {
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gcal/", $name))
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/gcal/",
+                $name
+            ))
         };
     }
     pub(crate) use fixture;
 
     pub fn source(config: Value, cursor: Option<String>) -> Source {
-        Source { id: 1, kind: "gcal".into(), tag: "work".into(), name: "Work calendar".into(), config, cursor }
+        Source {
+            id: 1,
+            kind: "gcal".into(),
+            tag: "work".into(),
+            name: "Work calendar".into(),
+            config,
+            cursor,
+        }
     }
 
     pub fn secrets(k: &str) -> Option<String> {
@@ -543,14 +668,25 @@ pub(crate) mod tests {
 
     pub fn http() -> FakeHttp {
         let http = FakeHttp::default();
-        http.on("POST", "oauth2.googleapis.com/token", 200, fixture!("token_refresh.json"));
+        http.on(
+            "POST",
+            "oauth2.googleapis.com/token",
+            200,
+            fixture!("token_refresh.json"),
+        );
         http
     }
 
     fn poll(http: &FakeHttp, config: Value, cursor: Option<String>) -> Batch {
         let src = source(config, cursor);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: clock() };
+        let ctx = Ctx {
+            source: &src,
+            http,
+            secret: &secret,
+            now: now(),
+            clock: clock(),
+        };
         poll_with(&ctx, &TokenCache::new()).unwrap()
     }
 
@@ -559,7 +695,10 @@ pub(crate) mod tests {
     }
 
     fn item<'a>(b: &'a Batch, id: &str) -> &'a ItemUpsert {
-        b.items.iter().find(|i| i.external_id == id).unwrap_or_else(|| panic!("no item {id}"))
+        b.items
+            .iter()
+            .find(|i| i.external_id == id)
+            .unwrap_or_else(|| panic!("no item {id}"))
     }
 
     fn first_sync() -> (FakeHttp, Batch) {
@@ -573,7 +712,12 @@ pub(crate) mod tests {
     #[test]
     fn first_sync_pages_through_the_window() {
         let (http, b) = first_sync();
-        let gets: Vec<String> = http.requests().into_iter().filter(|r| r.0 == "GET").map(|r| r.1).collect();
+        let gets: Vec<String> = http
+            .requests()
+            .into_iter()
+            .filter(|r| r.0 == "GET")
+            .map(|r| r.1)
+            .collect();
         assert_eq!(gets.len(), 2);
         assert!(gets[0].starts_with("https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&showDeleted=true&maxResults=250&timeMin=2026-08-29T10%3A52%3A00"));
         assert!(gets[0].contains("&timeMax=2026-11-27T10%3A52%3A00"));
@@ -581,7 +725,17 @@ pub(crate) mod tests {
         assert!(gets[1].ends_with("&pageToken=CiAKGjBwMnAzcGFnZTI"));
         // workingLocation skipped; the cancelled one was never seen, so nothing to cancel.
         let ids: Vec<&str> = b.items.iter().map(|i| i.external_id.as_str()).collect();
-        assert_eq!(ids, ["7kq3c1standup_20260928T150000Z", "2b9vlunch0928", "5fh2acmeqbr", "6t1allhands", "9zz1offsite", "3dq8declined"]);
+        assert_eq!(
+            ids,
+            [
+                "7kq3c1standup_20260928T150000Z",
+                "2b9vlunch0928",
+                "5fh2acmeqbr",
+                "6t1allhands",
+                "9zz1offsite",
+                "3dq8declined"
+            ]
+        );
         assert!(b.cancelled.is_empty());
         let c = cursor_json(&b);
         assert_eq!(c["sync_token"], "CPDAlvWDx70CEPDAlvWDx70CGAU=");
@@ -598,7 +752,10 @@ pub(crate) mod tests {
         assert!(!ev.tentative);
         assert_eq!(standup.author.as_ref().unwrap().handle, "priya.shah@acme.com");
         assert_eq!(standup.author.as_ref().unwrap().display_name, "Priya Shah");
-        assert_eq!(standup.url.as_deref(), Some("https://www.google.com/calendar/event?eid=N2txM2Mx"));
+        assert_eq!(
+            standup.url.as_deref(),
+            Some("https://www.google.com/calendar/event?eid=N2txM2Mx")
+        );
         assert!(standup.bump);
     }
 
@@ -631,14 +788,27 @@ pub(crate) mod tests {
         // All-day: kept, off the strip.
         let offsite = item(&b, "9zz1offsite");
         assert!(offsite.event.is_none() && offsite.drop_event);
-        assert_eq!(offsite.occurred_at, crate::time::t("2026-10-01T00:00:00"), "an all-day date starts at midnight here (UTC in tests)");
+        assert_eq!(
+            offsite.occurred_at,
+            crate::time::t("2026-10-01T00:00:00"),
+            "an all-day date starts at midnight here (UTC in tests)"
+        );
         assert_eq!(offsite.ended_at, Some(crate::time::t("2026-10-03T00:00:00")));
     }
 
     #[test]
     fn first_sync_arrives_read_except_pending_invites() {
         let (_, b) = first_sync();
-        assert_eq!(b.seen, ["7kq3c1standup_20260928T150000Z", "2b9vlunch0928", "6t1allhands", "9zz1offsite", "3dq8declined"]);
+        assert_eq!(
+            b.seen,
+            [
+                "7kq3c1standup_20260928T150000Z",
+                "2b9vlunch0928",
+                "6t1allhands",
+                "9zz1offsite",
+                "3dq8declined"
+            ]
+        );
     }
 
     #[test]
@@ -657,9 +827,23 @@ pub(crate) mod tests {
     fn incremental_sync_bumps_only_real_changes_and_cancels() {
         let (_, first) = first_sync();
         let http = http();
-        http.on("GET", "syncToken=CPDAlvWDx70CEPDAlvWDx70CGAU%3D", 200, fixture!("incremental.json"));
-        let b = poll(&http, json!({ "category_by_color": { "3": "self" } }), first.cursor.clone());
-        let gets: Vec<String> = http.requests().into_iter().filter(|r| r.0 == "GET").map(|r| r.1).collect();
+        http.on(
+            "GET",
+            "syncToken=CPDAlvWDx70CEPDAlvWDx70CGAU%3D",
+            200,
+            fixture!("incremental.json"),
+        );
+        let b = poll(
+            &http,
+            json!({ "category_by_color": { "3": "self" } }),
+            first.cursor.clone(),
+        );
+        let gets: Vec<String> = http
+            .requests()
+            .into_iter()
+            .filter(|r| r.0 == "GET")
+            .map(|r| r.1)
+            .collect();
         assert_eq!(gets.len(), 1);
         assert!(!gets[0].contains("timeMin"));
         // Moved: bump. Only the description changed: no bump. New invite: new item.
@@ -669,9 +853,16 @@ pub(crate) mod tests {
         assert_eq!(b.cancelled, ["2b9vlunch0928"]);
         let moved = &item(&b, "5fh2acmeqbr").raw_json;
         let was = item(&first, "5fh2acmeqbr").occurred_at.to_db();
-        assert_eq!((moved["change"].as_str(), moved["moved_from"].as_str()), (Some("moved"), Some(was.as_str())));
+        assert_eq!(
+            (moved["change"].as_str(), moved["moved_from"].as_str()),
+            (Some("moved"), Some(was.as_str()))
+        );
         assert_eq!(item(&b, "8nw1newinvite").raw_json["change"], "invite");
-        assert_eq!(item(&b, "7kq3c1standup_20260928T150000Z").raw_json["change"], "new", "no real change keeps the last one");
+        assert_eq!(
+            item(&b, "7kq3c1standup_20260928T150000Z").raw_json["change"],
+            "new",
+            "no real change keeps the last one"
+        );
         let c = cursor_json(&b);
         assert_eq!(c["sync_token"], "CKjC0YiEx70CEKjC0YiEx70CGAU=");
         assert!(c["seen"].get("2b9vlunch0928").is_none());
@@ -700,7 +891,12 @@ pub(crate) mod tests {
         http.on("GET", "/calendars/primary/events?", 200, fixture!("full_page2.json"));
         http.on("GET", "syncToken=expired-token", 410, fixture!("gone.json"));
         let b = poll(&http, json!({}), Some(cur.to_string()));
-        let gets: Vec<String> = http.requests().into_iter().filter(|r| r.0 == "GET").map(|r| r.1).collect();
+        let gets: Vec<String> = http
+            .requests()
+            .into_iter()
+            .filter(|r| r.0 == "GET")
+            .map(|r| r.1)
+            .collect();
         assert_eq!(gets.len(), 2);
         assert!(gets[0].contains("syncToken=expired-token"));
         assert!(gets[1].contains("timeMin=") && !gets[1].contains("syncToken"));
@@ -717,7 +913,12 @@ pub(crate) mod tests {
         let http = http();
         http.on("GET", "/calendars/primary/events?", 200, fixture!("full_page2.json"));
         let b = poll(&http, json!({}), Some(cur.to_string()));
-        let gets: Vec<String> = http.requests().into_iter().filter(|r| r.0 == "GET").map(|r| r.1).collect();
+        let gets: Vec<String> = http
+            .requests()
+            .into_iter()
+            .filter(|r| r.0 == "GET")
+            .map(|r| r.1)
+            .collect();
         assert_eq!(gets.len(), 1);
         assert!(gets[0].contains("timeMin="));
         assert_eq!(cursor_json(&b)["full_on"], "2026-09-28");
@@ -729,14 +930,27 @@ pub(crate) mod tests {
         http.on("GET", "/calendars/primary/events?", 200, fixture!("full_page2.json"));
         let src = source(json!({ "secret_prefix": "t" }), None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: now(),
+            clock: clock(),
+        };
         let cache = TokenCache::new();
         poll_with(&ctx, &cache).unwrap();
         poll_with(&ctx, &cache).unwrap();
-        let token_calls = |h: &FakeHttp| h.requests().iter().filter(|r| r.1.contains("oauth2.googleapis.com/token")).count();
+        let token_calls = |h: &FakeHttp| {
+            h.requests()
+                .iter()
+                .filter(|r| r.1.contains("oauth2.googleapis.com/token"))
+                .count()
+        };
         assert_eq!(token_calls(&http), 1);
         let body = http.requests()[0].2.clone().unwrap();
-        assert!(body.contains("grant_type=refresh_token") && body.contains("refresh_token=1%2F%2F0gRefreshTokenExample"));
+        assert!(
+            body.contains("grant_type=refresh_token") && body.contains("refresh_token=1%2F%2F0gRefreshTokenExample")
+        );
         // Expire it: the next call refreshes.
         let key = oauth::cache_key("t", "1//0gRefreshTokenExample");
         cache.put(&key, "stale", std::time::Instant::now());
@@ -747,10 +961,21 @@ pub(crate) mod tests {
     #[test]
     fn revoked_refresh_token_says_how_to_fix_it() {
         let http = FakeHttp::default();
-        http.on("POST", "oauth2.googleapis.com/token", 400, r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#);
+        http.on(
+            "POST",
+            "oauth2.googleapis.com/token",
+            400,
+            r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#,
+        );
         let src = source(json!({}), None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: now(),
+            clock: clock(),
+        };
         let e = poll_with(&ctx, &TokenCache::new()).unwrap_err().to_string();
         assert!(e.contains("gcal.auth_start"), "{e}");
         assert!(!e.contains("GOCSPX") && !e.contains("1//0g"), "no secrets in errors");
@@ -761,7 +986,13 @@ pub(crate) mod tests {
         let http = FakeHttp::default();
         let src = source(json!({}), None);
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: now(), clock: clock() };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: now(),
+            clock: clock(),
+        };
         let e = poll_with(&ctx, &TokenCache::new()).unwrap_err().to_string();
         assert!(e.contains("gcal.refresh_token") && e.contains("gcal.auth_start"), "{e}");
     }
@@ -780,7 +1011,10 @@ pub(crate) mod tests {
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let (_, first) = first_sync();
-        assert_eq!(crate::sync::apply_in(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(), 6);
+        assert_eq!(
+            crate::sync::apply_in(&conn, &src, &first, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            6
+        );
         let blocks: i64 = conn.query_row("SELECT count(*) FROM events", [], |r| r.get(0)).unwrap();
         assert_eq!(blocks, 4, "all-day and declined stay off the strip");
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
@@ -790,7 +1024,10 @@ pub(crate) mod tests {
         let src = crate::sync::load_source(&conn, 1).unwrap();
         let next = poll(&http, src.config.clone(), src.cursor.clone());
         // moved invite + new invite + cancelled lunch
-        assert_eq!(crate::sync::apply_in(&conn, &src, &next, crate::time::t("2026-09-28T10:52:00")).unwrap(), 3);
+        assert_eq!(
+            crate::sync::apply_in(&conn, &src, &next, crate::time::t("2026-09-28T10:52:00")).unwrap(),
+            3
+        );
         let (status, summary, blocks): (String, String, i64) = conn
             .query_row(
                 "SELECT status, summary, (SELECT count(*) FROM events e WHERE e.item_id = i.id) FROM items i WHERE external_id = '2b9vlunch0928'",

@@ -22,9 +22,15 @@ pub fn check(rows: &[Category]) -> Result<Vec<Category>> {
     for c in rows {
         let key = c.key.trim();
         if key.is_empty() || keep.iter().any(|k| k.key == key) {
-            return Err(msg(format!("settings.json categories: key '{key}' is empty or repeated")));
+            return Err(msg(format!(
+                "settings.json categories: key '{key}' is empty or repeated"
+            )));
         }
-        keep.push(Category { key: key.into(), label: label(&c.label)?, color: color(&c.color)? });
+        keep.push(Category {
+            key: key.into(),
+            label: label(&c.label)?,
+            color: color(&c.color)?,
+        });
     }
     Ok(keep)
 }
@@ -36,7 +42,14 @@ pub fn load(uow: &dyn UnitOfWork, from: &Categories) -> Result<bool> {
     let rows = match from {
         Categories::Legacy(m) => {
             if uow.reads().categories().list()?.is_empty() {
-                let rows: Vec<Category> = m.iter().map(|(k, c)| Category { key: k.clone(), label: c.label.clone(), color: c.color.clone() }).collect();
+                let rows: Vec<Category> = m
+                    .iter()
+                    .map(|(k, c)| Category {
+                        key: k.clone(),
+                        label: c.label.clone(),
+                        color: c.color.clone(),
+                    })
+                    .collect();
                 uow.categories().replace(&rows)?;
             }
             return Ok(true);
@@ -71,13 +84,18 @@ fn write(rows: &[Category], path: &Path) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}".to_string(),
         r => r.map_err(|e| msg(format!("couldn't read {}: {e}", path.display())))?,
     };
-    let mut v: Value = serde_json::from_str(&text).map_err(|e| msg(format!("couldn't parse {}: {e}", path.display())))?;
+    let mut v: Value =
+        serde_json::from_str(&text).map_err(|e| msg(format!("couldn't parse {}: {e}", path.display())))?;
     v["categories"] = json!(rows);
     crate::settings::live::write_file(path, &v)
 }
 
 pub fn map(r: &dyn Reads) -> Result<BTreeMap<String, Value>> {
-    Ok(r.categories().list()?.into_iter().map(|c| (c.key, json!({ "label": c.label, "color": c.color }))).collect())
+    Ok(r.categories()
+        .list()?
+        .into_iter()
+        .map(|c| (c.key, json!({ "label": c.label, "color": c.color })))
+        .collect())
 }
 
 pub fn exists(r: &dyn Reads, key: &str) -> Result<bool> {
@@ -102,7 +120,11 @@ fn label(s: &str) -> Result<String> {
 
 fn create(uow: &dyn UnitOfWork, name: &str, c: &str) -> Result<Value> {
     let (name, c) = (label(name)?, color(c)?);
-    let base: String = name.to_lowercase().chars().map(|ch| if ch.is_alphanumeric() { ch } else { '-' }).collect();
+    let base: String = name
+        .to_lowercase()
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '-' })
+        .collect();
     let base = base.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-");
     let base = if base.is_empty() { "category".to_string() } else { base };
     let mut key = base.clone();
@@ -111,7 +133,11 @@ fn create(uow: &dyn UnitOfWork, name: &str, c: &str) -> Result<Value> {
         key = format!("{base}-{n}");
         n += 1;
     }
-    uow.categories().add(&Category { key: key.clone(), label: name, color: c })?;
+    uow.categories().add(&Category {
+        key: key.clone(),
+        label: name,
+        color: c,
+    })?;
     Ok(json!({ "key": key }))
 }
 
@@ -130,7 +156,9 @@ fn delete(uow: &dyn UnitOfWork, key: &str) -> Result<Value> {
     }
     let (topics, events) = uow.reads().categories().uses(key)?;
     if topics + events > 0 {
-        return Err(msg(format!("still used by {topics} topic(s) and {events} calendar block(s); move them first")));
+        return Err(msg(format!(
+            "still used by {topics} topic(s) and {events} calendar block(s); move them first"
+        )));
     }
     uow.categories().delete(key)?;
     Ok(json!({ "ok": true }))
@@ -173,14 +201,18 @@ mod tests {
         let sql = crate::store::over(&conn);
         let uow: &dyn UnitOfWork = &sql;
         load(uow, &crate::settings::Settings::default().categories).unwrap();
-        let key = create(uow, "Leisure & fun", "#00AAFF").unwrap()["key"].as_str().unwrap().to_string();
+        let key = create(uow, "Leisure & fun", "#00AAFF").unwrap()["key"]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert_eq!(key, "leisure-fun");
         assert_eq!(create(uow, "Leisure fun", "#00aaff").unwrap()["key"], "leisure-fun-2");
         assert!(create(uow, "Bad", "blue").is_err());
         update(uow, &key, Some("Leisure"), Some("#112233")).unwrap();
         let m = map(uow.reads()).unwrap();
         assert_eq!(m[&key], json!({ "label": "Leisure", "color": "#112233" }));
-        conn.execute("INSERT INTO topics (name, category) VALUES ('Climbing', ?1)", [&key]).unwrap();
+        conn.execute("INSERT INTO topics (name, category) VALUES ('Climbing', ?1)", [&key])
+            .unwrap();
         assert!(delete(uow, &key).is_err());
         assert!(delete(uow, "work").is_err());
         conn.execute("DELETE FROM topics", []).unwrap();
@@ -194,25 +226,44 @@ mod tests {
         let sql = crate::store::over(&conn);
         let uow: &dyn UnitOfWork = &sql;
         let list = || uow.reads().categories().list();
-        let cat = |k: &str, l: &str| Category { key: k.into(), label: l.into(), color: "#112233".into() };
-        uow.categories().replace(&[cat("work", "Work"), cat("vendors", "Vendors")]).unwrap();
-        let legacy: Categories = serde_json::from_value(json!({ "work": { "label": "Old", "color": "#000000" } })).unwrap();
+        let cat = |k: &str, l: &str| Category {
+            key: k.into(),
+            label: l.into(),
+            color: "#112233".into(),
+        };
+        uow.categories()
+            .replace(&[cat("work", "Work"), cat("vendors", "Vendors")])
+            .unwrap();
+        let legacy: Categories =
+            serde_json::from_value(json!({ "work": { "label": "Old", "color": "#000000" } })).unwrap();
         assert!(load(uow, &legacy).unwrap());
         assert_eq!(list().unwrap().len(), 2);
 
-        conn.execute("INSERT INTO topics (name, category) VALUES ('Acme', 'vendors')", []).unwrap();
-        let file: Categories = serde_json::from_value(json!([{ "key": "jobs", "label": "Jobs", "color": "#B8BB26" }])).unwrap();
+        conn.execute("INSERT INTO topics (name, category) VALUES ('Acme', 'vendors')", [])
+            .unwrap();
+        let file: Categories =
+            serde_json::from_value(json!([{ "key": "jobs", "label": "Jobs", "color": "#B8BB26" }])).unwrap();
         assert!(load(uow, &file).unwrap());
         let keys: Vec<String> = list().unwrap().into_iter().map(|c| c.key).collect();
         assert_eq!(keys, ["jobs", "work", "vendors", "life"]);
-        assert!(load(uow, &serde_json::from_value(json!([{ "key": "a", "label": "A", "color": "blue" }])).unwrap()).is_err());
+        assert!(load(
+            uow,
+            &serde_json::from_value(json!([{ "key": "a", "label": "A", "color": "blue" }])).unwrap()
+        )
+        .is_err());
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, r#"{"sources": [], "categories": {}, "demo_data": false}"#).unwrap();
         write(&list().unwrap(), &path).unwrap();
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(v.as_object().unwrap().keys().collect::<Vec<_>>(), ["sources", "categories", "demo_data"]);
-        assert_eq!(v["categories"][0], json!({ "key": "jobs", "label": "Jobs", "color": "#b8bb26" }));
+        assert_eq!(
+            v.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["sources", "categories", "demo_data"]
+        );
+        assert_eq!(
+            v["categories"][0],
+            json!({ "key": "jobs", "label": "Jobs", "color": "#b8bb26" })
+        );
     }
 }

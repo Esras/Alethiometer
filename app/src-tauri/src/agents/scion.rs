@@ -83,7 +83,10 @@ impl Hub {
             sig,
             http,
             state: Default::default(),
-            link: Mutex::new(Link { state: "connecting", ..Default::default() }),
+            link: Mutex::new(Link {
+                state: "connecting",
+                ..Default::default()
+            }),
             ids: Default::default(),
             stop: AtomicBool::new(false),
             kick: AtomicBool::new(false),
@@ -100,13 +103,26 @@ impl Hub {
     }
 
     fn client(&self, app: &App) -> anyhow::Result<Client<'_>> {
-        let token = app.platform.secret_get(&self.cfg.token_secret).map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
-        let token = token.ok_or_else(|| anyhow::anyhow!("no access token: add a scion_pat_… token as {}", self.cfg.token_secret))?;
-        Ok(Client { http: &*self.http, base: self.cfg.hub_url.clone(), token })
+        let token = app
+            .platform
+            .secret_get(&self.cfg.token_secret)
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+        let token = token
+            .ok_or_else(|| anyhow::anyhow!("no access token: add a scion_pat_… token as {}", self.cfg.token_secret))?;
+        Ok(Client {
+            http: &*self.http,
+            base: self.cfg.hub_url.clone(),
+            token,
+        })
     }
 
     fn web(&self) -> String {
-        let w = if self.cfg.web_url.is_empty() { &self.cfg.hub_url } else { &self.cfg.web_url };
+        let w = if self.cfg.web_url.is_empty() {
+            &self.cfg.hub_url
+        } else {
+            &self.cfg.web_url
+        };
         w.trim_end_matches('/').to_owned()
     }
 
@@ -121,13 +137,20 @@ fn split_id(id: &str) -> Option<(&str, &str)> {
 }
 
 fn hub(app: &App, source: &str) -> Result<Arc<Hub>> {
-    app.agents.scion.get().get(source).cloned().ok_or_else(|| msg(format!("Scion Hub '{source}' isn't connected")))
+    app.agents
+        .scion
+        .get()
+        .get(source)
+        .cloned()
+        .ok_or_else(|| msg(format!("Scion Hub '{source}' isn't connected")))
 }
 
 /// The hub holding a conversation.
 fn hub_with_conv(app: &App, conv: &str) -> Result<Arc<Hub>> {
     let hubs: Vec<Arc<Hub>> = app.agents.scion.get().values().cloned().collect();
-    hubs.into_iter().find(|h| h.st().convs.contains_key(conv)).ok_or_else(|| msg("No connected Scion Hub has this room"))
+    hubs.into_iter()
+        .find(|h| h.st().convs.contains_key(conv))
+        .ok_or_else(|| msg("No connected Scion Hub has this room"))
 }
 
 fn err(e: anyhow::Error) -> crate::error::Error {
@@ -152,12 +175,18 @@ fn reconcile(app: &Arc<App>) {
         .iter()
         .filter(|s| s.kind == "scion" && s.enabled)
         .filter_map(|s| {
-            let cfg = ScionConfig::from_json(&s.config).ok().filter(|c| !c.hub_url.is_empty())?;
+            let cfg = ScionConfig::from_json(&s.config)
+                .ok()
+                .filter(|c| !c.hub_url.is_empty())?;
             Some((s.name.clone(), cfg, format!("{}{}", s.name, s.config)))
         })
         .collect();
     let mut hubs = app.agents.scion.get();
-    let gone: Vec<String> = hubs.iter().filter(|(n, h)| !wanted.iter().any(|(wn, _, sig)| wn == *n && *sig == h.sig)).map(|(n, _)| n.clone()).collect();
+    let gone: Vec<String> = hubs
+        .iter()
+        .filter(|(n, h)| !wanted.iter().any(|(wn, _, sig)| wn == *n && *sig == h.sig))
+        .map(|(n, _)| n.clone())
+        .collect();
     for name in gone {
         if let Some(h) = hubs.remove(&name) {
             h.stop.store(true, Ordering::SeqCst);
@@ -172,7 +201,10 @@ fn reconcile(app: &Arc<App>) {
         let h = Arc::new(Hub::new(&name, cfg, sig, http));
         hubs.insert(name.clone(), h.clone());
         let a = app.clone();
-        std::thread::Builder::new().name(format!("scion-{name}")).spawn(move || run(&a, &h)).ok();
+        std::thread::Builder::new()
+            .name(format!("scion-{name}"))
+            .spawn(move || run(&a, &h))
+            .ok();
     }
 }
 
@@ -228,7 +260,10 @@ fn tick(app: &App, hub: &Hub) -> anyhow::Result<()> {
                 "group" => projects.iter().any(|p| p == s(&conv, "projectId")),
                 "direct" => {
                     let r = s(&conv, "externalRef");
-                    r.contains(&me) && r.strip_prefix("dm:agent:").and_then(|x| x.split(':').next()).is_some_and(|a| agents.contains(a))
+                    r.contains(&me)
+                        && r.strip_prefix("dm:agent:")
+                            .and_then(|x| x.split(':').next())
+                            .is_some_and(|a| agents.contains(a))
                 }
                 _ => false,
             };
@@ -247,7 +282,16 @@ fn tick(app: &App, hub: &Hub) -> anyhow::Result<()> {
             }
         };
         let group = s(conv, "kind") == "group";
-        let participants = if group && (fresh || full) { Some(c.conversation(id)?["participants"].as_array().cloned().unwrap_or_default()) } else { None };
+        let participants = if group && (fresh || full) {
+            Some(
+                c.conversation(id)?["participants"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+        } else {
+            None
+        };
         let messages = if fresh || moved || unsettled || (group && full) {
             let mut m = c.messages(id, max)?;
             m.reverse();
@@ -280,8 +324,16 @@ fn unsettled(st: &map::State, id: &str, conv: &map::Conv) -> bool {
     let now = jiff::Timestamp::now().as_millisecond();
     let recent = |t: i64| t > now - 120_000 && t <= now + 60_000;
     let agents_dm = s(&conv.meta, "externalRef");
-    st.pending.iter().any(|p| p.key == format!("r:{id}") || p.key.rsplit(':').next().is_some_and(|a| !a.is_empty() && agents_dm.contains(a)))
-        || conv.messages.iter().any(|m| s(m, "dispatchState") == "pending" || (s(m, "dispatchState") == "dispatched" && recent(map::ms(s(m, "createdAt")))))
+    st.pending.iter().any(|p| {
+        p.key == format!("r:{id}")
+            || p.key
+                .rsplit(':')
+                .next()
+                .is_some_and(|a| !a.is_empty() && agents_dm.contains(a))
+    }) || conv.messages.iter().any(|m| {
+        s(m, "dispatchState") == "pending"
+            || (s(m, "dispatchState") == "dispatched" && recent(map::ms(s(m, "createdAt"))))
+    })
 }
 
 /// Projects, agents and you; notes agents' state changes between refreshes.
@@ -296,10 +348,18 @@ fn refresh(c: &Client, hub: &Hub) -> anyhow::Result<()> {
     let mut projects: Vec<Value> = c
         .projects()?
         .into_iter()
-        .filter(|p| want.is_empty() || want.iter().any(|w| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str())))
+        .filter(|p| {
+            want.is_empty()
+                || want
+                    .iter()
+                    .any(|w| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str()))
+        })
         .collect();
     for w in want {
-        if projects.iter().any(|p| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str())) {
+        if projects
+            .iter()
+            .any(|p| [s(p, "id"), s(p, "slug"), s(p, "name")].contains(&w.as_str()))
+        {
             continue;
         }
         match c.project(w) {
@@ -316,7 +376,11 @@ fn refresh(c: &Client, hub: &Hub) -> anyhow::Result<()> {
     let mut st = hub.st();
     for a in &agents {
         let id = s(a, "id").to_owned();
-        let now = (s(a, "phase").to_owned(), s(a, "activity").to_owned(), s(a, "lastActivityEvent").to_owned());
+        let now = (
+            s(a, "phase").to_owned(),
+            s(a, "activity").to_owned(),
+            s(a, "lastActivityEvent").to_owned(),
+        );
         if let Some(old) = l.seen.get(&id) {
             let text = if old.0 != now.0 {
                 Some(format!("{} → {}", old.0, now.0))
@@ -326,7 +390,11 @@ fn refresh(c: &Client, hub: &Hub) -> anyhow::Result<()> {
                 None
             };
             if let Some(text) = text {
-                let at = if s(a, "updated").is_empty() { crate::time::Ts::new(jiff::Timestamp::now()).to_db() } else { s(a, "updated").to_owned() };
+                let at = if s(a, "updated").is_empty() {
+                    crate::time::Ts::new(jiff::Timestamp::now()).to_db()
+                } else {
+                    s(a, "updated").to_owned()
+                };
                 let t = st.transitions.entry(id.clone()).or_default();
                 t.push((at, text.trim_start_matches(" → ").to_owned()));
                 if t.len() > 50 {
@@ -347,7 +415,12 @@ fn interagent(c: &Client, hub: &Hub, me: &str) -> anyhow::Result<()> {
     if hub.link().no_chat || me.is_empty() {
         return Ok(());
     }
-    let agents: Vec<(String, String)> = hub.st().agents.iter().map(|a| (s(a, "id").to_owned(), s(a, "lastActivityEvent").to_owned())).collect();
+    let agents: Vec<(String, String)> = hub
+        .st()
+        .agents
+        .iter()
+        .map(|a| (s(a, "id").to_owned(), s(a, "lastActivityEvent").to_owned()))
+        .collect();
     for (id, at) in agents {
         let key = format!("ia:{id}");
         if hub.link().seen.get(&key).is_some_and(|v| v.2 == at) {
@@ -378,17 +451,38 @@ pub(crate) fn publish(app: &App, hub: &Hub) {
     let palette = app.settings().agents.names.palette.len();
     let snap = {
         let st = hub.st();
-        let cx = map::Cx { source: &hub.source, web: &web, live };
-        map::build(&cx, &st, &mut |g, n| super::store::color_for(app.store(), g, n, palette).unwrap_or(0))
+        let cx = map::Cx {
+            source: &hub.source,
+            web: &web,
+            live,
+        };
+        map::build(&cx, &st, &mut |g, n| {
+            super::store::color_for(app.store(), g, n, palette).unwrap_or(0)
+        })
     };
-    let listed: HashSet<&str> = snap.threads.iter().flat_map(|(_, rows)| rows.iter().map(|r| r.ext.as_str())).filter(|e| !e.starts_with("local:")).collect();
-    hub.st().pending.retain(|p| p.row.ext.starts_with("local:") || !listed.contains(p.row.ext.as_str()));
+    let listed: HashSet<&str> = snap
+        .threads
+        .iter()
+        .flat_map(|(_, rows)| rows.iter().map(|r| r.ext.as_str()))
+        .filter(|e| !e.starts_with("local:"))
+        .collect();
+    hub.st()
+        .pending
+        .retain(|p| p.row.ext.starts_with("local:") || !listed.contains(p.row.ext.as_str()));
     {
         let st = hub.st();
         let mut attach = ATTACH.lock().unwrap_or_else(|e| e.into_inner());
         for a in &st.agents {
-            let project = st.projects.iter().find(|p| s(p, "id") == s(a, "projectId")).map(|p| s(p, "slug")).unwrap_or("");
-            attach.insert(map::session_id(&hub.source, s(a, "id")), format!("scion attach {} --hub {} -g {project}", s(a, "slug"), hub.cfg.hub_url));
+            let project = st
+                .projects
+                .iter()
+                .find(|p| s(p, "id") == s(a, "projectId"))
+                .map(|p| s(p, "slug"))
+                .unwrap_or("");
+            attach.insert(
+                map::session_id(&hub.source, s(a, "id")),
+                format!("scion attach {} --hub {} -g {project}", s(a, "slug"), hub.cfg.hub_url),
+            );
         }
     }
     let prefix = format!("scion:{}:", hub.source);
@@ -408,7 +502,12 @@ pub(crate) fn publish(app: &App, hub: &Hub) {
     for r in snap.requests {
         i.put_request(r);
     }
-    let stale = |ids: Vec<&String>, keep: &HashSet<String>| ids.into_iter().filter(|id| id.starts_with(&prefix) && !keep.contains(*id)).cloned().collect::<Vec<_>>();
+    let stale = |ids: Vec<&String>, keep: &HashSet<String>| {
+        ids.into_iter()
+            .filter(|id| id.starts_with(&prefix) && !keep.contains(*id))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     for id in stale(i.groups.keys().collect(), &groups) {
         i.remove_group(&id);
     }
@@ -421,7 +520,14 @@ pub(crate) fn publish(app: &App, hub: &Hub) {
     let keys: HashSet<String> = snap.threads.iter().map(|(k, _)| k.clone()).collect();
     for (key, rows) in snap.threads {
         let same = i.threads.get(&key).is_some_and(|t| {
-            t.rows.len() == rows.len() && t.rows.iter().zip(&rows).all(|(a, b)| Row { id: 0, rev: 0, ..a.clone() } == *b)
+            t.rows.len() == rows.len()
+                && t.rows.iter().zip(&rows).all(|(a, b)| {
+                    Row {
+                        id: 0,
+                        rev: 0,
+                        ..a.clone()
+                    } == *b
+                })
         });
         if !same {
             i.set_rows(&key, rows);
@@ -442,7 +548,12 @@ fn clear(app: &App, source: &str) {
     for id in sessions {
         i.remove_session(&id);
     }
-    let groups: Vec<(String, Option<String>)> = i.groups.values().filter(|g| g.id.starts_with(&prefix)).map(|g| (g.id.clone(), g.room.as_ref().map(|r| format!("r:{}", r.id)))).collect();
+    let groups: Vec<(String, Option<String>)> = i
+        .groups
+        .values()
+        .filter(|g| g.id.starts_with(&prefix))
+        .map(|g| (g.id.clone(), g.room.as_ref().map(|r| format!("r:{}", r.id))))
+        .collect();
     for (id, room) in groups {
         i.remove_group(&id);
         if let Some(k) = room {
@@ -465,7 +576,13 @@ pub fn hubs(app: &App) -> Value {
         .filter(|s| s.kind == "scion")
         .map(|src| {
             let cfg = ScionConfig::from_json(&src.config).unwrap_or_default();
-            let name = cfg.hub_url.split("://").nth(1).unwrap_or(&cfg.hub_url).trim_end_matches('/').to_owned();
+            let name = cfg
+                .hub_url
+                .split("://")
+                .nth(1)
+                .unwrap_or(&cfg.hub_url)
+                .trim_end_matches('/')
+                .to_owned();
             let (state, error) = match running.get(&src.name) {
                 Some(h) if src.enabled => {
                     let l = h.link();
@@ -495,15 +612,36 @@ fn target(app: &App, key: &str, text: &str, to: Option<&str>) -> Result<(Arc<Hub
         let (meta, member) = {
             let st = hub.st();
             let meta = st.convs[conv].meta.clone();
-            let member = to.map(|n| st.agents.iter().find(|a| s(a, "name") == n || s(a, "slug") == n).cloned().ok_or_else(|| msg(format!("No agent named {n} on this Hub"))));
+            let member = to.map(|n| {
+                st.agents
+                    .iter()
+                    .find(|a| s(a, "name") == n || s(a, "slug") == n)
+                    .cloned()
+                    .ok_or_else(|| msg(format!("No agent named {n} on this Hub")))
+            });
             (meta, member.transpose()?)
         };
-        let topic = map::topic_of(&meta).ok_or_else(|| msg(format!("#{} lives on {}; post to it there", s(&meta, "displayName"), s(&meta, "surface"))))?.to_owned();
+        let topic = map::topic_of(&meta)
+            .ok_or_else(|| {
+                msg(format!(
+                    "#{} lives on {}; post to it there",
+                    s(&meta, "displayName"),
+                    s(&meta, "surface")
+                ))
+            })?
+            .to_owned();
         let (content, who) = match &member {
             Some(a) => {
                 let at = format!("@{}", s(a, "slug"));
-                let content = if text.trim_start().starts_with(&at) { text.trim().to_owned() } else { format!("{at} {}", text.trim()) };
-                (content, Some(Who::agent(s(a, "name"), Some(map::session_id(&hub.source, s(a, "id"))))))
+                let content = if text.trim_start().starts_with(&at) {
+                    text.trim().to_owned()
+                } else {
+                    format!("{at} {}", text.trim())
+                };
+                (
+                    content,
+                    Some(Who::agent(s(a, "name"), Some(map::session_id(&hub.source, s(a, "id"))))),
+                )
             }
             None => (text.trim().to_owned(), Some(Who::room(s(&meta, "displayName"), conv))),
         };
@@ -515,7 +653,15 @@ fn target(app: &App, key: &str, text: &str, to: Option<&str>) -> Result<(Arc<Hub
     if hub.agent(agent).is_none() {
         return Err(msg("This agent is gone from the Hub"));
     }
-    Ok((hub, Target::Dm { agent: agent.into(), wake: false }, text.trim().to_owned(), None))
+    Ok((
+        hub,
+        Target::Dm {
+            agent: agent.into(),
+            wake: false,
+        },
+        text.trim().to_owned(),
+        None,
+    ))
 }
 
 /// The optimistic You row, until the Hub lists the message.
@@ -529,7 +675,11 @@ fn queue(app: &App, hub: &Hub, key: &str, text: &str, to: Option<Who>) -> (u64, 
         to,
         label: "message".into(),
         text: text.into(),
-        delivery: Some(Delivery { state: "pending".into(), at: ts, ..Default::default() }),
+        delivery: Some(Delivery {
+            state: "pending".into(),
+            at: ts,
+            ..Default::default()
+        }),
         ext: ext.clone(),
         ..Default::default()
     };
@@ -559,23 +709,60 @@ fn dispatch(app: &App, hub: &Hub, o: &Out) {
     let ts = now(app);
     let (id, d) = match r {
         Ok(v) => {
-            let id = [s(&v, "id"), s(&v, "message_id")].into_iter().find(|x| !x.is_empty()).unwrap_or(ext).to_owned();
-            let st = [s(&v, "dispatchState"), s(&v, "status")].into_iter().find(|x| !x.is_empty()).unwrap_or("delivered");
+            let id = [s(&v, "id"), s(&v, "message_id")]
+                .into_iter()
+                .find(|x| !x.is_empty())
+                .unwrap_or(ext)
+                .to_owned();
+            let st = [s(&v, "dispatchState"), s(&v, "status")]
+                .into_iter()
+                .find(|x| !x.is_empty())
+                .unwrap_or("delivered");
             let reason = s(&v, "dispatchFailureReason").to_owned();
             let state = match st {
-                "failed" if s(&v, "dispatchFailureCode") == "agent_unreachable" || reason.starts_with("Agent unreachable") => "unreachable",
+                "failed"
+                    if s(&v, "dispatchFailureCode") == "agent_unreachable"
+                        || reason.starts_with("Agent unreachable") =>
+                {
+                    "unreachable"
+                }
                 "failed" | "ambiguous" => "failed",
                 "deferred" => "deferred",
                 "pending" => "pending",
                 _ => "delivered",
             };
-            let mentioned = v["mentions"].as_array().map_or(0, |m| m.iter().filter(|m| s(m, "status") == "delivered").count());
+            let mentioned = v["mentions"]
+                .as_array()
+                .map_or(0, |m| m.iter().filter(|m| s(m, "status") == "delivered").count());
             let count = if state == "delivered" { mentioned.max(1) } else { 0 };
-            (id, Delivery { state: state.into(), count, at: ts.clone(), delivered_at: if state == "delivered" { ts } else { String::new() }, reason, ..Default::default() })
+            (
+                id,
+                Delivery {
+                    state: state.into(),
+                    count,
+                    at: ts.clone(),
+                    delivered_at: if state == "delivered" { ts } else { String::new() },
+                    reason,
+                    ..Default::default()
+                },
+            )
         }
         Err(e) => {
-            let state = if hub_error(&e).is_some_and(|h| h.code == "agent_not_running" || h.code == "agent_unreachable") { "unreachable" } else { "failed" };
-            (ext.to_owned(), Delivery { state: state.into(), at: ts, reason: e.to_string(), ..Default::default() })
+            let state = if hub_error(&e).is_some_and(|h| h.code == "agent_not_running" || h.code == "agent_unreachable")
+            {
+                "unreachable"
+            } else {
+                "failed"
+            };
+            (
+                ext.to_owned(),
+                Delivery {
+                    state: state.into(),
+                    at: ts,
+                    reason: e.to_string(),
+                    ..Default::default()
+                },
+            )
         }
     };
     let failed = d.state == "failed";
@@ -609,13 +796,28 @@ fn later(app: &App, f: impl FnOnce(&App) + Send + 'static) {
     }
 }
 
-fn send_as(app: &App, key: &str, text: &str, to: Option<&str>, reply_to: Option<String>, kind: &'static str) -> Result<()> {
+fn send_as(
+    app: &App,
+    key: &str,
+    text: &str,
+    to: Option<&str>,
+    reply_to: Option<String>,
+    kind: &'static str,
+) -> Result<()> {
     let (hub, t, content, who) = target(app, key, text, to)?;
     if content.is_empty() {
         return Err(msg("Write a message first"));
     }
     let (row, ext) = queue(app, &hub, key, &content, who);
-    let o = Out { key: key.to_owned(), row, ext, target: t, content, reply_to, kind };
+    let o = Out {
+        key: key.to_owned(),
+        row,
+        ext,
+        target: t,
+        content,
+        reply_to,
+        kind,
+    };
     later(app, move |app| dispatch(app, &hub, &o));
     Ok(())
 }
@@ -637,7 +839,11 @@ fn agent_of(app: &App, id: &str) -> Result<(Arc<Hub>, Value)> {
 /// terminal input. Needs `agent:attach`.
 pub fn interrupt(app: &App, id: &str) -> Result<()> {
     let (hub, a) = agent_of(app, id)?;
-    let key = if matches!(s(&a, "resolvedHarness"), "claude" | "muse-code") { "Escape" } else { "C-c" };
+    let key = if matches!(s(&a, "resolvedHarness"), "claude" | "muse-code") {
+        "Escape"
+    } else {
+        "C-c"
+    };
     let c = hub.client(app).map_err(err)?;
     c.keys(s(&a, "id"), key).map_err(|e| match hub_error(&e) {
         Some(h) if h.code == "agent_not_running" => msg("It isn't running"),
@@ -650,9 +856,19 @@ pub fn interrupt(app: &App, id: &str) -> Result<()> {
 /// Reply to an input-needed ask: in a room, as a reply to the ask (the Hub
 /// routes it to the asker); in a DM, as a `reply` message.
 pub fn answer(app: &App, request: &str, text: &str) -> Result<()> {
-    let req = app.agents.store.lock().requests.get(request).cloned().ok_or_else(|| msg("That question was already answered"))?;
+    let req = app
+        .agents
+        .store
+        .lock()
+        .requests
+        .get(request)
+        .cloned()
+        .ok_or_else(|| msg("That question was already answered"))?;
     let (source, rest) = split_id(request).ok_or_else(|| msg("not a Scion ask"))?;
-    let message = rest.strip_prefix("ask:").ok_or_else(|| msg("not a Scion ask"))?.to_owned();
+    let message = rest
+        .strip_prefix("ask:")
+        .ok_or_else(|| msg("not a Scion ask"))?
+        .to_owned();
     let hub = hub(app, source)?;
     if req.thread.starts_with("r:") {
         send_as(app, &req.thread, text, None, Some(message.clone()), "reply")?;
@@ -679,26 +895,48 @@ fn slugify(s: &str) -> String {
 /// Start an agent through the Hub, then (if asked) add it to a room. The
 /// task is its first instruction. Returns the session id.
 pub fn start_agent(app: &App, args: &Value) -> Result<String> {
-    let arg = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    let arg = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
     let group = arg("group").ok_or_else(|| msg("Pick a Scion group"))?;
     let (source, rest) = split_id(group).ok_or_else(|| msg("not a Scion group"))?;
     let (project, tail) = rest.split_once(':').ok_or_else(|| msg("not a Scion group"))?;
     let hub = hub(app, source)?;
     let name = arg("name").ok_or_else(|| msg("Name the agent"))?;
     let slug = slugify(name);
-    if hub.st().agents.iter().any(|a| s(a, "projectId") == project && (s(a, "slug") == slug || s(a, "name") == name)) {
+    if hub
+        .st()
+        .agents
+        .iter()
+        .any(|a| s(a, "projectId") == project && (s(a, "slug") == slug || s(a, "name") == name))
+    {
         return Err(msg(format!("There's already an agent named {name} in this project")));
     }
     let template = arg("template").ok_or_else(|| msg("Pick a template"))?;
     let ids = hub.ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let template = arg("template_version").and_then(|v| ids.get(&format!("t:{template}:{v}"))).map(String::as_str).unwrap_or(template);
+    let template = arg("template_version")
+        .and_then(|v| ids.get(&format!("t:{template}:{v}")))
+        .map(String::as_str)
+        .unwrap_or(template);
     let mut body = json!({ "name": name, "projectId": project, "template": template });
     if let Some(h) = arg("harness_config") {
         body["harnessConfig"] = json!(h);
     }
     if let Some(b) = arg("broker") {
-        let known = hub.st().agents.iter().find(|a| s(a, "runtimeBrokerName") == b).map(|a| s(a, "runtimeBrokerId").to_owned());
-        body["runtimeBrokerId"] = json!(ids.get(&format!("b:{b}")).cloned().or(known).unwrap_or_else(|| b.to_owned()));
+        let known = hub
+            .st()
+            .agents
+            .iter()
+            .find(|a| s(a, "runtimeBrokerName") == b)
+            .map(|a| s(a, "runtimeBrokerId").to_owned());
+        body["runtimeBrokerId"] = json!(ids
+            .get(&format!("b:{b}"))
+            .cloned()
+            .or(known)
+            .unwrap_or_else(|| b.to_owned()));
     }
     for (k, v) in [("branch", arg("branch")), ("task", arg("task"))] {
         if let Some(v) = v {
@@ -711,7 +949,11 @@ pub fn start_agent(app: &App, args: &Value) -> Result<String> {
             "medium" => 50,
             "high" => 75,
             "max" => 100,
-            n => n.parse::<u8>().ok().filter(|n| *n <= 100).ok_or_else(|| msg(format!("Thinking level '{n}' isn't low, medium, high, max or 0 to 100")))?,
+            n => n
+                .parse::<u8>()
+                .ok()
+                .filter(|n| *n <= 100)
+                .ok_or_else(|| msg(format!("Thinking level '{n}' isn't low, medium, high, max or 0 to 100")))?,
         };
         body["config"] = json!({ "thinking_level": level });
     }
@@ -719,22 +961,42 @@ pub fn start_agent(app: &App, args: &Value) -> Result<String> {
     let v = c.create_agent(&body).map_err(err)?;
     if let Some(need) = v["envGather"]["needs"].as_array().filter(|n| !n.is_empty()) {
         let need: Vec<&str> = need.iter().filter_map(Value::as_str).collect();
-        return Err(msg(format!("The Hub needs {} before this agent can start; start it with `scion start` in a terminal", need.join(", "))));
+        return Err(msg(format!(
+            "The Hub needs {} before this agent can start; start it with `scion start` in a terminal",
+            need.join(", ")
+        )));
     }
     let agent = v["agent"].clone();
     let id = s(&agent, "id").to_owned();
     if id.is_empty() {
         return Err(msg("The Hub didn't return the new agent"));
     }
-    let room = arg("room").map(|r| r.trim_start_matches("r:").to_owned()).or_else(|| (tail != "agents").then(|| tail.to_owned()));
+    let room = arg("room")
+        .map(|r| r.trim_start_matches("r:").to_owned())
+        .or_else(|| (tail != "agents").then(|| tail.to_owned()));
     if let Some(room) = room {
         if let Err(e) = c.add_participant(&room, &id) {
             // Only participants may add one; a mention also makes it one.
-            let topic = hub.st().convs.get(&room).and_then(|c| map::topic_of(&c.meta).map(str::to_owned));
-            let joined = topic.ok_or(e).and_then(|t| c.post_thread(&t, &format!("@{} joined this thread", s(&agent, "slug")), None, &format!("join:{id}")));
+            let topic = hub
+                .st()
+                .convs
+                .get(&room)
+                .and_then(|c| map::topic_of(&c.meta).map(str::to_owned));
+            let joined = topic.ok_or(e).and_then(|t| {
+                c.post_thread(
+                    &t,
+                    &format!("@{} joined this thread", s(&agent, "slug")),
+                    None,
+                    &format!("join:{id}"),
+                )
+            });
             if let Err(e) = joined {
                 let at = crate::time::Ts::new(jiff::Timestamp::now()).to_db();
-                hub.st().transitions.entry(id.clone()).or_default().push((at, format!("couldn't add to the room: {e}")));
+                hub.st()
+                    .transitions
+                    .entry(id.clone())
+                    .or_default()
+                    .push((at, format!("couldn't add to the room: {e}")));
             }
         }
     }
@@ -756,7 +1018,10 @@ pub fn catalog(app: &App, group: &str) -> Result<Value> {
     let (slug, default_broker) = {
         let st = hub.st();
         let p = st.projects.iter().find(|p| s(p, "id") == project);
-        (p.map(|p| s(p, "slug").to_owned()).unwrap_or_default(), p.map(|p| s(p, "defaultRuntimeBrokerId").to_owned()).unwrap_or_default())
+        (
+            p.map(|p| s(p, "slug").to_owned()).unwrap_or_default(),
+            p.map(|p| s(p, "defaultRuntimeBrokerId").to_owned()).unwrap_or_default(),
+        )
     };
     let mut ids = HashMap::new();
     // Same-named templates in several scopes are its versions; the Hub
@@ -774,7 +1039,10 @@ pub fn catalog(app: &App, group: &str) -> Result<Value> {
     }
     let mut out = vec![];
     for (n, name) in names.iter().enumerate() {
-        let mut versions: Vec<&Value> = templates.iter().filter(|t| s(t, "name") == *name && s(t, "status") != "archived").collect();
+        let mut versions: Vec<&Value> = templates
+            .iter()
+            .filter(|t| s(t, "name") == *name && s(t, "status") != "archived")
+            .collect();
         versions.sort_by_key(|t| rank(t));
         let Some(first) = versions.first() else { continue };
         let mut labels = vec![];
@@ -787,9 +1055,14 @@ pub fn catalog(app: &App, group: &str) -> Result<Value> {
             ids.insert(format!("t:{name}:{label}"), s(t, "id").to_owned());
             labels.push(label);
         }
-        let files: Vec<&str> = first["files"].as_array().map(|f| f.iter().map(|f| s(f, "path")).collect()).unwrap_or_default();
+        let files: Vec<&str> = first["files"]
+            .as_array()
+            .map(|f| f.iter().map(|f| s(f, "path")).collect())
+            .unwrap_or_default();
         let instructions = if n < 12 && (files.is_empty() || files.contains(&"agents.md")) {
-            c.template_file(s(first, "id"), "agents.md").map(|t| crate::ai::context::clip(&t, 4000)).unwrap_or_default()
+            c.template_file(s(first, "id"), "agents.md")
+                .map(|t| crate::ai::context::clip(&t, 4000))
+                .unwrap_or_default()
         } else {
             String::new()
         };
@@ -847,7 +1120,9 @@ pub fn catalog(app: &App, group: &str) -> Result<Value> {
 
 pub fn stop(app: &App, id: &str) -> Result<()> {
     let (hub, a) = agent_of(app, id)?;
-    hub.client(app).and_then(|c| c.action(s(&a, "id"), "stop")).map_err(err)?;
+    hub.client(app)
+        .and_then(|c| c.action(s(&a, "id"), "stop"))
+        .map_err(err)?;
     hub.kick.store(true, Ordering::SeqCst);
     Ok(())
 }
@@ -856,10 +1131,22 @@ pub fn stop(app: &App, id: &str) -> Result<()> {
 /// text) | cancel | discard | start_and_send | forward. The old row is
 /// hidden here; nothing is deleted on the Hub.
 pub fn delivery(app: &App, thread: &str, row: u64, action: &str, to: Option<&str>) -> Result<Value> {
-    let r = app.agents.store.lock().threads.get(thread).and_then(|t| t.rows.iter().find(|r| r.id == row).cloned()).ok_or_else(|| msg("That message is gone"))?;
+    let r = app
+        .agents
+        .store
+        .lock()
+        .threads
+        .get(thread)
+        .and_then(|t| t.rows.iter().find(|r| r.id == row).cloned())
+        .ok_or_else(|| msg("That message is gone"))?;
     let hub = match thread.strip_prefix("r:") {
         Some(conv) => hub_with_conv(app, conv)?,
-        None => hub(app, split_id(thread.trim_start_matches("s:")).map(|(s, _)| s).ok_or_else(|| msg("not a Scion thread"))?)?,
+        None => hub(
+            app,
+            split_id(thread.trim_start_matches("s:"))
+                .map(|(s, _)| s)
+                .ok_or_else(|| msg("not a Scion thread"))?,
+        )?,
     };
     let hide = || {
         let mut st = hub.st();
@@ -886,7 +1173,13 @@ pub fn delivery(app: &App, thread: &str, row: u64, action: &str, to: Option<&str
             if thread.starts_with("r:") {
                 send(app, thread, text, Some(to))?;
             } else {
-                let id = hub.st().agents.iter().find(|a| s(a, "name") == to || s(a, "slug") == to).map(|a| s(a, "id").to_owned()).ok_or_else(|| msg(format!("No agent named {to} on this Hub")))?;
+                let id = hub
+                    .st()
+                    .agents
+                    .iter()
+                    .find(|a| s(a, "name") == to || s(a, "slug") == to)
+                    .map(|a| s(a, "id").to_owned())
+                    .ok_or_else(|| msg(format!("No agent named {to} on this Hub")))?;
                 send(app, &format!("s:{}", map::session_id(&hub.source, &id)), text, None)?;
             }
             hide();
@@ -894,10 +1187,16 @@ pub fn delivery(app: &App, thread: &str, row: u64, action: &str, to: Option<&str
         }
         "start_and_send" => {
             let agent = match thread.strip_prefix("r:") {
-                Some(_) => r.to.as_ref().and_then(|w| w.session.clone()).filter(|s| s.starts_with("scion:")),
+                Some(_) => {
+                    r.to.as_ref()
+                        .and_then(|w| w.session.clone())
+                        .filter(|s| s.starts_with("scion:"))
+                }
                 None => Some(thread.trim_start_matches("s:").to_owned()),
             };
-            let agent = agent.and_then(|s| split_id(&s).map(|(_, a)| a.to_owned())).ok_or_else(|| msg("Start which agent? Forward it instead"))?;
+            let agent = agent
+                .and_then(|s| split_id(&s).map(|(_, a)| a.to_owned()))
+                .ok_or_else(|| msg("Start which agent? Forward it instead"))?;
             hide();
             start_then_send(app, hub.clone(), thread, &agent, &r.text);
             json!({ "ok": true })
@@ -917,9 +1216,19 @@ fn strip_mention(text: &str) -> &str {
 
 /// Start (or resume) the agent, wait for it to run, then send.
 fn start_then_send(app: &App, hub: Arc<Hub>, thread: &str, agent: &str, text: &str) {
-    let Ok((_, t, content, who)) = target(app, thread, text, None) else { return };
+    let Ok((_, t, content, who)) = target(app, thread, text, None) else {
+        return;
+    };
     let (row, ext) = queue(app, &hub, thread, &content, who);
-    let o = Out { key: thread.to_owned(), row, ext, target: t, content, reply_to: None, kind: "instruction" };
+    let o = Out {
+        key: thread.to_owned(),
+        row,
+        ext,
+        target: t,
+        content,
+        reply_to: None,
+        kind: "instruction",
+    };
     let agent = agent.to_owned();
     later(app, move |app| {
         let started = hub.client(app).and_then(|c| {
@@ -939,11 +1248,19 @@ fn start_then_send(app: &App, hub: Arc<Hub>, thread: &str, agent: &str, text: &s
         match started {
             Ok(()) => dispatch(app, &hub, &o),
             Err(e) => {
-                let d = Delivery { state: "unreachable".into(), at: now(app), reason: format!("couldn't start it: {e}"), ..Default::default() };
+                let d = Delivery {
+                    state: "unreachable".into(),
+                    at: now(app),
+                    reason: format!("couldn't start it: {e}"),
+                    ..Default::default()
+                };
                 if let Some(p) = hub.st().pending.iter_mut().find(|p| p.row.ext == o.ext) {
                     p.row.delivery = Some(d.clone());
                 }
-                app.agents.store.lock().update_row(&o.key, o.row, |r| r.delivery = Some(d));
+                app.agents
+                    .store
+                    .lock()
+                    .update_row(&o.key, o.row, |r| r.delivery = Some(d));
             }
         }
     });
@@ -951,7 +1268,12 @@ fn start_then_send(app: &App, hub: Arc<Hub>, thread: &str, agent: &str, text: &s
 
 /// The terminal button: `scion attach <slug> --hub <url> -g <project>`.
 pub fn attach_command(s: &Session) -> String {
-    ATTACH.lock().unwrap_or_else(|e| e.into_inner()).get(&s.id).cloned().unwrap_or_else(|| format!("scion attach {}", s.name))
+    ATTACH
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&s.id)
+        .cloned()
+        .unwrap_or_else(|| format!("scion attach {}", s.name))
 }
 
 #[cfg(test)]
@@ -974,12 +1296,42 @@ mod tests {
         http.on("GET", "/api/v1/auth/me", 200, text("me.json"));
         http.on("GET", "/api/v1/projects?", 200, text("projects.json"));
         http.on("GET", "/agents?limit=500", 200, r#"{"agents":[],"totalCount":0}"#);
-        http.on("GET", &format!("/api/v1/projects/{PID}/agents"), 200, text("agents.json"));
-        http.on("GET", "/api/v1/conversations?include_project_groups", 200, r#"{"conversations":[]}"#);
-        http.on("GET", &format!("/api/v1/conversations?include_project_groups={PID}"), 200, text("conversations.json"));
-        http.on("GET", &format!("/api/v1/conversations/{ROOM}"), 200, text("conversation.json"));
-        http.on("GET", &format!("/api/v1/conversations/{ROOM}/messages"), 200, text("room_messages.json"));
-        http.on("GET", "/api/v1/conversations/c2000000-0000-4000-8000-0000000000cc/messages", 200, text("dm_messages.json"));
+        http.on(
+            "GET",
+            &format!("/api/v1/projects/{PID}/agents"),
+            200,
+            text("agents.json"),
+        );
+        http.on(
+            "GET",
+            "/api/v1/conversations?include_project_groups",
+            200,
+            r#"{"conversations":[]}"#,
+        );
+        http.on(
+            "GET",
+            &format!("/api/v1/conversations?include_project_groups={PID}"),
+            200,
+            text("conversations.json"),
+        );
+        http.on(
+            "GET",
+            &format!("/api/v1/conversations/{ROOM}"),
+            200,
+            text("conversation.json"),
+        );
+        http.on(
+            "GET",
+            &format!("/api/v1/conversations/{ROOM}/messages"),
+            200,
+            text("room_messages.json"),
+        );
+        http.on(
+            "GET",
+            "/api/v1/conversations/c2000000-0000-4000-8000-0000000000cc/messages",
+            200,
+            text("dm_messages.json"),
+        );
         http.on("GET", "/interagent", 200, r#"{"messages":[]}"#);
         http
     }
@@ -998,7 +1350,12 @@ mod tests {
     }
 
     fn posted(http: &FakeHttp, part: &str) -> Value {
-        let (_, _, body) = http.requests().into_iter().rev().find(|(m, u, _)| m == "POST" && u.contains(part)).unwrap_or_else(|| panic!("no POST to {part}"));
+        let (_, _, body) = http
+            .requests()
+            .into_iter()
+            .rev()
+            .find(|(m, u, _)| m == "POST" && u.contains(part))
+            .unwrap_or_else(|| panic!("no POST to {part}"));
         serde_json::from_str(&body.unwrap()).unwrap()
     }
 
@@ -1007,7 +1364,11 @@ mod tests {
         let http = hub_http();
         let (app, _d, _h) = connected(&http);
         let st = &hubs(&app)[0];
-        assert_eq!((st["state"].as_str(), st["name"].as_str()), (Some("connected"), Some("hub.example.com")), "{st}");
+        assert_eq!(
+            (st["state"].as_str(), st["name"].as_str()),
+            (Some("connected"), Some("hub.example.com")),
+            "{st}"
+        );
         let i = app.agents.store.lock();
         assert_eq!(i.groups.len(), 2);
         assert_eq!(i.sessions.len(), 4);
@@ -1015,18 +1376,38 @@ mod tests {
         assert!(i.threads[&format!("r:{ROOM}")].rows.len() >= 8);
         assert_eq!(i.requests.len(), 1);
         drop(i);
-        let s = Session { id: format!("scion:work-hub:{PLANNER}"), name: "planner".into(), ..Default::default() };
-        assert_eq!(attach_command(&s), "scion attach planner --hub https://hub.example.com -g ingest-svc");
-        assert!(http.requests().iter().any(|(_, u, _)| u.contains("/interagent")), "agent mail is read on a full refresh");
+        let s = Session {
+            id: format!("scion:work-hub:{PLANNER}"),
+            name: "planner".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            attach_command(&s),
+            "scion attach planner --hub https://hub.example.com -g ingest-svc"
+        );
+        assert!(
+            http.requests().iter().any(|(_, u, _)| u.contains("/interagent")),
+            "agent mail is read on a full refresh"
+        );
     }
 
     #[test]
     fn a_hub_token_that_lists_no_projects_reads_them_by_id() {
         let http = hub_http();
-        http.on("GET", "/api/v1/projects?", 200, json!({ "projects": [], "totalCount": 0 }).to_string());
+        http.on(
+            "GET",
+            "/api/v1/projects?",
+            200,
+            json!({ "projects": [], "totalCount": 0 }).to_string(),
+        );
         let project = text("projects.json").parse::<Value>().unwrap()["projects"][0].to_string();
         http.on("GET", &format!("/api/v1/projects/{PID}"), 200, project);
-        http.on("GET", &format!("/api/v1/projects/{PID}/agents"), 200, text("agents.json"));
+        http.on(
+            "GET",
+            &format!("/api/v1/projects/{PID}/agents"),
+            200,
+            text("agents.json"),
+        );
         let gone = json!({ "error": { "code": "not_found", "message": "Resource not found" } });
         http.on("GET", "/api/v1/projects/gone", 404, gone.to_string());
         let (app, _d) = app();
@@ -1061,7 +1442,10 @@ mod tests {
         h.kick.store(true, Ordering::SeqCst);
         poll(&app, &h);
         let i = app.agents.store.lock();
-        assert!(i.threads[&format!("r:{ROOM}")].rows.iter().any(|r| r.text == "ping"), "the Hub doesn't move a group thread's lastActivityAt");
+        assert!(
+            i.threads[&format!("r:{ROOM}")].rows.iter().any(|r| r.text == "ping"),
+            "the Hub doesn't move a group thread's lastActivityAt"
+        );
     }
 
     #[test]
@@ -1072,7 +1456,11 @@ mod tests {
         let rev = app.agents.store.rev();
         poll(&app, &h);
         let urls: Vec<String> = http.requests()[before..].iter().map(|(_, u, _)| u.clone()).collect();
-        assert_eq!(urls.len(), 2, "the conversation list, and the room with a send still pending: {urls:?}");
+        assert_eq!(
+            urls.len(),
+            2,
+            "the conversation list, and the room with a send still pending: {urls:?}"
+        );
         assert!(urls[1].contains(&format!("{ROOM}/messages")), "{urls:?}");
         assert_eq!(app.agents.store.rev(), rev, "nothing changed, nothing bumped");
     }
@@ -1088,8 +1476,15 @@ mod tests {
         assert_eq!(body["content"], "@planner ship it");
         assert!(body["idempotency_key"].as_str().unwrap().starts_with("local:"));
         let i = app.agents.store.lock();
-        let r = i.threads[&key].rows.iter().find(|r| r.text == "@planner ship it").unwrap();
-        assert_eq!(r.ext, "f0000000-0000-4000-8000-000000000010", "the row takes the Hub's id");
+        let r = i.threads[&key]
+            .rows
+            .iter()
+            .find(|r| r.text == "@planner ship it")
+            .unwrap();
+        assert_eq!(
+            r.ext, "f0000000-0000-4000-8000-000000000010",
+            "the row takes the Hub's id"
+        );
         let d = r.delivery.as_ref().unwrap();
         assert_eq!((d.state.as_str(), d.count), ("delivered", 1));
         assert_eq!(r.to.as_ref().unwrap().name, "planner");
@@ -1105,16 +1500,34 @@ mod tests {
         let body = posted(&http, "/api/v1/agents/a1000000-0000-4000-8000-000000000003/message");
         assert_eq!(body["structured_message"]["msg"], "take another look");
         let i = app.agents.store.lock();
-        let r = i.threads[key].rows.iter().find(|r| r.kind == Kind::You && r.text == "take another look").unwrap();
+        let r = i.threads[key]
+            .rows
+            .iter()
+            .find(|r| r.kind == Kind::You && r.text == "take another look")
+            .unwrap();
         assert_eq!(r.delivery.as_ref().unwrap().state, "unreachable");
         drop(i);
         // The next publish keeps it: the Hub never stored it.
         publish(&app, &hub(&app, "work-hub").unwrap());
-        assert!(app.agents.store.lock().threads[key].rows.iter().any(|r| r.text == "take another look"));
-        let row = app.agents.store.lock().threads[key].rows.iter().find(|r| r.text == "take another look").unwrap().id;
+        assert!(app.agents.store.lock().threads[key]
+            .rows
+            .iter()
+            .any(|r| r.text == "take another look"));
+        let row = app.agents.store.lock().threads[key]
+            .rows
+            .iter()
+            .find(|r| r.text == "take another look")
+            .unwrap()
+            .id;
         let v = delivery(&app, key, row, "edit", None).unwrap();
         assert_eq!(v["text"], "take another look");
-        assert!(!app.agents.store.lock().threads[key].rows.iter().any(|r| r.text == "take another look"), "edit takes it back");
+        assert!(
+            !app.agents.store.lock().threads[key]
+                .rows
+                .iter()
+                .any(|r| r.text == "take another look"),
+            "edit takes it back"
+        );
     }
 
     #[test]
@@ -1125,7 +1538,10 @@ mod tests {
         let req = app.agents.store.lock().requests.keys().next().cloned().unwrap();
         answer(&app, &req, "staging").unwrap();
         let body = posted(&http, "/messages");
-        assert_eq!((body["content"].as_str(), body["reply_to_id"].as_str()), (Some("staging"), Some("f0000000-0000-4000-8000-000000000005")));
+        assert_eq!(
+            (body["content"].as_str(), body["reply_to_id"].as_str()),
+            (Some("staging"), Some("f0000000-0000-4000-8000-000000000005"))
+        );
         assert!(app.agents.store.lock().requests.is_empty());
         publish(&app, &h);
         assert!(app.agents.store.lock().requests.is_empty(), "it stays answered");
@@ -1139,13 +1555,22 @@ mod tests {
         let (app, _d, _h) = connected(&http);
         let group = format!("scion:work-hub:{PID}:{ROOM}");
         let args = json!({ "group": group, "name": "migrator", "template": "coder", "harness_config": "claude-web", "broker": "gcp-1", "branch": "migrator-users", "task": "Write the migration for the users table", "thinking": "high" });
-        assert!(start_agent(&app, &json!({ "group": group, "name": "planner", "template": "coder" })).is_err(), "names are unique in a project");
+        assert!(
+            start_agent(&app, &json!({ "group": group, "name": "planner", "template": "coder" })).is_err(),
+            "names are unique in a project"
+        );
         let id = start_agent(&app, &args).unwrap();
         assert_eq!(id, "scion:work-hub:a1000000-0000-4000-8000-000000000005");
         let body = posted(&http, "/api/v1/agents");
-        assert_eq!(body, json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table", "config": { "thinking_level": 75 } }));
+        assert_eq!(
+            body,
+            json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table", "config": { "thinking_level": 75 } })
+        );
         let p = posted(&http, "/participants");
-        assert_eq!(p, json!({ "principalKind": "agent", "principalId": "a1000000-0000-4000-8000-000000000005" }));
+        assert_eq!(
+            p,
+            json!({ "principalKind": "agent", "principalId": "a1000000-0000-4000-8000-000000000005" })
+        );
         assert!(app.agents.store.lock().sessions.contains_key(&id));
     }
 
@@ -1166,14 +1591,29 @@ mod tests {
         assert!(coder["instructions"].as_str().unwrap().starts_with("# Coder"));
         assert_eq!(coder["skills"], json!(["sql-diff", "pr-notes"]));
         assert_eq!(c["templates"][1]["name"], "planner");
-        assert_eq!(c["harness_configs"][0], json!({ "name": "claude-web", "harness": "Claude Code", "model": "sonnet", "auth": "oauth-token" }));
-        assert_eq!(c["brokers"][0], json!({ "name": "gcp-1", "kind": "online", "note": "default · 3/10 agents" }));
+        assert_eq!(
+            c["harness_configs"][0],
+            json!({ "name": "claude-web", "harness": "Claude Code", "model": "sonnet", "auth": "oauth-token" })
+        );
+        assert_eq!(
+            c["brokers"][0],
+            json!({ "name": "gcp-1", "kind": "online", "note": "default · 3/10 agents" })
+        );
         assert_eq!(c["project"], "ingest-svc");
-        assert!(c["command_template"].as_str().unwrap().starts_with("scion start {name} -t {template} -b {branch}"));
+        assert!(c["command_template"]
+            .as_str()
+            .unwrap()
+            .starts_with("scion start {name} -t {template} -b {branch}"));
         // The form's chips map back to Hub ids.
         start_agent(&app, &json!({ "group": group, "name": "migrator", "template": "coder", "template_version": "global", "broker": "gcp-1" })).unwrap();
         let body = posted(&http, "/api/v1/agents");
-        assert_eq!((body["template"].as_str(), body["runtimeBrokerId"].as_str()), (Some("70000000-0000-4000-8000-000000000002"), Some("e1000000-0000-4000-8000-000000000001")));
+        assert_eq!(
+            (body["template"].as_str(), body["runtimeBrokerId"].as_str()),
+            (
+                Some("70000000-0000-4000-8000-000000000002"),
+                Some("e1000000-0000-4000-8000-000000000001")
+            )
+        );
     }
 
     #[test]
@@ -1189,11 +1629,19 @@ mod tests {
     #[test]
     fn errors_show_on_the_hub() {
         let http = Arc::new(FakeHttp::default());
-        http.on("GET", "/api/v1/auth/me", 401, r#"{"error":{"code":"unauthorized","message":"invalid access token"}}"#);
+        http.on(
+            "GET",
+            "/api/v1/auth/me",
+            401,
+            r#"{"error":{"code":"unauthorized","message":"invalid access token"}}"#,
+        );
         let (app, _d, _h) = connected(&http);
         let st = &hubs(&app)[0];
         assert_eq!(st["state"], "error");
-        assert!(st["error"].as_str().unwrap().contains("rejected the access token"), "{st}");
+        assert!(
+            st["error"].as_str().unwrap().contains("rejected the access token"),
+            "{st}"
+        );
     }
 
     #[test]

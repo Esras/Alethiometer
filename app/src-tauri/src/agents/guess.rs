@@ -11,11 +11,21 @@ Reply with only the id of the one group the session clearly belongs to, or none 
 
 /// Pick the group id out of a reply; `None` unless it names exactly one of `ids`.
 pub fn parse(reply: &str, ids: &[String]) -> Option<String> {
-    let r = reply.trim().trim_matches(|c: char| c == '`' || c == '"' || c == '.').trim();
+    let r = reply
+        .trim()
+        .trim_matches(|c: char| c == '`' || c == '"' || c == '.')
+        .trim();
     if r.eq_ignore_ascii_case("none") {
         return None;
     }
-    let hits: Vec<&String> = ids.iter().filter(|id| r == id.as_str() || r.split_whitespace().any(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != ':') == id.as_str())).collect();
+    let hits: Vec<&String> = ids
+        .iter()
+        .filter(|id| {
+            r == id.as_str()
+                || r.split_whitespace()
+                    .any(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != ':') == id.as_str())
+        })
+        .collect();
     (hits.len() == 1).then(|| hits[0].clone())
 }
 
@@ -33,7 +43,10 @@ pub fn suggest(app: &App, id: &str) {
             return;
         }
         let groups: Vec<_> = i.groups.values().filter(|g| g.source == "acp").cloned().collect();
-        let first = i.find_row(&super::session_thread(id), |r| r.kind == super::model::Kind::You).map(|r| r.text.clone()).unwrap_or_default();
+        let first = i
+            .find_row(&super::session_thread(id), |r| r.kind == super::model::Kind::You)
+            .map(|r| r.text.clone())
+            .unwrap_or_default();
         (s, groups, first)
     };
     if groups.is_empty() {
@@ -41,7 +54,11 @@ pub fn suggest(app: &App, id: &str) {
     }
     let id = id.to_owned();
     std::thread::spawn(move || {
-        let list = groups.iter().map(|g| format!("- {} · project {} · {} · goal: {}", g.id, g.project, g.name, g.goal)).collect::<Vec<_>>().join("\n");
+        let list = groups
+            .iter()
+            .map(|g| format!("- {} · project {} · {} · goal: {}", g.id, g.project, g.name, g.goal))
+            .collect::<Vec<_>>()
+            .join("\n");
         let user = format!(
             "<data>\nsession: {} · directory {} · project {}\ntitle: {}\nfirst prompt: {}\n\ngroups:\n{list}\n</data>",
             session.name,
@@ -50,11 +67,19 @@ pub fn suggest(app: &App, id: &str) {
             session.title,
             ai::context::clip(&first, 1500)
         );
-        let Ok(reply) = ai::with_live(&app, |d| ai::complete(&app, d, Tier::Small, SYSTEM, &user, 60)) else { return };
+        let Ok(reply) = ai::with_live(&app, |d| ai::complete(&app, d, Tier::Small, SYSTEM, &user, 60)) else {
+            return;
+        };
         let ids: Vec<String> = groups.iter().map(|g| g.id.clone()).collect();
         let Some(gid) = parse(&reply, &ids) else { return };
-        let Some(g) = groups.iter().find(|g| g.id == gid) else { return };
-        let label = if g.project.is_empty() { g.name.clone() } else { format!("{} › {}", g.project, g.name) };
+        let Some(g) = groups.iter().find(|g| g.id == gid) else {
+            return;
+        };
+        let label = if g.project.is_empty() {
+            g.name.clone()
+        } else {
+            format!("{} › {}", g.project, g.name)
+        };
         app.agents.store.lock().update_session(&id, |s| {
             if s.group_id.is_none() {
                 s.guess = Some(super::model::Guess { group_id: gid, label });

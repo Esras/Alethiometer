@@ -5,12 +5,12 @@
 //! Scion state isn't stored: it comes back from the Hub.
 
 use super::model::{Group, Request, Row, Session};
-pub use crate::domain::agents::HostState;
 use crate::domain::agents::Archived;
-use crate::time::Ts;
+pub use crate::domain::agents::HostState;
 use crate::domain::ports::UnitOfWork;
 use crate::error::Result;
 use crate::store::Db;
+use crate::time::Ts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
 
@@ -138,7 +138,9 @@ impl Inner {
 
     /// Change a session in place; a no-op change doesn't bump the revision.
     pub fn update_session(&mut self, id: &str, f: impl FnOnce(&mut Session)) -> bool {
-        let Some(s) = self.sessions.get_mut(id) else { return false };
+        let Some(s) = self.sessions.get_mut(id) else {
+            return false;
+        };
         let before = s.clone();
         f(s);
         if *s == before {
@@ -166,7 +168,10 @@ impl Inner {
     }
 
     pub fn thread(&mut self, key: &str) -> &mut Thread {
-        self.threads.entry(key.to_owned()).or_insert_with(|| Thread { loaded: true, ..Default::default() })
+        self.threads.entry(key.to_owned()).or_insert_with(|| Thread {
+            loaded: true,
+            ..Default::default()
+        })
     }
 
     /// Append a row; returns its id.
@@ -187,8 +192,12 @@ impl Inner {
     /// Change a row in place (streamed text, a tool's result, a delivery state).
     pub fn update_row(&mut self, key: &str, id: u64, f: impl FnOnce(&mut Row)) -> bool {
         let rev = self.rev + 1;
-        let Some(t) = self.threads.get_mut(key) else { return false };
-        let Some(r) = t.rows.iter_mut().rev().find(|r| r.id == id) else { return false };
+        let Some(t) = self.threads.get_mut(key) else {
+            return false;
+        };
+        let Some(r) = t.rows.iter_mut().rev().find(|r| r.id == id) else {
+            return false;
+        };
         f(r);
         r.rev = rev;
         self.rev = rev;
@@ -211,13 +220,22 @@ impl Inner {
         }
         let rev = self.bump();
         let t = self.thread(key);
-        let old: HashMap<String, Row> = t.rows.drain(..).filter(|r| !r.ext.is_empty()).map(|r| (r.ext.clone(), r)).collect();
+        let old: HashMap<String, Row> = t
+            .rows
+            .drain(..)
+            .filter(|r| !r.ext.is_empty())
+            .map(|r| (r.ext.clone(), r))
+            .collect();
         for mut r in rows {
             match old.get(&r.ext) {
                 Some(o) => {
                     r.id = o.id;
                     r.rev = o.rev;
-                    if (Row { rev: o.rev, ..r.clone() }) != *o {
+                    if (Row {
+                        rev: o.rev,
+                        ..r.clone()
+                    }) != *o
+                    {
                         r.rev = rev;
                     }
                 }
@@ -286,7 +304,13 @@ struct Changes {
 
 impl Changes {
     fn is_empty(&self) -> bool {
-        self.hosts.is_empty() && self.gone_h.is_empty() && self.groups.is_empty() && self.sessions.is_empty() && self.row_keys.is_empty() && self.gone_g.is_empty() && self.gone_s.is_empty()
+        self.hosts.is_empty()
+            && self.gone_h.is_empty()
+            && self.groups.is_empty()
+            && self.sessions.is_empty()
+            && self.row_keys.is_empty()
+            && self.gone_g.is_empty()
+            && self.gone_s.is_empty()
     }
 }
 
@@ -330,13 +354,36 @@ impl Store {
 }
 
 fn take(i: &mut Inner) -> Changes {
-    let hosts = i.dirty_hosts.drain().collect::<Vec<_>>().into_iter().filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h))).collect();
-    let groups = i.dirty_groups.drain().collect::<Vec<_>>().iter().filter_map(|id| i.groups.get(id).cloned()).collect();
-    let sessions = i.dirty_sessions.drain().collect::<Vec<_>>().iter().filter_map(|id| i.sessions.get(id).cloned()).collect();
+    let hosts = i
+        .dirty_hosts
+        .drain()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter_map(|id| i.hosts.get(&id).cloned().map(|h| (id, h)))
+        .collect();
+    let groups = i
+        .dirty_groups
+        .drain()
+        .collect::<Vec<_>>()
+        .iter()
+        .filter_map(|id| i.groups.get(id).cloned())
+        .collect();
+    let sessions = i
+        .dirty_sessions
+        .drain()
+        .collect::<Vec<_>>()
+        .iter()
+        .filter_map(|id| i.sessions.get(id).cloned())
+        .collect();
     let row_keys: Vec<(String, u64)> = i.dirty_rows.drain().collect();
     let rows = row_keys
         .iter()
-        .filter_map(|(k, id)| i.threads.get(k).and_then(|t| t.rows.iter().find(|r| r.id == *id)).map(|r| (k.clone(), r.clone())))
+        .filter_map(|(k, id)| {
+            i.threads
+                .get(k)
+                .and_then(|t| t.rows.iter().find(|r| r.id == *id))
+                .map(|r| (k.clone(), r.clone()))
+        })
         .collect();
     Changes {
         hosts,
@@ -351,7 +398,6 @@ fn take(i: &mut Inner) -> Changes {
 }
 
 impl Store {
-
     /// Local groups and sessions at startup. Transcripts load when opened.
     pub fn load(&self, db: &Db) -> Result<()> {
         let saved = db.read(|r| r.agents().saved())?;
@@ -372,7 +418,13 @@ impl Store {
             // Rows added before the transcript is read (a reply from Incoming, a
             // reattach) number after the stored ones, so their ids never change.
             let next_id = last_ids.get(&key).copied().unwrap_or(0);
-            i.threads.insert(key, Thread { next_id, ..Default::default() });
+            i.threads.insert(
+                key,
+                Thread {
+                    next_id,
+                    ..Default::default()
+                },
+            );
             i.sessions.insert(s.id.clone(), s);
         }
         i.bump_tree();
@@ -402,7 +454,10 @@ impl Store {
             // startup (`load`) and are kept: turns and the flush refer to them.
             let newer: Vec<Row> = t.rows.drain(..).collect();
             let last_stored = stored_rows.last().map_or(0, |r| r.id);
-            debug_assert!(newer.iter().all(|r| r.id > last_stored), "a row pushed before the load collides with a stored one");
+            debug_assert!(
+                newer.iter().all(|r| r.id > last_stored),
+                "a row pushed before the load collides with a stored one"
+            );
             stored_rows.extend(newer);
             t.next_id = t.next_id.max(stored_rows.last().map_or(0, |r| r.id)).max(last_stored);
             t.rows = stored_rows;
@@ -414,17 +469,38 @@ impl Store {
 
 impl Store {
     /// Archive groups and sessions with `also`'s writes in one unit of work, under the gate, then drop them from the tree.
-    pub fn archive(&self, db: &Db, groups: &[String], sessions: &[String], at: Ts, also: impl Fn(&dyn UnitOfWork, &[Archived]) -> Result<()>) -> Result<()> {
+    pub fn archive(
+        &self,
+        db: &Db,
+        groups: &[String],
+        sessions: &[String],
+        at: Ts,
+        also: impl Fn(&dyn UnitOfWork, &[Archived]) -> Result<()>,
+    ) -> Result<()> {
         let _g = self.gate();
         let (ch, items, rows) = {
             let mut i = self.lock();
             let ch = take(&mut i);
-            let place = |gid: Option<&String>| gid.and_then(|g| i.groups.get(g)).map(|g| (g.project.clone(), g.name.clone())).unwrap_or_default();
+            let place = |gid: Option<&String>| {
+                gid.and_then(|g| i.groups.get(g))
+                    .map(|g| (g.project.clone(), g.name.clone()))
+                    .unwrap_or_default()
+            };
             let mut items = vec![];
             let mut rows: Vec<(String, Row)> = vec![];
             let mut copy = |key: String| {
                 if !stored(&key) {
-                    rows.extend(i.threads.get(&key).into_iter().flat_map(|t| t.rows.iter().map(|r| (key.clone(), Row { open: false, ..r.clone() }))));
+                    rows.extend(i.threads.get(&key).into_iter().flat_map(|t| {
+                        t.rows.iter().map(|r| {
+                            (
+                                key.clone(),
+                                Row {
+                                    open: false,
+                                    ..r.clone()
+                                },
+                            )
+                        })
+                    }));
                 }
             };
             for g in groups.iter().filter_map(|id| i.groups.get(id)) {
@@ -453,7 +529,12 @@ impl Store {
                     group_name,
                     group_id: s.group_id.clone(),
                     at,
-                    data: serde_json::to_string(&Session { live: false, queued: vec![], ..s.clone() }).unwrap_or_default(),
+                    data: serde_json::to_string(&Session {
+                        live: false,
+                        queued: vec![],
+                        ..s.clone()
+                    })
+                    .unwrap_or_default(),
                 });
             }
             (ch, items, rows)
@@ -540,10 +621,30 @@ mod tests {
         let s = Store::default();
         {
             let mut i = s.lock();
-            i.put_session(Session { id: "acp-1".into(), name: "header-fix".into(), status: Status::Running, live: true, ..Default::default() });
-            let id = i.push_row("s:acp-1", Row { kind: Kind::Output, text: "Hel".into(), open: true, ..Default::default() });
+            i.put_session(Session {
+                id: "acp-1".into(),
+                name: "header-fix".into(),
+                status: Status::Running,
+                live: true,
+                ..Default::default()
+            });
+            let id = i.push_row(
+                "s:acp-1",
+                Row {
+                    kind: Kind::Output,
+                    text: "Hel".into(),
+                    open: true,
+                    ..Default::default()
+                },
+            );
             i.update_row("s:acp-1", id, |r| r.text.push_str("lo"));
-            i.set_host("acp-1", HostState { seq: 7, turn: serde_json::json!({ "sid": "s1" }) });
+            i.set_host(
+                "acp-1",
+                HostState {
+                    seq: 7,
+                    turn: serde_json::json!({ "sid": "s1" }),
+                },
+            );
         }
         s.flush(&c).unwrap();
         let back = Store::default();
@@ -570,24 +671,60 @@ mod tests {
         let s = Store::default();
         {
             let mut i = s.lock();
-            i.put_session(Session { id: "acp-1".into(), ..Default::default() });
+            i.put_session(Session {
+                id: "acp-1".into(),
+                ..Default::default()
+            });
             for t in ["first", "second", "third"] {
-                i.push_row("s:acp-1", Row { kind: Kind::You, text: t.into(), ..Default::default() });
+                i.push_row(
+                    "s:acp-1",
+                    Row {
+                        kind: Kind::You,
+                        text: t.into(),
+                        ..Default::default()
+                    },
+                );
             }
         }
         s.flush(&c).unwrap();
         // Next run: a reply goes out before anyone opens the transcript.
         let back = Store::default();
         back.load(&c).unwrap();
-        let id = back.lock().push_row("s:acp-1", Row { kind: Kind::You, text: "reply".into(), ..Default::default() });
+        let id = back.lock().push_row(
+            "s:acp-1",
+            Row {
+                kind: Kind::You,
+                text: "reply".into(),
+                ..Default::default()
+            },
+        );
         assert_eq!(id, 4, "numbered after the stored rows");
         back.lock().update_row("s:acp-1", id, |r| r.label = "delivered".into());
         back.ensure_loaded(&c, "s:acp-1").unwrap();
         back.flush(&c).unwrap();
         let i = back.lock();
-        let rows: Vec<(u64, &str, &str)> = i.threads["s:acp-1"].rows.iter().map(|r| (r.id, r.text.as_str(), r.label.as_str())).collect();
-        assert_eq!(rows, vec![(1, "first", ""), (2, "second", ""), (3, "third", ""), (4, "reply", "delivered")]);
-        let stored: Vec<i64> = c.legacy().prepare("SELECT id FROM agent_rows WHERE thread = 's:acp-1' ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        let rows: Vec<(u64, &str, &str)> = i.threads["s:acp-1"]
+            .rows
+            .iter()
+            .map(|r| (r.id, r.text.as_str(), r.label.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (1, "first", ""),
+                (2, "second", ""),
+                (3, "third", ""),
+                (4, "reply", "delivered")
+            ]
+        );
+        let stored: Vec<i64> = c
+            .legacy()
+            .prepare("SELECT id FROM agent_rows WHERE thread = 's:acp-1' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         assert_eq!(stored, vec![1, 2, 3, 4], "the first prompt wasn't overwritten");
     }
 
@@ -595,21 +732,32 @@ mod tests {
     fn scion_state_is_not_stored() {
         let c = conn();
         let s = Store::default();
-        s.lock().put_session(Session { id: "scion:hub:a1".into(), ..Default::default() });
+        s.lock().put_session(Session {
+            id: "scion:hub:a1".into(),
+            ..Default::default()
+        });
         s.lock().push_row("s:scion:hub:a1", Row::default());
         s.flush(&c).unwrap();
-        let n: i64 = c.legacy().query_row("SELECT count(*) FROM agent_sessions", [], |r| r.get(0)).unwrap();
+        let n: i64 = c
+            .legacy()
+            .query_row("SELECT count(*) FROM agent_sessions", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0);
     }
 
     #[test]
     fn set_rows_keeps_ids_for_known_messages() {
         let s = Store::default();
-        let row = |ext: &str, text: &str| Row { ext: ext.into(), text: text.into(), ..Default::default() };
+        let row = |ext: &str, text: &str| Row {
+            ext: ext.into(),
+            text: text.into(),
+            ..Default::default()
+        };
         s.lock().set_rows("r:c1", vec![row("m1", "a"), row("m2", "b")]);
         let ids: Vec<u64> = s.lock().threads["r:c1"].rows.iter().map(|r| r.id).collect();
         let rev = s.rev();
-        s.lock().set_rows("r:c1", vec![row("m1", "a"), row("m2", "b2"), row("m3", "c")]);
+        s.lock()
+            .set_rows("r:c1", vec![row("m1", "a"), row("m2", "b2"), row("m3", "c")]);
         let i = s.lock();
         let rows = &i.threads["r:c1"].rows;
         assert_eq!(rows[0].id, ids[0]);

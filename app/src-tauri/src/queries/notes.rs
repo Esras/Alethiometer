@@ -99,7 +99,9 @@ pub fn warm(app: std::sync::Arc<App>) -> Option<std::thread::JoinHandle<()>> {
             eprintln!("notes: warming the suggestion index failed: {e}");
         }
     });
-    spawned.map_err(|e| eprintln!("notes: couldn't start warming the suggestion index: {e}")).ok()
+    spawned
+        .map_err(|e| eprintln!("notes: couldn't start warming the suggestion index: {e}"))
+        .ok()
 }
 
 /// The suggestion index: the database's part on a snapshot, then the topics' notes from the vault.
@@ -150,7 +152,12 @@ fn snapshot(cache: &IndexCache, r: &dyn crate::domain::ports::Reads) -> Result<S
     let stale: Vec<i64> = {
         let c = cache.lock();
         let names_changed = c.names != corpus.people;
-        corpus.topics.iter().filter(|t| names_changed || c.topics.get(&t.id).is_none_or(|x| x.corpus_rev != t.corpus_rev)).map(|t| t.id).collect()
+        corpus
+            .topics
+            .iter()
+            .filter(|t| names_changed || c.topics.get(&t.id).is_none_or(|x| x.corpus_rev != t.corpus_rev))
+            .map(|t| t.id)
+            .collect()
     };
     let mut texts = HashMap::new();
     for id in stale {
@@ -217,7 +224,9 @@ fn page(app: &App, date: Date, keys: &HashMap<i64, String>) -> Result<Value> {
             receipt_at: r.meta.receipt_at.clone(),
             error: r.meta.error.clone(),
             locked: !EDITABLE.contains(&r.state.as_str()),
-            jira: jira.remove(&r.id).map(|j| json!({ "state": j.state, "error": j.error, "key": j.key, "url": j.url })),
+            jira: jira
+                .remove(&r.id)
+                .map(|j| json!({ "state": j.state, "error": j.error, "key": j.key, "url": j.url })),
         })
         .collect();
     let label = match (date - today).get_days() {
@@ -255,7 +264,13 @@ struct SaveLine {
 /// are never deleted here. Returns the client's key for each saved line.
 fn save(uow: &dyn UnitOfWork, date: Date, lines: &[SaveLine]) -> Result<HashMap<i64, String>> {
     let notes = uow.note_lines();
-    let existing: HashMap<i64, NoteLine> = uow.reads().notes().lines(date)?.into_iter().map(|r| (r.id, r)).collect();
+    let existing: HashMap<i64, NoteLine> = uow
+        .reads()
+        .notes()
+        .lines(date)?
+        .into_iter()
+        .map(|r| (r.id, r))
+        .collect();
     let mut keep: HashSet<i64> = HashSet::new();
     let mut keys = HashMap::new();
     for (pos, l) in lines.iter().enumerate() {
@@ -277,7 +292,17 @@ fn save(uow: &dyn UnitOfWork, date: Date, lines: &[SaveLine]) -> Result<HashMap<
                 notes.update(r.id, pos, &l.kind, &l.text, &meta)?;
                 r.id
             }
-            None => notes.insert(date, pos, &l.kind, &l.text, &LineMeta { to: own(&l.target), bare: l.bare && l.kind == "note", ..Default::default() })?,
+            None => notes.insert(
+                date,
+                pos,
+                &l.kind,
+                &l.text,
+                &LineMeta {
+                    to: own(&l.target),
+                    bare: l.bare && l.kind == "note",
+                    ..Default::default()
+                },
+            )?,
         };
         keep.insert(id);
         if let Some(k) = &l.key {
@@ -330,7 +355,11 @@ fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
             "delegated" => delegate.clone(),
             _ => None,
         };
-        let item_kind = if matches!(r.kind.as_str(), "do" | "delegated") { "task" } else { "note" };
+        let item_kind = if matches!(r.kind.as_str(), "do" | "delegated") {
+            "task"
+        } else {
+            "note"
+        };
         let item = uow.items().insert(&NewItem {
             source_id: src,
             external_id: format!("notes-line-{}", r.id),
@@ -341,7 +370,8 @@ fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
             status: "open".into(),
             owner,
             seen: false,
-            raw_json: json!({ "notes_line_id": r.id, "page_date": date.to_string(), "kind": r.kind, "target": t }).to_string(),
+            raw_json: json!({ "notes_line_id": r.id, "page_date": date.to_string(), "kind": r.kind, "target": t })
+                .to_string(),
             ..Default::default()
         })?;
         // Filed under its topic as a suggestion, so it lands in that topic's Incoming
@@ -352,13 +382,22 @@ fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
             _ => t.topic_id,
         };
         if let Some(topic) = topic {
-            let reason = t.reason.clone().unwrap_or_else(|| if t.auto { "Notes suggestion".into() } else { "you picked it in Notes".into() });
-            uow.links().suggest(item, topic, if t.auto { 0.7 } else { 1.0 }, &reason)?;
+            let reason = t.reason.clone().unwrap_or_else(|| {
+                if t.auto {
+                    "Notes suggestion".into()
+                } else {
+                    "you picked it in Notes".into()
+                }
+            });
+            uow.links()
+                .suggest(item, topic, if t.auto { 0.7 } else { 1.0 }, &reason)?;
         }
         if t.create {
             if let Some(jira) = uow.reads().sources().of_kind("jira")?.first() {
-                let payload = json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item });
-                uow.outbox().enqueue(jira.id, "jira.create_issue", &payload.to_string(), Some(item))?;
+                let payload =
+                    json!({ "summary": r.text.trim(), "assignee": delegate, "notes_line_id": r.id, "item_id": item });
+                uow.outbox()
+                    .enqueue(jira.id, "jira.create_issue", &payload.to_string(), Some(item))?;
             }
         }
         let mut meta = r.meta.clone();
@@ -374,7 +413,10 @@ fn send(uow: &dyn UnitOfWork, idx: &Index, date: Date, now: Ts) -> Result<()> {
 fn retry(uow: &dyn UnitOfWork, date: Date, id: Option<i64>) -> Result<()> {
     let rows = uow.reads().notes().lines(date)?;
     let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-    for r in rows.into_iter().filter(|r| r.kind == "life" && r.state == "failed" && id.is_none_or(|i| i == r.id)) {
+    for r in rows
+        .into_iter()
+        .filter(|r| r.kind == "life" && r.state == "failed" && id.is_none_or(|i| i == r.id))
+    {
         let mut meta = r.meta;
         meta.error = None;
         uow.note_lines().set_state(r.id, "pending", &meta)?;
@@ -388,11 +430,17 @@ fn retry(uow: &dyn UnitOfWork, date: Date, id: Option<i64>) -> Result<()> {
 fn options(idx: &Index, args: &Value) -> Result<Value> {
     let text = args.get("text").and_then(Value::as_str).unwrap_or("");
     let kind = args.get("kind").and_then(Value::as_str).unwrap_or("note");
-    let q = args.get("q").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
+    let q = args
+        .get("q")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     let mut out: Vec<Target> = vec![];
     if q.is_empty() {
         let best = idx.suggest(kind, text);
-        let seen = |out: &Vec<Target>, t: &Target| best.as_ref().map_or(false, |b| b.same(t)) || out.iter().any(|o| o.same(t));
+        let seen =
+            |out: &Vec<Target>, t: &Target| best.as_ref().map_or(false, |b| b.same(t)) || out.iter().any(|o| o.same(t));
         for t in idx.ranked(kind, text) {
             if !seen(&out, &t) {
                 out.push(t);
@@ -416,7 +464,11 @@ fn options(idx: &Index, args: &Value) -> Result<Value> {
         for p in idx.people.iter().filter(|p| p.name.to_lowercase().contains(&q)) {
             out.push(idx.person_target(p));
         }
-        for i in idx.issues.iter().filter(|i| i.key.to_lowercase().contains(&q) || i.title.to_lowercase().contains(&q)) {
+        for i in idx
+            .issues
+            .iter()
+            .filter(|i| i.key.to_lowercase().contains(&q) || i.title.to_lowercase().contains(&q))
+        {
             out.push(idx.issue_target(i));
         }
         out.truncate(6);
@@ -436,7 +488,9 @@ fn options(idx: &Index, args: &Value) -> Result<Value> {
             category: None,
             app: Some("jira".into()),
             key: None,
-            topic_id: base.as_ref().and_then(|b| if b.ty == "topic" { b.id } else { b.topic_id }),
+            topic_id: base
+                .as_ref()
+                .and_then(|b| if b.ty == "topic" { b.id } else { b.topic_id }),
             offer: None,
             create: true,
             auto: false,
@@ -481,14 +535,14 @@ struct Index {
 
 const STOP: &[&str] = &[
     "the", "and", "for", "but", "not", "with", "about", "from", "into", "that", "this", "then", "than", "them", "they",
-    "their", "there", "what", "when", "where", "which", "while", "who", "whom", "why", "how", "are", "was", "were", "been",
-    "being", "have", "has", "had", "does", "did", "doing", "can", "could", "should", "would", "will", "just", "only", "also",
-    "very", "more", "most", "some", "any", "all", "each", "other", "others", "our", "your", "you", "yours", "its", "his",
-    "her", "hers", "him", "she", "one", "two", "get", "got", "make", "makes", "made", "sense", "check", "whether", "hit",
-    "send", "ask", "idea", "note", "todo", "per", "via", "before", "after", "over", "under", "again", "still", "seem",
-    "seems", "need", "needs", "want", "wants", "thing", "things", "call", "first", "maybe", "look", "see", "let", "now",
-    "today", "tomorrow", "week", "day", "on", "in", "at", "to", "of", "or", "an", "is", "it", "be", "do", "if", "so", "by",
-    "we", "me", "my", "up", "no", "vs", "re",
+    "their", "there", "what", "when", "where", "which", "while", "who", "whom", "why", "how", "are", "was", "were",
+    "been", "being", "have", "has", "had", "does", "did", "doing", "can", "could", "should", "would", "will", "just",
+    "only", "also", "very", "more", "most", "some", "any", "all", "each", "other", "others", "our", "your", "you",
+    "yours", "its", "his", "her", "hers", "him", "she", "one", "two", "get", "got", "make", "makes", "made", "sense",
+    "check", "whether", "hit", "send", "ask", "idea", "note", "todo", "per", "via", "before", "after", "over", "under",
+    "again", "still", "seem", "seems", "need", "needs", "want", "wants", "thing", "things", "call", "first", "maybe",
+    "look", "see", "let", "now", "today", "tomorrow", "week", "day", "on", "in", "at", "to", "of", "or", "an", "is",
+    "it", "be", "do", "if", "so", "by", "we", "me", "my", "up", "no", "vs", "re",
 ];
 
 fn stem(w: &str) -> String {
@@ -537,9 +591,18 @@ impl Index {
     /// what the cache holds for topics that didn't change.
     fn build(cache: &IndexCache, snap: Snapshot, vault: &Path) -> Index {
         let Snapshot { corpus, mut texts } = snap;
-        let mut people: Vec<PersonDoc> = corpus.people.iter().map(|(id, name)| PersonDoc { id: *id, name: name.clone(), topics: vec![] }).collect();
+        let mut people: Vec<PersonDoc> = corpus
+            .people
+            .iter()
+            .map(|(id, name)| PersonDoc {
+                id: *id,
+                name: name.clone(),
+                topics: vec![],
+            })
+            .collect();
         let names: HashSet<String> = people.iter().flat_map(|p| words(&p.name)).collect();
-        let without_names = |ws: Vec<String>| -> HashSet<String> { ws.into_iter().filter(|w| !names.contains(w)).collect() };
+        let without_names =
+            |ws: Vec<String>| -> HashSet<String> { ws.into_iter().filter(|w| !names.contains(w)).collect() };
         let mut c = cache.lock();
         if c.names != corpus.people {
             c.topics.clear();
@@ -558,7 +621,12 @@ impl Index {
                     changed = true;
                 }
             }
-            let note = t.obsidian_path.as_ref().map(|p| (p.clone(), std::fs::metadata(vault.join(p)).and_then(|m| m.modified()).ok()));
+            let note = t.obsidian_path.as_ref().map(|p| {
+                (
+                    p.clone(),
+                    std::fs::metadata(vault.join(p)).and_then(|m| m.modified()).ok(),
+                )
+            });
             if entry.note != note {
                 entry.note_words = match &note {
                     Some((p, _)) => without_names(words(&std::fs::read_to_string(vault.join(p)).unwrap_or_default())),
@@ -575,7 +643,14 @@ impl Index {
             for p in people.iter_mut().filter(|p| tpeople.contains(&p.id)) {
                 p.topics.push(t.id);
             }
-            topics.push(TopicDoc { id: t.id, name: t.name, category: t.category, name_words, words: entry.words.clone(), people: tpeople });
+            topics.push(TopicDoc {
+                id: t.id,
+                name: t.name,
+                category: t.category,
+                name_words,
+                words: entry.words.clone(),
+                people: tpeople,
+            });
         }
         drop(c);
         let mut issues = vec![];
@@ -583,10 +658,20 @@ impl Index {
             if let Some(c) = key_re().captures(&title) {
                 let key = c[1].to_string();
                 let rest = title.replacen(&key, "", 1);
-                issues.push(IssueDoc { words: words(&rest).into_iter().filter(|w| w.len() >= 4).collect(), key, title, topic_id });
+                issues.push(IssueDoc {
+                    words: words(&rest).into_iter().filter(|w| w.len() >= 4).collect(),
+                    key,
+                    title,
+                    topic_id,
+                });
             }
         }
-        Index { topics, people, issues, names }
+        Index {
+            topics,
+            people,
+            issues,
+            names,
+        }
     }
 
     fn topic_target(&self, t: &TopicDoc, reason: Option<String>) -> Target {
@@ -647,8 +732,11 @@ impl Index {
             .map(str::to_owned)
             .collect();
         let at = mention(text).map(|m| m.to_lowercase());
-        let mut out: Vec<&PersonDoc> =
-            self.people.iter().filter(|p| lower.contains(&p.name.to_lowercase())).collect();
+        let mut out: Vec<&PersonDoc> = self
+            .people
+            .iter()
+            .filter(|p| lower.contains(&p.name.to_lowercase()))
+            .collect();
         out.sort_by_key(|p| Some(p.name.to_lowercase()) != at);
         out
     }
@@ -715,7 +803,10 @@ impl Index {
                 },
             });
         }
-        let ws: HashSet<String> = words(text).into_iter().filter(|w| w.len() >= 4 && !self.names.contains(w)).collect();
+        let ws: HashSet<String> = words(text)
+            .into_iter()
+            .filter(|w| w.len() >= 4 && !self.names.contains(w))
+            .collect();
         self.issues
             .iter()
             .map(|i| (i.words.intersection(&ws).count(), i))
@@ -798,7 +889,9 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     ctx.link(plat, "Webhook reliability", "confirmed");
 
     let line = |date: Date, pos: i64, kind: &str, text: &str, state: &str, meta: Value| -> anyhow::Result<()> {
-        Ok(ctx.sample().note_line(&date.to_string(), pos, kind, text, &meta.to_string(), state)?)
+        Ok(ctx
+            .sample()
+            .note_line(&date.to_string(), pos, kind, text, &meta.to_string(), state)?)
     };
     let none = json!({});
 
@@ -823,15 +916,49 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     // Yesterday's page, already sent: shows the 11a states (went to Incoming,
     // held, and the life-line receipt states the Phase 2 Marvin client will drive).
     let y = today - 1.day();
-    let topic = |name: &str| {
-        json!({ "type": "topic", "id": ctx.topic(name), "label": name, "category": "work", "auto": true })
-    };
-    line(y, 0, "note", "Kim wants a walk-away number before Thursday", "incoming", topic("Datadog renewal"))?;
-    line(y, 1, "research", "what retry budget do other teams use for webhooks?", "incoming", topic("Webhook reliability"))?;
-    line(y, 2, "life", "renew parking permit", "confirmed", json!({ "receipt_at": ctx.at(-1, "17:42") }))?;
+    let topic =
+        |name: &str| json!({ "type": "topic", "id": ctx.topic(name), "label": name, "category": "work", "auto": true });
+    line(
+        y,
+        0,
+        "note",
+        "Kim wants a walk-away number before Thursday",
+        "incoming",
+        topic("Datadog renewal"),
+    )?;
+    line(
+        y,
+        1,
+        "research",
+        "what retry budget do other teams use for webhooks?",
+        "incoming",
+        topic("Webhook reliability"),
+    )?;
+    line(
+        y,
+        2,
+        "life",
+        "renew parking permit",
+        "confirmed",
+        json!({ "receipt_at": ctx.at(-1, "17:42") }),
+    )?;
     line(y, 3, "note", "postmortem template feels too long", "held", none.clone())?;
-    line(y, 4, "life", "ask Sam about Saturday pickup", "failed", json!({ "error": "Marvin unreachable" }))?;
-    line(y, 5, "do", "block time for Q4 planning doc", "incoming", topic("Q4 planning"))?;
+    line(
+        y,
+        4,
+        "life",
+        "ask Sam about Saturday pickup",
+        "failed",
+        json!({ "error": "Marvin unreachable" }),
+    )?;
+    line(
+        y,
+        5,
+        "do",
+        "block time for Q4 planning doc",
+        "incoming",
+        topic("Q4 planning"),
+    )?;
     Ok(())
 }
 
@@ -852,7 +979,12 @@ mod tests {
     }
 
     fn by_text<'a>(page: &'a Value, starts: &str) -> &'a Value {
-        page["lines"].as_array().unwrap().iter().find(|l| l["text"].as_str().unwrap().starts_with(starts)).unwrap()
+        page["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["text"].as_str().unwrap().starts_with(starts))
+            .unwrap()
     }
 
     #[test]
@@ -886,33 +1018,77 @@ mod tests {
     #[test]
     fn suggestions_follow_new_links_item_edits_and_note_edits() {
         let (app, _dir) = app();
-        let suggest = |text: &str| call(&app, "suggest", &json!({ "text": text, "kind": "note" })).unwrap()["label"].as_str().map(str::to_owned);
-        let topic = |name: &str| -> i64 { app.db().query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap() };
+        let suggest = |text: &str| {
+            call(&app, "suggest", &json!({ "text": text, "kind": "note" })).unwrap()["label"]
+                .as_str()
+                .map(str::to_owned)
+        };
+        let topic = |name: &str| -> i64 {
+            app.db()
+                .query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0))
+                .unwrap()
+        };
         // Builds the cache: nothing mentions the word yet.
         assert_eq!(suggest("zanzibar contract"), None);
         // A signal about it is filed under Conference CFP.
-        let item: i64 = app.db().query_row("SELECT id FROM items WHERE title = 'Talk abstract outline'", [], |r| r.get(0)).unwrap();
-        app.db().execute("UPDATE items SET body = 'Zanzibar contract terms attached' WHERE id = ?1", [item]).unwrap();
-        assert_eq!(suggest("zanzibar contract").as_deref(), Some("Conference CFP"), "a linked item's edited text counts");
+        let item: i64 = app
+            .db()
+            .query_row("SELECT id FROM items WHERE title = 'Talk abstract outline'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        app.db()
+            .execute(
+                "UPDATE items SET body = 'Zanzibar contract terms attached' WHERE id = ?1",
+                [item],
+            )
+            .unwrap();
+        assert_eq!(
+            suggest("zanzibar contract").as_deref(),
+            Some("Conference CFP"),
+            "a linked item's edited text counts"
+        );
         // Its note mentions another word (written later, so its modification time moves).
         let q4 = topic("Q4 planning");
-        let note: String = app.db().query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0)).unwrap();
+        let note: String = app
+            .db()
+            .query_row("SELECT obsidian_path FROM topics WHERE id = ?1", [q4], |r| r.get(0))
+            .unwrap();
         let path = app.vault.join(note);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "## Asks\n- mangosteen budget line\n").unwrap();
         let f = std::fs::File::options().write(true).open(&path).unwrap();
-        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
-        assert_eq!(suggest("mangosteen budget").as_deref(), Some("Q4 planning"), "an edited note counts");
+        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+            .unwrap();
+        assert_eq!(
+            suggest("mangosteen budget").as_deref(),
+            Some("Q4 planning"),
+            "an edited note counts"
+        );
         // A new link moves the signal to another topic.
         let career = topic("Career");
-        app.db().execute("UPDATE topic_links SET topic_id = ?2 WHERE item_id = ?1", rusqlite::params![item, career]).unwrap();
-        assert_eq!(suggest("zanzibar contract").as_deref(), Some("Career"), "a moved link counts");
+        app.db()
+            .execute(
+                "UPDATE topic_links SET topic_id = ?2 WHERE item_id = ?1",
+                rusqlite::params![item, career],
+            )
+            .unwrap();
+        assert_eq!(
+            suggest("zanzibar contract").as_deref(),
+            Some("Career"),
+            "a moved link counts"
+        );
     }
 
     #[test]
     fn tag_sets_the_topic() {
         let (app, _d) = app();
-        let t = call(&app, "suggest", &json!({ "text": "rotate incident lead weekly #oncall", "kind": "note" })).unwrap();
+        let t = call(
+            &app,
+            "suggest",
+            &json!({ "text": "rotate incident lead weekly #oncall", "kind": "note" }),
+        )
+        .unwrap();
         assert_eq!(t["label"], "On-call load");
         let t = call(&app, "suggest", &json!({ "text": "follow up #datadog", "kind": "do" })).unwrap();
         assert_eq!(t["label"], "Datadog renewal");
@@ -940,7 +1116,10 @@ mod tests {
         assert_eq!(lines[1]["target"]["auto"], true);
 
         // Saving yesterday's page with nothing keeps the sent and receipt-tracked lines.
-        let before = call(&app, "page", &json!({ "date": y })).unwrap()["lines"].as_array().unwrap().len();
+        let before = call(&app, "page", &json!({ "date": y })).unwrap()["lines"]
+            .as_array()
+            .unwrap()
+            .len();
         let after = call(&app, "save", &json!({ "date": y, "lines": [] })).unwrap();
         let left = after["lines"].as_array().unwrap();
         assert_eq!(left.len(), before - 1, "only the held line is removable");
@@ -951,9 +1130,19 @@ mod tests {
     fn manual_pick_survives_text_edits() {
         let (app, _d) = app();
         let pick = json!({ "type": "topic", "id": 1, "label": "Acme outage", "category": "work", "auto": false });
-        let r = call(&app, "save", &json!({ "lines": [{ "kind": "note", "text": "anything at all", "target": pick }] })).unwrap();
+        let r = call(
+            &app,
+            "save",
+            &json!({ "lines": [{ "kind": "note", "text": "anything at all", "target": pick }] }),
+        )
+        .unwrap();
         let id = r["lines"][0]["id"].as_i64().unwrap();
-        let r = call(&app, "save", &json!({ "lines": [{ "id": id, "kind": "note", "text": "anything else", "target": pick }] })).unwrap();
+        let r = call(
+            &app,
+            "save",
+            &json!({ "lines": [{ "id": id, "kind": "note", "text": "anything else", "target": pick }] }),
+        )
+        .unwrap();
         assert_eq!(r["lines"][0]["target"]["label"], "Acme outage");
         assert_eq!(r["lines"][0]["target"]["auto"], false);
     }
@@ -961,7 +1150,11 @@ mod tests {
     #[test]
     fn send_creates_incoming_signals_and_holds_the_rest() {
         let (app, _d) = app();
-        let unseen = |app: &App| -> i64 { app.db().query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0)).unwrap() };
+        let unseen = |app: &App| -> i64 {
+            app.db()
+                .query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))
+                .unwrap()
+        };
         let before = unseen(&app);
         let p = call(&app, "send", &json!({})).unwrap();
         // 8 lines: 6 with a destination go, 1 is held, the life line stays a draft.
@@ -995,11 +1188,19 @@ mod tests {
         assert_eq!(t, "Webhook reliability");
         // Priya has no single topic, so her line is unlinked (Unsorted).
         let n: i64 = conn
-            .query_row("SELECT count(*) FROM items i JOIN topic_links tl ON tl.item_id = i.id WHERE i.title LIKE 'Priya%'", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM items i JOIN topic_links tl ON tl.item_id = i.id WHERE i.title LIKE 'Priya%'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(n, 0);
         // Life lines never reach items, and only offers were made (no outbox writes).
-        let life: i64 = conn.query_row("SELECT count(*) FROM items WHERE title LIKE '%dentist%'", [], |r| r.get(0)).unwrap();
+        let life: i64 = conn
+            .query_row("SELECT count(*) FROM items WHERE title LIKE '%dentist%'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(life, 0);
         let ob: i64 = conn.query_row("SELECT count(*) FROM outbox", [], |r| r.get(0)).unwrap();
         assert_eq!(ob, 0);
@@ -1013,26 +1214,50 @@ mod tests {
     #[test]
     fn accepted_offer_queues_a_jira_write() {
         let (app, _d) = app();
-        let o = call(&app, "options", &json!({ "text": "@Jordan check the retry storm", "kind": "delegated" })).unwrap();
+        let o = call(
+            &app,
+            "options",
+            &json!({ "text": "@Jordan check the retry storm", "kind": "delegated" }),
+        )
+        .unwrap();
         let create = o["create"].clone();
         assert_eq!(create["create"], true);
-        call(&app, "save", &json!({ "lines": [{ "kind": "delegated", "text": "@Jordan check the retry storm", "target": create }] })).unwrap();
+        call(
+            &app,
+            "save",
+            &json!({ "lines": [{ "kind": "delegated", "text": "@Jordan check the retry storm", "target": create }] }),
+        )
+        .unwrap();
         call(&app, "send", &json!({})).unwrap();
-        let (op, state): (String, String) =
-            app.db().query_row("SELECT op, state FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (op, state): (String, String) = app
+            .db()
+            .query_row("SELECT op, state FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
         assert_eq!((op.as_str(), state.as_str()), ("jira.create_issue", "pending"));
     }
 
     #[test]
     fn options_and_search() {
         let (app, _d) = app();
-        let o = call(&app, "options", &json!({ "text": "3y deal only makes sense if logs get fixed first", "kind": "note" })).unwrap();
+        let o = call(
+            &app,
+            "options",
+            &json!({ "text": "3y deal only makes sense if logs get fixed first", "kind": "note" }),
+        )
+        .unwrap();
         let opts = o["options"].as_array().unwrap();
         assert_eq!(opts.len(), 3);
-        assert!(opts.iter().all(|t| t["label"] != "Datadog renewal"), "current suggestion is not repeated");
+        assert!(
+            opts.iter().all(|t| t["label"] != "Datadog renewal"),
+            "current suggestion is not repeated"
+        );
         assert!(o["create"].is_null());
         let o = call(&app, "options", &json!({ "text": "x", "q": "pri" })).unwrap();
-        assert!(o["options"].as_array().unwrap().iter().any(|t| t["label"] == "People/Priya"));
+        assert!(o["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["label"] == "People/Priya"));
     }
 
     #[test]
@@ -1057,22 +1282,40 @@ mod jira_link_tests {
     fn line_shows_the_created_issue_key_once_confirmed() {
         let dir = tempfile::tempdir().unwrap();
         let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
-        let (line, date): (i64, String) =
-            app.db().query_row("SELECT id, page_date FROM notes_lines LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
-        let jira: i64 = app.db().query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).unwrap();
+        let (line, date): (i64, String) = app
+            .db()
+            .query_row("SELECT id, page_date FROM notes_lines LIMIT 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let jira: i64 = app
+            .db()
+            .query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0))
+            .unwrap();
         app.db()
             .execute(
                 "INSERT INTO outbox (source_id, op, payload_json, state, error) VALUES (?1, 'jira.create_issue', ?2, 'failed', 'boom')",
                 rusqlite::params![jira, json!({ "notes_line_id": line }).to_string()],
             )
             .unwrap();
-        let find = |p: &serde_json::Value| p["lines"].as_array().unwrap().iter().find(|l| l["id"] == line).unwrap().clone();
+        let find = |p: &serde_json::Value| {
+            p["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|l| l["id"] == line)
+                .unwrap()
+                .clone()
+        };
         let p = super::call(&app, "page", &json!({ "date": date })).unwrap();
         assert_eq!(find(&p)["jira"]["state"], "failed");
         let p = super::call(&app, "retry", &json!({ "date": date })).unwrap();
         assert_eq!(find(&p)["jira"]["state"], "pending");
         app.db()
-            .execute("UPDATE outbox SET state = 'confirmed', receipt_json = ?1", [json!({ "key": "PLAT-77", "url": "u" }).to_string()])
+            .execute(
+                "UPDATE outbox SET state = 'confirmed', receipt_json = ?1",
+                [json!({ "key": "PLAT-77", "url": "u" }).to_string()],
+            )
             .unwrap();
         let p = super::call(&app, "page", &json!({ "date": date })).unwrap();
         assert_eq!(find(&p)["jira"]["key"], "PLAT-77");

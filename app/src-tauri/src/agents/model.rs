@@ -280,13 +280,25 @@ pub struct Who {
 
 impl Who {
     pub fn you() -> Who {
-        Who { name: "You".into(), session: None, kind: "you".into() }
+        Who {
+            name: "You".into(),
+            session: None,
+            kind: "you".into(),
+        }
     }
     pub fn agent(name: &str, session: Option<String>) -> Who {
-        Who { name: name.into(), session, kind: "agent".into() }
+        Who {
+            name: name.into(),
+            session,
+            kind: "agent".into(),
+        }
     }
     pub fn room(name: &str, id: &str) -> Who {
-        Who { name: format!("#{name}"), session: Some(format!("r:{id}")), kind: "room".into() }
+        Who {
+            name: format!("#{name}"),
+            session: Some(format!("r:{id}")),
+            kind: "room".into(),
+        }
     }
 }
 

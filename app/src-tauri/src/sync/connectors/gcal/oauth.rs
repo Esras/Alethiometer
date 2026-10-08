@@ -45,7 +45,10 @@ impl SecretNames {
     pub fn of(kind: &str, config: &Value) -> SecretNames {
         let prefix = prefix_of(kind, config);
         let default_client = if kind == "gcal" { prefix.as_str() } else { "gcal" };
-        let client = config.get("client_prefix").and_then(Value::as_str).unwrap_or(default_client);
+        let client = config
+            .get("client_prefix")
+            .and_then(Value::as_str)
+            .unwrap_or(default_client);
         SecretNames {
             client_id: format!("{client}.client_id"),
             client_secret: format!("{client}.client_secret"),
@@ -55,7 +58,11 @@ impl SecretNames {
 }
 
 pub fn prefix_of(kind: &str, config: &Value) -> String {
-    config.get("secret_prefix").and_then(Value::as_str).unwrap_or(kind).to_string()
+    config
+        .get("secret_prefix")
+        .and_then(Value::as_str)
+        .unwrap_or(kind)
+        .to_string()
 }
 
 pub fn scopes_of(kind: &str, config: &Value) -> String {
@@ -85,12 +92,20 @@ impl TokenCache {
 
     fn get(&self, key: &str) -> Option<String> {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(key).filter(|c| c.expires > Instant::now()).map(|c| c.token.clone())
+        map.get(key)
+            .filter(|c| c.expires > Instant::now())
+            .map(|c| c.token.clone())
     }
 
     pub fn put(&self, key: &str, token: &str, expires: Instant) {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(key.to_string(), Cached { token: token.to_string(), expires });
+        map.insert(
+            key.to_string(),
+            Cached {
+                token: token.to_string(),
+                expires,
+            },
+        );
     }
 
     fn forget(&self, key: &str) {
@@ -99,7 +114,10 @@ impl TokenCache {
 
     fn forget_prefix(&self, prefix: &str) {
         let start = format!("{prefix}:");
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.starts_with(&start));
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|k, _| !k.starts_with(&start));
     }
 }
 
@@ -141,14 +159,24 @@ pub fn invalidate(ctx: &Ctx, cache: &TokenCache) {
     }
 }
 
-fn refresh_access_token(http: &dyn Http, client_id: &str, client_secret: &str, refresh: &str) -> anyhow::Result<(String, u64)> {
+fn refresh_access_token(
+    http: &dyn Http,
+    client_id: &str,
+    client_secret: &str,
+    refresh: &str,
+) -> anyhow::Result<(String, u64)> {
     let body = form(&[
         ("client_id", client_id),
         ("client_secret", client_secret),
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh),
     ]);
-    let resp = http.request("POST", TOKEN_URL, &[("content-type", "application/x-www-form-urlencoded")], Some(&body))?;
+    let resp = http.request(
+        "POST",
+        TOKEN_URL,
+        &[("content-type", "application/x-www-form-urlencoded")],
+        Some(&body),
+    )?;
     let v: Value = resp.json().unwrap_or(Value::Null);
     if !(200..300).contains(&resp.status) {
         // The error body is Google's `{error, error_description}`; it never echoes secrets.
@@ -160,7 +188,10 @@ fn refresh_access_token(http: &dyn Http, client_id: &str, client_secret: &str, r
         }
         anyhow::bail!("Google token refresh failed: HTTP {} {err}", resp.status);
     }
-    let token = v.get("access_token").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("token response had no access_token"))?;
+    let token = v
+        .get("access_token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("token response had no access_token"))?;
     let expires_in = v.get("expires_in").and_then(Value::as_u64).unwrap_or(3599);
     Ok((token.to_string(), expires_in))
 }
@@ -182,7 +213,12 @@ pub fn exchange_code(
         ("grant_type", "authorization_code"),
         ("redirect_uri", redirect_uri),
     ]);
-    let resp = http.request("POST", TOKEN_URL, &[("content-type", "application/x-www-form-urlencoded")], Some(&body))?;
+    let resp = http.request(
+        "POST",
+        TOKEN_URL,
+        &[("content-type", "application/x-www-form-urlencoded")],
+        Some(&body),
+    )?;
     let v: Value = resp.json().unwrap_or(Value::Null);
     if !(200..300).contains(&resp.status) {
         let err = v.get("error").and_then(Value::as_str).unwrap_or("unknown_error");
@@ -198,7 +234,9 @@ pub fn exchange_code(
 fn random_b64(n: usize) -> anyhow::Result<String> {
     use ring::rand::SecureRandom;
     let mut buf = vec![0u8; n];
-    ring::rand::SystemRandom::new().fill(&mut buf).map_err(|_| anyhow::anyhow!("no system randomness"))?;
+    ring::rand::SystemRandom::new()
+        .fill(&mut buf)
+        .map_err(|_| anyhow::anyhow!("no system randomness"))?;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf))
 }
 
@@ -208,7 +246,14 @@ pub fn pkce_challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(d.as_ref())
 }
 
-pub fn consent_url(client_id: &str, redirect_uri: &str, scope: &str, challenge: &str, state: &str, login_hint: Option<&str>) -> String {
+pub fn consent_url(
+    client_id: &str,
+    redirect_uri: &str,
+    scope: &str,
+    challenge: &str,
+    state: &str,
+    login_hint: Option<&str>,
+) -> String {
     let mut params = vec![
         ("client_id", client_id),
         ("redirect_uri", redirect_uri),
@@ -228,7 +273,11 @@ pub fn consent_url(client_id: &str, redirect_uri: &str, scope: &str, challenge: 
 }
 
 pub fn form(pairs: &[(&str, &str)]) -> String {
-    pairs.iter().map(|(k, v)| format!("{}={}", super::enc(k), super::enc(v))).collect::<Vec<_>>().join("&")
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", super::enc(k), super::enc(v)))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 fn pct_decode(s: &str) -> String {
@@ -269,7 +318,9 @@ pub enum Callback {
 /// Parse the request line of a redirect: `GET /?code=…&state=… HTTP/1.1`.
 pub fn parse_callback(request_line: &str, expected_state: &str) -> Callback {
     let target = request_line.split_whitespace().nth(1).unwrap_or("");
-    let Some((path, query)) = target.split_once('?') else { return Callback::Ignore };
+    let Some((path, query)) = target.split_once('?') else {
+        return Callback::Ignore;
+    };
     if path != "/" {
         return Callback::Ignore;
     }
@@ -337,17 +388,29 @@ pub fn serve_callback(
                 match parse_callback(&read_request_line(&mut stream), state) {
                     Callback::Ignore => respond(&mut stream, "404 Not Found", "Not found."),
                     Callback::Denied(e) => {
-                        respond(&mut stream, "200 OK", "Google access was not granted. You can close this tab.");
+                        respond(
+                            &mut stream,
+                            "200 OK",
+                            "Google access was not granted. You can close this tab.",
+                        );
                         return Flow::Failed(format!("consent denied ({e})"));
                     }
                     Callback::Code(code) => {
                         return match exchange(&code) {
                             Ok(refresh) => {
-                                respond(&mut stream, "200 OK", "Alethiometer is connected to Google. You can close this tab.");
+                                respond(
+                                    &mut stream,
+                                    "200 OK",
+                                    "Alethiometer is connected to Google. You can close this tab.",
+                                );
                                 Flow::Exchanged(refresh)
                             }
                             Err(e) => {
-                                respond(&mut stream, "200 OK", "Alethiometer couldn't finish connecting. Check gcal.auth_status.");
+                                respond(
+                                    &mut stream,
+                                    "200 OK",
+                                    "Alethiometer couldn't finish connecting. Check gcal.auth_status.",
+                                );
                                 Flow::Failed(e.to_string())
                             }
                         };
@@ -410,42 +473,57 @@ fn auth_start(app: &App, args: &Value) -> Result<Value> {
     let src = pick_source(app, args)?;
     let prefix = prefix_of(&src.kind, &src.config);
     let names = SecretNames::of(&src.kind, &src.config);
-    let missing = |n: &str| msg(format!("store your OAuth client in secret '{n}' first (see docs/sources/gcal.md)"));
-    let client_id = app.platform.secret_get(&names.client_id).ok_or_else(|| missing(&names.client_id))?;
-    let client_secret = app.platform.secret_get(&names.client_secret).ok_or_else(|| missing(&names.client_secret))?;
+    let missing = |n: &str| {
+        msg(format!(
+            "store your OAuth client in secret '{n}' first (see docs/sources/gcal.md)"
+        ))
+    };
+    let client_id = app
+        .platform
+        .secret_get(&names.client_id)
+        .ok_or_else(|| missing(&names.client_id))?;
+    let client_secret = app
+        .platform
+        .secret_get(&names.client_secret)
+        .ok_or_else(|| missing(&names.client_secret))?;
 
     let verifier = random_b64(48)?; // 64 chars, within RFC 7636's 43..128
     let state = random_b64(16)?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let redirect_uri = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
     let hint = src.config.get("account").and_then(Value::as_str);
-    let url = consent_url(&client_id, &redirect_uri, &scopes_of(&src.kind, &src.config), &pkce_challenge(&verifier), &state, hint);
+    let url = consent_url(
+        &client_id,
+        &redirect_uri,
+        &scopes_of(&src.kind, &src.config),
+        &pkce_challenge(&verifier),
+        &state,
+        hint,
+    );
 
     flows().insert(src.id, Flow::Waiting);
     let id = src.id;
     let redirect = redirect_uri.clone();
     let platform = app.platform.clone();
     let refresh_name = names.refresh_token.clone();
-    std::thread::Builder::new()
-        .name("gcal-consent".into())
-        .spawn(move || {
-            let http = UreqHttp::default();
-            let outcome = serve_callback(listener, Instant::now() + CONSENT_TIMEOUT, &state, |code| {
-                exchange_code(&http, &client_id, &client_secret, code, &verifier, &redirect)
-            });
-            // Save the refresh token right away, so closing Alethiometer can't lose it.
-            let outcome = match outcome {
-                Flow::Exchanged(refresh) => match platform.secret_set(&refresh_name, &refresh) {
-                    Ok(()) => {
-                        CACHE.forget_prefix(&prefix);
-                        Flow::Connected
-                    }
-                    Err(e) => Flow::Failed(format!("couldn't save the refresh token: {e}")),
-                },
-                other => other,
-            };
-            flows().insert(id, outcome);
-        })?;
+    std::thread::Builder::new().name("gcal-consent".into()).spawn(move || {
+        let http = UreqHttp::default();
+        let outcome = serve_callback(listener, Instant::now() + CONSENT_TIMEOUT, &state, |code| {
+            exchange_code(&http, &client_id, &client_secret, code, &verifier, &redirect)
+        });
+        // Save the refresh token right away, so closing Alethiometer can't lose it.
+        let outcome = match outcome {
+            Flow::Exchanged(refresh) => match platform.secret_set(&refresh_name, &refresh) {
+                Ok(()) => {
+                    CACHE.forget_prefix(&prefix);
+                    Flow::Connected
+                }
+                Err(e) => Flow::Failed(format!("couldn't save the refresh token: {e}")),
+            },
+            other => other,
+        };
+        flows().insert(id, outcome);
+    })?;
     // Open the consent screen unless the caller only wants the URL.
     let opened = !args.get("no_open").and_then(Value::as_bool).unwrap_or(false) && app.platform.open_url(&url).is_ok();
     Ok(json!({
@@ -490,7 +568,10 @@ mod tests {
     #[test]
     fn pkce_challenge_is_s256_base64url() {
         // Computed independently: base64url(sha256(verifier)) without padding.
-        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mJ92K9mzvXpApYM4XqTANAJfKlLPIo"), "5AK02UWhvE-wcLJ2JUX11eybNwnNd84URykhUrBvCDM");
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mJ92K9mzvXpApYM4XqTANAJfKlLPIo"),
+            "5AK02UWhvE-wcLJ2JUX11eybNwnNd84URykhUrBvCDM"
+        );
         let v = random_b64(48).unwrap();
         assert_eq!(v.len(), 64);
         assert!(v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
@@ -502,9 +583,18 @@ mod tests {
             let n = SecretNames::of(kind, &config);
             [n.client_id, n.client_secret, n.refresh_token]
         };
-        assert_eq!(names("gmail", json!({})), ["gcal.client_id", "gcal.client_secret", "gmail.refresh_token"]);
-        assert_eq!(names("gcal", json!({})), ["gcal.client_id", "gcal.client_secret", "gcal.refresh_token"]);
-        assert_eq!(names("gcal", json!({ "secret_prefix": "gcal.w2" })), ["gcal.w2.client_id", "gcal.w2.client_secret", "gcal.w2.refresh_token"]);
+        assert_eq!(
+            names("gmail", json!({})),
+            ["gcal.client_id", "gcal.client_secret", "gmail.refresh_token"]
+        );
+        assert_eq!(
+            names("gcal", json!({})),
+            ["gcal.client_id", "gcal.client_secret", "gcal.refresh_token"]
+        );
+        assert_eq!(
+            names("gcal", json!({ "secret_prefix": "gcal.w2" })),
+            ["gcal.w2.client_id", "gcal.w2.client_secret", "gcal.w2.refresh_token"]
+        );
         assert_eq!(names("gmail", json!({ "client_prefix": "g2" }))[0], "g2.client_id");
         assert_eq!(scopes_of("gmail", &json!({})), GMAIL_SCOPE);
         assert_eq!(scopes_of("gcal", &json!({})), DEFAULT_SCOPE);
@@ -512,11 +602,20 @@ mod tests {
 
     #[test]
     fn consent_url_carries_pkce_and_offline() {
-        let u = consent_url("cid.apps.googleusercontent.com", "http://127.0.0.1:5555", DEFAULT_SCOPE, "chal", "st", None);
+        let u = consent_url(
+            "cid.apps.googleusercontent.com",
+            "http://127.0.0.1:5555",
+            DEFAULT_SCOPE,
+            "chal",
+            "st",
+            None,
+        );
         assert!(u.starts_with("https://accounts.google.com/o/oauth2/v2/auth?client_id=cid.apps.googleusercontent.com&"));
         assert!(u.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A5555"));
         assert!(u.contains("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events.owned"));
-        assert!(u.contains("code_challenge=chal&code_challenge_method=S256&state=st&access_type=offline&prompt=consent"));
+        assert!(
+            u.contains("code_challenge=chal&code_challenge_method=S256&state=st&access_type=offline&prompt=consent")
+        );
     }
 
     #[test]
@@ -525,13 +624,24 @@ mod tests {
         assert_eq!(parse_callback(line, "s+1"), Callback::Code("4/0AbC".into()));
         assert_eq!(parse_callback(line, "other"), Callback::Ignore);
         assert_eq!(parse_callback("GET /favicon.ico HTTP/1.1", "s"), Callback::Ignore);
-        assert_eq!(parse_callback("GET /?error=access_denied&state=s HTTP/1.1", "s"), Callback::Denied("access_denied".into()));
+        assert_eq!(
+            parse_callback("GET /?error=access_denied&state=s HTTP/1.1", "s"),
+            Callback::Denied("access_denied".into())
+        );
     }
 
     #[test]
     fn code_exchange_posts_verifier_and_returns_refresh_token() {
         let http = FakeHttp::default();
-        http.on("POST", "oauth2.googleapis.com/token", 200, include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gcal/token_exchange.json")));
+        http.on(
+            "POST",
+            "oauth2.googleapis.com/token",
+            200,
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/gcal/token_exchange.json"
+            )),
+        );
         let r = exchange_code(&http, "cid", "csecret", "4/0AbC", "verif", "http://127.0.0.1:5555").unwrap();
         assert_eq!(r, "1//0gRefreshTokenExample");
         let body = http.requests()[0].2.clone().unwrap();

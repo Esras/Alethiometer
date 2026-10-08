@@ -47,7 +47,11 @@ pub fn writer(app: &App) -> Result<Option<i64>> {
 /// they're joined onto the vault for direct writes.
 fn check_rel(rel: &str) -> Result<()> {
     let p = Path::new(rel);
-    if rel.is_empty() || p.is_absolute() || p.components().any(|c| !matches!(c, Component::Normal(_))) || !rel.ends_with(".md") {
+    if rel.is_empty()
+        || p.is_absolute()
+        || p.components().any(|c| !matches!(c, Component::Normal(_)))
+        || !rel.ends_with(".md")
+    {
         return Err(msg(format!("not a note path in the vault: {rel}")));
     }
     Ok(())
@@ -61,7 +65,9 @@ pub fn disk_text(app: &App, rel: &str) -> Option<String> {
 /// holds `base` (None: it doesn't exist yet).
 pub fn save_note(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result<Saved> {
     check_rel(rel)?;
-    let Some(source) = writer(app)? else { return write_direct(app, rel, base, text) };
+    let Some(source) = writer(app)? else {
+        return write_direct(app, rel, base, text);
+    };
     let id = app.store().write(|uow| {
         // Continue a queued (or failed) row for this note when this save follows from it.
         if let Some(q) = uow.reads().outbox().open_for_path(source, "obsidian.replace", rel)? {
@@ -74,7 +80,13 @@ pub fn save_note(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result
                 // It was picked up meanwhile: queue behind it.
             }
         }
-        crate::outbox::request(uow, source, "obsidian.replace", &json!({ "path": rel, "base": base, "text": text }), None)
+        crate::outbox::request(
+            uow,
+            source,
+            "obsidian.replace",
+            &json!({ "path": rel, "base": base, "text": text }),
+            None,
+        )
     })?;
     crate::outbox::wake();
     Ok(Saved::Queued(id))
@@ -117,7 +129,10 @@ pub fn status(app: &App, outbox_id: i64) -> Result<Value> {
 }
 
 fn queued_save(app: &App, outbox_id: i64) -> Result<crate::domain::outbox::OutboxEntry> {
-    app.store().read(|r| r.outbox().get(outbox_id))?.filter(|e| e.op == "obsidian.replace").ok_or_else(|| msg("no such save"))
+    app.store()
+        .read(|r| r.outbox().get(outbox_id))?
+        .filter(|e| e.op == "obsidian.replace")
+        .ok_or_else(|| msg("no such save"))
 }
 
 /// "Keep mine" after a conflict: the user saw the note changed and chose their
@@ -132,7 +147,10 @@ pub fn keep_mine(app: &App, outbox_id: i64) -> Result<Value> {
     let mut p: Value = serde_json::from_str(&row.payload_json)?;
     let path = p.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
     p["base"] = json!(disk_text(app, &path));
-    if !app.store().write(|uow| uow.outbox().resend(outbox_id, &p.to_string()))? {
+    if !app
+        .store()
+        .write(|uow| uow.outbox().resend(outbox_id, &p.to_string()))?
+    {
         return Err(msg("that save isn't in conflict"));
     }
     crate::outbox::wake();
@@ -142,9 +160,9 @@ pub fn keep_mine(app: &App, outbox_id: i64) -> Result<Value> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use rusqlite::params;
     use crate::settings::{Settings, SourceConfig};
     use crate::sync::http::FakeHttp;
+    use rusqlite::params;
 
     /// Sample data plus a real obsidian source on the sample vault.
     pub(crate) fn app_with_source(write_mode: &str) -> (App, tempfile::TempDir) {
@@ -178,8 +196,13 @@ pub(crate) mod tests {
         assert!(writer(&app).unwrap().is_none(), "the sample Obsidian row has no vault");
         let rel = "Topics/Q4 headcount.md";
         let before = disk_text(&app, rel).unwrap();
-        assert!(matches!(save_note(&app, rel, Some("stale"), "x").unwrap(), Saved::Conflict(Some(ref d)) if *d == before));
-        assert!(matches!(save_note(&app, rel, Some(&before), "mine\n").unwrap(), Saved::Written));
+        assert!(
+            matches!(save_note(&app, rel, Some("stale"), "x").unwrap(), Saved::Conflict(Some(ref d)) if *d == before)
+        );
+        assert!(matches!(
+            save_note(&app, rel, Some(&before), "mine\n").unwrap(),
+            Saved::Written
+        ));
         assert_eq!(disk_text(&app, rel).unwrap(), "mine\n");
         assert!(save_note(&app, "../x.md", None, "x").is_err());
     }
@@ -189,25 +212,36 @@ pub(crate) mod tests {
         let (app, _d) = app_with_source("obsidian");
         let rel = "Topics/Q4 headcount.md";
         let base = disk_text(&app, rel).unwrap();
-        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "v1\n").unwrap() else { panic!() };
+        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "v1\n").unwrap() else {
+            panic!()
+        };
         assert_eq!(status(&app, id).unwrap()["state"], "saving");
         // More typing before it's sent: same row, newest text, original base.
-        let Saved::Queued(id2) = save_note(&app, rel, Some("v1\n"), "v2\n").unwrap() else { panic!() };
+        let Saved::Queued(id2) = save_note(&app, rel, Some("v1\n"), "v2\n").unwrap() else {
+            panic!()
+        };
         assert_eq!(id2, id);
 
         // Obsidian is closed: the row fails with the "isn't open" message (the
         // mapping from a refused connection is tested in rest.rs).
         let http = FakeHttp::default();
         app.db()
-            .execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, NOT_OPEN])
+            .execute(
+                "UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1",
+                params![id, NOT_OPEN],
+            )
             .unwrap();
         assert_eq!(status(&app, id).unwrap()["state"], "offline");
         // Still typing while it's closed: folded into the failed row.
-        let Saved::Queued(id3) = save_note(&app, rel, Some("v2\n"), "v3\n").unwrap() else { panic!() };
+        let Saved::Queued(id3) = save_note(&app, rel, Some("v2\n"), "v3\n").unwrap() else {
+            panic!()
+        };
         assert_eq!(id3, id);
 
         // ⌘R, Obsidian open, note unchanged: it lands through the API.
-        app.db().execute("UPDATE outbox SET state = 'pending' WHERE id = ?1", [id]).unwrap();
+        app.db()
+            .execute("UPDATE outbox SET state = 'pending' WHERE id = ?1", [id])
+            .unwrap();
         http.on("GET", "/vault/Topics/Q4%20headcount.md", 200, note_json(&base));
         http.on("PUT", "/vault/Topics/Q4%20headcount.md", 204, "");
         assert!(crate::outbox::process_one(&app, &http).unwrap());
@@ -216,7 +250,9 @@ pub(crate) mod tests {
         assert_eq!(put[0].2.as_deref(), Some("v3\n"));
 
         // The next save starts a new row from the saved text.
-        let Saved::Queued(id4) = save_note(&app, rel, Some("v3\n"), "v4\n").unwrap() else { panic!() };
+        let Saved::Queued(id4) = save_note(&app, rel, Some("v3\n"), "v4\n").unwrap() else {
+            panic!()
+        };
         assert_ne!(id4, id);
     }
 
@@ -225,7 +261,9 @@ pub(crate) mod tests {
         let (app, _d) = app_with_source("obsidian");
         let rel = "Topics/Q4 headcount.md";
         let base = disk_text(&app, rel).unwrap();
-        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "mine\n").unwrap() else { panic!() };
+        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "mine\n").unwrap() else {
+            panic!()
+        };
         // Someone edited the note in Obsidian (and it saved to disk).
         std::fs::write(app.vault.join(rel), "theirs\n").unwrap();
         let http = FakeHttp::default();
@@ -233,7 +271,10 @@ pub(crate) mod tests {
         http.on("PUT", "/vault/", 204, "");
         crate::outbox::process_one(&app, &http).unwrap();
         let s = status(&app, id).unwrap();
-        assert_eq!((s["state"].as_str(), s["disk"].as_str()), (Some("conflict"), Some("theirs\n")));
+        assert_eq!(
+            (s["state"].as_str(), s["disk"].as_str()),
+            (Some("conflict"), Some("theirs\n"))
+        );
         assert!(http.requests().iter().all(|r| r.0 != "PUT"));
 
         keep_mine(&app, id).unwrap();
@@ -247,7 +288,9 @@ pub(crate) mod tests {
         let (app, _d) = app_with_source("file");
         let rel = "Topics/Alerting P2.md";
         let base = disk_text(&app, rel).unwrap();
-        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "edited\n").unwrap() else { panic!() };
+        let Saved::Queued(id) = save_note(&app, rel, Some(&base), "edited\n").unwrap() else {
+            panic!()
+        };
         crate::outbox::process_one(&app, &FakeHttp::default()).unwrap();
         assert_eq!(status(&app, id).unwrap()["state"], "saved");
         assert_eq!(disk_text(&app, rel).unwrap(), "edited\n");

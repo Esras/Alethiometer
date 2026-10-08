@@ -17,7 +17,10 @@ fn to_blob(v: &[f32]) -> Vec<u8> {
 }
 
 fn stored(hash: Option<String>, model: Option<String>) -> Option<Stored> {
-    Some(Stored { hash: hash?, model: model? })
+    Some(Stored {
+        hash: hash?,
+        model: model?,
+    })
 }
 
 impl Sql<'_> {
@@ -46,7 +49,15 @@ impl Sql<'_> {
             None => stmt.query_map([], map)?.collect::<rusqlite::Result<_>>()?,
         };
         rows.into_iter()
-            .map(|(id, name, note_path, stored)| Ok(TopicSource { id, name, note_path, titles: self.topic_titles(id)?, stored }))
+            .map(|(id, name, note_path, stored)| {
+                Ok(TopicSource {
+                    id,
+                    name,
+                    note_path,
+                    titles: self.topic_titles(id)?,
+                    stored,
+                })
+            })
             .collect()
     }
 }
@@ -55,9 +66,17 @@ impl VectorViews for Sql<'_> {
     fn vector(&self, kind: VecKind, id: i64) -> Result<Option<Vec<f32>>> {
         let blob: Option<Vec<u8>> = self
             .conn()
-            .query_row(&format!("SELECT embedding FROM {} WHERE rowid = ?1", table(kind)), [id], |r| r.get(0))
+            .query_row(
+                &format!("SELECT embedding FROM {} WHERE rowid = ?1", table(kind)),
+                [id],
+                |r| r.get(0),
+            )
             .optional()?;
-        Ok(blob.map(|b| b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()))
+        Ok(blob.map(|b| {
+            b.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        }))
     }
 
     fn nearest_items(&self, v: &[f32], k: usize) -> Result<Vec<(i64, f32)>> {
@@ -65,9 +84,15 @@ impl VectorViews for Sql<'_> {
             "SELECT v.rowid, v.distance FROM vec_items v
               WHERE v.embedding MATCH ?1 AND k = ?2 ORDER BY v.distance",
         )?;
-        let rows = stmt.query_map(params![to_blob(v), k as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?;
+        let rows = stmt.query_map(params![to_blob(v), k as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+        })?;
         // vec0 reports L2 distance; for unit vectors cos = 1 - d²/2.
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(id, d)| (id, 1.0 - (d * d / 2.0) as f32)).collect())
+        Ok(rows
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|(id, d)| (id, 1.0 - (d * d / 2.0) as f32))
+            .collect())
     }
 
     fn queued_items(&self, limit: usize) -> Result<Vec<(ItemSource, i64)>> {
@@ -81,7 +106,16 @@ impl VectorViews for Sql<'_> {
                   ORDER BY d.item_id DESC LIMIT ?1",
             )?
             .query_map([limit as i64], |r| {
-                Ok((ItemSource { id: r.get(0)?, title: r.get(1)?, summary: r.get(2)?, body: r.get(3)?, stored: stored(r.get(4)?, r.get(5)?) }, r.get(6)?))
+                Ok((
+                    ItemSource {
+                        id: r.get(0)?,
+                        title: r.get(1)?,
+                        summary: r.get(2)?,
+                        body: r.get(3)?,
+                        stored: stored(r.get(4)?, r.get(5)?),
+                    },
+                    r.get(6)?,
+                ))
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
@@ -97,14 +131,21 @@ impl VectorViews for Sql<'_> {
     fn counts(&self) -> Result<(i64, i64)> {
         let c = self.conn();
         let indexed = c.query_row("SELECT count(*) FROM embed_meta WHERE kind = 'item'", [], |r| r.get(0))?;
-        let work = c.query_row("SELECT count(*) FROM items i JOIN sources s ON s.id = i.source_id WHERE s.tag = 'work'", [], |r| r.get(0))?;
+        let work = c.query_row(
+            "SELECT count(*) FROM items i JOIN sources s ON s.id = i.source_id WHERE s.tag = 'work'",
+            [],
+            |r| r.get(0),
+        )?;
         Ok((indexed, work))
     }
 }
 
 impl Vectors for Sql<'_> {
     fn dequeue(&self, item_id: i64, gen: i64) -> Result<()> {
-        self.conn().execute("DELETE FROM embed_dirty WHERE item_id = ?1 AND gen = ?2", params![item_id, gen])?;
+        self.conn().execute(
+            "DELETE FROM embed_dirty WHERE item_id = ?1 AND gen = ?2",
+            params![item_id, gen],
+        )?;
         Ok(())
     }
 
@@ -120,7 +161,10 @@ impl Vectors for Sql<'_> {
         let t = table(kind);
         let c = self.conn();
         c.execute(&format!("DELETE FROM {t} WHERE rowid = ?1"), [id])?;
-        c.execute(&format!("INSERT INTO {t} (rowid, embedding) VALUES (?1, ?2)"), params![id, to_blob(v)])?;
+        c.execute(
+            &format!("INSERT INTO {t} (rowid, embedding) VALUES (?1, ?2)"),
+            params![id, to_blob(v)],
+        )?;
         c.execute(
             "INSERT INTO embed_meta (kind, id, model, hash) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (kind, id) DO UPDATE SET model = excluded.model, hash = excluded.hash, at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",

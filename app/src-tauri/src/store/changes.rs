@@ -64,7 +64,10 @@ impl Changes {
     /// call (empty if nothing changed in time).
     pub fn take(&self, timeout: Duration) -> BTreeSet<String> {
         let g = lock(&self.committed);
-        let (mut g, _) = self.cv.wait_timeout_while(g, timeout, |t| t.is_empty()).unwrap_or_else(|e| e.into_inner());
+        let (mut g, _) = self
+            .cv
+            .wait_timeout_while(g, timeout, |t| t.is_empty())
+            .unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *g)
     }
 }

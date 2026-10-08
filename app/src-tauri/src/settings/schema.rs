@@ -26,14 +26,22 @@ pub struct Field {
 }
 
 fn resolve<'a>(root: &'a Value, s: &'a Value) -> &'a Value {
-    match s.get("$ref").and_then(Value::as_str).and_then(|r| r.strip_prefix("#/$defs/")) {
+    match s
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|r| r.strip_prefix("#/$defs/"))
+    {
         Some(name) => root.get("$defs").and_then(|d| d.get(name)).unwrap_or(s),
         None => s,
     }
 }
 
 fn first_line(s: &Value) -> String {
-    let t = s.get("title").and_then(Value::as_str).or_else(|| s.get("description").and_then(Value::as_str)).unwrap_or("");
+    let t = s
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| s.get("description").and_then(Value::as_str))
+        .unwrap_or("");
     t.lines().next().unwrap_or("").trim().to_string()
 }
 
@@ -68,7 +76,23 @@ fn widget_for(root: &Value, s: &Value) -> String {
     .into()
 }
 
-const OPTS: &[&str] = &["x-unit", "x-step", "x-min", "x-max", "x-enum", "x-readonly", "x-restart", "x-dev", "x-advanced", "x-secret", "x-note", "x-optional", "x-pair", "x-mono", "x-presets"];
+const OPTS: &[&str] = &[
+    "x-unit",
+    "x-step",
+    "x-min",
+    "x-max",
+    "x-enum",
+    "x-readonly",
+    "x-restart",
+    "x-dev",
+    "x-advanced",
+    "x-secret",
+    "x-note",
+    "x-optional",
+    "x-pair",
+    "x-mono",
+    "x-presets",
+];
 
 fn opts(s: &Value) -> Value {
     let mut m = Map::new();
@@ -85,26 +109,35 @@ fn opts(s: &Value) -> Value {
 }
 
 fn label_of(name: &str, s: &Value) -> String {
-    s.get("x-label").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| {
-        let mut l = name.replace('_', " ");
-        if let Some(c) = l.get_mut(0..1) {
-            c.make_ascii_uppercase();
-        }
-        l
-    })
+    s.get("x-label")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            let mut l = name.replace('_', " ");
+            if let Some(c) = l.get_mut(0..1) {
+                c.make_ascii_uppercase();
+            }
+            l
+        })
 }
 
 /// Rows for an object schema's properties, under `prefix`.
 fn walk(root: &Value, obj: &Value, prefix: &[Value], section: &str, out: &mut Vec<Field>) {
     let obj = resolve(root, obj);
-    let Some(props) = obj.get("properties").and_then(Value::as_object) else { return };
+    let Some(props) = obj.get("properties").and_then(Value::as_object) else {
+        return;
+    };
     for (name, s) in props {
         if s.get("x-hidden").and_then(Value::as_bool) == Some(true) {
             continue;
         }
         let mut path = prefix.to_vec();
         path.push(Value::String(name.clone()));
-        let section = s.get("x-section").and_then(Value::as_str).unwrap_or(section).to_string();
+        let section = s
+            .get("x-section")
+            .and_then(Value::as_str)
+            .unwrap_or(section)
+            .to_string();
         let target = resolve(root, s);
         // A nested struct without its own widget: its fields are the rows.
         if s.get("x-widget").is_none() && target.get("properties").is_some() && s.get("x-label").is_none() {
@@ -169,16 +202,27 @@ mod tests {
     fn rows_carry_labels_descriptions_and_paths() {
         let f = settings_fields();
         let quiet = f.iter().find(|r| r.key == "quiet_days").unwrap();
-        assert_eq!((quiet.section.as_str(), quiet.group.as_str(), quiet.label.as_str()), ("general", "Topics", "Quiet after"));
+        assert_eq!(
+            (quiet.section.as_str(), quiet.group.as_str(), quiet.label.as_str()),
+            ("general", "Topics", "Quiet after")
+        );
         assert_eq!(quiet.desc, "No new signal for this long moves a topic under Quiet.");
         assert_eq!(quiet.widget, "number");
         assert_eq!(quiet.opts["unit"], "days");
         let profile = f.iter().find(|r| r.key == "ai.aws_profile").unwrap();
         assert_eq!(profile.section, "ai");
-        assert_eq!(profile.desc, "Empty uses AWS_PROFILE, then default.", "first paragraph only");
+        assert_eq!(
+            profile.desc, "Empty uses AWS_PROFILE, then default.",
+            "first paragraph only"
+        );
         assert_eq!(profile.path, vec![Value::from("ai"), Value::from("aws_profile")]);
-        assert!(f.iter().any(|r| r.key == "people.suggest_days" && r.section == "people"));
-        assert!(f.iter().all(|r| r.key != "day_end_hour" && r.key != "life_calendars"), "hidden rows stay out");
+        assert!(f
+            .iter()
+            .any(|r| r.key == "people.suggest_days" && r.section == "people"));
+        assert!(
+            f.iter().all(|r| r.key != "day_end_hour" && r.key != "life_calendars"),
+            "hidden rows stay out"
+        );
         assert!(f.iter().find(|r| r.key == "ai.allowed_providers").unwrap().opts["readonly"] == true);
         assert!(f.iter().find(|r| r.key == "fake_now").unwrap().opts["dev"] == true);
         assert_eq!(f.iter().find(|r| r.key == "demo_data").unwrap().widget, "toggle");
@@ -188,13 +232,19 @@ mod tests {
     fn every_kind_has_a_page() {
         for (kind, _) in super::super::sources::KINDS {
             let f = source_fields(kind);
-            assert!(f.iter().any(|r| r.key == "sources[].name" && r.group == "identity"), "{kind}");
+            assert!(
+                f.iter().any(|r| r.key == "sources[].name" && r.group == "identity"),
+                "{kind}"
+            );
             assert!(f.iter().any(|r| r.key.starts_with("sources[].config.")), "{kind}");
         }
         let slack = source_fields("slack");
         let ch = slack.iter().find(|r| r.key == "sources[].config.channels").unwrap();
         assert_eq!((ch.widget.as_str(), ch.group.as_str()), ("slack_channels", "reads"));
-        let lb = slack.iter().find(|r| r.key == "sources[].config.lookback_hours").unwrap();
+        let lb = slack
+            .iter()
+            .find(|r| r.key == "sources[].config.lookback_hours")
+            .unwrap();
         assert_eq!(lb.path, vec![Value::from("config"), Value::from("lookback_hours")]);
     }
 }

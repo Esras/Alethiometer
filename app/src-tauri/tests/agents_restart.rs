@@ -42,7 +42,10 @@ fn open(dir: &Path) -> Arc<App> {
 
 fn approval(app: &App, session: &str) -> Option<String> {
     let i = app.agents.store.lock();
-    i.requests.values().find(|r| r.session_id == session && r.kind == "approval").map(|r| r.id.clone())
+    i.requests
+        .values()
+        .find(|r| r.session_id == session && r.kind == "approval")
+        .map(|r| r.id.clone())
 }
 
 /// The apps under test use the host this test runs, never one of their own.
@@ -61,7 +64,10 @@ fn no_node() -> bool {
 /// Settings with the fake agent as the only harness, and the agent host running in-process.
 fn setup(dir: &Path, env: &[(&str, &str)]) -> std::thread::JoinHandle<std::io::Result<()>> {
     let fake = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fake-acp.mjs");
-    let mut s = Settings { demo_data: false, ..Default::default() };
+    let mut s = Settings {
+        demo_data: false,
+        ..Default::default()
+    };
     s.agents.harnesses = vec![Harness {
         key: "fake".into(),
         label: "Claude Code".into(),
@@ -74,8 +80,15 @@ fn setup(dir: &Path, env: &[(&str, &str)]) -> std::thread::JoinHandle<std::io::R
     std::fs::write(dir.join("settings.json"), serde_json::to_string_pretty(&s).unwrap()).unwrap();
     // The app finds it on the socket and doesn't start its own.
     let host_dir = dir.to_owned();
-    let host = std::thread::spawn(move || agentd::server::run(agentd::server::Options { dir: host_dir, idle: Duration::from_secs(600) }));
-    wait("the agent host", 10, || agentd::client::Control::connect(&agentd::proto::socket_path(dir)).ok());
+    let host = std::thread::spawn(move || {
+        agentd::server::run(agentd::server::Options {
+            dir: host_dir,
+            idle: Duration::from_secs(600),
+        })
+    });
+    wait("the agent host", 10, || {
+        agentd::client::Control::connect(&agentd::proto::socket_path(dir)).ok()
+    });
     host
 }
 
@@ -96,7 +109,12 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
     let host = setup(dir, &[("FAKE_ACP_FAST", "1")]);
 
     let first = open(dir);
-    let started = alethiometer_lib::agents::call(&first, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Fix the Settings header" })).unwrap();
+    let started = alethiometer_lib::agents::call(
+        &first,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "task": "Fix the Settings header" }),
+    )
+    .unwrap();
     let id = started["id"].as_str().unwrap().to_owned();
     // The fake agent reads, greps, runs a subagent, edits (accept-edits: no ask), then asks to run a shell command.
     let req = wait("the shell command's approval", 30, || approval(&first, &id));
@@ -105,9 +123,20 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
     first.agents.daemon.stop.store(true, Ordering::SeqCst);
     first.agents.store.flush(first.store()).unwrap();
     let second = open(dir);
-    let again = wait("the approval to come back after the restart", 20, || approval(&second, &id));
+    let again = wait("the approval to come back after the restart", 20, || {
+        approval(&second, &id)
+    });
     assert_eq!(again, req, "the same request, still waiting");
-    wait("the session to be attached", 10, || second.agents.store.lock().sessions.get(&id).filter(|s| s.live).map(|_| ()));
+    wait("the session to be attached", 10, || {
+        second
+            .agents
+            .store
+            .lock()
+            .sessions
+            .get(&id)
+            .filter(|s| s.live)
+            .map(|_| ())
+    });
 
     alethiometer_lib::agents::call(&second, "respond", &json!({ "request": again, "option": "1" })).unwrap();
     wait("the turn to finish", 30, || {
@@ -117,20 +146,47 @@ fn an_agent_waiting_on_you_survives_an_app_restart() {
     });
     let rows: Vec<Value> = {
         let i = second.agents.store.lock();
-        i.threads[&format!("s:{id}")].rows.iter().map(|r| serde_json::to_value(r).unwrap()).collect()
+        i.threads[&format!("s:{id}")]
+            .rows
+            .iter()
+            .map(|r| serde_json::to_value(r).unwrap())
+            .collect()
     };
-    let text = |kind: &str| rows.iter().filter(|r| r["kind"] == kind).map(|r| r["text"].as_str().unwrap_or("").to_owned()).collect::<Vec<_>>();
-    assert!(text("output").iter().any(|t| t.starts_with("Done: Fix the Settings header")), "the turn ended in the second app: {:?}", text("output"));
-    assert_eq!(rows.iter().filter(|r| r["kind"] == "you").count(), 1, "nothing replayed twice");
+    let text = |kind: &str| {
+        rows.iter()
+            .filter(|r| r["kind"] == kind)
+            .map(|r| r["text"].as_str().unwrap_or("").to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        text("output")
+            .iter()
+            .any(|t| t.starts_with("Done: Fix the Settings header")),
+        "the turn ended in the second app: {:?}",
+        text("output")
+    );
+    assert_eq!(
+        rows.iter().filter(|r| r["kind"] == "you").count(),
+        1,
+        "nothing replayed twice"
+    );
     let tools: Vec<&Value> = rows.iter().filter(|r| r["kind"] == "tool").collect();
-    assert!(tools.iter().any(|r| r["tool"]["name"] == "bash" && r["note"].as_str().is_some_and(|n| n.starts_with("allowed once"))), "the approved command is a tool row again");
+    assert!(
+        tools
+            .iter()
+            .any(|r| r["tool"]["name"] == "bash" && r["note"].as_str().is_some_and(|n| n.starts_with("allowed once"))),
+        "the approved command is a tool row again"
+    );
 
     stop_host(dir, host);
 }
 
 fn ask(app: &App, session: &str) -> Option<Value> {
     let i = app.agents.store.lock();
-    i.requests.values().find(|r| r.session_id == session && r.kind == "ask").map(|r| serde_json::to_value(r).unwrap())
+    i.requests
+        .values()
+        .find(|r| r.session_id == session && r.kind == "ask")
+        .map(|r| serde_json::to_value(r).unwrap())
 }
 
 #[test]
@@ -144,10 +200,23 @@ fn a_question_is_answered_by_choice_then_text_across_a_restart() {
     let host = setup(dir, &[("FAKE_ACP_MODE", "ask")]);
 
     let first = open(dir);
-    let id = alethiometer_lib::agents::call(&first, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Add a cache" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let id = alethiometer_lib::agents::call(
+        &first,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "task": "Add a cache" }),
+    )
+    .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let q = wait("the first question", 30, || ask(&first, &id));
     assert_eq!(q["question"], "Which database should the cache use?");
-    let titles: Vec<&str> = q["choices"].as_array().unwrap().iter().map(|c| c["title"].as_str().unwrap()).collect();
+    let titles: Vec<&str> = q["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["title"].as_str().unwrap())
+        .collect();
     assert_eq!(titles, ["Postgres", "SQLite"]);
     assert_eq!(q["choices"][1]["detail"], "A file next to the app");
 
@@ -156,21 +225,58 @@ fn a_question_is_answered_by_choice_then_text_across_a_restart() {
     let second = open(dir);
     let again = wait("the question to come back after the restart", 20, || ask(&second, &id));
     assert_eq!(again["id"], q["id"]);
-    wait("the session to be attached", 10, || second.agents.store.lock().sessions.get(&id).filter(|s| s.live).map(|_| ()));
+    wait("the session to be attached", 10, || {
+        second
+            .agents
+            .store
+            .lock()
+            .sessions
+            .get(&id)
+            .filter(|s| s.live)
+            .map(|_| ())
+    });
 
     alethiometer_lib::agents::call(&second, "answer", &json!({ "request": again["id"], "choice": "2" })).unwrap();
-    let next = wait("the text question", 20, || ask(&second, &id).filter(|r| r["id"] != again["id"]));
+    let next = wait("the text question", 20, || {
+        ask(&second, &id).filter(|r| r["id"] != again["id"])
+    });
     assert!(next["choices"].as_array().unwrap().is_empty());
-    alethiometer_lib::agents::call(&second, "answer", &json!({ "request": next["id"], "text": "cache_entries" })).unwrap();
+    alethiometer_lib::agents::call(
+        &second,
+        "answer",
+        &json!({ "request": next["id"], "text": "cache_entries" }),
+    )
+    .unwrap();
 
-    wait("the turn to finish", 30, || second.agents.store.lock().sessions.get(&id).filter(|s| s.status == Status::Idle).map(|_| ()));
+    wait("the turn to finish", 30, || {
+        second
+            .agents
+            .store
+            .lock()
+            .sessions
+            .get(&id)
+            .filter(|s| s.status == Status::Idle)
+            .map(|_| ())
+    });
     let rows: Vec<Value> = {
         let i = second.agents.store.lock();
-        i.threads[&format!("s:{id}")].rows.iter().map(|r| serde_json::to_value(r).unwrap()).collect()
+        i.threads[&format!("s:{id}")]
+            .rows
+            .iter()
+            .map(|r| serde_json::to_value(r).unwrap())
+            .collect()
     };
-    let out: String = rows.iter().filter(|r| r["kind"] == "output").map(|r| r["text"].as_str().unwrap_or("")).collect();
+    let out: String = rows
+        .iter()
+        .filter(|r| r["kind"] == "output")
+        .map(|r| r["text"].as_str().unwrap_or(""))
+        .collect();
     assert_eq!(out, r#"Got {"question_0":"SQLite"} then {"value":"cache_entries"}"#);
-    let asks: Vec<&str> = rows.iter().filter(|r| r["kind"] == "ask").map(|r| r["note"].as_str().unwrap_or("")).collect();
+    let asks: Vec<&str> = rows
+        .iter()
+        .filter(|r| r["kind"] == "ask")
+        .map(|r| r["note"].as_str().unwrap_or(""))
+        .collect();
     assert_eq!(asks.len(), 2, "one row per question, none repeated by the restart");
     assert_eq!(asks, ["answered: SQLite", "answered: cache_entries"]);
 
@@ -187,15 +293,39 @@ fn a_gate_that_repeats_only_the_call_id_still_shows_the_command() {
     let dir = data.path();
     let host = setup(dir, &[("FAKE_ACP_MODE", "gate")]);
     let app = open(dir);
-    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Clean up" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let id = alethiometer_lib::agents::call(
+        &app,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "task": "Clean up" }),
+    )
+    .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let req_id = wait("the gate", 30, || approval(&app, &id));
     let req = app.agents.store.lock().requests[&req_id].clone();
-    assert_eq!(req.command, "rm -rf build && node scripts/clean.js", "from the tool call the request points at");
+    assert_eq!(
+        req.command, "rm -rf build && node scripts/clean.js",
+        "from the tool call the request points at"
+    );
     assert!(req.parsed.is_some(), "a shell command, so it's parsed (and explained)");
     assert_eq!(req.message, "Dangerous command: deletes files. Allow?");
     alethiometer_lib::agents::call(&app, "respond", &json!({ "request": req_id, "option": "1" })).unwrap();
-    wait("the turn to finish", 30, || app.agents.store.lock().sessions.get(&id).filter(|s| s.status == Status::Idle).map(|_| ()));
-    let out: String = app.agents.store.lock().threads[&format!("s:{id}")].rows.iter().filter(|r| r.kind == alethiometer_lib::agents::model::Kind::Output).map(|r| r.text.clone()).collect();
+    wait("the turn to finish", 30, || {
+        app.agents
+            .store
+            .lock()
+            .sessions
+            .get(&id)
+            .filter(|s| s.status == Status::Idle)
+            .map(|_| ())
+    });
+    let out: String = app.agents.store.lock().threads[&format!("s:{id}")]
+        .rows
+        .iter()
+        .filter(|r| r.kind == alethiometer_lib::agents::model::Kind::Output)
+        .map(|r| r.text.clone())
+        .collect();
     assert_eq!(out, "gate: choice-0");
     stop_host(dir, host);
 }
@@ -208,7 +338,11 @@ struct Server {
 
 impl Server {
     fn start(dir: &Path) -> Server {
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let child = std::process::Command::new(env!("CARGO_BIN_EXE_devserver"))
             .env("ALETHIOMETER_DATA_DIR", dir)
             .env("ALETHIOMETER_DEVSERVER_ADDR", format!("127.0.0.1:{port}"))
@@ -217,13 +351,19 @@ impl Server {
             .stderr(std::process::Stdio::null())
             .spawn()
             .unwrap();
-        let s = Server { child, url: format!("http://127.0.0.1:{port}/call/") };
+        let s = Server {
+            child,
+            url: format!("http://127.0.0.1:{port}/call/"),
+        };
         wait("the devserver", 30, || s.call("agents.tree", json!({})).ok());
         s
     }
 
     fn call(&self, cmd: &str, args: Value) -> Result<Value, String> {
-        let mut r = ureq::post(&format!("{}{cmd}", self.url)).header("X-Alethiometer", "1").send_json(&args).map_err(|e| e.to_string())?;
+        let mut r = ureq::post(&format!("{}{cmd}", self.url))
+            .header("X-Alethiometer", "1")
+            .send_json(&args)
+            .map_err(|e| e.to_string())?;
         r.body_mut().read_json::<Value>().map_err(|e| e.to_string())
     }
 
@@ -235,12 +375,24 @@ impl Server {
 
     fn output(&self, id: &str) -> String {
         let t = self.call("agents.thread", json!({ "key": format!("s:{id}") })).unwrap();
-        t["rows"].as_array().unwrap().iter().filter(|r| r["kind"] == "output").map(|r| r["text"].as_str().unwrap_or("")).collect()
+        t["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "output")
+            .map(|r| r["text"].as_str().unwrap_or(""))
+            .collect()
     }
 
     fn session(&self, id: &str) -> Value {
         let t = self.call("agents.tree", json!({})).unwrap();
-        t["sessions"].as_array().unwrap().iter().find(|s| s["id"] == id).cloned().unwrap_or(Value::Null)
+        t["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id)
+            .cloned()
+            .unwrap_or(Value::Null)
     }
 }
 
@@ -255,10 +407,25 @@ fn crash_while_streaming(chunks: usize, cut: usize, gap: Duration) {
     let project = tempfile::tempdir().unwrap();
     let dir = data.path();
     let n = chunks.to_string();
-    let host = setup(dir, &[("FAKE_ACP_MODE", "stream"), ("FAKE_ACP_CHUNKS", &n), ("FAKE_ACP_DELAY_MS", "40")]);
+    let host = setup(
+        dir,
+        &[
+            ("FAKE_ACP_MODE", "stream"),
+            ("FAKE_ACP_CHUNKS", &n),
+            ("FAKE_ACP_DELAY_MS", "40"),
+        ],
+    );
 
     let a = Server::start(dir);
-    let id = a.call("agents.start_local", json!({ "harness": "fake", "cwd": project.path(), "task": "count" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let id = a
+        .call(
+            "agents.start_local",
+            json!({ "harness": "fake", "cwd": project.path(), "task": "count" }),
+        )
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let seen = format!("t{cut} ");
     wait("the first chunks", 30, || a.output(&id).contains(&seen).then_some(()));
     // Let at least one flush (every second) land mid-turn, then crash.
@@ -273,7 +440,15 @@ fn crash_while_streaming(chunks: usize, cut: usize, gap: Duration) {
     });
     assert_eq!(b.output(&id), ticks(chunks), "every chunk exactly once, in order");
     let rows = b.call("agents.thread", json!({ "key": format!("s:{id}") })).unwrap();
-    assert_eq!(rows["rows"].as_array().unwrap().iter().filter(|r| r["kind"] == "you").count(), 1);
+    assert_eq!(
+        rows["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "you")
+            .count(),
+        1
+    );
     assert_eq!(b.session(&id)["live"], true, "still attached to the same agent");
     b.kill9();
     stop_host(dir, host);
@@ -308,13 +483,33 @@ fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
     let data = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     let dir = data.path();
-    let host = setup(dir, &[("FAKE_ACP_MODE", "stream"), ("FAKE_ACP_CHUNKS", "20"), ("FAKE_ACP_DELAY_MS", "50")]);
+    let host = setup(
+        dir,
+        &[
+            ("FAKE_ACP_MODE", "stream"),
+            ("FAKE_ACP_CHUNKS", "20"),
+            ("FAKE_ACP_DELAY_MS", "50"),
+        ],
+    );
     let app = open(dir);
-    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "count" })).unwrap()["id"].as_str().unwrap().to_owned();
+    let id = alethiometer_lib::agents::call(
+        &app,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "task": "count" }),
+    )
+    .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let key = format!("s:{id}");
     wait("the first chunks", 30, || {
         let i = app.agents.store.lock();
-        i.threads.get(&key)?.rows.iter().any(|r| r.text.contains("t2 ")).then_some(())
+        i.threads
+            .get(&key)?
+            .rows
+            .iter()
+            .any(|r| r.text.contains("t2 "))
+            .then_some(())
     });
     alethiometer_lib::agents::call(&app, "send", &json!({ "thread": key, "text": "and again" })).unwrap();
     wait("both turns to finish", 30, || {
@@ -326,9 +521,25 @@ fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
     wait("a flush", 10, || app.agents.store.flush(app.store()).ok());
     let you: Vec<(String, String)> = {
         let i = app.agents.store.lock();
-        i.threads[&key].rows.iter().filter(|r| r.kind == alethiometer_lib::agents::model::Kind::You).map(|r| (r.text.clone(), r.delivery.as_ref().map(|d| d.state.clone()).unwrap_or_default())).collect()
+        i.threads[&key]
+            .rows
+            .iter()
+            .filter(|r| r.kind == alethiometer_lib::agents::model::Kind::You)
+            .map(|r| {
+                (
+                    r.text.clone(),
+                    r.delivery.as_ref().map(|d| d.state.clone()).unwrap_or_default(),
+                )
+            })
+            .collect()
     };
-    assert_eq!(you, vec![("count".to_owned(), "delivered".to_owned()), ("and again".to_owned(), "delivered".to_owned())]);
+    assert_eq!(
+        you,
+        vec![
+            ("count".to_owned(), "delivered".to_owned()),
+            ("and again".to_owned(), "delivered".to_owned())
+        ]
+    );
     stop_host(dir, host);
 }
 
@@ -342,17 +553,39 @@ fn thinking_is_set_at_start_and_changed_mid_session() {
     let dir = data.path();
     let host = setup(dir, &[("FAKE_ACP_FAST", "1")]);
     let app = open(dir);
-    let thinking = |id: &str| app.agents.store.lock().sessions.get(id).and_then(|s| s.thinking.clone()).map(|t| t.current);
+    let thinking = |id: &str| {
+        app.agents
+            .store
+            .lock()
+            .sessions
+            .get(id)
+            .and_then(|s| s.thinking.clone())
+            .map(|t| t.current)
+    };
 
-    let models = alethiometer_lib::agents::call(&app, "models", &json!({ "harness": "fake", "cwd": project.path() })).unwrap();
-    assert_eq!(models["thinking"]["id"], "effort", "the new-agent form gets the levels: {models}");
-    let started = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "thinking": "high" })).unwrap();
+    let models =
+        alethiometer_lib::agents::call(&app, "models", &json!({ "harness": "fake", "cwd": project.path() })).unwrap();
+    assert_eq!(
+        models["thinking"]["id"], "effort",
+        "the new-agent form gets the levels: {models}"
+    );
+    let started = alethiometer_lib::agents::call(
+        &app,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "thinking": "high" }),
+    )
+    .unwrap();
     let id = started["id"].as_str().unwrap().to_owned();
-    wait("thinking set at start", 20, || (thinking(&id).as_deref() == Some("high")).then_some(()));
+    wait("thinking set at start", 20, || {
+        (thinking(&id).as_deref() == Some("high")).then_some(())
+    });
 
     alethiometer_lib::agents::call(&app, "set_thinking", &json!({ "session": id, "value": "low" })).unwrap();
     assert_eq!(thinking(&id).as_deref(), Some("low"));
-    assert!(alethiometer_lib::agents::call(&app, "set_thinking", &json!({ "session": id, "value": "max" })).is_err(), "only the agent's own levels");
+    assert!(
+        alethiometer_lib::agents::call(&app, "set_thinking", &json!({ "session": id, "value": "max" })).is_err(),
+        "only the agent's own levels"
+    );
 
     stop_host(dir, host);
 }

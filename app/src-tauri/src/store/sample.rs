@@ -15,26 +15,43 @@ impl Sql<'_> {
 
 impl SampleData for Sql<'_> {
     fn has_sources(&self) -> Result<bool> {
-        Ok(self.conn().query_row("SELECT EXISTS (SELECT 1 FROM sources)", [], |r| r.get(0))?)
+        Ok(self
+            .conn()
+            .query_row("SELECT EXISTS (SELECT 1 FROM sources)", [], |r| r.get(0))?)
     }
 
     fn source(&self, kind: &str, tag: &str, name: &str) -> Result<i64> {
-        self.inserted("INSERT INTO sources (kind, tag, name) VALUES (?1, ?2, ?3)", params![kind, tag, name])
+        self.inserted(
+            "INSERT INTO sources (kind, tag, name) VALUES (?1, ?2, ?3)",
+            params![kind, tag, name],
+        )
     }
 
     fn set_cursor(&self, source_id: i64, cursor: &str) -> Result<()> {
-        self.conn().execute("UPDATE sources SET cursor = ?2 WHERE id = ?1", params![source_id, cursor])?;
+        self.conn().execute(
+            "UPDATE sources SET cursor = ?2 WHERE id = ?1",
+            params![source_id, cursor],
+        )?;
         Ok(())
     }
 
     fn person(&self, name: &str, role: &str) -> Result<i64> {
-        self.inserted("INSERT INTO people (display_name, role) VALUES (?1, ?2)", params![name, role])
+        self.inserted(
+            "INSERT INTO people (display_name, role) VALUES (?1, ?2)",
+            params![name, role],
+        )
     }
 
     fn person_note(&self, person_id: i64, note_path: &str, accounts: &[(&str, &str)]) -> Result<()> {
-        self.conn().execute("UPDATE people SET note_path = ?2 WHERE id = ?1", params![person_id, note_path])?;
+        self.conn().execute(
+            "UPDATE people SET note_path = ?2 WHERE id = ?1",
+            params![person_id, note_path],
+        )?;
         for (kind, account) in accounts {
-            self.conn().execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, account, person_id])?;
+            self.conn().execute(
+                "INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)",
+                params![kind, account, person_id],
+            )?;
         }
         Ok(())
     }
@@ -48,11 +65,17 @@ impl SampleData for Sql<'_> {
     }
 
     fn topic(&self, name: &str, category: &str, note_path: &str) -> Result<i64> {
-        self.inserted("INSERT INTO topics (name, category, obsidian_path) VALUES (?1, ?2, ?3)", params![name, category, note_path])
+        self.inserted(
+            "INSERT INTO topics (name, category, obsidian_path) VALUES (?1, ?2, ?3)",
+            params![name, category, note_path],
+        )
     }
 
     fn topic_score(&self, topic_id: i64, score: f64, pills_json: &str) -> Result<()> {
-        self.conn().execute("UPDATE topics SET score = ?2, pills_json = ?3 WHERE id = ?1", params![topic_id, score, pills_json])?;
+        self.conn().execute(
+            "UPDATE topics SET score = ?2, pills_json = ?3 WHERE id = ?1",
+            params![topic_id, score, pills_json],
+        )?;
         Ok(())
     }
 
@@ -68,23 +91,38 @@ impl SampleData for Sql<'_> {
                 params![item_id, m, by, x.created_at],
             )?;
         }
-        c.execute("UPDATE topic_links SET created_at = ?2, updated_at = ?2 WHERE item_id = ?1", params![item_id, x.created_at])?;
-        c.execute("UPDATE items SET created_at = ?2, updated_at = ?3 WHERE id = ?1", params![item_id, x.created_at, x.updated_at])?;
+        c.execute(
+            "UPDATE topic_links SET created_at = ?2, updated_at = ?2 WHERE item_id = ?1",
+            params![item_id, x.created_at],
+        )?;
+        c.execute(
+            "UPDATE items SET created_at = ?2, updated_at = ?3 WHERE id = ?1",
+            params![item_id, x.created_at, x.updated_at],
+        )?;
         Ok(())
     }
 
     fn topic_priority(&self, topic_id: i64, level: &str) -> Result<()> {
-        self.conn().execute("UPDATE topics SET priority = ?2 WHERE id = ?1", params![topic_id, level])?;
+        self.conn().execute(
+            "UPDATE topics SET priority = ?2 WHERE id = ?1",
+            params![topic_id, level],
+        )?;
         Ok(())
     }
 
     fn topic_person(&self, topic_id: i64, person_id: i64) -> Result<()> {
-        self.conn().execute("INSERT INTO topic_people (topic_id, person_id) VALUES (?1, ?2)", params![topic_id, person_id])?;
+        self.conn().execute(
+            "INSERT INTO topic_people (topic_id, person_id) VALUES (?1, ?2)",
+            params![topic_id, person_id],
+        )?;
         Ok(())
     }
 
     fn topic_repo(&self, topic_id: i64, repo: &str) -> Result<()> {
-        self.conn().execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, ?2)", params![topic_id, repo])?;
+        self.conn().execute(
+            "INSERT INTO topic_repos (topic_id, repo) VALUES (?1, ?2)",
+            params![topic_id, repo],
+        )?;
         Ok(())
     }
 
@@ -159,13 +197,30 @@ impl SampleData for Sql<'_> {
             self.conn().execute(
                 "INSERT INTO events (item_id, source_id, start, end, title, category, tentative, attendees)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![e.item_id, e.source_id, e.start, e.end, e.title, e.category, e.tentative as i64, e.attendees],
+                params![
+                    e.item_id,
+                    e.source_id,
+                    e.start,
+                    e.end,
+                    e.title,
+                    e.category,
+                    e.tentative as i64,
+                    e.attendees
+                ],
             )?;
         }
         Ok(())
     }
 
-    fn note_line(&self, page_date: &str, position: i64, kind: &str, text: &str, target_json: &str, state: &str) -> Result<()> {
+    fn note_line(
+        &self,
+        page_date: &str,
+        position: i64,
+        kind: &str,
+        text: &str,
+        target_json: &str,
+        state: &str,
+    ) -> Result<()> {
         self.conn().execute(
             "INSERT INTO notes_lines (page_date, position, kind, text, target_json, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![page_date, position, kind, text, target_json, state],
@@ -175,8 +230,14 @@ impl SampleData for Sql<'_> {
 
     fn carry(&self, item_id: i64, period: &str, action: Option<&str>) -> Result<()> {
         match action {
-            Some(a) => self.conn().execute("INSERT INTO carry (item_id, period, action) VALUES (?1, ?2, ?3)", params![item_id, period, a])?,
-            None => self.conn().execute("INSERT INTO carry (item_id, period) VALUES (?1, ?2)", params![item_id, period])?,
+            Some(a) => self.conn().execute(
+                "INSERT INTO carry (item_id, period, action) VALUES (?1, ?2, ?3)",
+                params![item_id, period, a],
+            )?,
+            None => self.conn().execute(
+                "INSERT INTO carry (item_id, period) VALUES (?1, ?2)",
+                params![item_id, period],
+            )?,
         };
         Ok(())
     }

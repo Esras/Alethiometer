@@ -20,7 +20,10 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "get" => get(app),
         "state" => Ok(json!(*app.settings_state())),
         "patch" => {
-            let edits = args.get("edits").and_then(Value::as_array).ok_or_else(|| msg("patch needs 'edits'"))?;
+            let edits = args
+                .get("edits")
+                .and_then(Value::as_array)
+                .ok_or_else(|| msg("patch needs 'edits'"))?;
             let edits = edits.iter().map(Edit::parse).collect::<Result<Vec<_>>>()?;
             Ok(json!(live::patch(app, &edits)?))
         }
@@ -32,11 +35,19 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 return Err(msg("a secret can't be empty"));
             }
             if !known_secret(app, &name) {
-                return Err(msg(format!("no source or allowed AI provider uses a secret named '{name}'")));
+                return Err(msg(format!(
+                    "no source or allowed AI provider uses a secret named '{name}'"
+                )));
             }
-            app.platform.secret_set(&name, value).map_err(|e| msg(format!("couldn't store {name}: {e}")))?;
+            app.platform
+                .secret_set(&name, value)
+                .map_err(|e| msg(format!("couldn't store {name}: {e}")))?;
             let names = live::restart_sources_using(app, &name);
-            let message = if names.is_empty() { "Saved".to_string() } else { format!("Saved · {} reconnected", names.join(", ")) };
+            let message = if names.is_empty() {
+                "Saved".to_string()
+            } else {
+                format!("Saved · {} reconnected", names.join(", "))
+            };
             let mut st = app.settings_state();
             st.rev += 1;
             st.message = message;
@@ -46,7 +57,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "slack_channels" => slack_channels(app, arg_i64(args, "source")?),
         "open_file" => {
             let path = app.settings_path();
-            app.platform.open_url(&path.to_string_lossy()).map_err(|e| msg(format!("couldn't open {}: {e}", path.display())))?;
+            app.platform
+                .open_url(&path.to_string_lossy())
+                .map_err(|e| msg(format!("couldn't open {}: {e}", path.display())))?;
             Ok(json!({ "ok": true }))
         }
         _ => Err(crate::api::unknown(name)),
@@ -55,18 +68,28 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 
 fn known_secret(app: &App, name: &str) -> bool {
     let settings = app.settings();
-    settings.sources.iter().any(|s| sources::secrets(&s.kind, &s.config).iter().any(|k| k.name == name))
+    settings
+        .sources
+        .iter()
+        .any(|s| sources::secrets(&s.kind, &s.config).iter().any(|k| k.name == name))
         || ai_secrets(&settings.ai).any(|(_, _, k, _)| *k == name)
 }
 
-fn ai_secrets(ai: &crate::settings::AiSettings) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)> + '_ {
-    crate::ai::PROVIDER_SECRETS.iter().filter(|(p, ..)| ai.allowed_providers.iter().any(|a| a == p))
+fn ai_secrets(
+    ai: &crate::settings::AiSettings,
+) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, &'static str)> + '_ {
+    crate::ai::PROVIDER_SECRETS
+        .iter()
+        .filter(|(p, ..)| ai.allowed_providers.iter().any(|a| a == p))
 }
 
 fn get(app: &App) -> Result<Value> {
     // What's in effect (defaults filled in), but sources as written in the file:
     // the in-memory ones have the vault path and Life links resolved into them.
-    let file: Value = std::fs::read_to_string(app.settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let file: Value = std::fs::read_to_string(app.settings_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
     let mut values = serde_json::to_value(&*app.settings()).unwrap_or(Value::Null);
     if let Some(s) = file.get("sources") {
         values["sources"] = s.clone();
@@ -77,7 +100,13 @@ fn get(app: &App) -> Result<Value> {
     let settings = app.settings();
     let mut srcs = vec![];
     for (i, s) in settings.sources.iter().enumerate() {
-        let row = status.as_array().and_then(|a| a.iter().find(|r| r["kind"] == s.kind.as_str() && r["name"] == s.name.as_str())).cloned();
+        let row = status
+            .as_array()
+            .and_then(|a| {
+                a.iter()
+                    .find(|r| r["kind"] == s.kind.as_str() && r["name"] == s.name.as_str())
+            })
+            .cloned();
         let secrets: Vec<Value> = sources::secrets(&s.kind, &s.config)
             .into_iter()
             .map(|k| {
@@ -147,7 +176,9 @@ pub fn fonts() -> Vec<Value> {
             *e = *e && f.monospaced;
         }
     }
-    fams.into_iter().map(|(name, mono)| json!({ "name": name, "mono": mono })).collect()
+    fams.into_iter()
+        .map(|(name, mono)| json!({ "name": name, "mono": mono }))
+        .collect()
 }
 
 /// Channels you're in, with what Alethiometer saw of them in the last 14 days.
@@ -157,12 +188,19 @@ fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
         return Err(msg("not a Slack source"));
     }
     let cfg = crate::sync::connectors::slack::Config::from_json(&source.config);
-    let token = app.platform.secret_get(&cfg.user_token_secret).ok_or_else(|| msg(format!("set {} first", cfg.user_token_secret)))?;
+    let token = app
+        .platform
+        .secret_get(&cfg.user_token_secret)
+        .ok_or_else(|| msg(format!("set {} first", cfg.user_token_secret)))?;
     let http = crate::sync::http::UreqHttp::default();
     let chans = crate::sync::connectors::slack::member_channels(&http, token).map_err(|e| msg(e.to_string()))?;
     let since = app.clock.now() - jiff::SignedDuration::from_hours(24 * 14);
-    let stats: std::collections::HashMap<String, (crate::time::Ts, i64)> =
-        app.store().read(|r| r.sources().channel_activity(source_id, since))?.into_iter().map(|(c, last, n)| (c, (last, n))).collect();
+    let stats: std::collections::HashMap<String, (crate::time::Ts, i64)> = app
+        .store()
+        .read(|r| r.sources().channel_activity(source_id, since))?
+        .into_iter()
+        .map(|(c, last, n)| (c, (last, n)))
+        .collect();
     let out: Vec<Value> = chans
         .into_iter()
         .map(|(id, name, private)| {
@@ -181,11 +219,26 @@ mod tests {
     #[test]
     fn ai_provider_keys_are_settable_only_for_allowed_providers() {
         let (app, _dir) = app();
-        assert!(call(&app, "secret_set", &json!({ "name": "digitalocean_api_key", "value": "k" })).is_err());
+        assert!(call(
+            &app,
+            "secret_set",
+            &json!({ "name": "digitalocean_api_key", "value": "k" })
+        )
+        .is_err());
         app.update_settings(|s| s.ai.allowed_providers.push("digitalocean".into()));
-        call(&app, "secret_set", &json!({ "name": "digitalocean_api_key", "value": "k" })).unwrap();
+        call(
+            &app,
+            "secret_set",
+            &json!({ "name": "digitalocean_api_key", "value": "k" }),
+        )
+        .unwrap();
         let page = call(&app, "get", &json!({})).unwrap();
-        let keys: Vec<_> = page["ai_secrets"].as_array().unwrap().iter().map(|k| (k["name"].as_str().unwrap(), k["set"].as_bool().unwrap())).collect();
+        let keys: Vec<_> = page["ai_secrets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| (k["name"].as_str().unwrap(), k["set"].as_bool().unwrap()))
+            .collect();
         assert_eq!(keys, [("bedrock_api_key", false), ("digitalocean_api_key", true)]);
     }
 
@@ -194,8 +247,17 @@ mod tests {
         let (app, _dir) = app();
         live::write_file(&app.settings_path(), &serde_json::to_value(&*app.settings()).unwrap()).unwrap();
         let src = json!({ "kind": "slack", "tag": "work", "name": "Slack", "config": { "channels": "all" } });
-        live::patch(&app, &[Edit::parse(&json!({ "op": "push", "path": ["sources"], "value": src })).unwrap()]).unwrap();
-        call(&app, "secret_set", &json!({ "name": "slack.user_token", "value": "xoxp-123" })).unwrap();
+        live::patch(
+            &app,
+            &[Edit::parse(&json!({ "op": "push", "path": ["sources"], "value": src })).unwrap()],
+        )
+        .unwrap();
+        call(
+            &app,
+            "secret_set",
+            &json!({ "name": "slack.user_token", "value": "xoxp-123" }),
+        )
+        .unwrap();
         let page = call(&app, "get", &json!({})).unwrap();
         let slack = &page["sources"][0];
         assert_eq!(slack["secrets"][0]["name"], "slack.user_token");
@@ -203,7 +265,14 @@ mod tests {
         assert!(slack["secrets"][0]["set_at"].is_string());
         assert!(!page.to_string().contains("xoxp-123"), "values never leave");
         assert_eq!(slack["attention"], false, "the app token is optional");
-        assert!(page["fields"].as_array().unwrap().iter().any(|f| f["key"] == "ui_scale"));
-        assert!(call(&app, "secret_set", &json!({ "name": "someone.else", "value": "x" })).is_err(), "only secrets a source uses");
+        assert!(page["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["key"] == "ui_scale"));
+        assert!(
+            call(&app, "secret_set", &json!({ "name": "someone.else", "value": "x" })).is_err(),
+            "only secrets a source uses"
+        );
     }
 }

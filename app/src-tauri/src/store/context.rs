@@ -42,7 +42,9 @@ impl ContextViews for Sql<'_> {
     fn latest_messages(&self, item_id: i64, n: usize) -> Result<Vec<(Ts, String, String)>> {
         let mut rows: Vec<(Ts, String, String)> = self
             .conn()
-            .prepare_cached("SELECT at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2")?
+            .prepare_cached(
+                "SELECT at, author, text FROM item_messages WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2",
+            )?
             .query_map(params![item_id, n as i64], |m| Ok((m.get(0)?, m.get(1)?, m.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
         rows.reverse();
@@ -86,7 +88,15 @@ impl ContextViews for Sql<'_> {
                   ORDER BY e.start",
             )?
             .query_map(params![from, to], |r| {
-                Ok(WorkEvent { item_id: r.get(0)?, tag: r.get(1)?, start: r.get(2)?, end: r.get(3)?, title: r.get(4)?, attendees: r.get(5)?, tentative: r.get(6)? })
+                Ok(WorkEvent {
+                    item_id: r.get(0)?,
+                    tag: r.get(1)?,
+                    start: r.get(2)?,
+                    end: r.get(3)?,
+                    title: r.get(4)?,
+                    attendees: r.get(5)?,
+                    tentative: r.get(6)?,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }

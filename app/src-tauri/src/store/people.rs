@@ -1,11 +1,13 @@
 //! People notes, accounts and source profiles.
 
 use super::Sql;
-use crate::domain::people::{AccountRow, Directory, LinkedPerson, People, PeopleViews, PersonNote, PersonRow, Profile, SeenAuthor, TopicAuthor};
-use rusqlite::{params, OptionalExtension};
-use std::collections::HashSet;
+use crate::domain::people::{
+    AccountRow, Directory, LinkedPerson, People, PeopleViews, PersonNote, PersonRow, Profile, SeenAuthor, TopicAuthor,
+};
 use crate::error::Result;
 use crate::time::Ts;
+use rusqlite::{params, OptionalExtension};
+use std::collections::HashSet;
 
 impl PeopleViews for Sql<'_> {
     fn directory(&self) -> Result<Directory> {
@@ -26,13 +28,30 @@ impl PeopleViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?;
         let accounts = c
             .prepare_cached("SELECT kind, account, person_id FROM person_accounts ORDER BY rowid")?
-            .query_map([], |r| Ok(AccountRow { kind: r.get(0)?, account: r.get(1)?, person_id: r.get(2)? }))?
+            .query_map([], |r| {
+                Ok(AccountRow {
+                    kind: r.get(0)?,
+                    account: r.get(1)?,
+                    person_id: r.get(2)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let profiles = c
             .prepare_cached("SELECT kind, account, real_name, email FROM account_profiles")?
-            .query_map([], |r| Ok(Profile { kind: r.get(0)?, account: r.get(1)?, real_name: r.get(2)?, email: r.get(3)? }))?
+            .query_map([], |r| {
+                Ok(Profile {
+                    kind: r.get(0)?,
+                    account: r.get(1)?,
+                    real_name: r.get(2)?,
+                    email: r.get(3)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Directory { people, accounts, profiles })
+        Ok(Directory {
+            people,
+            accounts,
+            profiles,
+        })
     }
 
     fn snoozed(&self, now: Ts) -> Result<Vec<(String, String)>> {
@@ -86,7 +105,15 @@ impl PeopleViews for Sql<'_> {
                    LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = s.kind
                   WHERE tl.topic_id = ?1 AND tl.state = 'confirmed' AND s.tag = 'work'",
             )?
-            .query_map([topic_id], |r| Ok(TopicAuthor { source_kind: r.get(0)?, handle: r.get(1)?, name: r.get(2)?, item_id: r.get(3)?, at: r.get(4)? }))?
+            .query_map([topic_id], |r| {
+                Ok(TopicAuthor {
+                    source_kind: r.get(0)?,
+                    handle: r.get(1)?,
+                    name: r.get(2)?,
+                    item_id: r.get(3)?,
+                    at: r.get(4)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
@@ -133,7 +160,11 @@ impl PeopleViews for Sql<'_> {
     fn note_of(&self, person_id: i64) -> Result<Option<(String, String)>> {
         Ok(self
             .conn()
-            .query_row("SELECT note_path, display_name FROM people WHERE id = ?1 AND note_path IS NOT NULL", [person_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT note_path, display_name FROM people WHERE id = ?1 AND note_path IS NOT NULL",
+                [person_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()?)
     }
 }
@@ -145,7 +176,9 @@ impl People for Sql<'_> {
         let mut keep: HashSet<i64> = HashSet::new();
         for n in notes {
             let aliases = serde_json::to_string(&n.aliases)?;
-            let existing: Option<i64> = c.query_row("SELECT id FROM people WHERE note_path = ?1", [&n.path], |r| r.get(0)).optional()?;
+            let existing: Option<i64> = c
+                .query_row("SELECT id FROM people WHERE note_path = ?1", [&n.path], |r| r.get(0))
+                .optional()?;
             let id = match existing {
                 Some(id) => {
                     c.execute(
@@ -163,28 +196,46 @@ impl People for Sql<'_> {
                 }
             };
             for (kind, account) in &n.accounts {
-                c.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, account, id])?;
+                c.execute(
+                    "INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)",
+                    params![kind, account, id],
+                )?;
             }
             keep.insert(id);
         }
-        let noted: Vec<i64> = c.prepare("SELECT id FROM people WHERE note_path IS NOT NULL")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let noted: Vec<i64> = c
+            .prepare("SELECT id FROM people WHERE note_path IS NOT NULL")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         for id in noted.into_iter().filter(|id| !keep.contains(id)) {
-            c.execute("UPDATE people SET note_path = NULL, color = NULL, weight = NULL WHERE id = ?1", [id])?;
+            c.execute(
+                "UPDATE people SET note_path = NULL, color = NULL, weight = NULL WHERE id = ?1",
+                [id],
+            )?;
         }
         Ok(())
     }
 
     fn note_queued(&self, path: &str, name: &str, account: Option<(&str, &str)>) -> Result<()> {
         let c = self.conn();
-        let id: i64 = match c.query_row("SELECT id FROM people WHERE note_path = ?1", [path], |r| r.get(0)).optional()? {
+        let id: i64 = match c
+            .query_row("SELECT id FROM people WHERE note_path = ?1", [path], |r| r.get(0))
+            .optional()?
+        {
             Some(id) => id,
             None => {
-                c.execute("INSERT INTO people (display_name, note_path) VALUES (?1, ?2)", params![name, path])?;
+                c.execute(
+                    "INSERT INTO people (display_name, note_path) VALUES (?1, ?2)",
+                    params![name, path],
+                )?;
                 c.last_insert_rowid()
             }
         };
         if let Some((kind, acct)) = account {
-            c.execute("INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)", params![kind, acct, id])?;
+            c.execute(
+                "INSERT OR IGNORE INTO person_accounts (kind, account, person_id) VALUES (?1, ?2, ?3)",
+                params![kind, acct, id],
+            )?;
         }
         Ok(())
     }

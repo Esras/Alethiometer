@@ -38,7 +38,8 @@ pub const DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUse
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: usize = 20;
 const DEFAULT_LOOKBACK_DAYS: i64 = 14;
-const FIELDS: &str = "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,issuelinks";
+const FIELDS: &str =
+    "summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,issuelinks";
 /// How many recent comments to keep as expanded context.
 const KEEP_COMMENTS: usize = 5;
 /// How far back `create_issue` looks for an issue an earlier attempt created.
@@ -54,9 +55,18 @@ impl<'a> Api<'a> {
     fn new(ctx: &'a Ctx<'a>) -> anyhow::Result<Api<'a>> {
         let base = ctx.config_str("base_url")?.trim_end_matches('/').to_string();
         let email = ctx.config_str("email")?;
-        let secret = ctx.source.config.get("secret").and_then(Value::as_str).unwrap_or(DEFAULT_SECRET);
+        let secret = ctx
+            .source
+            .config
+            .get("secret")
+            .and_then(Value::as_str)
+            .unwrap_or(DEFAULT_SECRET);
         let token = ctx.require_secret(secret)?;
-        Ok(Api { ctx, base, auth: format!("Basic {}", base64(format!("{email}:{token}").as_bytes())) })
+        Ok(Api {
+            ctx,
+            base,
+            auth: format!("Basic {}", base64(format!("{email}:{token}").as_bytes())),
+        })
     }
 
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> anyhow::Result<Response> {
@@ -93,7 +103,10 @@ fn error(resp: &Response) -> anyhow::Error {
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         .unwrap_or_default();
     if let Some(errs) = v.get("errors").and_then(Value::as_object) {
-        parts.extend(errs.iter().map(|(k, m)| format!("{k}: {}", m.as_str().unwrap_or(&m.to_string()))));
+        parts.extend(
+            errs.iter()
+                .map(|(k, m)| format!("{k}: {}", m.as_str().unwrap_or(&m.to_string()))),
+        );
     }
     let detail = if !parts.is_empty() {
         parts.join("; ")
@@ -110,18 +123,39 @@ fn error(resp: &Response) -> anyhow::Error {
 
 impl Jira {
     /// A poll with the stored revisions and the stale open issues to read again.
-    fn poll_from(&self, ctx: &Ctx, revs: &std::collections::HashMap<String, String>, stale: &[String]) -> anyhow::Result<Batch> {
+    fn poll_from(
+        &self,
+        ctx: &Ctx,
+        revs: &std::collections::HashMap<String, String>,
+        stale: &[String],
+    ) -> anyhow::Result<Batch> {
         let api = Api::new(ctx)?;
         let myself = api.get("/rest/api/3/myself")?;
-        let me = myself.get("accountId").and_then(Value::as_str).unwrap_or_default().to_string();
+        let me = myself
+            .get("accountId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
 
         let cursor = ctx.source.cursor.as_deref().and_then(Ts::parse);
         let since = cursor.unwrap_or_else(|| {
-            let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
+            let days = ctx
+                .source
+                .config
+                .get("lookback_days")
+                .and_then(Value::as_i64)
+                .unwrap_or(DEFAULT_LOOKBACK_DAYS);
             ctx.now - SignedDuration::from_hours(24 * days)
         });
-        let bound = (since - SignedDuration::from_hours(24)).timestamp().strftime("%Y-%m-%d %H:%M");
-        let base_jql = ctx.source.config.get("jql").and_then(Value::as_str).unwrap_or(DEFAULT_JQL);
+        let bound = (since - SignedDuration::from_hours(24))
+            .timestamp()
+            .strftime("%Y-%m-%d %H:%M");
+        let base_jql = ctx
+            .source
+            .config
+            .get("jql")
+            .and_then(Value::as_str)
+            .unwrap_or(DEFAULT_JQL);
         let jql = format!("({base_jql}) AND updated >= \"{bound}\" ORDER BY updated ASC");
 
         let due_field = due_field(ctx)?;
@@ -132,7 +166,10 @@ impl Jira {
 
         let mut batch = Batch::default();
         if !me.is_empty() {
-            let email = myself.get("emailAddress").and_then(Value::as_str).or_else(|| ctx.source.config.get("email").and_then(Value::as_str));
+            let email = myself
+                .get("emailAddress")
+                .and_then(Value::as_str)
+                .or_else(|| ctx.source.config.get("email").and_then(Value::as_str));
             batch.profiles.push(Profile {
                 kind: "jira".into(),
                 account: me.clone(),
@@ -157,8 +194,14 @@ impl Jira {
             let page = api.get(&path)?;
             for issue in page.get("issues").and_then(Value::as_array).into_iter().flatten() {
                 let key = issue.get("key").and_then(Value::as_str).unwrap_or_default();
-                let Some(item) = map_issue(&api, issue, &me, since_for(key), due_field) else { continue };
-                if let Some(u) = issue.pointer("/fields/updated").and_then(Value::as_str).and_then(Ts::parse) {
+                let Some(item) = map_issue(&api, issue, &me, since_for(key), due_field) else {
+                    continue;
+                };
+                if let Some(u) = issue
+                    .pointer("/fields/updated")
+                    .and_then(Value::as_str)
+                    .and_then(Ts::parse)
+                {
                     if newest.is_none_or(|n| u > n) {
                         newest = Some(u);
                     }
@@ -175,7 +218,10 @@ impl Jira {
         // someone else), read again by key.
         for key in stale {
             if batch.items.iter().any(|i| &i.external_id == key) {
-                batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: None });
+                batch.streams.push(StreamOutcome {
+                    key: format!("item:{key}"),
+                    error: None,
+                });
                 continue;
             }
             let path = format!("/rest/api/3/issue/{}?fields={fields}&expand=changelog", urlencode(key));
@@ -184,11 +230,17 @@ impl Jira {
                     if let Some(item) = map_issue(&api, &issue, &me, since_for(key), due_field) {
                         batch.items.push(item);
                     }
-                    batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: None });
+                    batch.streams.push(StreamOutcome {
+                        key: format!("item:{key}"),
+                        error: None,
+                    });
                 }
                 // Gone, or no longer visible to you: about this issue only.
                 Err(e) if ["Jira 404", "Jira 403"].iter().any(|p| e.to_string().starts_with(p)) => {
-                    batch.streams.push(StreamOutcome { key: format!("item:{key}"), error: Some(e.to_string()) })
+                    batch.streams.push(StreamOutcome {
+                        key: format!("item:{key}"),
+                        error: Some(e.to_string()),
+                    })
                 }
                 Err(e) => return Err(e),
             }
@@ -218,14 +270,29 @@ impl Connector for Jira {
             "jira.comment" => {
                 let key = issue_key(payload)?;
                 let body = text(payload, "body")?;
-                let resp = api.call("POST", &format!("/rest/api/3/issue/{key}/comment"), Some(&json!({ "body": to_adf(&body) })))?;
-                let id = resp.json()?.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
-                Ok(json!({ "key": key, "comment_id": id, "url": format!("{}?focusedCommentId={id}", api.browse(&key)) }))
+                let resp = api.call(
+                    "POST",
+                    &format!("/rest/api/3/issue/{key}/comment"),
+                    Some(&json!({ "body": to_adf(&body) })),
+                )?;
+                let id = resp
+                    .json()?
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                Ok(
+                    json!({ "key": key, "comment_id": id, "url": format!("{}?focusedCommentId={id}", api.browse(&key)) }),
+                )
             }
             "jira.assign" => {
                 let key = issue_key(payload)?;
                 let account = text(payload, "account_id")?;
-                api.call("PUT", &format!("/rest/api/3/issue/{key}/assignee"), Some(&json!({ "accountId": account })))?;
+                api.call(
+                    "PUT",
+                    &format!("/rest/api/3/issue/{key}/assignee"),
+                    Some(&json!({ "accountId": account })),
+                )?;
                 Ok(json!({ "key": key, "account_id": account, "url": api.browse(&key) }))
             }
             "jira.create_issue" => create_issue(&api, payload),
@@ -237,7 +304,14 @@ impl Connector for Jira {
 /// `config.due_field`: a field id like `customfield_10050`. Checked because it
 /// goes into the `fields` query parameter as-is.
 fn due_field<'c>(ctx: &'c Ctx) -> anyhow::Result<Option<&'c str>> {
-    let Some(f) = ctx.source.config.get("due_field").and_then(Value::as_str).map(str::trim).filter(|f| !f.is_empty()) else {
+    let Some(f) = ctx
+        .source
+        .config
+        .get("due_field")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    else {
         return Ok(None);
     };
     if !f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -252,9 +326,14 @@ fn due_field<'c>(ctx: &'c Ctx) -> anyhow::Result<Option<&'c str>> {
 fn due(f: &Value, due_field: Option<&str>) -> Option<Due> {
     let as_due = |v: &Value| {
         let s = v.as_str()?;
-        Ts::parse(s).map(Due::At).or_else(|| s.parse::<Date>().ok().map(Due::Day))
+        Ts::parse(s)
+            .map(Due::At)
+            .or_else(|| s.parse::<Date>().ok().map(Due::Day))
     };
-    due_field.and_then(|k| f.get(k)).and_then(as_due).or_else(|| f.get("duedate").and_then(as_due))
+    due_field
+        .and_then(|k| f.get(k))
+        .and_then(as_due)
+        .or_else(|| f.get("duedate").and_then(as_due))
 }
 
 /// `since`: changes after it are new signal (the issue's stored revision, else the cursor).
@@ -264,10 +343,18 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
     let s = |p: &str| f.pointer(p).and_then(Value::as_str);
     let assignee_id = s("/assignee/accountId");
     let mine = assignee_id.is_some() && assignee_id == Some(me);
-    let who = if mine { "you".to_string() } else { s("/assignee/displayName").unwrap_or("Unassigned").to_string() };
+    let who = if mine {
+        "you".to_string()
+    } else {
+        s("/assignee/displayName").unwrap_or("Unassigned").to_string()
+    };
     let status_name = s("/status/name").unwrap_or("Unknown");
     let done = s("/status/statusCategory/key") == Some("done");
-    let comments: Vec<&Value> = f.pointer("/comment/comments").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+    let comments: Vec<&Value> = f
+        .pointer("/comment/comments")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     // Keyed by comment id, so a sync updates an edited comment in place.
     let (ids, messages): (Vec<String>, Vec<Message>) = comments
         .iter()
@@ -275,14 +362,25 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
         .take(KEEP_COMMENTS)
         .rev()
         .filter_map(|c| {
-            let id = c.get("id").and_then(|v| v.as_str().map(str::to_owned).or_else(|| v.as_i64().map(|n| n.to_string())))?;
+            let id = c.get("id").and_then(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .or_else(|| v.as_i64().map(|n| n.to_string()))
+            })?;
             Some((
                 format!("jira:{id}"),
                 Message {
                     at: Ts::parse(c.get("created")?.as_str()?)?,
-                    author: c.pointer("/author/displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
+                    author: c
+                        .pointer("/author/displayName")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_string(),
                     text: adf_text(c.get("body")?),
-                    author_id: c.pointer("/author/accountId").and_then(Value::as_str).map(str::to_owned),
+                    author_id: c
+                        .pointer("/author/accountId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                     ..Default::default()
                 },
             ))
@@ -304,12 +402,18 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
                 display_name: r.get("displayName").and_then(Value::as_str).unwrap_or("?").to_string(),
             })
         }),
-        occurred_at: s("/updated").and_then(Ts::parse).or_else(|| s("/created").and_then(Ts::parse))?,
+        occurred_at: s("/updated")
+            .and_then(Ts::parse)
+            .or_else(|| s("/created").and_then(Ts::parse))?,
         source_created_at: s("/created").and_then(Ts::parse),
         due: due(f, due_field),
         status: if done { "done" } else { "open" }.into(),
         msg_count: f.pointer("/comment/total").and_then(Value::as_i64),
-        owner: if mine { Some("you".into()) } else { s("/assignee/displayName").map(str::to_owned) },
+        owner: if mine {
+            Some("you".into())
+        } else {
+            s("/assignee/displayName").map(str::to_owned)
+        },
         bump: since.is_some_and(|c| bump(issue, me, c)),
         remote_rev: s("/updated").map(str::to_owned),
         external_id: key,
@@ -328,34 +432,62 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
 /// Our own changes (e.g. a transition sent from the outbox) never resurface an
 /// item.
 fn bump(issue: &Value, me: &str, cursor: Ts) -> bool {
-    let after = |v: &Value| v.get("created").and_then(Value::as_str).and_then(Ts::parse).is_some_and(|t| t > cursor);
+    let after = |v: &Value| {
+        v.get("created")
+            .and_then(Value::as_str)
+            .and_then(Ts::parse)
+            .is_some_and(|t| t > cursor)
+    };
     let by_other = |v: &Value| v.pointer("/author/accountId").and_then(Value::as_str) != Some(me);
-    let changed = issue.pointer("/changelog/histories").and_then(Value::as_array).into_iter().flatten().any(|h| {
-        after(h)
-            && by_other(h)
-            && h.get("items").and_then(Value::as_array).into_iter().flatten().any(|i| {
-                let field = i.get("fieldId").or_else(|| i.get("field")).and_then(Value::as_str).unwrap_or("");
-                field == "status" || field == "assignee"
-            })
-    });
-    let commented =
-        issue.pointer("/fields/comment/comments").and_then(Value::as_array).into_iter().flatten().any(|c| after(c) && by_other(c));
+    let changed = issue
+        .pointer("/changelog/histories")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|h| {
+            after(h)
+                && by_other(h)
+                && h.get("items").and_then(Value::as_array).into_iter().flatten().any(|i| {
+                    let field = i
+                        .get("fieldId")
+                        .or_else(|| i.get("field"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    field == "status" || field == "assignee"
+                })
+        });
+    let commented = issue
+        .pointer("/fields/comment/comments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|c| after(c) && by_other(c));
     changed || commented
 }
 
 fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     let key = issue_key(payload)?;
-    let want_id = payload.get("transition_id").or_else(|| payload.get("id")).and_then(|v| match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    });
-    let want_name = payload.get("transition_name").and_then(Value::as_str).map(str::to_lowercase);
+    let want_id = payload
+        .get("transition_id")
+        .or_else(|| payload.get("id"))
+        .and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        });
+    let want_name = payload
+        .get("transition_name")
+        .and_then(Value::as_str)
+        .map(str::to_lowercase);
     if want_id.is_none() && want_name.is_none() {
         anyhow::bail!("jira.transition needs transition_name or transition_id");
     }
     let list = api.get(&format!("/rest/api/3/issue/{key}/transitions"))?;
-    let all = list.get("transitions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let all = list
+        .get("transitions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let name_of = |t: &Value, p: &str| t.pointer(p).and_then(Value::as_str).map(str::to_lowercase);
     // Match the transition's id, its name ("Start review"), or its target status ("In Review").
     let found = all.iter().find(|t| {
@@ -364,11 +496,22 @@ fn transition(api: &Api, payload: &Value) -> anyhow::Result<Value> {
             || (want_name.is_some() && (name_of(t, "/name") == want_name || name_of(t, "/to/name") == want_name))
     });
     let Some(t) = found else {
-        let names: Vec<&str> = all.iter().filter_map(|t| t.get("name").and_then(Value::as_str)).collect();
-        anyhow::bail!("{key} has no transition '{}' (available: {})", want_name.or(want_id).unwrap_or_default(), names.join(", "));
+        let names: Vec<&str> = all
+            .iter()
+            .filter_map(|t| t.get("name").and_then(Value::as_str))
+            .collect();
+        anyhow::bail!(
+            "{key} has no transition '{}' (available: {})",
+            want_name.or(want_id).unwrap_or_default(),
+            names.join(", ")
+        );
     };
     let id = t.get("id").and_then(Value::as_str).unwrap_or_default();
-    api.call("POST", &format!("/rest/api/3/issue/{key}/transitions"), Some(&json!({ "transition": { "id": id } })))?;
+    api.call(
+        "POST",
+        &format!("/rest/api/3/issue/{key}/transitions"),
+        Some(&json!({ "transition": { "id": id } })),
+    )?;
     Ok(json!({
         "key": key,
         "transition": t.get("name"),
@@ -394,7 +537,13 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
             "existing": true,
         }));
     }
-    let issue_type = api.ctx.source.config.get("create_issue_type").and_then(Value::as_str).unwrap_or("Task");
+    let issue_type = api
+        .ctx
+        .source
+        .config
+        .get("create_issue_type")
+        .and_then(Value::as_str)
+        .unwrap_or("Task");
     let mut fields = json!({
         "project": { "key": project },
         "issuetype": { "name": issue_type },
@@ -404,14 +553,22 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     // assignable user; otherwise the issue is created unassigned and the receipt says so.
     let mut assignee = payload.get("account_id").and_then(Value::as_str).map(str::to_owned);
     if assignee.is_none() && payload.get("assign_me").and_then(Value::as_bool) == Some(true) {
-        assignee = api.get("/rest/api/3/myself")?.get("accountId").and_then(Value::as_str).map(str::to_owned);
+        assignee = api
+            .get("/rest/api/3/myself")?
+            .get("accountId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
     }
     if let Some(due) = payload.get("due").and_then(Value::as_str) {
         fields["duedate"] = json!(due);
     }
     let mut unresolved = None;
     if assignee.is_none() {
-        if let Some(name) = payload.get("assignee").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
+        if let Some(name) = payload
+            .get("assignee")
+            .and_then(Value::as_str)
+            .filter(|n| !n.trim().is_empty())
+        {
             let users = api.get(&format!(
                 "/rest/api/3/user/assignable/search?project={}&query={}",
                 urlencode(&project),
@@ -426,8 +583,13 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
     if let Some(a) = &assignee {
         fields["assignee"] = json!({ "accountId": a });
     }
-    let created = api.call("POST", "/rest/api/3/issue", Some(&json!({ "fields": fields })))?.json()?;
-    let key = created.get("key").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Jira created an issue but returned no key"))?;
+    let created = api
+        .call("POST", "/rest/api/3/issue", Some(&json!({ "fields": fields })))?
+        .json()?;
+    let key = created
+        .get("key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("Jira created an issue but returned no key"))?;
     Ok(json!({
         "key": key,
         "id": created.get("id"),
@@ -458,14 +620,26 @@ fn create_issue(api: &Api, payload: &Value) -> anyhow::Result<Value> {
 /// characters Jira's text search reserves never reach it). If Jira still
 /// rejects the text query (e.g. only stop words), search without it.
 fn find_created(api: &Api, project: &str, summary: &str) -> anyhow::Result<Option<Value>> {
-    let hours = api.ctx.source.config.get("create_dedupe_hours").and_then(Value::as_i64).unwrap_or(DEFAULT_DEDUPE_HOURS);
+    let hours = api
+        .ctx
+        .source
+        .config
+        .get("create_dedupe_hours")
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_DEDUPE_HOURS);
     if hours <= 0 {
         return Ok(None);
     }
-    let base = format!("project = {} AND reporter = currentUser() AND created >= -{hours}h", jql_string(project));
+    let base = format!(
+        "project = {} AND reporter = currentUser() AND created >= -{hours}h",
+        jql_string(project)
+    );
     let words = search_words(summary);
     let search = |jql: &str| {
-        let path = format!("/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,assignee", urlencode(jql));
+        let path = format!(
+            "/rest/api/3/search/jql?jql={}&maxResults=50&fields=summary,assignee",
+            urlencode(jql)
+        );
         api.get(&path)
     };
     let order = " ORDER BY created DESC";
@@ -488,7 +662,12 @@ fn find_created(api: &Api, project: &str, summary: &str) -> anyhow::Result<Optio
 
 /// The summary's words (letters and digits), lowercased, for a `~` search.
 fn search_words(s: &str) -> String {
-    s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).take(12).collect::<Vec<_>>().join(" ").to_lowercase()
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .take(12)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// A JQL string literal: double-quoted, with `"` and `\` backslash-escaped.
@@ -562,7 +741,9 @@ pub fn adf_text(adf: &Value) -> String {
     fn walk(n: &Value, out: &mut String) {
         match n.get("type").and_then(Value::as_str) {
             Some("text") => out.push_str(n.get("text").and_then(Value::as_str).unwrap_or("")),
-            Some("mention") | Some("emoji") => out.push_str(n.pointer("/attrs/text").and_then(Value::as_str).unwrap_or("")),
+            Some("mention") | Some("emoji") => {
+                out.push_str(n.pointer("/attrs/text").and_then(Value::as_str).unwrap_or(""))
+            }
             Some("hardBreak") => out.push('\n'),
             Some("media") | Some("mediaInline") => {
                 let name = n.pointer("/attrs/alt").and_then(Value::as_str).unwrap_or("");
@@ -573,7 +754,10 @@ pub fn adf_text(adf: &Value) -> String {
         for c in n.get("content").and_then(Value::as_array).into_iter().flatten() {
             walk(c, out);
         }
-        if matches!(n.get("type").and_then(Value::as_str), Some("paragraph" | "heading" | "codeBlock" | "blockquote" | "listItem" | "mediaSingle" | "mediaGroup")) {
+        if matches!(
+            n.get("type").and_then(Value::as_str),
+            Some("paragraph" | "heading" | "codeBlock" | "blockquote" | "listItem" | "mediaSingle" | "mediaGroup")
+        ) {
             out.push('\n');
         }
     }
@@ -632,7 +816,13 @@ mod tests {
     fn with_ctx<T>(src: &Source, http: &FakeHttp, f: impl FnOnce(&Ctx) -> T) -> T {
         let secret = |k: &str| (k == DEFAULT_SECRET).then(|| "tok-123".to_string());
         let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
-        let ctx = Ctx { source: src, http, secret: &secret, now: clock.now(), clock };
+        let ctx = Ctx {
+            source: src,
+            http,
+            secret: &secret,
+            now: clock.now(),
+            clock,
+        };
         f(&ctx)
     }
 
@@ -653,11 +843,21 @@ mod tests {
     fn open_issues_that_left_the_query_are_read_by_key() {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/myself", 200, MYSELF);
-        http.on("GET", "/rest/api/3/search/jql", 200, r#"{"issues": [], "isLast": true}"#);
+        http.on(
+            "GET",
+            "/rest/api/3/search/jql",
+            200,
+            r#"{"issues": [], "isLast": true}"#,
+        );
         http.on("GET", "/rest/api/3/issue/OPS-7", 200, r#"{"key": "OPS-7", "fields": {
             "summary": "Reassigned away", "updated": "2026-09-27T09:00:00.000+0000", "created": "2026-09-01T09:00:00.000+0000",
             "status": {"name": "Done", "statusCategory": {"key": "done"}}, "assignee": {"accountId": "acc-kim", "displayName": "Kim"}}}"#);
-        http.on("GET", "/rest/api/3/issue/OPS-8", 404, r#"{"errorMessages": ["Issue does not exist or you do not have permission to see it."]}"#);
+        http.on(
+            "GET",
+            "/rest/api/3/issue/OPS-8",
+            404,
+            r#"{"errorMessages": ["Issue does not exist or you do not have permission to see it."]}"#,
+        );
         let src = source(Some("2026-09-26T12:00:00.000Z"));
         let revs = Default::default();
         let stale = vec!["OPS-7".to_string(), "OPS-8".to_string()];
@@ -667,7 +867,9 @@ mod tests {
         assert_eq!(ops7.remote_rev.as_deref(), Some("2026-09-27T09:00:00.000+0000"));
         let outcome = |k: &str| b.streams.iter().find(|o| o.key == k).map(|o| o.error.clone());
         assert_eq!(outcome("item:OPS-7"), Some(None));
-        assert!(outcome("item:OPS-8").flatten().is_some_and(|e| e.starts_with("Jira 404")));
+        assert!(outcome("item:OPS-8")
+            .flatten()
+            .is_some_and(|e| e.starts_with("Jira 404")));
         // A rejected token ends the poll.
         http.on("GET", "/rest/api/3/issue/OPS-8", 401, "");
         assert!(with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale)).is_err());
@@ -685,16 +887,31 @@ mod tests {
         let (b, reqs) = polled_with(src);
         assert!(reqs[1].1.contains("&fields=summary,status,assignee,reporter,duedate,updated,created,comment,description,project,issuetype,issuelinks,customfield_10050&"));
         // The custom field's real time, converted to local; it wins over duedate.
-        assert_eq!(b.items[0].due, Some(Due::At(Ts::parse("2026-10-01T15:00:00Z").unwrap())));
+        assert_eq!(
+            b.items[0].due,
+            Some(Due::At(Ts::parse("2026-10-01T15:00:00Z").unwrap()))
+        );
         // Field null and no duedate: no due.
         assert_eq!(b.items[1].due, None);
 
         // A custom field holding a plain date is still just a day.
         let f = json!({ "customfield_1": "2026-10-05", "duedate": "2026-10-09" });
-        assert_eq!(due(&f, Some("customfield_1")), Some(Due::Day(jiff::civil::date(2026, 10, 5))));
+        assert_eq!(
+            due(&f, Some("customfield_1")),
+            Some(Due::Day(jiff::civil::date(2026, 10, 5)))
+        );
         // Missing or unparseable custom value falls back to duedate.
-        assert_eq!(due(&f, Some("customfield_2")), Some(Due::Day(jiff::civil::date(2026, 10, 9))));
-        assert_eq!(due(&json!({ "customfield_1": "soon", "duedate": null }), Some("customfield_1")), None);
+        assert_eq!(
+            due(&f, Some("customfield_2")),
+            Some(Due::Day(jiff::civil::date(2026, 10, 9)))
+        );
+        assert_eq!(
+            due(
+                &json!({ "customfield_1": "soon", "duedate": null }),
+                Some("customfield_1")
+            ),
+            None
+        );
 
         let mut src = source(None);
         src.config["due_field"] = json!("customfield_1&jql=x");
@@ -707,8 +924,16 @@ mod tests {
     #[test]
     fn polls_all_pages_and_maps_issues() {
         let (b, reqs) = polled(None);
-        assert_eq!((b.profiles[0].account.as_str(), b.profiles[0].email.as_deref()), ("acc-me", Some("me@acme.test")), "your account, for matching you");
-        let searches: Vec<&String> = reqs.iter().filter(|r| r.1.contains("/search/jql")).map(|r| &r.1).collect();
+        assert_eq!(
+            (b.profiles[0].account.as_str(), b.profiles[0].email.as_deref()),
+            ("acc-me", Some("me@acme.test")),
+            "your account, for matching you"
+        );
+        let searches: Vec<&String> = reqs
+            .iter()
+            .filter(|r| r.1.contains("/search/jql"))
+            .map(|r| &r.1)
+            .collect();
         assert_eq!(searches.len(), 2);
         assert!(searches[0].starts_with("https://acme.atlassian.net/rest/api/3/search/jql?jql="));
         assert!(searches[0].contains("expand=changelog"));
@@ -729,7 +954,11 @@ mod tests {
         assert_eq!(it.status, "open");
         assert_eq!(it.msg_count, Some(2));
         assert_eq!(it.occurred_at, Ts::parse("2026-09-26T14:05:00.000+0000").unwrap());
-        assert_eq!(it.source_created_at, Ts::parse(it.raw_json["fields"]["created"].as_str().unwrap()), "Priorities' age");
+        assert_eq!(
+            it.source_created_at,
+            Ts::parse(it.raw_json["fields"]["created"].as_str().unwrap()),
+            "Priorities' age"
+        );
         assert!(it.source_created_at.is_some());
         assert_eq!(it.body, "Workers retry forever on 5xx.\nCap it.");
         assert_eq!(it.messages.len(), 2);
@@ -778,17 +1007,38 @@ mod tests {
     fn my_own_changes_and_other_fields_dont_bump() {
         let cursor = Ts::parse("2026-09-26T12:00:00.000Z").unwrap();
         let later = "2026-09-26T17:00:00.000+0000";
-        let issue = |histories: Value, comments: Value| {
-            json!({ "changelog": { "histories": histories }, "fields": { "comment": { "comments": comments } } })
-        };
+        let issue = |histories: Value, comments: Value| json!({ "changelog": { "histories": histories }, "fields": { "comment": { "comments": comments } } });
         let history = |who: &str, field: &str| json!({ "created": later, "author": { "accountId": who }, "items": [{ "fieldId": field }] });
         let comment = |who: &str, at: &str| json!({ "created": at, "author": { "accountId": who }, "body": { "type": "doc", "content": [] } });
 
-        assert!(!bump(&issue(json!([]), json!([comment("acc-me", later)])), "acc-me", cursor));
-        assert!(!bump(&issue(json!([history("acc-kim", "priority"), history("acc-kim", "duedate")]), json!([])), "acc-me", cursor));
-        assert!(!bump(&issue(json!([]), json!([comment("acc-kim", "2026-09-26T11:00:00.000+0000")])), "acc-me", cursor));
-        assert!(bump(&issue(json!([]), json!([comment("acc-kim", later)])), "acc-me", cursor));
-        assert!(bump(&issue(json!([history("acc-kim", "status")]), json!([])), "acc-me", cursor));
+        assert!(!bump(
+            &issue(json!([]), json!([comment("acc-me", later)])),
+            "acc-me",
+            cursor
+        ));
+        assert!(!bump(
+            &issue(
+                json!([history("acc-kim", "priority"), history("acc-kim", "duedate")]),
+                json!([])
+            ),
+            "acc-me",
+            cursor
+        ));
+        assert!(!bump(
+            &issue(json!([]), json!([comment("acc-kim", "2026-09-26T11:00:00.000+0000")])),
+            "acc-me",
+            cursor
+        ));
+        assert!(bump(
+            &issue(json!([]), json!([comment("acc-kim", later)])),
+            "acc-me",
+            cursor
+        ));
+        assert!(bump(
+            &issue(json!([history("acc-kim", "status")]), json!([])),
+            "acc-me",
+            cursor
+        ));
     }
 
     #[test]
@@ -798,7 +1048,10 @@ mod tests {
         src.config["secret"] = json!("other_name");
         let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
         assert!(err.contains("missing secret 'other_name'"), "{err}");
-        let src = Source { config: json!({ "email": "x" }), ..source(None) };
+        let src = Source {
+            config: json!({ "email": "x" }),
+            ..source(None)
+        };
         let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
         assert!(err.contains("config.base_url"), "{err}");
     }
@@ -815,7 +1068,10 @@ mod tests {
         );
         let src = source(None);
         let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
-        assert_eq!(err, "Jira 400: Field 'watcher' does not exist or you do not have permission to view it.; jql: bad");
+        assert_eq!(
+            err,
+            "Jira 400: Field 'watcher' does not exist or you do not have permission to view it.; jql: bad"
+        );
         http.on("GET", "/myself", 401, "");
         let err = with_ctx(&src, &http, |ctx| Jira.poll(ctx)).unwrap_err().to_string();
         assert_eq!(err, "Jira 401: email or API token rejected");
@@ -832,32 +1088,74 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/issue/PLAT-1170/transitions", 200, TRANSITIONS);
         http.on("POST", "/rest/api/3/issue/PLAT-1170/transitions", 204, "");
-        let r = send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "done" }), &http).unwrap();
+        let r = send(
+            "jira.transition",
+            json!({ "key": "PLAT-1170", "transition_name": "done" }),
+            &http,
+        )
+        .unwrap();
         assert_eq!(r["key"], "PLAT-1170");
         assert_eq!(r["to"], "Done");
         assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1170");
         let reqs = http.requests();
         let post = reqs.last().unwrap();
         assert_eq!(post.0, "POST");
-        assert_eq!(post.1, "https://acme.atlassian.net/rest/api/3/issue/PLAT-1170/transitions");
-        assert_eq!(serde_json::from_str::<Value>(post.2.as_deref().unwrap()).unwrap(), json!({ "transition": { "id": "31" } }));
+        assert_eq!(
+            post.1,
+            "https://acme.atlassian.net/rest/api/3/issue/PLAT-1170/transitions"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(post.2.as_deref().unwrap()).unwrap(),
+            json!({ "transition": { "id": "31" } })
+        );
 
         // By transition name ("Start review" goes to "In Review") and by id.
-        send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "Start review" }), &http).unwrap();
+        send(
+            "jira.transition",
+            json!({ "key": "PLAT-1170", "transition_name": "Start review" }),
+            &http,
+        )
+        .unwrap();
         assert!(http.requests().last().unwrap().2.as_deref().unwrap().contains("\"21\""));
-        send("jira.transition", json!({ "key": "PLAT-1170", "transition_id": 11 }), &http).unwrap();
+        send(
+            "jira.transition",
+            json!({ "key": "PLAT-1170", "transition_id": 11 }),
+            &http,
+        )
+        .unwrap();
         assert!(http.requests().last().unwrap().2.as_deref().unwrap().contains("\"11\""));
 
-        let err = send("jira.transition", json!({ "key": "PLAT-1170", "transition_name": "Nope" }), &http).unwrap_err();
-        assert!(err.to_string().contains("available: To Do, Start review, Done"), "{err}");
+        let err = send(
+            "jira.transition",
+            json!({ "key": "PLAT-1170", "transition_name": "Nope" }),
+            &http,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("available: To Do, Start review, Done"),
+            "{err}"
+        );
     }
 
     #[test]
     fn comment_sends_adf_and_returns_link() {
         let http = FakeHttp::default();
-        http.on("POST", "/rest/api/3/issue/PLAT-1170/comment", 201, r#"{"id":"10042","body":{}}"#);
-        let r = send("jira.comment", json!({ "key": "PLAT-1170", "body": "Looks good.\nShip it.\n\nThanks" }), &http).unwrap();
-        assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1170?focusedCommentId=10042");
+        http.on(
+            "POST",
+            "/rest/api/3/issue/PLAT-1170/comment",
+            201,
+            r#"{"id":"10042","body":{}}"#,
+        );
+        let r = send(
+            "jira.comment",
+            json!({ "key": "PLAT-1170", "body": "Looks good.\nShip it.\n\nThanks" }),
+            &http,
+        )
+        .unwrap();
+        assert_eq!(
+            r["url"],
+            "https://acme.atlassian.net/browse/PLAT-1170?focusedCommentId=10042"
+        );
         let reqs = http.requests();
         let body: Value = serde_json::from_str(reqs[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(
@@ -876,11 +1174,22 @@ mod tests {
     fn assign_puts_account_id() {
         let http = FakeHttp::default();
         http.on("PUT", "/rest/api/3/issue/PLAT-1201/assignee", 204, "");
-        send("jira.assign", json!({ "key": "PLAT-1201", "account_id": "acc-kim" }), &http).unwrap();
+        send(
+            "jira.assign",
+            json!({ "key": "PLAT-1201", "account_id": "acc-kim" }),
+            &http,
+        )
+        .unwrap();
         let reqs = http.requests();
         assert_eq!(reqs[0].0, "PUT");
-        assert_eq!(reqs[0].1, "https://acme.atlassian.net/rest/api/3/issue/PLAT-1201/assignee");
-        assert_eq!(serde_json::from_str::<Value>(reqs[0].2.as_deref().unwrap()).unwrap(), json!({ "accountId": "acc-kim" }));
+        assert_eq!(
+            reqs[0].1,
+            "https://acme.atlassian.net/rest/api/3/issue/PLAT-1201/assignee"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(reqs[0].2.as_deref().unwrap()).unwrap(),
+            json!({ "accountId": "acc-kim" })
+        );
     }
 
     const NO_ISSUES: &str = r#"{"issues":[],"isLast":true}"#;
@@ -890,18 +1199,34 @@ mod tests {
     fn create_issue_from_notes_payload_resolves_a_unique_delegate() {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/search/jql", 200, NO_ISSUES);
-        http.on("GET", "/rest/api/3/user/assignable/search", 200, r#"[{"accountId":"acc-kim","displayName":"Kim Lee","active":true}]"#);
-        http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"10500","key":"PLAT-1300","self":"https://acme.atlassian.net/rest/api/3/issue/10500"}"#);
+        http.on(
+            "GET",
+            "/rest/api/3/user/assignable/search",
+            200,
+            r#"[{"accountId":"acc-kim","displayName":"Kim Lee","active":true}]"#,
+        );
+        http.on(
+            "POST",
+            "/rest/api/3/issue",
+            201,
+            r#"{"id":"10500","key":"PLAT-1300","self":"https://acme.atlassian.net/rest/api/3/issue/10500"}"#,
+        );
         // Exactly what queries/notes.rs enqueues.
-        let payload = json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
+        let payload =
+            json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
         let r = send("jira.create_issue", payload, &http).unwrap();
         assert_eq!(r["key"], "PLAT-1300");
         assert_eq!(r["url"], "https://acme.atlassian.net/browse/PLAT-1300");
         assert_eq!(r["assignee"], "acc-kim");
         assert_eq!(r["existing"], false);
         let reqs = http.requests();
-        assert!(reqs[0].1.contains("/rest/api/3/search/jql?jql="), "looks for an earlier attempt first");
-        assert!(reqs[1].1.ends_with("/rest/api/3/user/assignable/search?project=PLAT&query=Kim"));
+        assert!(
+            reqs[0].1.contains("/rest/api/3/search/jql?jql="),
+            "looks for an earlier attempt first"
+        );
+        assert!(reqs[1]
+            .1
+            .ends_with("/rest/api/3/user/assignable/search?project=PLAT&query=Kim"));
         assert_eq!(reqs[2].1, "https://acme.atlassian.net/rest/api/3/issue");
         assert_eq!(
             serde_json::from_str::<Value>(reqs[2].2.as_deref().unwrap()).unwrap(),
@@ -911,10 +1236,23 @@ mod tests {
         );
 
         // Ambiguous delegate: created unassigned, and the receipt says why.
-        http.on("GET", "/rest/api/3/user/assignable/search", 200, r#"[{"accountId":"a"},{"accountId":"b"}]"#);
+        http.on(
+            "GET",
+            "/rest/api/3/user/assignable/search",
+            200,
+            r#"[{"accountId":"a"},{"accountId":"b"}]"#,
+        );
         let r = send("jira.create_issue", json!({ "summary": "x", "assignee": "Sam" }), &http).unwrap();
         assert_eq!(r["assignee_unresolved"], "Sam");
-        assert!(http.requests().last().unwrap().2.as_deref().unwrap().find("assignee").is_none());
+        assert!(http
+            .requests()
+            .last()
+            .unwrap()
+            .2
+            .as_deref()
+            .unwrap()
+            .find("assignee")
+            .is_none());
 
         // No delegate: no user lookup (the dedupe search, then the create).
         let before = http.requests().len();
@@ -926,7 +1264,8 @@ mod tests {
     fn create_issue_retry_returns_the_issue_an_earlier_attempt_created() {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/search/jql", 200, CREATED);
-        let payload = json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
+        let payload =
+            json!({ "summary": "Draft retry budget RFC @Kim", "assignee": "Kim", "notes_line_id": 7, "item_id": 42 });
         let r = send("jira.create_issue", payload, &http).unwrap();
         // Exact summary match (not the similar "(v2)" one), and nothing created.
         assert_eq!(r["key"], "PLAT-1300");
@@ -939,29 +1278,56 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         assert!(reqs.iter().all(|r| r.0 == "GET"));
         let want = "project = \"PLAT\" AND reporter = currentUser() AND created >= -24h AND summary ~ \"draft retry budget rfc kim\" ORDER BY created DESC";
-        assert!(reqs[0].1.contains(&format!("jql={}&", urlencode(want))), "{}", reqs[0].1);
+        assert!(
+            reqs[0].1.contains(&format!("jql={}&", urlencode(want))),
+            "{}",
+            reqs[0].1
+        );
         assert!(reqs[0].1.ends_with("&maxResults=50&fields=summary,assignee"));
 
         // Only a similar summary: create.
         http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"10503","key":"PLAT-1303"}"#);
-        let r = send("jira.create_issue", json!({ "summary": "Draft retry budget RFC" }), &http).unwrap();
-        assert_eq!((r["key"].as_str(), r["existing"].as_bool()), (Some("PLAT-1303"), Some(false)));
+        let r = send(
+            "jira.create_issue",
+            json!({ "summary": "Draft retry budget RFC" }),
+            &http,
+        )
+        .unwrap();
+        assert_eq!(
+            (r["key"].as_str(), r["existing"].as_bool()),
+            (Some("PLAT-1303"), Some(false))
+        );
     }
 
     #[test]
     fn create_issue_dedupe_survives_odd_summaries() {
         let http = FakeHttp::default();
         // Jira rejects the text query: search again without it, still compare exactly.
-        http.on("GET", "summary%20~", 400, r#"{"errorMessages":["The text query 'the' for field 'summary' is not allowed."],"errors":{}}"#);
-        http.on("GET", "created%20%3E%3D%20-24h%20ORDER%20BY", 200, r#"{"issues":[{"id":"1","key":"PLAT-9","fields":{"summary":"To be or not"}}],"isLast":true}"#);
+        http.on(
+            "GET",
+            "summary%20~",
+            400,
+            r#"{"errorMessages":["The text query 'the' for field 'summary' is not allowed."],"errors":{}}"#,
+        );
+        http.on(
+            "GET",
+            "created%20%3E%3D%20-24h%20ORDER%20BY",
+            200,
+            r#"{"issues":[{"id":"1","key":"PLAT-9","fields":{"summary":"To be or not"}}],"isLast":true}"#,
+        );
         let r = send("jira.create_issue", json!({ "summary": "To be or not" }), &http).unwrap();
-        assert_eq!((r["key"].as_str(), r["existing"].as_bool()), (Some("PLAT-9"), Some(true)));
+        assert_eq!(
+            (r["key"].as_str(), r["existing"].as_bool()),
+            (Some("PLAT-9"), Some(true))
+        );
         assert_eq!(http.requests().len(), 2);
 
         // Only punctuation: no text clause at all. Other search errors fail the write.
         let http = FakeHttp::default();
         http.on("GET", "/search/jql", 500, "");
-        let err = send("jira.create_issue", json!({ "summary": "?!" }), &http).unwrap_err().to_string();
+        let err = send("jira.create_issue", json!({ "summary": "?!" }), &http)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("Jira 500"), "{err}");
         assert!(!http.requests()[0].1.contains("summary%20~"));
         assert!(http.requests().iter().all(|r| r.0 == "GET"), "never creates blind");
@@ -971,7 +1337,10 @@ mod tests {
         http.on("POST", "/rest/api/3/issue", 201, r#"{"id":"2","key":"PLAT-10"}"#);
         let mut src = source(None);
         src.config["create_dedupe_hours"] = json!(0);
-        with_ctx(&src, &http, |ctx| Jira.send(ctx, "jira.create_issue", &json!({ "summary": "x" }))).unwrap();
+        with_ctx(&src, &http, |ctx| {
+            Jira.send(ctx, "jira.create_issue", &json!({ "summary": "x" }))
+        })
+        .unwrap();
         assert_eq!(http.requests().len(), 1);
     }
 
@@ -980,7 +1349,10 @@ mod tests {
         assert_eq!(jql_string("PLAT"), "\"PLAT\"");
         assert_eq!(jql_string(r#"say "hi" \o/"#), r#""say \"hi\" \\o/""#);
         assert_eq!(jql_string("a\nb"), "\"a b\"");
-        assert_eq!(search_words("Fix \"retry\" AND [ingest]: 5xx -> OR cap?"), "fix retry and ingest 5xx or cap");
+        assert_eq!(
+            search_words("Fix \"retry\" AND [ingest]: 5xx -> OR cap?"),
+            "fix retry and ingest 5xx or cap"
+        );
         assert_eq!(search_words("Überprüfen: Café"), "überprüfen café");
         assert_eq!(search_words("?!"), "");
     }
@@ -989,8 +1361,15 @@ mod tests {
     fn create_issue_error_shows_field_errors() {
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/search/jql", 200, NO_ISSUES);
-        http.on("POST", "/rest/api/3/issue", 400, r#"{"errorMessages":[],"errors":{"issuetype":"Specify a valid issue type"}}"#);
-        let err = send("jira.create_issue", json!({ "summary": "x" }), &http).unwrap_err().to_string();
+        http.on(
+            "POST",
+            "/rest/api/3/issue",
+            400,
+            r#"{"errorMessages":[],"errors":{"issuetype":"Specify a valid issue type"}}"#,
+        );
+        let err = send("jira.create_issue", json!({ "summary": "x" }), &http)
+            .unwrap_err()
+            .to_string();
         assert_eq!(err, "Jira 400: issuetype: Specify a valid issue type");
     }
 

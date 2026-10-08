@@ -73,7 +73,11 @@ impl Sql<'_> {
             .prepare_cached(&sql)?
             .query_map(args, |r| {
                 let topic = match r.get::<_, Option<i64>>(11)? {
-                    Some(id) => Some(TopicRef { id, name: r.get(12)?, category: r.get(13)? }),
+                    Some(id) => Some(TopicRef {
+                        id,
+                        name: r.get(12)?,
+                        category: r.get(13)?,
+                    }),
                     None => None,
                 };
                 let estimate = match (r.get::<_, Option<i64>>(9)?, r.get::<_, Option<String>>(10)?) {
@@ -81,11 +85,19 @@ impl Sql<'_> {
                     _ => None,
                 };
                 let last_author = match (r.get::<_, Option<String>>(21)?, r.get::<_, Option<String>>(23)?) {
-                    (Some(source_kind), Some(name)) => Some(Author { source_kind, author_id: r.get(22)?, name }),
+                    (Some(source_kind), Some(name)) => Some(Author {
+                        source_kind,
+                        author_id: r.get(22)?,
+                        name,
+                    }),
                     _ => None,
                 };
                 let asker = match (r.get::<_, Option<String>>(24)?, r.get::<_, Option<String>>(26)?) {
-                    (Some(source_kind), Some(name)) => Some(Author { source_kind, author_id: r.get(25)?, name }),
+                    (Some(source_kind), Some(name)) => Some(Author {
+                        source_kind,
+                        author_id: r.get(25)?,
+                        name,
+                    }),
                     _ => None,
                 };
                 Ok(TodoFacts {

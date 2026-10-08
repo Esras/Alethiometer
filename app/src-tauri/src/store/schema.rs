@@ -54,7 +54,14 @@ fn register_vec() {
     ONCE.call_once(|| unsafe {
         // SAFETY: sqlite3_vec_init has the extension entry point signature
         // SQLite expects; registering it before any connection is opened.
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<*const (), unsafe extern "C" fn(*mut rusqlite::ffi::sqlite3, *mut *mut std::os::raw::c_char, *const rusqlite::ffi::sqlite3_api_routines) -> std::os::raw::c_int>(sqlite_vec::sqlite3_vec_init as *const ())));
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut std::os::raw::c_char,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> std::os::raw::c_int,
+        >(sqlite_vec::sqlite3_vec_init as *const ())));
     });
 }
 
@@ -87,7 +94,10 @@ fn init(mut conn: Connection) -> anyhow::Result<Connection> {
 fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if current as usize > MIGRATIONS.len() {
-        anyhow::bail!("the database is from a newer Alethiometer (schema {current}, this build knows {}): use that version", MIGRATIONS.len());
+        anyhow::bail!(
+            "the database is from a newer Alethiometer (schema {current}, this build knows {}): use that version",
+            MIGRATIONS.len()
+        );
     }
     if current as usize >= to {
         return Ok(());
@@ -119,7 +129,14 @@ fn migrate(conn: &mut Connection, to: usize) -> anyhow::Result<()> {
 fn broken_references(conn: &Connection) -> anyhow::Result<std::collections::BTreeSet<String>> {
     Ok(conn
         .prepare("PRAGMA foreign_key_check")?
-        .query_map([], |r| Ok(format!("{} row {:?} -> {}", r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))?
+        .query_map([], |r| {
+            Ok(format!(
+                "{} row {:?} -> {}",
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, String>(2)?
+            ))
+        })?
         .collect::<rusqlite::Result<_>>()?)
 }
 
@@ -151,12 +168,24 @@ mod tests {
             conn.total_changes() - before
         };
         // What an upsert does: the same text again. Only the item's row is written.
-        assert_eq!(writes("UPDATE items SET title = 'Retry storm', body = 'Workers loop' WHERE id = 1"), 1);
+        assert_eq!(
+            writes("UPDATE items SET title = 'Retry storm', body = 'Workers loop' WHERE id = 1"),
+            1
+        );
         // A real change still reaches the index.
         assert!(writes("UPDATE items SET body = 'Workers back off now' WHERE id = 1") > 1);
-        let hit: i64 = conn.query_row("SELECT rowid FROM items_fts WHERE items_fts MATCH 'back'", [], |r| r.get(0)).unwrap();
+        let hit: i64 = conn
+            .query_row("SELECT rowid FROM items_fts WHERE items_fts MATCH 'back'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(hit, 1);
-        assert_eq!(conn.query_row("SELECT count(*) FROM items_fts WHERE items_fts MATCH 'loop'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM items_fts WHERE items_fts MATCH 'loop'", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -172,15 +201,35 @@ mod tests {
         )
         .unwrap();
         migrate(&mut conn, MIGRATIONS.len()).unwrap();
-        let links: Vec<(i64, String)> = conn.prepare("SELECT item_id, updated_at FROM topic_links ORDER BY item_id").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect();
-        assert_eq!(links.len(), 2, "the dangling link (item 404) was already there and stays");
+        let links: Vec<(i64, String)> = conn
+            .prepare("SELECT item_id, updated_at FROM topic_links ORDER BY item_id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            links.len(),
+            2,
+            "the dangling link (item 404) was already there and stays"
+        );
         assert_eq!(links[0], (1, "2026-09-28T08:52:00.000Z".into()));
-        let (created, receipt): (String, String) = conn.query_row("SELECT created_at, receipt_json FROM outbox", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (created, receipt): (String, String) = conn
+            .query_row("SELECT created_at, receipt_json FROM outbox", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!(created, "2026-09-28T08:52:00.000Z");
         assert!(receipt.contains(".000Z"), "{receipt}");
         // New rows get UTC defaults.
-        conn.execute("INSERT INTO outbox (source_id, op, payload_json) VALUES (1, 'y', '{}')", []).unwrap();
-        let fresh: String = conn.query_row("SELECT created_at FROM outbox WHERE op = 'y'", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO outbox (source_id, op, payload_json) VALUES (1, 'y', '{}')",
+            [],
+        )
+        .unwrap();
+        let fresh: String = conn
+            .query_row("SELECT created_at FROM outbox WHERE op = 'y'", [], |r| r.get(0))
+            .unwrap();
         assert!(crate::time::Ts::parse(&fresh).is_some(), "{fresh}");
     }
 }

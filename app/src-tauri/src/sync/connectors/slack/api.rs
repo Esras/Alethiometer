@@ -42,7 +42,14 @@ impl ApiError {
     pub fn is_fatal(&self) -> bool {
         matches!(
             self.code.as_str(),
-            "invalid_auth" | "not_authed" | "account_inactive" | "token_revoked" | "token_expired" | "no_permission" | "org_login_required" | "team_access_not_granted"
+            "invalid_auth"
+                | "not_authed"
+                | "account_inactive"
+                | "token_revoked"
+                | "token_expired"
+                | "no_permission"
+                | "org_login_required"
+                | "team_access_not_granted"
         )
     }
 
@@ -61,12 +68,20 @@ pub struct Client<'a> {
 
 impl<'a> Client<'a> {
     pub fn new(http: &'a dyn Http, token: String) -> Client<'a> {
-        Client { http, token, sleep: std::thread::sleep }
+        Client {
+            http,
+            token,
+            sleep: std::thread::sleep,
+        }
     }
 
     /// Read method: GET with a query string.
     pub fn get(&self, method: &str, params: &[(&str, &str)]) -> anyhow::Result<Value> {
-        let url = if params.is_empty() { format!("{BASE}{method}") } else { format!("{BASE}{method}?{}", form(params)) };
+        let url = if params.is_empty() {
+            format!("{BASE}{method}")
+        } else {
+            format!("{BASE}{method}?{}", form(params))
+        };
         self.call(method, "GET", &url, None)
     }
 
@@ -86,7 +101,10 @@ impl<'a> Client<'a> {
         loop {
             let resp = self.http.request(verb, url, &headers, body.as_deref())?;
             if resp.status == 429 {
-                let wait = resp.header("retry-after").and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(30);
+                let wait = resp
+                    .header("retry-after")
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+                    .unwrap_or(30);
                 if attempt >= MAX_RETRIES || wait > MAX_WAIT_SECS {
                     anyhow::bail!("Slack {method}: rate limited (retry after {wait}s)");
                 }
@@ -99,7 +117,11 @@ impl<'a> Client<'a> {
             if v.get("ok").and_then(Value::as_bool) != Some(true) {
                 return Err(ApiError {
                     method: method.to_owned(),
-                    code: v.get("error").and_then(Value::as_str).unwrap_or("unknown error").to_owned(),
+                    code: v
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error")
+                        .to_owned(),
                     needed: v.get("needed").and_then(Value::as_str).map(str::to_owned),
                 }
                 .into());
@@ -110,7 +132,13 @@ impl<'a> Client<'a> {
 
     /// Follow `response_metadata.next_cursor` and collect `field` from every
     /// page, up to `max_pages`.
-    pub fn get_paged(&self, method: &str, params: &[(&str, &str)], field: &str, max_pages: usize) -> anyhow::Result<Vec<Value>> {
+    pub fn get_paged(
+        &self,
+        method: &str,
+        params: &[(&str, &str)],
+        field: &str,
+        max_pages: usize,
+    ) -> anyhow::Result<Vec<Value>> {
         let mut out = vec![];
         let mut cursor = String::new();
         for _ in 0..max_pages {
@@ -137,7 +165,11 @@ impl<'a> Client<'a> {
 
 /// `application/x-www-form-urlencoded` (also used for query strings).
 pub fn form(params: &[(&str, &str)]) -> String {
-    params.iter().map(|(k, v)| format!("{}={}", enc(k), enc(v))).collect::<Vec<_>>().join("&")
+    params
+        .iter()
+        .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 fn enc(s: &str) -> String {
@@ -167,7 +199,11 @@ pub fn ts_after(a: &str, b: &str) -> bool {
 fn split_ts(ts: &str) -> (u64, u64) {
     let mut it = ts.splitn(2, '.');
     let i = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let f = it.next().map(|s| format!("{s:0<6}")).and_then(|s| s[..6].parse().ok()).unwrap_or(0);
+    let f = it
+        .next()
+        .map(|s| format!("{s:0<6}"))
+        .and_then(|s| s[..6].parse().ok())
+        .unwrap_or(0);
     (i, f)
 }
 
@@ -177,7 +213,10 @@ mod tests {
 
     #[test]
     fn encodes_forms() {
-        assert_eq!(form(&[("text", "a b&c=d/é"), ("channel", "C1")]), "text=a%20b%26c%3Dd%2F%C3%A9&channel=C1");
+        assert_eq!(
+            form(&[("text", "a b&c=d/é"), ("channel", "C1")]),
+            "text=a%20b%26c%3Dd%2F%C3%A9&channel=C1"
+        );
     }
 
     #[test]

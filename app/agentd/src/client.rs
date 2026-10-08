@@ -26,7 +26,9 @@ impl Control {
         let s = UnixStream::connect(socket)?;
         s.set_read_timeout(Some(Duration::from_secs(15)))?;
         let r = BufReader::new(s.try_clone()?);
-        Ok(Control { conn: Mutex::new((r, s)) })
+        Ok(Control {
+            conn: Mutex::new((r, s)),
+        })
     }
 
     pub fn call(&self, req: &Request) -> io::Result<Reply> {
@@ -36,7 +38,10 @@ impl Control {
         g.1.write_all(line.as_bytes())?;
         let mut out = String::new();
         if g.0.read_line(&mut out)? == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the agent host closed the connection"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the agent host closed the connection",
+            ));
         }
         serde_json::from_str(out.trim()).map_err(bad)
     }
@@ -79,7 +84,10 @@ pub fn subscribe(socket: &Path, from: BTreeMap<String, u64>, mut f: impl FnMut(E
 #[cfg(not(unix))]
 impl Control {
     pub fn connect(_socket: &Path) -> io::Result<Control> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "the agent host isn't available on this platform yet"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "the agent host isn't available on this platform yet",
+        ))
     }
     pub fn call(&self, _req: &Request) -> io::Result<Reply> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported"))
@@ -91,5 +99,8 @@ impl Control {
 
 #[cfg(not(unix))]
 pub fn subscribe(_socket: &Path, _from: BTreeMap<String, u64>, _f: impl FnMut(Event) -> bool) -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "the agent host isn't available on this platform yet"))
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the agent host isn't available on this platform yet",
+    ))
 }

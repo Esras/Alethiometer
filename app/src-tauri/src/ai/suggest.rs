@@ -35,10 +35,10 @@
 
 use super::context::{clip, note_gist};
 use super::{Deps, Tier};
-use crate::error::Result;
-use crate::state::App;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::domain::suggest::{ContextMessage, PromptMessage, UnsortedItem};
+use crate::error::Result;
+use crate::state::App;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -159,35 +159,72 @@ fn prepare(app: &App, limit: usize) -> Result<Vec<Pending>> {
     let notes = super::context::Notes::read(&app.vault, topics.iter().filter_map(|t| t.note_path.clone()));
     let all: Vec<TopicInfo> = topics
         .into_iter()
-        .map(|t| TopicInfo { gist: t.note_path.as_deref().map(|p| note_gist(notes.get(p))).unwrap_or_default(), id: t.id, name: t.name })
+        .map(|t| TopicInfo {
+            gist: t
+                .note_path
+                .as_deref()
+                .map(|p| note_gist(notes.get(p)))
+                .unwrap_or_default(),
+            id: t.id,
+            name: t.name,
+        })
         .collect();
     // Message times as the user reads them: wall-clock "HH:MM" here.
     let hm = |at: crate::time::Ts| app.clock.local(at).strftime("%H:%M").to_string();
     let mut out = vec![];
-    for ItemData { item, wrong, msgs, threads, earlier } in items {
+    for ItemData {
+        item,
+        wrong,
+        msgs,
+        threads,
+        earlier,
+    } in items
+    {
         let candidates: Vec<&TopicInfo> = all.iter().filter(|t| !wrong.contains(&t.id)).collect();
         let thread_of = |p: &mut String, id: i64| {
             let rs = threads.get(&id).map(Vec::as_slice).unwrap_or_default();
             for m in &rs[rs.len().saturating_sub(REPLIES_SHOWN)..] {
-                let _ = writeln!(p, "    reply {} {}: {}", hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
+                let _ = writeln!(
+                    p,
+                    "    reply {} {}: {}",
+                    hm(m.at),
+                    clip(&m.author, 40),
+                    clip(&m.text, 240)
+                );
             }
         };
         let splittable = item.parent_id.is_none() && item.kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
-        let mut p = format!("Item\nSource: {} {}\nTitle: {}\n", item.source_kind, item.kind, clip(&item.title, 300));
+        let mut p = format!(
+            "Item\nSource: {} {}\nTitle: {}\n",
+            item.source_kind,
+            item.kind,
+            clip(&item.title, 300)
+        );
         if let Some(s) = item.summary.filter(|s| !s.trim().is_empty()) {
             let _ = writeln!(p, "Summary: {}", clip(&s, 300));
         }
         if !earlier.is_empty() {
             p.push_str("\nEarlier in the conversation (context only, not part of this item; [topic] where the user filed it):\n");
             for m in &earlier {
-                let filed = m.topic.as_ref().map(|t| format!(" [{}]", clip(t, 60))).unwrap_or_default();
+                let filed = m
+                    .topic
+                    .as_ref()
+                    .map(|t| format!(" [{}]", clip(t, 60)))
+                    .unwrap_or_default();
                 let _ = writeln!(p, "{} {}: {}{filed}", hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
             }
         }
         if splittable {
             p.push_str("\nMessages (numbered, oldest first; a message's thread replies are indented under it and go with it):\n");
             for (i, m) in msgs.iter().enumerate() {
-                let _ = writeln!(p, "{}. {} {}: {}", i + 1, hm(m.at), clip(&m.author, 40), clip(&m.text, 240));
+                let _ = writeln!(
+                    p,
+                    "{}. {} {}: {}",
+                    i + 1,
+                    hm(m.at),
+                    clip(&m.author, 40),
+                    clip(&m.text, 240)
+                );
                 thread_of(&mut p, m.id);
             }
         } else if !msgs.is_empty() {
@@ -197,9 +234,17 @@ fn prepare(app: &App, limit: usize) -> Result<Vec<Pending>> {
                 thread_of(&mut p, m.id);
             }
         }
-        let not_about: Vec<&str> = all.iter().filter(|t| wrong.contains(&t.id)).map(|t| t.name.as_str()).collect();
+        let not_about: Vec<&str> = all
+            .iter()
+            .filter(|t| wrong.contains(&t.id))
+            .map(|t| t.name.as_str())
+            .collect();
         if !not_about.is_empty() {
-            let _ = writeln!(p, "\nThe user said this item is NOT about: {}. Never pick those.", not_about.join("; "));
+            let _ = writeln!(
+                p,
+                "\nThe user said this item is NOT about: {}. Never pick those.",
+                not_about.join("; ")
+            );
         }
         p.push_str("\nTopics (id: name — description):\n");
         if candidates.is_empty() {
@@ -220,7 +265,11 @@ fn prepare(app: &App, limit: usize) -> Result<Vec<Pending>> {
             item_id: item.id,
             prompt: p,
             candidates: candidates.iter().map(|t| t.id).collect(),
-            split_ids: if splittable { msgs.iter().map(|m| m.id).collect() } else { vec![] },
+            split_ids: if splittable {
+                msgs.iter().map(|m| m.id).collect()
+            } else {
+                vec![]
+            },
         });
     }
     Ok(out)
@@ -249,7 +298,10 @@ fn new_topic_of(v: &Value) -> Option<String> {
 }
 
 fn confidence_of(v: &Value) -> f64 {
-    v.get("confidence").and_then(Value::as_f64).unwrap_or(0.5).clamp(0.0, 1.0)
+    v.get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.5)
+        .clamp(0.0, 1.0)
 }
 
 fn reason_of(v: &Value) -> String {
@@ -266,7 +318,9 @@ pub enum Pick {
 /// Anything off-list, null or unparseable is "no suggestion"; an existing topic wins over a new-topic proposal.
 pub fn parse(reply: &str, candidates: &[i64]) -> Option<(Pick, f64, String)> {
     let v = reply_json(reply)?;
-    let pick = topic_of(&v, candidates).map(Pick::Existing).or_else(|| new_topic_of(&v).map(Pick::New))?;
+    let pick = topic_of(&v, candidates)
+        .map(Pick::Existing)
+        .or_else(|| new_topic_of(&v).map(Pick::New))?;
     Some((pick, confidence_of(&v), reason_of(&v)))
 }
 
@@ -304,7 +358,12 @@ pub fn parse_groups(reply: &str, candidates: &[i64], n: usize) -> Option<Vec<Gro
             continue;
         }
         messages.sort_unstable();
-        out.push(Group { messages, topic_id: topic_of(g, candidates), confidence: confidence_of(g), reason: reason_of(g) });
+        out.push(Group {
+            messages,
+            topic_id: topic_of(g, candidates),
+            confidence: confidence_of(g),
+            reason: reason_of(g),
+        });
     }
     Some(out)
 }
@@ -323,12 +382,17 @@ pub enum Plan {
 pub fn plan(groups: Vec<Group>, n: usize) -> Plan {
     // For a "no topic" group the confidence is the model's certainty that it
     // matches none of the topics, so it can stand as its own part too.
-    let firm = |g: &Group| g.confidence >= SPLIT_CONFIDENCE && (g.messages.len() >= 2 || g.confidence >= SINGLE_CONFIDENCE);
+    let firm =
+        |g: &Group| g.confidence >= SPLIT_CONFIDENCE && (g.messages.len() >= 2 || g.confidence >= SINGLE_CONFIDENCE);
     // A topic below the split bar can't carry a split; it may still be the whole item's.
     let whole_fallback = |groups: &[Group]| {
-        let best = groups.iter().filter(|g| g.topic_id.is_some()).max_by_key(|g| g.messages.len())?;
+        let best = groups
+            .iter()
+            .filter(|g| g.topic_id.is_some())
+            .max_by_key(|g| g.messages.len())?;
         let topic = best.topic_id?;
-        (best.messages.len() * 2 > n && best.confidence >= MIN_CONFIDENCE).then(|| (topic, best.confidence, best.reason.clone()))
+        (best.messages.len() * 2 > n && best.confidence >= MIN_CONFIDENCE)
+            .then(|| (topic, best.confidence, best.reason.clone()))
     };
     let firm_groups: Vec<&Group> = groups.iter().filter(|g| firm(g)).collect();
     if firm_groups.is_empty() {
@@ -361,7 +425,10 @@ pub fn plan(groups: Vec<Group>, n: usize) -> Plan {
                 m.messages.push(i);
                 m.confidence = m.confidence.min(g.confidence);
             }
-            None => merged.push(Group { messages: vec![i], ..g.clone() }),
+            None => merged.push(Group {
+                messages: vec![i],
+                ..g.clone()
+            }),
         }
     }
     if merged.len() < 2 {
@@ -380,7 +447,8 @@ pub fn plan(groups: Vec<Group>, n: usize) -> Plan {
 /// Store a suggestion unless the item got a live link meanwhile. Never touches an
 /// existing row, so `wrong` and `confirmed` verdicts stand.
 fn store(uow: &dyn UnitOfWork, s: &Suggested) -> Result<bool> {
-    uow.links().suggest_if_unlinked(s.item_id, s.topic_id, s.confidence, &s.reason)
+    uow.links()
+        .suggest_if_unlinked(s.item_id, s.topic_id, s.confidence, &s.reason)
 }
 
 /// Split the item as planned, if it is still the Unsorted item the model saw
@@ -401,7 +469,12 @@ fn apply_split(uow: &dyn UnitOfWork, p: &Pending, groups: &[Group]) -> Result<Op
             child
         };
         if let Some(topic_id) = g.topic_id {
-            let s = Suggested { item_id, topic_id, confidence: g.confidence, reason: g.reason.clone() };
+            let s = Suggested {
+                item_id,
+                topic_id,
+                confidence: g.confidence,
+                reason: g.reason.clone(),
+            };
             if store(uow, &s)? {
                 suggested.push(s);
             }
@@ -436,16 +509,30 @@ pub fn last_run(r: &dyn Reads) -> Result<Value> {
     let run = r.suggest().last_run()?.map(|run| {
         json!({ "status": run.status, "message": run.message, "suggested": run.suggested, "at": run.at, "last_ok_at": run.last_ok_at })
     });
-    Ok(json!({ "run": run, "waiting": r.suggest().unsorted_count()?, "running": RUNNING.load(std::sync::atomic::Ordering::SeqCst) > 0 }))
+    Ok(
+        json!({ "run": run, "waiting": r.suggest().unsorted_count()?, "running": RUNNING.load(std::sync::atomic::Ordering::SeqCst) > 0 }),
+    )
 }
 
 pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
     // Fail closed before reading anything: not configured means do nothing.
     if let Err(e) = super::check(&app.settings().ai, Tier::Small) {
-        return Ok(Outcome { status: "ai_off", message: Some(e.to_string()), considered: 0, suggested: vec![], split: vec![] });
+        return Ok(Outcome {
+            status: "ai_off",
+            message: Some(e.to_string()),
+            considered: 0,
+            suggested: vec![],
+            split: vec![],
+        });
     }
     let pending = prepare(app, limit.clamp(1, 50))?;
-    let mut out = Outcome { status: "ok", message: None, considered: 0, suggested: vec![], split: vec![] };
+    let mut out = Outcome {
+        status: "ok",
+        message: None,
+        considered: 0,
+        suggested: vec![],
+        split: vec![],
+    };
     for p in pending {
         let system = if p.split_ids.is_empty() { SYSTEM } else { SYSTEM_SPLIT };
         // Network call without the DB lock.
@@ -458,11 +545,18 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
             }
         };
         out.considered += 1;
-        let groups = if p.split_ids.is_empty() { None } else { parse_groups(&reply, &p.candidates, p.split_ids.len()) };
+        let groups = if p.split_ids.is_empty() {
+            None
+        } else {
+            parse_groups(&reply, &p.candidates, p.split_ids.len())
+        };
         let whole = match groups.map(|g| plan(g, p.split_ids.len())) {
             Some(Plan::Split(groups)) => {
                 if let Some((children, suggested)) = app.store().write(|uow| apply_split(uow, &p, &groups))? {
-                    out.split.push(SplitDone { item_id: p.item_id, children });
+                    out.split.push(SplitDone {
+                        item_id: p.item_id,
+                        children,
+                    });
                     out.suggested.extend(suggested);
                 }
                 continue;
@@ -470,7 +564,9 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
             Some(Plan::Whole(w)) => w.map(|(id, c, r)| (Pick::Existing(id), c, r)),
             None => parse(&reply, &p.candidates),
         };
-        let Some((pick, confidence, reason)) = whole else { continue };
+        let Some((pick, confidence, reason)) = whole else {
+            continue;
+        };
         if confidence < MIN_CONFIDENCE {
             continue;
         }
@@ -486,7 +582,12 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
                     crate::queries::topics::find_or_create(uow, name, &cat)?
                 }
             };
-            let s = Suggested { item_id: p.item_id, topic_id, confidence, reason: reason.clone() };
+            let s = Suggested {
+                item_id: p.item_id,
+                topic_id,
+                confidence,
+                reason: reason.clone(),
+            };
             Ok(store(uow, &s)?.then_some(s))
         })?;
         out.suggested.extend(stored);
@@ -508,7 +609,10 @@ mod tests {
         record(&crate::store::over(&conn), "ok", None, 3).unwrap();
         record(&crate::store::over(&conn), "failed", Some("throttled"), 0).unwrap();
         let r = &last_run(&crate::store::over(&conn)).unwrap()["run"];
-        assert_eq!((r["status"].as_str(), r["message"].as_str()), (Some("failed"), Some("throttled")));
+        assert_eq!(
+            (r["status"].as_str(), r["message"].as_str()),
+            (Some("failed"), Some("throttled"))
+        );
         assert!(r["last_ok_at"].is_string());
     }
     use crate::sync::http::FakeHttp;
@@ -536,7 +640,16 @@ mod tests {
     fn not_configured_is_a_quiet_noop() {
         let (app, _dir) = app();
         let http = FakeHttp::default();
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 10).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            10,
+        )
+        .unwrap();
         assert_eq!(out.status, "ai_off");
         assert!(http.requests().is_empty());
     }
@@ -546,12 +659,27 @@ mod tests {
         let (app, _dir) = app();
         configured(&app);
         let http = FakeHttp::default();
-        let before: i64 = app.db().query_row("SELECT count(*) FROM topic_links", [], |r| r.get(0)).unwrap();
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, 10).unwrap();
+        let before: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM topic_links", [], |r| r.get(0))
+            .unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &no_creds,
+                time: SystemTime::now(),
+            },
+            10,
+        )
+        .unwrap();
         assert_eq!(out.status, "failed");
         assert!(out.message.unwrap().contains("No AWS credentials"));
         assert!(http.requests().is_empty());
-        let after: i64 = app.db().query_row("SELECT count(*) FROM topic_links", [], |r| r.get(0)).unwrap();
+        let after: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM topic_links", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(before, after);
     }
 
@@ -565,13 +693,33 @@ mod tests {
         app.db().execute("DELETE FROM topics", []).unwrap();
         let item = plant_dm(&app, &["Let's set up a recurring review of our cloud spend"]);
         let http = FakeHttp::default();
-        http.on("POST", "/converse", 200, converse(r#"{"topic_id": null, "new_topic": "Cloud spend review", "confidence": 0.8}"#));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        http.on(
+            "POST",
+            "/converse",
+            200,
+            converse(r#"{"topic_id": null, "new_topic": "Cloud spend review", "confidence": 0.8}"#),
+        );
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert_eq!(out.status, "ok", "{:?}", out.message);
         assert_eq!(out.considered, 1, "a zero-candidate item must still reach the model");
         assert_eq!(out.suggested.len(), 1);
-        let (link_topic, _): (i64, String) =
-            app.db().query_row("SELECT topic_id, state FROM topic_links WHERE item_id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (link_topic, _): (i64, String) = app
+            .db()
+            .query_row(
+                "SELECT topic_id, state FROM topic_links WHERE item_id = ?1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!(out.suggested[0].topic_id, link_topic);
     }
 
@@ -582,14 +730,32 @@ mod tests {
         let item = plant_dm(&app, &["We should renegotiate the S3 archiver contract before renewal"]);
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(r#"{"topic_id": null, "new_topic": "S3 archiver contract renewal", "confidence": 0.8, "reason": "new recurring subject"}"#));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert_eq!(out.status, "ok", "{:?}", out.message);
         assert_eq!(out.suggested.len(), 1);
         let topic_id = out.suggested[0].topic_id;
-        let name: String = app.db().query_row("SELECT name FROM topics WHERE id = ?1", [topic_id], |r| r.get(0)).unwrap();
+        let name: String = app
+            .db()
+            .query_row("SELECT name FROM topics WHERE id = ?1", [topic_id], |r| r.get(0))
+            .unwrap();
         assert_eq!(name, "S3 archiver contract renewal");
-        let (link_topic, state): (i64, String) =
-            app.db().query_row("SELECT topic_id, state FROM topic_links WHERE item_id = ?1", [item], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (link_topic, state): (i64, String) = app
+            .db()
+            .query_row(
+                "SELECT topic_id, state FROM topic_links WHERE item_id = ?1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!((link_topic, state.as_str()), (topic_id, "suggested"));
     }
 
@@ -603,15 +769,35 @@ mod tests {
             let http = FakeHttp::default();
             let reply = format!(r#"{{"new_topic": "{text}", "new_topic_category": "{cat}", "confidence": 0.8}}"#);
             http.on("POST", "/converse", 200, converse(&reply));
-            let out = suggest_topics(app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+            let out = suggest_topics(
+                app,
+                &Deps {
+                    http: &http,
+                    creds: &fake_creds,
+                    time: SystemTime::now(),
+                },
+                1,
+            )
+            .unwrap();
             assert_eq!(out.suggested.first().map(|s| s.item_id), Some(item));
             let body = http.requests()[0].2.clone().unwrap();
             assert!(body.contains("Categories for a new topic") && body.contains("jobs: Jobs"));
-            let cat: String = app.db().query_row("SELECT category FROM topics WHERE id = ?1", [out.suggested[0].topic_id], |r| r.get(0)).unwrap();
+            let cat: String = app
+                .db()
+                .query_row(
+                    "SELECT category FROM topics WHERE id = ?1",
+                    [out.suggested[0].topic_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
             cat
         };
         assert_eq!(category_of("Recruiting pipeline for backend", "jobs"), "jobs");
-        assert_eq!(category_of("Vendor security questionnaires", "nonsense"), "", "an unknown category leaves it uncategorized");
+        assert_eq!(
+            category_of("Vendor security questionnaires", "nonsense"),
+            "",
+            "an unknown category leaves it uncategorized"
+        );
     }
 
     #[test]
@@ -621,10 +807,32 @@ mod tests {
         let existing = topic_id(&app, "Datadog renewal");
         let item = plant_dm(&app, &["Renewal terms are in from the vendor"]);
         let http = FakeHttp::default();
-        http.on("POST", "/converse", 200, converse(r#"{"topic_id": null, "new_topic": "datadog RENEWAL", "confidence": 0.8}"#));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
-        assert_eq!(out.suggested[0].topic_id, existing, "should reuse, not duplicate, case-insensitively");
-        let count: i64 = app.db().query_row("SELECT count(*) FROM topics WHERE name LIKE '%enewal%'", [], |r| r.get(0)).unwrap();
+        http.on(
+            "POST",
+            "/converse",
+            200,
+            converse(r#"{"topic_id": null, "new_topic": "datadog RENEWAL", "confidence": 0.8}"#),
+        );
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            out.suggested[0].topic_id, existing,
+            "should reuse, not duplicate, case-insensitively"
+        );
+        let count: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM topics WHERE name LIKE '%enewal%'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(count, 1, "no duplicate topic");
         let _ = item;
     }
@@ -638,7 +846,9 @@ mod tests {
         // Newest unsorted item, previously marked wrong for Acme.
         let item = {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+            let src: i64 = conn
+                .query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0))
+                .unwrap();
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, summary, occurred_at, status, seen)
                  VALUES (?1, 'new-1', 'thread', 'Kim: DD contract redlines back', 'true-down clause accepted', '2999-01-01T09:00:00', 'open', 0)",
@@ -646,12 +856,25 @@ mod tests {
             )
             .unwrap();
             let id = conn.last_insert_rowid();
-            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![id, acme]).unwrap();
+            conn.execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+                params![id, acme],
+            )
+            .unwrap();
             id
         };
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, reply_for(&dd.to_string()));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert_eq!(out.status, "ok", "{:?}", out.message);
         assert_eq!(out.suggested.len(), 1);
 
@@ -668,11 +891,22 @@ mod tests {
         assert_eq!(links(&app, item), want);
         let (conf, reason): (f64, String) = app
             .db()
-            .query_row("SELECT confidence, reason FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![item, dd], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT confidence, reason FROM topic_links WHERE item_id = ?1 AND topic_id = ?2",
+                params![item, dd],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert!((conf - 0.82).abs() < 1e-9);
         assert!(reason.contains("Datadog"));
-        let confirmed: i64 = app.db().query_row("SELECT count(*) FROM topic_links WHERE item_id = ?1 AND state = 'confirmed'", [item], |r| r.get(0)).unwrap();
+        let confirmed: i64 = app
+            .db()
+            .query_row(
+                "SELECT count(*) FROM topic_links WHERE item_id = ?1 AND state = 'confirmed'",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(confirmed, 0);
     }
 
@@ -683,19 +917,34 @@ mod tests {
         let acme = topic_id(&app, "Acme outage");
         let item = {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0)).unwrap();
+            let src: i64 = conn
+                .query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0))
+                .unwrap();
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, 'n2', 'issue', 'Retry storm', '2999-01-01T09:00:00', 'open', 0)",
                 [src],
             )
             .unwrap();
             let id = conn.last_insert_rowid();
-            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![id, acme]).unwrap();
+            conn.execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+                params![id, acme],
+            )
+            .unwrap();
             id
         };
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, reply_for(&acme.to_string()));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert!(out.suggested.is_empty());
         assert_eq!(links(&app, item), vec![(acme, "wrong".to_string())]);
     }
@@ -707,10 +956,21 @@ mod tests {
         let dd = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, dd);
         // Make the personal item look unsorted too.
-        app.db().execute("DELETE FROM topic_links WHERE item_id = ?1", [personal]).unwrap();
+        app.db()
+            .execute("DELETE FROM topic_links WHERE item_id = ?1", [personal])
+            .unwrap();
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, reply_for("null"));
-        suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 50).unwrap();
+        suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            50,
+        )
+        .unwrap();
         assert!(!http.requests().is_empty());
         for (_, _, body) in http.requests() {
             assert!(!body.unwrap_or_default().contains("PERSONAL-SECRET"));
@@ -719,8 +979,14 @@ mod tests {
 
     #[test]
     fn parse_is_strict_about_candidates() {
-        assert_eq!(parse(r#"{"topic_id": 3, "confidence": 0.9, "reason": "x"}"#, &[3]).map(|p| p.0), Some(Pick::Existing(3)));
-        assert_eq!(parse(r#"Sure: {"topic_id": "3", "confidence": 2}"#, &[3]).map(|p| p.1), Some(1.0));
+        assert_eq!(
+            parse(r#"{"topic_id": 3, "confidence": 0.9, "reason": "x"}"#, &[3]).map(|p| p.0),
+            Some(Pick::Existing(3))
+        );
+        assert_eq!(
+            parse(r#"Sure: {"topic_id": "3", "confidence": 2}"#, &[3]).map(|p| p.1),
+            Some(1.0)
+        );
         assert!(parse(r#"{"topic_id": 4}"#, &[3]).is_none());
         assert!(parse(r#"{"topic_id": null}"#, &[3]).is_none());
         assert!(parse("no idea", &[3]).is_none());
@@ -728,12 +994,24 @@ mod tests {
 
     #[test]
     fn parse_accepts_a_broad_new_topic_name_and_rejects_a_narrow_one() {
-        let got = parse(r#"{"topic_id": null, "new_topic": "Datadog cost review", "confidence": 0.7}"#, &[3]);
+        let got = parse(
+            r#"{"topic_id": null, "new_topic": "Datadog cost review", "confidence": 0.7}"#,
+            &[3],
+        );
         assert_eq!(got.map(|p| p.0), Some(Pick::New("Datadog cost review".into())));
-        assert!(parse(r#"{"new_topic": "Renew", "confidence": 0.7}"#, &[3]).is_none(), "one word");
-        assert!(parse(r#"{"new_topic": "A B C D E F", "confidence": 0.7}"#, &[3]).is_none(), "six words");
+        assert!(
+            parse(r#"{"new_topic": "Renew", "confidence": 0.7}"#, &[3]).is_none(),
+            "one word"
+        );
+        assert!(
+            parse(r#"{"new_topic": "A B C D E F", "confidence": 0.7}"#, &[3]).is_none(),
+            "six words"
+        );
         // topic_id wins when the model sets both (shouldn't happen, but be defensive).
-        let got = parse(r#"{"topic_id": 3, "new_topic": "Some other thing entirely", "confidence": 0.7}"#, &[3]);
+        let got = parse(
+            r#"{"topic_id": 3, "new_topic": "Some other thing entirely", "confidence": 0.7}"#,
+            &[3],
+        );
         assert_eq!(got.map(|p| p.0), Some(Pick::Existing(3)));
     }
 
@@ -746,7 +1024,9 @@ mod tests {
     /// The newest unsorted item: a Slack DM run with these messages (keys 100.1, 100.2, …).
     fn plant_dm(app: &App, texts: &[&str]) -> i64 {
         let conn = app.db();
-        let src: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        let src: i64 = conn
+            .query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0))
+            .unwrap();
         let keys: Vec<String> = (1..=texts.len()).map(|i| format!("100.{i}")).collect();
         let raw = serde_json::json!({ "channel": "D9", "mark_ts": keys.last(), "msgs": keys });
         conn.execute(
@@ -777,7 +1057,12 @@ mod tests {
     }
 
     fn g(messages: &[usize], topic: Option<i64>, confidence: f64) -> Group {
-        Group { messages: messages.to_vec(), topic_id: topic, confidence, reason: String::new() }
+        Group {
+            messages: messages.to_vec(),
+            topic_id: topic,
+            confidence,
+            reason: String::new(),
+        }
     }
 
     #[test]
@@ -788,7 +1073,9 @@ mod tests {
         let item = plant_dm(&app, &["Can you send the numbers?", "thanks!"]);
         {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT source_id FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+            let src: i64 = conn
+                .query_row("SELECT source_id FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .unwrap();
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen, raw_json) VALUES (?1, 'D9/90.1', 'message', 'DM · Priya', '2999-01-01T08:00:00.000Z', 'open', 1, '{}')",
                 [src],
@@ -796,16 +1083,35 @@ mod tests {
             .unwrap();
             let earlier = conn.last_insert_rowid();
             conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key) VALUES (?1, '2999-01-01T08:00:00.000Z', 'Priya', 'Lee wants hiring numbers', '90.1')", [earlier]).unwrap();
-            conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')", params![earlier, q4]).unwrap();
+            conn.execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'confirmed')",
+                params![earlier, q4],
+            )
+            .unwrap();
             conn.execute("INSERT INTO item_messages (item_id, at, author, text, ext_key, context) VALUES (?1, '2999-01-01T08:00:00.000Z', 'Priya', 'Lee wants hiring numbers', '90.1', 1)", [item]).unwrap();
         }
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(r#"{"topic_id": null}"#));
-        suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
-        assert!(prompt.contains("08:00 Priya: Lee wants hiring numbers [Q4 headcount]"), "{prompt}");
-        assert!(prompt.contains("1. 09:01 Priya: Can you send the numbers?\n2. "), "context isn't numbered: {prompt}");
+        assert!(
+            prompt.contains("08:00 Priya: Lee wants hiring numbers [Q4 headcount]"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("1. 09:01 Priya: Can you send the numbers?\n2. "),
+            "context isn't numbered: {prompt}"
+        );
     }
 
     #[test]
@@ -815,8 +1121,21 @@ mod tests {
         let v1 = topic_id(&app, "v1 ingest deprecation");
         let q4 = topic_id(&app, "Q4 headcount");
         let acme = topic_id(&app, "Acme outage");
-        let item = plant_dm(&app, &["Globex cutover slips to Oct 20", "OK to push PLAT-1170?", "Lee wants data eng hiring numbers for Q4", "thanks!"]);
-        app.db().execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![item, acme]).unwrap();
+        let item = plant_dm(
+            &app,
+            &[
+                "Globex cutover slips to Oct 20",
+                "OK to push PLAT-1170?",
+                "Lee wants data eng hiring numbers for Q4",
+                "thanks!",
+            ],
+        );
+        app.db()
+            .execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+                params![item, acme],
+            )
+            .unwrap();
         let answer = format!(
             r#"{{"groups": [
                 {{"messages": [1, 2], "topic_id": {v1}, "confidence": 0.9, "reason": "Globex v1 cutover"}},
@@ -826,7 +1145,16 @@ mod tests {
         );
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(&answer));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert_eq!(out.status, "ok", "{:?}", out.message);
 
         // The model saw numbered messages and the split instructions.
@@ -841,8 +1169,14 @@ mod tests {
         assert_eq!(out.split[0].item_id, item);
         let child = out.split[0].children[0];
         assert_eq!(out.split[0].children.len(), 1);
-        assert_eq!(texts(&app, child), ["Globex cutover slips to Oct 20", "OK to push PLAT-1170?"]);
-        assert_eq!(texts(&app, item), ["Lee wants data eng hiring numbers for Q4", "thanks!"]);
+        assert_eq!(
+            texts(&app, child),
+            ["Globex cutover slips to Oct 20", "OK to push PLAT-1170?"]
+        );
+        assert_eq!(
+            texts(&app, item),
+            ["Lee wants data eng hiring numbers for Q4", "thanks!"]
+        );
         let mut want = vec![(v1, "suggested".to_string()), (acme, "wrong".to_string())];
         want.sort();
         assert_eq!(links(&app, child), want, "child inherits the wrong-topic exclusion");
@@ -850,11 +1184,24 @@ mod tests {
         want.sort();
         assert_eq!(links(&app, item), want);
         assert_eq!(out.suggested.len(), 2);
-        let confirmed: i64 = app.db().query_row("SELECT count(*) FROM topic_links WHERE state = 'confirmed' AND item_id IN (?1, ?2)", params![item, child], |r| r.get(0)).unwrap();
+        let confirmed: i64 = app
+            .db()
+            .query_row(
+                "SELECT count(*) FROM topic_links WHERE state = 'confirmed' AND item_id IN (?1, ?2)",
+                params![item, child],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(confirmed, 0, "the AI never confirms");
         // Both parts are new signal; only the newest part can mark the DM read.
-        let (seen, parent, raw): (i64, i64, String) =
-            app.db().query_row("SELECT seen, parent_id, raw_json FROM items WHERE id = ?1", [child], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        let (seen, parent, raw): (i64, i64, String) = app
+            .db()
+            .query_row(
+                "SELECT seen, parent_id, raw_json FROM items WHERE id = ?1",
+                [child],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
         assert_eq!((seen, parent), (0, item));
         assert!(!raw.contains("mark_ts"));
     }
@@ -866,18 +1213,33 @@ mod tests {
         let v1 = topic_id(&app, "v1 ingest deprecation");
         let q4 = topic_id(&app, "Q4 headcount");
         let item = plant_dm(&app, &["Globex cutover slips", "OK to push PLAT-1170?", "also Q4?"]);
-        let before: i64 = app.db().query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        let before: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get(0))
+            .unwrap();
         let answer = format!(
             r#"{{"groups": [{{"messages": [1, 2], "topic_id": {v1}, "confidence": 0.9, "reason": "cutover"}},
                            {{"messages": [3], "topic_id": {q4}, "confidence": 0.8, "reason": "maybe Q4"}}]}}"#
         );
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(&answer));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert!(out.split.is_empty());
         assert_eq!(links(&app, item), vec![(v1, "suggested".to_string())]);
         assert_eq!(texts(&app, item).len(), 3);
-        let after: i64 = app.db().query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
+        let after: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(before, after);
     }
 
@@ -886,17 +1248,34 @@ mod tests {
         let (app, _dir) = app();
         configured(&app);
         let item = plant_dm(&app, &["one thing", "another thing"]);
-        let root: i64 = app.db().query_row("SELECT min(id) FROM items", [], |r| r.get(0)).unwrap();
-        app.db().execute("UPDATE items SET parent_id = ?2 WHERE id = ?1", params![item, root]).unwrap();
+        let root: i64 = app
+            .db()
+            .query_row("SELECT min(id) FROM items", [], |r| r.get(0))
+            .unwrap();
+        app.db()
+            .execute("UPDATE items SET parent_id = ?2 WHERE id = ?1", params![item, root])
+            .unwrap();
         let v1 = topic_id(&app, "v1 ingest deprecation");
         let http = FakeHttp::default();
         http.on("POST", "/converse", 200, converse(&format!(r#"{{"groups": [{{"messages": [1], "topic_id": {v1}, "confidence": 0.95}}, {{"messages": [2], "topic_id": null, "confidence": 0.95}}]}}"#)));
-        let out = suggest_topics(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, 1).unwrap();
+        let out = suggest_topics(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            1,
+        )
+        .unwrap();
         assert!(out.split.is_empty());
         assert!(out.suggested.is_empty());
         let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert!(!body["system"][0]["text"].as_str().unwrap().contains("\"groups\""));
-        assert!(body["messages"][0]["content"][0]["text"].as_str().unwrap().contains("Recent messages:\n09:01 Priya: one thing"));
+        assert!(body["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Recent messages:\n09:01 Priya: one thing"));
         assert_eq!(texts(&app, item).len(), 2);
     }
 
@@ -906,9 +1285,18 @@ mod tests {
         let item = plant_dm(&app, &["a", "b", "c"]);
         let ids = crate::queries::split::message_ids(&app.db(), item).unwrap();
         // The model saw a different set of messages (a sync replaced them meanwhile).
-        let p = Pending { item_id: item, prompt: String::new(), candidates: vec![], split_ids: vec![ids[0], ids[1]] };
+        let p = Pending {
+            item_id: item,
+            prompt: String::new(),
+            candidates: vec![],
+            split_ids: vec![ids[0], ids[1]],
+        };
         let groups = vec![g(&[0], None, 0.9), g(&[1], None, 0.9)];
-        assert!(app.store().write(|uow| apply_split(uow, &p, &groups)).unwrap().is_none());
+        assert!(app
+            .store()
+            .write(|uow| apply_split(uow, &p, &groups))
+            .unwrap()
+            .is_none());
         assert_eq!(texts(&app, item).len(), 3);
     }
 
@@ -916,12 +1304,32 @@ mod tests {
     fn groups_must_be_well_formed() {
         let c = [7, 8];
         let ok = parse_groups(r#"{"groups": [{"messages": [1, "2"], "topic_id": 7, "confidence": 0.9}, {"messages": [3], "topic_id": 99}]}"#, &c, 3).unwrap();
-        assert_eq!(ok, vec![Group { messages: vec![0, 1], topic_id: Some(7), confidence: 0.9, reason: String::new() }, g(&[2], None, 0.5)]);
+        assert_eq!(
+            ok,
+            vec![
+                Group {
+                    messages: vec![0, 1],
+                    topic_id: Some(7),
+                    confidence: 0.9,
+                    reason: String::new()
+                },
+                g(&[2], None, 0.5)
+            ]
+        );
         let five = r#"{"groups": [{"messages": [1]}, {"messages": [2]}, {"messages": [3]}, {"messages": [4]}, {"messages": [5]}]}"#;
         assert!(parse_groups(five, &c, 5).is_none(), "more than MAX_GROUPS");
-        assert!(parse_groups(r#"{"groups": [{"messages": [1, 2]}, {"messages": [2]}]}"#, &c, 3).is_none(), "repeated");
-        assert!(parse_groups(r#"{"groups": [{"messages": [0]}]}"#, &c, 3).is_none(), "1-based");
-        assert!(parse_groups(r#"{"groups": [{"messages": [4]}]}"#, &c, 3).is_none(), "out of range");
+        assert!(
+            parse_groups(r#"{"groups": [{"messages": [1, 2]}, {"messages": [2]}]}"#, &c, 3).is_none(),
+            "repeated"
+        );
+        assert!(
+            parse_groups(r#"{"groups": [{"messages": [0]}]}"#, &c, 3).is_none(),
+            "1-based"
+        );
+        assert!(
+            parse_groups(r#"{"groups": [{"messages": [4]}]}"#, &c, 3).is_none(),
+            "out of range"
+        );
         assert!(parse_groups(r#"{"topic_id": 7}"#, &c, 3).is_none());
     }
 
@@ -929,21 +1337,39 @@ mod tests {
     fn plan_guardrails() {
         let (x, y) = (Some(7), Some(8));
         // Two clear topics, the newest message's group last.
-        assert_eq!(plan(vec![g(&[0, 1, 4], x, 0.9), g(&[2, 3], y, 0.9)], 5), Plan::Split(vec![g(&[2, 3], y, 0.9), g(&[0, 1, 4], x, 0.9)]));
+        assert_eq!(
+            plan(vec![g(&[0, 1, 4], x, 0.9), g(&[2, 3], y, 0.9)], 5),
+            Plan::Split(vec![g(&[2, 3], y, 0.9), g(&[0, 1, 4], x, 0.9)])
+        );
         // A clearly unrelated part with no topic stands on its own (and stays on the item).
-        assert_eq!(plan(vec![g(&[0, 1], x, 0.9), g(&[2, 3], None, 0.8)], 4), Plan::Split(vec![g(&[0, 1], x, 0.9), g(&[2, 3], None, 0.8)]));
+        assert_eq!(
+            plan(vec![g(&[0, 1], x, 0.9), g(&[2, 3], None, 0.8)], 4),
+            Plan::Split(vec![g(&[0, 1], x, 0.9), g(&[2, 3], None, 0.8)])
+        );
         // Left-out and weak messages join the message before them (or after, at the start).
         assert_eq!(
             plan(vec![g(&[0], None, 0.2), g(&[1, 2], x, 0.9), g(&[4, 5], y, 0.9)], 6),
             Plan::Split(vec![g(&[0, 1, 2, 3], x, 0.9), g(&[4, 5], y, 0.9)])
         );
         // One-message groups need to be very sure.
-        assert_eq!(plan(vec![g(&[0, 1, 2], x, 0.9), g(&[3], y, 0.8)], 4), Plan::Whole(Some((7, 0.9, String::new()))));
-        assert!(matches!(plan(vec![g(&[0, 1, 2], x, 0.9), g(&[3], y, 0.9)], 4), Plan::Split(_)));
+        assert_eq!(
+            plan(vec![g(&[0, 1, 2], x, 0.9), g(&[3], y, 0.8)], 4),
+            Plan::Whole(Some((7, 0.9, String::new())))
+        );
+        assert!(matches!(
+            plan(vec![g(&[0, 1, 2], x, 0.9), g(&[3], y, 0.9)], 4),
+            Plan::Split(_)
+        ));
         // Same topic twice is one group: no split.
-        assert_eq!(plan(vec![g(&[0], x, 0.9), g(&[1], x, 0.95)], 2), Plan::Whole(Some((7, 0.9, String::new()))));
+        assert_eq!(
+            plan(vec![g(&[0], x, 0.9), g(&[1], x, 0.95)], 2),
+            Plan::Whole(Some((7, 0.9, String::new())))
+        );
         // Nothing firm: the majority topic may still be the whole item's, else nothing.
-        assert_eq!(plan(vec![g(&[0, 1, 2], x, 0.6), g(&[3], y, 0.6)], 4), Plan::Whole(Some((7, 0.6, String::new()))));
+        assert_eq!(
+            plan(vec![g(&[0, 1, 2], x, 0.6), g(&[3], y, 0.6)], 4),
+            Plan::Whole(Some((7, 0.6, String::new())))
+        );
         assert_eq!(plan(vec![g(&[0, 1], x, 0.6), g(&[2, 3], y, 0.6)], 4), Plan::Whole(None));
     }
 }

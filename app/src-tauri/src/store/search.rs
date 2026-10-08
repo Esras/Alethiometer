@@ -25,7 +25,13 @@ impl SearchViews for Sql<'_> {
                   ORDER BY rank LIMIT ?2",
             )?
             .query_map(params![fts, limit as i64], |r| {
-                Ok(QuickHit { id: r.get(0)?, title: r.get(1)?, source_kind: r.get(2)?, at: r.get(3)?, topic_id: r.get(4)? })
+                Ok(QuickHit {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    source_kind: r.get(2)?,
+                    at: r.get(3)?,
+                    topic_id: r.get(4)?,
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }

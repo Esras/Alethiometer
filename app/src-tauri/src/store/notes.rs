@@ -16,7 +16,9 @@ impl NotesViews for Sql<'_> {
     fn lines(&self, date: Date) -> Result<Vec<NoteLine>> {
         Ok(self
             .conn()
-            .prepare_cached("SELECT id, kind, text, state, target_json FROM notes_lines WHERE page_date = ?1 ORDER BY position, id")?
+            .prepare_cached(
+                "SELECT id, kind, text, state, target_json FROM notes_lines WHERE page_date = ?1 ORDER BY position, id",
+            )?
             .query_map([date], |r| {
                 let meta: Option<String> = r.get(4)?;
                 Ok(NoteLine {
@@ -64,7 +66,9 @@ impl NotesViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?;
         let mut linked = c.prepare_cached("SELECT person_id FROM topic_people WHERE topic_id = ?1")?;
         for t in &mut topics {
-            t.people = linked.query_map([t.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            t.people = linked
+                .query_map([t.id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
         }
         let issues = c
             .prepare_cached(
@@ -83,7 +87,9 @@ impl NotesViews for Sql<'_> {
             "SELECT i.title, coalesce(i.summary, ''), i.body FROM topic_links tl JOIN items i ON i.id = tl.item_id
               WHERE tl.topic_id = ?1 AND tl.state != 'wrong'",
         )?;
-        for r in items.query_map([topic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
+        for r in items.query_map([topic_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })? {
             let (a, b, c) = r?;
             text.push_str(&format!("{a}\n{b}\n{c}\n"));
         }
@@ -123,12 +129,18 @@ impl NoteLines for Sql<'_> {
     }
 
     fn set_position(&self, id: i64, position: i64) -> Result<()> {
-        self.conn().execute("UPDATE notes_lines SET position = ?1 WHERE id = ?2", params![position, id])?;
+        self.conn().execute(
+            "UPDATE notes_lines SET position = ?1 WHERE id = ?2",
+            params![position, id],
+        )?;
         Ok(())
     }
 
     fn set_state(&self, id: i64, state: &str, meta: &LineMeta) -> Result<()> {
-        self.conn().execute("UPDATE notes_lines SET state = ?1, target_json = ?2 WHERE id = ?3", params![state, meta_json(meta)?, id])?;
+        self.conn().execute(
+            "UPDATE notes_lines SET state = ?1, target_json = ?2 WHERE id = ?3",
+            params![state, meta_json(meta)?, id],
+        )?;
         Ok(())
     }
 

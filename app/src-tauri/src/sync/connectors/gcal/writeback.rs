@@ -17,7 +17,10 @@ use jiff::{SignedDuration, ToSpan};
 use serde_json::{json, Value};
 
 pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
-    let event_id = payload.get("event_id").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("rsvp needs event_id"))?;
+    let event_id = payload
+        .get("event_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("rsvp needs event_id"))?;
     let response = payload.get("response").and_then(Value::as_str).unwrap_or("");
     if !matches!(response, "accepted" | "declined" | "tentative") {
         anyhow::bail!("rsvp response must be accepted, declined or tentative");
@@ -35,7 +38,12 @@ pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
     // `attendeesOmitted` tells Google this list holds only the entries to change,
     // so nobody else's entry is touched even if the event has hundreds of guests.
     let mut mine = json!({ "email": me, "responseStatus": response });
-    if let Some(c) = payload.get("comment").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()) {
+    if let Some(c) = payload
+        .get("comment")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
         mine["comment"] = json!(c);
     }
     let body = json!({ "attendeesOmitted": true, "attendees": [mine] });
@@ -44,7 +52,11 @@ pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
         None => url,
     };
     let etag = ev.get("etag").and_then(Value::as_str).unwrap_or("").to_string();
-    let extra: Vec<(&str, &str)> = if etag.is_empty() { vec![] } else { vec![("if-match", etag.as_str())] };
+    let extra: Vec<(&str, &str)> = if etag.is_empty() {
+        vec![]
+    } else {
+        vec![("if-match", etag.as_str())]
+    };
     let resp = api.request("PATCH", &patch_url, Some(&body), &extra)?;
     if resp.status == 412 {
         anyhow::bail!("the event changed in Google Calendar meanwhile; retry");
@@ -53,7 +65,10 @@ pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
     let now = updated
         .get("attendees")
         .and_then(Value::as_array)
-        .and_then(|a| a.iter().find(|x| x.get("email").and_then(Value::as_str) == Some(me.as_str())))
+        .and_then(|a| {
+            a.iter()
+                .find(|x| x.get("email").and_then(Value::as_str) == Some(me.as_str()))
+        })
         .and_then(|x| x.get("responseStatus").and_then(Value::as_str));
     if let Some(now) = now {
         if now != response {
@@ -64,7 +79,11 @@ pub fn rsvp(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
 }
 
 pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
-    let title = payload.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).ok_or_else(|| anyhow::anyhow!("hold needs a title"))?;
+    let title = payload
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("hold needs a title"))?;
     let item_id = payload.get("item_id").map(|v| v.to_string()).unwrap_or_default();
     let carried_from = payload.get("carried_from").and_then(Value::as_str).unwrap_or("");
     let id = hold_id(&cfg.calendar_id, &item_id, carried_from);
@@ -117,7 +136,10 @@ pub fn hold(api: &Api, cfg: &Config, payload: &Value) -> anyhow::Result<Value> {
 
 /// Deterministic, valid Google event id (base32hex alphabet: 0-9, a-v).
 fn hold_id(calendar: &str, item_id: &str, carried_from: &str) -> String {
-    let d = ring::digest::digest(&ring::digest::SHA256, format!("{calendar}|{item_id}|{carried_from}").as_bytes());
+    let d = ring::digest::digest(
+        &ring::digest::SHA256,
+        format!("{calendar}|{item_id}|{carried_from}").as_bytes(),
+    );
     let hex: String = d.as_ref()[..12].iter().map(|b| format!("{b:02x}")).collect();
     format!("alethiometer{hex}")
 }
@@ -177,7 +199,11 @@ fn find_slot(api: &Api, cfg: &Config, after: Date) -> anyhow::Result<(Ts, Ts)> {
             return Ok((t, t + len));
         }
     }
-    anyhow::bail!("no free {}-minute slot in the next {} workdays", cfg.hold_minutes, cfg.hold_search_days)
+    anyhow::bail!(
+        "no free {}-minute slot in the next {} workdays",
+        cfg.hold_minutes,
+        cfg.hold_search_days
+    )
 }
 
 /// Hour `h` (0–24) of a day here; 24 is the start of the next day.
@@ -199,7 +225,9 @@ fn quarter_up(t: Ts) -> Ts {
 
 /// Busy span of a listed event: timed, not free, not cancelled, not declined by you.
 fn busy_span(ev: &Value) -> Option<(Ts, Ts)> {
-    if ev.get("status").and_then(Value::as_str) == Some("cancelled") || ev.get("transparency").and_then(Value::as_str) == Some("transparent") {
+    if ev.get("status").and_then(Value::as_str) == Some("cancelled")
+        || ev.get("transparency").and_then(Value::as_str) == Some("transparent")
+    {
         return None;
     }
     let declined = ev
@@ -227,8 +255,17 @@ mod tests {
     fn send(http: &FakeHttp, config: Value, op: &str, payload: Value) -> anyhow::Result<Value> {
         let src = source(config, None);
         let secret = secrets;
-        let ctx = Ctx { source: &src, http, secret: &secret, now: now(), clock: clock() };
-        let api = Api { ctx: &ctx, cache: &TokenCache::new() };
+        let ctx = Ctx {
+            source: &src,
+            http,
+            secret: &secret,
+            now: now(),
+            clock: clock(),
+        };
+        let api = Api {
+            ctx: &ctx,
+            cache: &TokenCache::new(),
+        };
         let cfg = Config::from(&src.config);
         match op {
             "rsvp" => rsvp(&api, &cfg, &payload),
@@ -240,7 +277,12 @@ mod tests {
         http.requests()
             .into_iter()
             .filter(|r| r.0 == method && !r.1.contains("oauth2.googleapis.com"))
-            .map(|r| (r.1, r.2.map(|b| serde_json::from_str(&b).unwrap()).unwrap_or(Value::Null)))
+            .map(|r| {
+                (
+                    r.1,
+                    r.2.map(|b| serde_json::from_str(&b).unwrap()).unwrap_or(Value::Null),
+                )
+            })
             .collect()
     }
 
@@ -248,13 +290,27 @@ mod tests {
     fn rsvp_patches_only_your_own_entry() {
         let http = http();
         http.on("GET", "/events/5fh2acmeqbr", 200, fixture!("event_invite.json"));
-        http.on("PATCH", "/events/5fh2acmeqbr", 200, fixture!("event_invite_accepted.json"));
-        let receipt = send(&http, json!({}), "rsvp", json!({ "event_id": "5fh2acmeqbr", "response": "accepted" })).unwrap();
+        http.on(
+            "PATCH",
+            "/events/5fh2acmeqbr",
+            200,
+            fixture!("event_invite_accepted.json"),
+        );
+        let receipt = send(
+            &http,
+            json!({}),
+            "rsvp",
+            json!({ "event_id": "5fh2acmeqbr", "response": "accepted" }),
+        )
+        .unwrap();
         assert_eq!(receipt["response"], "accepted");
         assert_eq!(receipt["event_id"], "5fh2acmeqbr");
         let patches = sent(&http, "PATCH");
         assert_eq!(patches.len(), 1);
-        assert_eq!(patches[0].0, "https://www.googleapis.com/calendar/v3/calendars/primary/events/5fh2acmeqbr");
+        assert_eq!(
+            patches[0].0,
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events/5fh2acmeqbr"
+        );
         assert_eq!(
             patches[0].1,
             json!({ "attendeesOmitted": true, "attendees": [{ "email": "alex.morgan@acme.com", "responseStatus": "accepted" }] })
@@ -265,15 +321,27 @@ mod tests {
     fn rsvp_sends_the_note_with_a_decline() {
         let http = http();
         http.on("GET", "/events/5fh2acmeqbr", 200, fixture!("event_invite.json"));
-        http.on("PATCH", "/events/5fh2acmeqbr", 200, &fixture!("event_invite_accepted.json").replace("\"accepted\"", "\"declined\""));
-        let payload = json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": "  Kim has signing authority  " });
+        http.on(
+            "PATCH",
+            "/events/5fh2acmeqbr",
+            200,
+            &fixture!("event_invite_accepted.json").replace("\"accepted\"", "\"declined\""),
+        );
+        let payload =
+            json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": "  Kim has signing authority  " });
         send(&http, json!({}), "rsvp", payload).unwrap();
         assert_eq!(
             sent(&http, "PATCH")[0].1["attendees"],
             json!([{ "email": "alex.morgan@acme.com", "responseStatus": "declined", "comment": "Kim has signing authority" }])
         );
         // A blank note sends no comment at all.
-        send(&http, json!({}), "rsvp", json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": " " })).unwrap();
+        send(
+            &http,
+            json!({}),
+            "rsvp",
+            json!({ "event_id": "5fh2acmeqbr", "response": "declined", "comment": " " }),
+        )
+        .unwrap();
         assert!(sent(&http, "PATCH")[1].1["attendees"][0].get("comment").is_none());
     }
 
@@ -281,20 +349,44 @@ mod tests {
     fn rsvp_send_updates_and_validation() {
         let http = http();
         http.on("GET", "/events/5fh2acmeqbr", 200, fixture!("event_invite.json"));
-        http.on("PATCH", "/events/5fh2acmeqbr", 200, fixture!("event_invite_accepted.json"));
+        http.on(
+            "PATCH",
+            "/events/5fh2acmeqbr",
+            200,
+            fixture!("event_invite_accepted.json"),
+        );
         let cfg = json!({ "rsvp_send_updates": "all", "calendar_id": "alex.morgan@acme.com" });
         // The fixture says accepted, so asking for tentative must not be reported as done.
-        let e = send(&http, cfg.clone(), "rsvp", json!({ "event_id": "5fh2acmeqbr", "response": "tentative" })).unwrap_err();
+        let e = send(
+            &http,
+            cfg.clone(),
+            "rsvp",
+            json!({ "event_id": "5fh2acmeqbr", "response": "tentative" }),
+        )
+        .unwrap_err();
         assert!(e.to_string().contains("kept your response as 'accepted'"));
-        assert!(sent(&http, "PATCH")[0].0.ends_with("/calendars/alex.morgan%40acme.com/events/5fh2acmeqbr?sendUpdates=all"));
+        assert!(sent(&http, "PATCH")[0]
+            .0
+            .ends_with("/calendars/alex.morgan%40acme.com/events/5fh2acmeqbr?sendUpdates=all"));
         assert!(send(&http, cfg, "rsvp", json!({ "event_id": "x", "response": "maybe" })).is_err());
     }
 
     #[test]
     fn rsvp_without_self_attendee_fails() {
         let http = http();
-        http.on("GET", "/events/2b9vlunch0928", 200, r#"{"id":"2b9vlunch0928","status":"confirmed","summary":"Lunch"}"#);
-        assert!(send(&http, json!({}), "rsvp", json!({ "event_id": "2b9vlunch0928", "response": "declined" })).is_err());
+        http.on(
+            "GET",
+            "/events/2b9vlunch0928",
+            200,
+            r#"{"id":"2b9vlunch0928","status":"confirmed","summary":"Lunch"}"#,
+        );
+        assert!(send(
+            &http,
+            json!({}),
+            "rsvp",
+            json!({ "event_id": "2b9vlunch0928", "response": "declined" })
+        )
+        .is_err());
         assert!(sent(&http, "PATCH").is_empty());
     }
 
@@ -345,10 +437,26 @@ mod tests {
     #[test]
     fn hold_retry_after_lost_response_reuses_the_event() {
         let http = http();
-        http.on("GET", "orderBy=startTime", 200, r#"{"kind":"calendar#events","items":[]}"#);
-        http.on("POST", "/calendars/primary/events", 409, r#"{"error":{"code":409,"message":"The requested identifier already exists."}}"#);
+        http.on(
+            "GET",
+            "orderBy=startTime",
+            200,
+            r#"{"kind":"calendar#events","items":[]}"#,
+        );
+        http.on(
+            "POST",
+            "/calendars/primary/events",
+            409,
+            r#"{"error":{"code":409,"message":"The requested identifier already exists."}}"#,
+        );
         http.on("GET", "/events/alethiometer", 200, fixture!("hold_created.json"));
-        let r = send(&http, json!({}), "hold", json!({ "item_id": 42, "title": "Draft Q4 hiring plan", "carried_from": "2026-09-28" })).unwrap();
+        let r = send(
+            &http,
+            json!({}),
+            "hold",
+            json!({ "item_id": 42, "title": "Draft Q4 hiring plan", "carried_from": "2026-09-28" }),
+        )
+        .unwrap();
         assert_eq!(r["event_id"], "alethiometer0c2d9a8b7e6f5a4b3c2d1e0f");
         // Empty day: first slot at the start of hold hours.
         assert_eq!(r["start"], "2026-09-29T09:00:00.000Z");
@@ -368,6 +476,9 @@ mod tests {
         assert_eq!(r["start"], "2026-10-02T14:00:00.000Z");
         assert!(sent(&http, "GET").is_empty(), "no slot search when times are given");
         let fri = jiff::civil::date(2026, 10, 2);
-        assert_eq!(workdays(fri, 2), [jiff::civil::date(2026, 10, 5), jiff::civil::date(2026, 10, 6)]);
+        assert_eq!(
+            workdays(fri, 2),
+            [jiff::civil::date(2026, 10, 5), jiff::civil::date(2026, 10, 6)]
+        );
     }
 }

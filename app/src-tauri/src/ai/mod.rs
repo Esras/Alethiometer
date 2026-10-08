@@ -32,8 +32,18 @@ use serde_json::{json, Value};
 use std::time::SystemTime;
 
 pub const PROVIDER_SECRETS: &[(&str, &str, &str, &str)] = &[
-    ("bedrock", "Bedrock", "bedrock_api_key", "or AWS keys / profile, see docs/ai.md"),
-    ("digitalocean", "DigitalOcean", "digitalocean_api_key", "model access key"),
+    (
+        "bedrock",
+        "Bedrock",
+        "bedrock_api_key",
+        "or AWS keys / profile, see docs/ai.md",
+    ),
+    (
+        "digitalocean",
+        "DigitalOcean",
+        "digitalocean_api_key",
+        "model access key",
+    ),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,9 +106,18 @@ pub fn with_live<T>(app: &App, f: impl FnOnce(&Deps) -> T) -> T {
     let env = |k: &str| std::env::var(k).ok();
     let secret = |k: &str| app.platform.secret_get(k);
     let resolve = || {
-        creds::resolve(&creds::Lookup { env: &env, secret: &secret, home: dirs::home_dir(), profile: &app.settings().ai.aws_profile })
+        creds::resolve(&creds::Lookup {
+            env: &env,
+            secret: &secret,
+            home: dirs::home_dir(),
+            profile: &app.settings().ai.aws_profile,
+        })
     };
-    f(&Deps { http: &http, creds: &resolve, time: SystemTime::now() })
+    f(&Deps {
+        http: &http,
+        creds: &resolve,
+        time: SystemTime::now(),
+    })
 }
 
 /// One system + user prompt to a tier; returns the model's text. Every answered call's token counts go to
@@ -109,13 +128,22 @@ pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, ma
     let reply = match t.provider.as_str() {
         "bedrock" => {
             let creds = (deps.creds)().map_err(|e| msg(e.to_string()))?;
-            let req = bedrock::Request { region: &ai.region, model: &t.model, system, user, max_tokens, effort: tier_effort(t) };
+            let req = bedrock::Request {
+                region: &ai.region,
+                model: &t.model,
+                system,
+                user,
+                max_tokens,
+                effort: tier_effort(t),
+            };
             bedrock::converse(deps.http, &creds, &req, deps.time)
         }
         "digitalocean" => {
-            let key = app.platform.secret_get("digitalocean_api_key").filter(|k| !k.is_empty()).ok_or_else(|| {
-                msg("No DigitalOcean key: set the digitalocean_api_key secret (a model access key)")
-            })?;
+            let key = app
+                .platform
+                .secret_get("digitalocean_api_key")
+                .filter(|k| !k.is_empty())
+                .ok_or_else(|| msg("No DigitalOcean key: set the digitalocean_api_key secret (a model access key)"))?;
             let req = responses::Request {
                 provider: "DigitalOcean",
                 url: "https://inference.do-ai.run/v1/responses",
@@ -130,7 +158,14 @@ pub fn complete(app: &App, deps: &Deps, tier: Tier, system: &str, user: &str, ma
         other => return Err(msg(format!("No client for provider '{other}'"))),
     }
     .map_err(|e| msg(e.to_string()))?;
-    app.store().write(|uow| uow.usage().record_ai(tier_name(tier), &t.model, reply.input_tokens as i64, reply.output_tokens as i64))?;
+    app.store().write(|uow| {
+        uow.usage().record_ai(
+            tier_name(tier),
+            &t.model,
+            reply.input_tokens as i64,
+            reply.output_tokens as i64,
+        )
+    })?;
     reply.answer().map_err(|e| msg(e.to_string()))
 }
 
@@ -176,13 +211,23 @@ pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope:
         return Err(msg("Ask a question first"));
     }
     let ctx = match (scope, topic_id) {
-        (Some("today"), _) | (None, None) => app.store().read(|r| context::for_today(r, &app.clock, app.clock.today()))?,
+        (Some("today"), _) | (None, None) => app
+            .store()
+            .read(|r| context::for_today(r, &app.clock, app.clock.today()))?,
         (Some("topic") | None, Some(id)) => context::for_topic(app, id)?,
         (Some("topics"), _) => context::for_topics(app)?,
         (Some("topic"), None) => return Err(msg("scope 'topic' needs a topic_id")),
-        (Some(other), _) => return Err(msg(format!("unknown scope '{other}' (use 'topic', 'topics' or 'today')"))),
+        (Some(other), _) => {
+            return Err(msg(format!(
+                "unknown scope '{other}' (use 'topic', 'topics' or 'today')"
+            )))
+        }
     };
-    let user = format!("<context>\n{}\n</context>\n\nQuestion: {}", ctx.text, context::clip(question, QUESTION_CAP));
+    let user = format!(
+        "<context>\n{}\n</context>\n\nQuestion: {}",
+        ctx.text,
+        context::clip(question, QUESTION_CAP)
+    );
     let answer = complete(app, deps, Tier::Large, ASK_SYSTEM, &user, ASK_MAX_TOKENS)?;
     Ok(Answer { answer, used: ctx.used })
 }
@@ -202,8 +247,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let limit = opt_i64(args, "limit").unwrap_or(10).clamp(1, 50) as usize;
             let out = with_live(app, |d| suggest::suggest_topics(app, d, limit));
             match &out {
-                Ok(o) => app.store().write(|uow| suggest::record(uow, o.status, o.message.as_deref(), o.suggested.len()))?,
-                Err(e) => app.store().write(|uow| suggest::record(uow, "failed", Some(&e.to_string()), 0))?,
+                Ok(o) => app
+                    .store()
+                    .write(|uow| suggest::record(uow, o.status, o.message.as_deref(), o.suggested.len()))?,
+                Err(e) => app
+                    .store()
+                    .write(|uow| suggest::record(uow, "failed", Some(&e.to_string()), 0))?,
             }
             Ok(json!(out?))
         }
@@ -218,20 +267,38 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 Ok(c) => json!({ "ok": true, "provider": c.provider, "model": c.model }),
                 Err(e) => json!({ "ok": false, "error": e.to_string() }),
             };
-            Ok(json!({ "label": label(ai), "region": ai.region, "small": tier(Tier::Small), "large": tier(Tier::Large) }))
+            Ok(
+                json!({ "label": label(ai), "region": ai.region, "small": tier(Tier::Small), "large": tier(Tier::Large) }),
+            )
         }
         "usage" => {
             let today_start = app.clock.day_range(app.clock.today()).0;
             let week_ago = app.clock.now() - jiff::SignedDuration::from_hours(24 * 7);
             let rows = app.store().read(|r| r.usage().ai_since(today_start, week_ago))?;
             let mut out: Vec<Value> = vec![];
-            for crate::domain::usage::AiUsage { tier, model, today, calls, input, output } in rows {
+            for crate::domain::usage::AiUsage {
+                tier,
+                model,
+                today,
+                calls,
+                input,
+                output,
+            } in rows
+            {
                 if !out.iter().any(|u| u["tier"] == tier.as_str()) {
                     let zero = json!({ "calls": 0, "input": 0, "output": 0, "cost": 0.0 });
                     out.push(json!({ "tier": tier, "today": zero, "week": zero }));
                 }
-                let u = out.iter_mut().find(|u| u["tier"] == tier.as_str()).expect("just pushed");
-                let cost = app.settings().ai.prices.get(&model).map(|p| (input as f64 * p.input + output as f64 * p.output) / 1e6);
+                let u = out
+                    .iter_mut()
+                    .find(|u| u["tier"] == tier.as_str())
+                    .expect("just pushed");
+                let cost = app
+                    .settings()
+                    .ai
+                    .prices
+                    .get(&model)
+                    .map(|p| (input as f64 * p.input + output as f64 * p.output) / 1e6);
                 for w in if today { vec!["today", "week"] } else { vec!["week"] } {
                     let t = &mut u[w];
                     t["calls"] = json!(t["calls"].as_i64().unwrap_or(0) + calls);
@@ -275,14 +342,24 @@ pub mod tests {
 
     fn ok_http() -> FakeHttp {
         let http = FakeHttp::default();
-        http.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
+        http.on(
+            "POST",
+            "/converse",
+            200,
+            include_str!("../../tests/fixtures/bedrock/converse_ok.json"),
+        );
         http
     }
 
     #[test]
     fn provider_off_allow_list_fails_closed() {
         let mut ai = Settings::default().ai;
-        ai.large = AiTier { provider: "openai".into(), enabled: true, model: "x".into(), effort: String::new() };
+        ai.large = AiTier {
+            provider: "openai".into(),
+            enabled: true,
+            model: "x".into(),
+            effort: String::new(),
+        };
         let err = check(&ai, Tier::Large).unwrap_err().to_string();
         assert!(err.contains("not on the allow-list"), "{err}");
     }
@@ -291,7 +368,10 @@ pub mod tests {
     fn bad_effort_fails_closed() {
         let mut ai = Settings::default().ai;
         ai.small.effort = "max".into();
-        assert!(check(&ai, Tier::Small).unwrap_err().to_string().contains("effort 'max'"));
+        assert!(check(&ai, Tier::Small)
+            .unwrap_err()
+            .to_string()
+            .contains("effort 'max'"));
         assert_eq!(tier_effort(&Settings::default().ai.small), Some(bedrock::Effort::Low));
     }
 
@@ -306,7 +386,10 @@ pub mod tests {
     fn a_tier_turned_off_fails() {
         let mut ai = Settings::default().ai;
         ai.large.enabled = false;
-        assert!(check(&ai, Tier::Large).unwrap_err().to_string().contains("off in Settings"));
+        assert!(check(&ai, Tier::Large)
+            .unwrap_err()
+            .to_string()
+            .contains("off in Settings"));
         assert!(check(&ai, Tier::Small).is_ok());
     }
 
@@ -333,7 +416,10 @@ pub mod tests {
         let mut ai = Settings::default().ai;
         ai.small.model = "global.openai.gpt-6-luna".into();
         let err = check(&ai, Tier::Small).unwrap_err().to_string();
-        assert!(err.contains("not a US inference profile") && err.contains("us.openai.gpt-6-luna"), "{err}");
+        assert!(
+            err.contains("not a US inference profile") && err.contains("us.openai.gpt-6-luna"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -347,8 +433,23 @@ pub mod tests {
             creds_called.set(true);
             fake_creds()
         };
-        let err = ask(&app, &Deps { http: &http, creds: &creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
-        assert!(err.contains("ai.region 'eu-west-1' is not a US region") && err.contains("Nothing was sent"), "{err}");
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("ai.region 'eu-west-1' is not a US region") && err.contains("Nothing was sent"),
+            "{err}"
+        );
         assert!(http.requests().is_empty());
         assert!(!creds_called.get());
     }
@@ -358,7 +459,19 @@ pub mod tests {
         let (app, _dir) = app();
         app.update_settings(|s| s.ai.large.model = "anthropic.claude-opus-5-5".into());
         let http = ok_http();
-        let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("Use us.anthropic.claude-opus-5-5"), "{err}");
         assert!(http.requests().is_empty());
     }
@@ -375,12 +488,33 @@ pub mod tests {
             200,
             r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"cnNu"}},{"text":"{\"topic_id\":null}"}]}},"stopReason":"end_turn","usage":{"inputTokens":90,"outputTokens":40,"totalTokens":130}}"#,
         );
-        let out = complete(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
+        let out = complete(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            Tier::Small,
+            "S",
+            "U",
+            1024,
+        )
+        .unwrap();
         assert_eq!(out, r#"{"topic_id":null}"#);
         let usage = call(&app, "usage", &json!({})).unwrap();
-        assert_eq!(usage[0]["today"], json!({ "calls": 1, "input": 90, "output": 40, "cost": null }));
+        assert_eq!(
+            usage[0]["today"],
+            json!({ "calls": 1, "input": 90, "output": 40, "cost": null })
+        );
         let mut settings = Settings::default();
-        settings.ai.prices.insert("us.openai.gpt-6-luna".into(), crate::settings::Price { input: 0.11, output: 0.55 });
+        settings.ai.prices.insert(
+            "us.openai.gpt-6-luna".into(),
+            crate::settings::Price {
+                input: 0.11,
+                output: 0.55,
+            },
+        );
         let priced = App::from_parts(crate::db::open_in_memory().unwrap(), settings, dir.path()).unwrap();
         priced.db().execute("INSERT INTO ai_usage (tier, model, input_tokens, output_tokens) VALUES ('small', 'us.openai.gpt-6-luna', 1000000, 2000000)", []).unwrap();
         let week = &call(&priced, "usage", &json!({})).unwrap()[0]["week"];
@@ -389,20 +523,42 @@ pub mod tests {
         assert_eq!(v["system"][0]["text"], "S");
         assert_eq!(v["inferenceConfig"], json!({ "maxTokens": 1024 }));
         // The small tier defaults to low effort, sent in OpenAI's shape.
-        assert_eq!(v["additionalModelRequestFields"], json!({ "reasoning": { "effort": "low" } }));
+        assert_eq!(
+            v["additionalModelRequestFields"],
+            json!({ "reasoning": { "effort": "low" } })
+        );
     }
 
     #[test]
     fn ask_off_allow_list_sends_nothing() {
         let (app, _dir) = app();
-        app.update_settings(|s| s.ai.large = AiTier { provider: "openai".into(), enabled: true, model: "gpt".into(), effort: String::new() });
+        app.update_settings(|s| {
+            s.ai.large = AiTier {
+                provider: "openai".into(),
+                enabled: true,
+                model: "gpt".into(),
+                effort: String::new(),
+            }
+        });
         let http = ok_http();
         let creds_called = std::cell::Cell::new(false);
         let creds = || {
             creds_called.set(true);
             fake_creds()
         };
-        let err = ask(&app, &Deps { http: &http, creds: &creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("not on the allow-list"), "{err}");
         assert!(http.requests().is_empty());
         assert!(!creds_called.get(), "credentials aren't even read");
@@ -412,9 +568,28 @@ pub mod tests {
     fn allowed_but_clientless_provider_fails_closed() {
         let (app, _dir) = app();
         app.update_settings(|s| s.ai.allowed_providers.push("ollama".into()));
-        app.update_settings(|s| s.ai.large = AiTier { provider: "ollama".into(), enabled: true, model: "llama".into(), effort: String::new() });
+        app.update_settings(|s| {
+            s.ai.large = AiTier {
+                provider: "ollama".into(),
+                enabled: true,
+                model: "llama".into(),
+                effort: String::new(),
+            }
+        });
         let http = ok_http();
-        let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("No client for provider 'ollama'"), "{err}");
         assert!(http.requests().is_empty());
     }
@@ -424,7 +599,12 @@ pub mod tests {
         let (app, _dir) = app();
         app.update_settings(|s| {
             s.ai.allowed_providers.push("digitalocean".into());
-            s.ai.small = AiTier { provider: "digitalocean".into(), enabled: true, model: "openai-gpt-oss-20b".into(), effort: "low".into() };
+            s.ai.small = AiTier {
+                provider: "digitalocean".into(),
+                enabled: true,
+                model: "openai-gpt-oss-20b".into(),
+                effort: "low".into(),
+            };
         });
         let http = FakeHttp::default();
         http.on(
@@ -433,12 +613,37 @@ pub mod tests {
             200,
             r#"{"status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"hmm"}]},{"type":"message","content":[{"type":"output_text","text":"{\"topic_id\":null}"}]}],"usage":{"input_tokens":72,"output_tokens":35}}"#,
         );
-        let err = complete(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap_err().to_string();
+        let err = complete(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &no_creds,
+                time: SystemTime::now(),
+            },
+            Tier::Small,
+            "S",
+            "U",
+            1024,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("digitalocean_api_key"), "{err}");
         assert!(http.requests().is_empty());
 
         app.platform.secret_set("digitalocean_api_key", "do-key").unwrap();
-        let out = complete(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, Tier::Small, "S", "U", 1024).unwrap();
+        let out = complete(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &no_creds,
+                time: SystemTime::now(),
+            },
+            Tier::Small,
+            "S",
+            "U",
+            1024,
+        )
+        .unwrap();
         assert_eq!(out, r#"{"topic_id":null}"#);
         let reqs = http.requests();
         assert_eq!(reqs[0].1, "https://inference.do-ai.run/v1/responses");
@@ -456,7 +661,19 @@ pub mod tests {
     fn ask_unconfigured_model_fails_closed() {
         let (app, _dir) = app();
         let http = ok_http();
-        let err = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("No model set"), "{err}");
         assert!(http.requests().is_empty());
     }
@@ -466,8 +683,23 @@ pub mod tests {
         let (app, _dir) = app();
         configured(&app);
         let http = ok_http();
-        let err = ask(&app, &Deps { http: &http, creds: &no_creds, time: SystemTime::now() }, "hi", None, None).unwrap_err().to_string();
-        assert!(err.contains("No AWS credentials") && err.contains("aws_access_key_id and aws_secret_access_key"), "{err}");
+        let err = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &no_creds,
+                time: SystemTime::now(),
+            },
+            "hi",
+            None,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("No AWS credentials") && err.contains("aws_access_key_id and aws_secret_access_key"),
+            "{err}"
+        );
         assert!(http.requests().is_empty());
     }
 
@@ -478,13 +710,27 @@ pub mod tests {
         let dd = topic_id(&app, "Datadog renewal");
         let personal = plant_personal(&app, dd);
         let http = ok_http();
-        let a = ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "When is the renewal due?", Some(dd), None).unwrap();
+        let a = ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "When is the renewal due?",
+            Some(dd),
+            None,
+        )
+        .unwrap();
         assert_eq!(a.answer, "The renewal is due Friday; Kim owns the quote.");
         assert!(!a.used.is_empty() && !a.used.contains(&personal));
 
         let reqs = http.requests();
         assert_eq!(reqs.len(), 1);
-        assert_eq!(reqs[0].1, "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-5-5/converse");
+        assert_eq!(
+            reqs[0].1,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-5-5/converse"
+        );
         let body = reqs[0].2.clone().unwrap();
         assert!(!body.contains("PERSONAL-SECRET"), "{body}");
         let v: Value = serde_json::from_str(&body).unwrap();
@@ -502,7 +748,18 @@ pub mod tests {
         let dd = topic_id(&app, "Datadog renewal");
         plant_personal(&app, dd);
         let http = ok_http();
-        ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "What's left today?", None, None).unwrap();
+        ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "What's left today?",
+            None,
+            None,
+        )
+        .unwrap();
         let body = http.requests()[0].2.clone().unwrap();
         assert!(body.contains("Work calendar today"));
         assert!(body.contains("Q4 headcount"));
@@ -516,7 +773,18 @@ pub mod tests {
         let dd = topic_id(&app, "Datadog renewal");
         plant_personal(&app, dd);
         let http = ok_http();
-        ask(&app, &Deps { http: &http, creds: &fake_creds, time: SystemTime::now() }, "Which topics overlap?", None, Some("topics")).unwrap();
+        ask(
+            &app,
+            &Deps {
+                http: &http,
+                creds: &fake_creds,
+                time: SystemTime::now(),
+            },
+            "Which topics overlap?",
+            None,
+            Some("topics"),
+        )
+        .unwrap();
         let body = http.requests()[0].2.clone().unwrap();
         assert!(body.contains(&format!("[topic {dd}] Datadog renewal")) && body.contains("Q4 headcount"));
         assert!(!body.contains("PERSONAL-SECRET"));
@@ -530,7 +798,9 @@ pub mod tests {
         // Not configured: suggest_topics is a no-op, never an error.
         let out = crate::api::call(&app, "ai.suggest_topics", &json!({ "limit": 5 })).unwrap();
         assert_eq!(out["status"], "ai_off");
-        let err = crate::api::call(&app, "ai.ask", &json!({ "question": "hi" })).unwrap_err().to_string();
+        let err = crate::api::call(&app, "ai.ask", &json!({ "question": "hi" }))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("No model set"), "{err}");
     }
 }

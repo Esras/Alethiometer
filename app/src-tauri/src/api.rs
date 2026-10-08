@@ -59,7 +59,10 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     let (area, name) = cmd.split_once('.').ok_or_else(|| msg(format!("bad command '{cmd}'")))?;
     if let Some(route) = route_of(cmd) {
         let settings = app.settings();
-        let ctx = Ctx { clock: &app.clock, settings: &settings };
+        let ctx = Ctx {
+            clock: &app.clock,
+            settings: &settings,
+        };
         return match route {
             Route::Read(f) => app.store().read(|r| f(r, &ctx, args)),
             Route::ReadFiles(f) => f(app, args),
@@ -106,9 +109,13 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "info" => {
             let settings = app.settings();
-            let (categories, incoming, todos) = app
-                .store()
-                .read(|r| Ok((queries::categories::map(r)?, r.incoming().unseen_count()?, queries::todos::list(r, &app.clock)?.len())))?;
+            let (categories, incoming, todos) = app.store().read(|r| {
+                Ok((
+                    queries::categories::map(r)?,
+                    r.incoming().unseen_count()?,
+                    queries::todos::list(r, &app.clock)?.len(),
+                ))
+            })?;
             Ok(json!({
                 "categories": categories,
                 "day_start_hour": app.settings().day_start_hour,
@@ -135,9 +142,17 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
             }))
         }
         "open_url" => {
-            let url = args.get("url").and_then(Value::as_str).ok_or_else(|| msg("open_url needs a 'url'"))?;
-            let url = &app.store().read(|r| Ok(crate::sync::connectors::slack::deep_link(r, url)))?.unwrap_or_else(|| url.to_owned());
-            app.platform.open_url(url).map_err(|e| msg(format!("couldn't open {url}: {e}")))?;
+            let url = args
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| msg("open_url needs a 'url'"))?;
+            let url = &app
+                .store()
+                .read(|r| Ok(crate::sync::connectors::slack::deep_link(r, url)))?
+                .unwrap_or_else(|| url.to_owned());
+            app.platform
+                .open_url(url)
+                .map_err(|e| msg(format!("couldn't open {url}: {e}")))?;
             Ok(json!({ "ok": true }))
         }
         _ => Err(unknown(name)),
@@ -151,7 +166,9 @@ mod tests {
     #[test]
     fn open_url_needs_a_url_arg() {
         let (app, _dir) = app();
-        let e = crate::api::call(&app, "app.open_url", &serde_json::json!({})).unwrap_err().to_string();
+        let e = crate::api::call(&app, "app.open_url", &serde_json::json!({}))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("needs a 'url'"), "{e}");
     }
 }

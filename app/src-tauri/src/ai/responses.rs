@@ -36,16 +36,31 @@ pub fn create(http: &dyn Http, key: &str, req: &Request) -> anyhow::Result<Reply
     if !(200..300).contains(&resp.status) {
         let detail: String = serde_json::from_str::<Value>(&resp.body)
             .ok()
-            .and_then(|v| v.pointer("/error/message").or_else(|| v.get("message")).and_then(Value::as_str).map(str::to_owned))
+            .and_then(|v| {
+                v.pointer("/error/message")
+                    .or_else(|| v.get("message"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
             .unwrap_or(resp.body)
             .chars()
             .take(300)
             .collect();
-        anyhow::bail!("{} returned HTTP {} for {}: {detail}", req.provider, resp.status, req.model);
+        anyhow::bail!(
+            "{} returned HTTP {} for {}: {detail}",
+            req.provider,
+            resp.status,
+            req.model
+        );
     }
-    let reply = parse_reply(&resp.body).map_err(|_| anyhow::anyhow!("{} returned a response Alethiometer couldn't read", req.provider))?;
+    let reply = parse_reply(&resp.body)
+        .map_err(|_| anyhow::anyhow!("{} returned a response Alethiometer couldn't read", req.provider))?;
     if reply.text.is_empty() {
-        let why = if reply.stop_reason.is_empty() { "none" } else { &reply.stop_reason };
+        let why = if reply.stop_reason.is_empty() {
+            "none"
+        } else {
+            &reply.stop_reason
+        };
         anyhow::bail!("{} returned no text (stop reason: {why})", req.provider);
     }
     Ok(reply)
@@ -63,8 +78,17 @@ pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
         .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
         .filter_map(|part| part.get("text").and_then(Value::as_str))
         .collect::<String>();
-    let stop_reason =
-        v.pointer("/incomplete_details/reason").or_else(|| v.get("status")).and_then(Value::as_str).unwrap_or("").to_string();
+    let stop_reason = v
+        .pointer("/incomplete_details/reason")
+        .or_else(|| v.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let tokens = |k: &str| v.pointer(&format!("/usage/{k}")).and_then(Value::as_i64).unwrap_or(0);
-    Ok(Reply { text: text.trim().to_string(), stop_reason, input_tokens: tokens("input_tokens"), output_tokens: tokens("output_tokens") })
+    Ok(Reply {
+        text: text.trim().to_string(),
+        stop_reason,
+        input_tokens: tokens("input_tokens"),
+        output_tokens: tokens("output_tokens"),
+    })
 }

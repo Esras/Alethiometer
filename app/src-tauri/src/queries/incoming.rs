@@ -24,15 +24,15 @@
 
 use super::people::{self, Resolver, Suggestion, Who};
 use super::{arg_i64, opt_i64, when_label};
-use crate::clock::Clock;
-use crate::time::Ts;
 use crate::api::Route;
+use crate::clock::Clock;
 use crate::domain::incoming::{MessageRow, SignalRow};
 use crate::domain::ports::{Reads, UnitOfWork};
-use crate::outbox::request;
-use crate::settings::PeopleSettings;
 use crate::error::{msg, Result};
+use crate::outbox::request;
 use crate::seed::{Ctx, ItemSeed};
+use crate::settings::PeopleSettings;
+use crate::time::Ts;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -158,17 +158,44 @@ pub fn route(name: &str) -> Option<Route> {
     Some(match name {
         "list" => Route::Read(|r, ctx, _| Ok(json!(list(r, ctx.clock, &ctx.settings.people)?))),
         "family" => Route::Read(|r, ctx, args| {
-            Ok(json!(family(r, ctx.clock, arg_i64(args, "item_id")?, scope_arg(args).as_deref(), &ctx.settings.people)?))
+            Ok(json!(family(
+                r,
+                ctx.clock,
+                arg_i64(args, "item_id")?,
+                scope_arg(args).as_deref(),
+                &ctx.settings.people
+            )?))
         }),
-        "detail" => Route::Read(|r, ctx, args| Ok(json!(detail(r, ctx.clock, arg_i64(args, "item_id")?, &ctx.settings.people)?))),
-        "messages" => Route::Read(|r, ctx, args| messages(r, ctx.clock, arg_i64(args, "item_id")?, &ctx.settings.people)),
+        "detail" => Route::Read(|r, ctx, args| {
+            Ok(json!(detail(
+                r,
+                ctx.clock,
+                arg_i64(args, "item_id")?,
+                &ctx.settings.people
+            )?))
+        }),
+        "messages" => {
+            Route::Read(|r, ctx, args| messages(r, ctx.clock, arg_i64(args, "item_id")?, &ctx.settings.people))
+        }
         "reclassify" => Route::Write(|uow, ctx, args| {
-            let moved = reclassify(uow, ctx.clock.now(), arg_i64(args, "item_id")?, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
+            let moved = reclassify(
+                uow,
+                ctx.clock.now(),
+                arg_i64(args, "item_id")?,
+                opt_i64(args, "from_topic_id"),
+                arg_i64(args, "to_topic_id")?,
+            )?;
             Ok(json!({ "ok": true, "moved": moved }))
         }),
         "unreclassify" => Route::Write(|uow, _, args| {
-            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default()).map_err(|e| msg(format!("bad 'moved': {e}")))?;
-            unreclassify(uow, &moved, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?)?;
+            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default())
+                .map_err(|e| msg(format!("bad 'moved': {e}")))?;
+            unreclassify(
+                uow,
+                &moved,
+                opt_i64(args, "from_topic_id"),
+                arg_i64(args, "to_topic_id")?,
+            )?;
             Ok(json!({ "ok": true }))
         }),
         "review_move" => Route::Write(|uow, _, args| {
@@ -178,14 +205,22 @@ pub fn route(name: &str) -> Option<Route> {
                 // No topic: Unsorted.
                 (None, None) => To::Unsorted,
             };
-            let part = review_move(uow, arg_i64(args, "item_id")?, &ids_arg(args), to, scope_arg(args).as_deref())?;
+            let part = review_move(
+                uow,
+                arg_i64(args, "item_id")?,
+                &ids_arg(args),
+                to,
+                scope_arg(args).as_deref(),
+            )?;
             Ok(json!({ "ok": true, "item_id": part }))
         }),
         "review_dismiss" => Route::Write(|uow, _, args| {
             let part = review_dismiss(uow, arg_i64(args, "item_id")?, &ids_arg(args))?;
             Ok(json!({ "ok": true, "item_id": part }))
         }),
-        "review_confirm" => Route::Write(|uow, ctx, args| Ok(json!({ "ok": true, "confirmed": review_confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?)? }))),
+        "review_confirm" => Route::Write(|uow, ctx, args| {
+            Ok(json!({ "ok": true, "confirmed": review_confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?)? }))
+        }),
         "confirm" => Route::Write(|uow, ctx, args| {
             let (item, topic) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?);
             let moved = snapshot(uow, item, None, topic)?;
@@ -199,14 +234,25 @@ pub fn route(name: &str) -> Option<Route> {
             Ok(json!({ "ok": true, "moved": moved }))
         }),
         "move" => Route::Write(|uow, ctx, args| {
-            let (item, topic, from) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?, opt_i64(args, "from_topic_id"));
+            let (item, topic, from) = (
+                arg_i64(args, "item_id")?,
+                arg_i64(args, "topic_id")?,
+                opt_i64(args, "from_topic_id"),
+            );
             let moved = snapshot(uow, item, from, topic)?;
             let changed = move_seen(uow, ctx.clock.now(), item, topic, from, saw_arg(args).as_ref())?;
             Ok(json!({ "ok": true, "changed": changed, "moved": moved }))
         }),
         "unfile" => Route::Write(|uow, _, args| {
-            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default()).map_err(|e| msg(format!("bad 'moved': {e}")))?;
-            unfile(uow, &moved, opt_i64(args, "from_topic_id"), arg_i64(args, "to_topic_id")?, args.get("filed").and_then(Value::as_bool).unwrap_or(false))?;
+            let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default())
+                .map_err(|e| msg(format!("bad 'moved': {e}")))?;
+            unfile(
+                uow,
+                &moved,
+                opt_i64(args, "from_topic_id"),
+                arg_i64(args, "to_topic_id")?,
+                args.get("filed").and_then(Value::as_bool).unwrap_or(false),
+            )?;
             Ok(json!({ "ok": true }))
         }),
         "dismiss" => Route::Write(|uow, _, args| {
@@ -218,7 +264,11 @@ pub fn route(name: &str) -> Option<Route> {
         "undismiss" => Route::Write(|uow, _, args| {
             let item = arg_i64(args, "item_id")?;
             dismiss(uow, item, false)?;
-            let unread: Vec<String> = args.get("unread").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+            let unread: Vec<String> = args
+                .get("unread")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
             uow.items().mark_unread(item, &unread)?;
             Ok(json!({ "ok": true }))
         }),
@@ -229,7 +279,13 @@ pub fn route(name: &str) -> Option<Route> {
             Ok(json!({ "ok": true, "changed": changed, "unread": unread }))
         }),
         "split" => Route::Write(|uow, ctx, args| {
-            let child = split_to(uow, ctx.clock.now(), arg_i64(args, "item_id")?, &ids_arg(args), arg_i64(args, "topic_id")?)?;
+            let child = split_to(
+                uow,
+                ctx.clock.now(),
+                arg_i64(args, "item_id")?,
+                &ids_arg(args),
+                arg_i64(args, "topic_id")?,
+            )?;
             Ok(json!({ "ok": true, "item_id": child }))
         }),
         _ => return None,
@@ -238,7 +294,9 @@ pub fn route(name: &str) -> Option<Route> {
 
 /// A split review of filed signals (18c/18d) names the parts it works on; Incoming's doesn't.
 fn scope_arg(args: &Value) -> Option<Vec<i64>> {
-    args.get("parts").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect())
+    args.get("parts")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_i64).collect())
 }
 
 /// What the list showed of a signal when you acted on it: its revision and
@@ -254,7 +312,11 @@ pub struct Saw {
 
 fn saw_arg(args: &Value) -> Option<Saw> {
     let rev = args.get("rev").and_then(Value::as_i64)?;
-    let keys = args.get("keys").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+    let keys = args
+        .get("keys")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
     Some(Saw { rev, keys })
 }
 
@@ -271,7 +333,10 @@ fn settle_saw(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<b
 }
 
 fn ids_arg(args: &Value) -> Vec<i64> {
-    args.get("message_ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default()
+    args.get("message_ids")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default()
 }
 
 fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
@@ -281,10 +346,23 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         meta: match &agent {
             Some(a) => agent_meta(a, None, &time),
             None if row.kind == "event" => event_meta(row.occurred_at, row.ended_at, row.author_name.as_deref(), clock),
-            None => meta(&row.title, row.occurred_at, row.ended_at, row.msg_count, row.author_name.as_deref(), clock),
+            None => meta(
+                &row.title,
+                row.occurred_at,
+                row.ended_at,
+                row.msg_count,
+                row.author_name.as_deref(),
+                clock,
+            ),
         },
-        change: row.change.as_deref().and_then(|c| change_label(c, row.moved_from, clock)),
-        description: row.description.map(|d| excerpt(d.trim(), 400)).filter(|d| !d.is_empty()),
+        change: row
+            .change
+            .as_deref()
+            .and_then(|c| change_label(c, row.moved_from, clock)),
+        description: row
+            .description
+            .map(|d| excerpt(d.trim(), 400))
+            .filter(|d| !d.is_empty()),
         item_id: row.item_id,
         source: row.source_kind,
         kind: row.kind,
@@ -342,13 +420,21 @@ fn event_meta(start: Ts, ended: Option<Ts>, author: Option<&str>, clock: &Clock)
         Some(e) if midnight(ls) && midnight(e) => {
             let last = e.date().yesterday().expect("in range");
             if last > ls.date() {
-                format!("{}–{}", when_label(ls, now, false), when_label(last.to_datetime(jiff::civil::Time::midnight()), now, false))
+                format!(
+                    "{}–{}",
+                    when_label(ls, now, false),
+                    when_label(last.to_datetime(jiff::civil::Time::midnight()), now, false)
+                )
             } else {
                 when_label(ls, now, false)
             }
         }
         Some(e) if e.date() == ls.date() => format!("{}–{}", day_time(start, clock), e.strftime("%H:%M")),
-        Some(_) => format!("{}–{}", day_time(start, clock), day_time(end.expect("matched Some"), clock)),
+        Some(_) => format!(
+            "{}–{}",
+            day_time(start, clock),
+            day_time(end.expect("matched Some"), clock)
+        ),
         None => day_time(start, clock),
     };
     match author {
@@ -388,7 +474,11 @@ fn agent_meta(a: &Value, topic: Option<Option<&str>>, time: &str) -> String {
         parts.push(t.unwrap_or("Unsorted").to_owned());
     }
     parts.push(time.to_owned());
-    parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" · ")
+    parts
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn excerpt(s: &str, max: usize) -> String {
@@ -429,12 +519,20 @@ impl Lookup {
     pub fn load(r: &dyn Reads, settings: &PeopleSettings, clock: &Clock) -> Result<Lookup> {
         let people = Resolver::load(r, settings)?;
         let suggest = people::suggestions(r, &people, settings, clock.now())?;
-        Ok(Lookup { clock: clock.clone(), people, suggest })
+        Ok(Lookup {
+            clock: clock.clone(),
+            people,
+            suggest,
+        })
     }
 
     /// Without new-person suggestions (they cost a scan of recent messages).
     fn plain(r: &dyn Reads, settings: &PeopleSettings, clock: &Clock) -> Result<Lookup> {
-        Ok(Lookup { clock: clock.clone(), people: Resolver::load(r, settings)?, suggest: HashMap::new() })
+        Ok(Lookup {
+            clock: clock.clone(),
+            people: Resolver::load(r, settings)?,
+            suggest: HashMap::new(),
+        })
     }
 }
 
@@ -484,7 +582,10 @@ fn nest(rows: Vec<MsgRow>) -> (Vec<(Message, Ts)>, Vec<Message>) {
             None => own.push(r),
         }
     }
-    (own.into_iter().map(|r| (r.0, r.5)).collect(), context.into_iter().map(|r| r.0).collect())
+    (
+        own.into_iter().map(|r| (r.0, r.5)).collect(),
+        context.into_iter().map(|r| r.0).collect(),
+    )
 }
 
 /// The best new-person suggestion among a signal's senders and its author.
@@ -492,14 +593,28 @@ fn new_person(look: &Lookup, s: &Signal, author_ids: &[(String, String)]) -> Opt
     if look.suggest.is_empty() {
         return None;
     }
-    let mut accounts: Vec<(String, String)> = author_ids.iter().filter_map(|(_, h)| people::account_of(&s.source, h)).collect();
-    accounts.extend(s.author_handle.as_deref().and_then(|h| people::account_of(&s.source, h)));
-    accounts.iter().filter_map(|a| look.suggest.get(a)).max_by_key(|g| g.signals).cloned()
+    let mut accounts: Vec<(String, String)> = author_ids
+        .iter()
+        .filter_map(|(_, h)| people::account_of(&s.source, h))
+        .collect();
+    accounts.extend(
+        s.author_handle
+            .as_deref()
+            .and_then(|h| people::account_of(&s.source, h)),
+    );
+    accounts
+        .iter()
+        .filter_map(|a| look.suggest.get(a))
+        .max_by_key(|g| g.signals)
+        .cloned()
 }
 
 fn item_author(look: &Lookup, s: &Signal) -> Option<Author> {
     let name = s.author_name.clone()?;
-    Some(Author { who: look.people.who(&s.source, s.author_handle.as_deref(), &name), name })
+    Some(Author {
+        who: look.people.who(&s.source, s.author_handle.as_deref(), &name),
+        name,
+    })
 }
 
 /// How much of each signal's messages to send.
@@ -518,7 +633,10 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
     let full = |s: &Signal| bodies == Bodies::All || s.source == "agents";
     let (with_text, heads): (Vec<&Signal>, Vec<&Signal>) = sigs.iter().partition(|s| full(s));
     let mut messages = messages_by_item(r, &with_text.iter().map(|s| s.item_id).collect::<Vec<_>>())?;
-    messages.extend(by_item(r.incoming().message_heads(&heads.iter().map(|s| s.item_id).collect::<Vec<_>>())?));
+    messages.extend(by_item(
+        r.incoming()
+            .message_heads(&heads.iter().map(|s| s.item_id).collect::<Vec<_>>())?,
+    ));
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
     let events: Vec<i64> = sigs.iter().filter(|s| s.kind == "event").map(|s| s.item_id).collect();
     let mut rsvps = super::respond::rsvps(r, &events, &look.clock)?;
@@ -528,8 +646,11 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
         let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
         s.keys = raw_rows.iter().filter_map(|m| m.ext_key.clone()).collect();
         let rows = message_rows(look, &s.source, raw_rows);
-        let author_ids: Vec<(String, String)> =
-            rows.iter().filter(|r| !r.1).filter_map(|r| r.4.clone().map(|id| (r.0.author.clone(), id))).collect();
+        let author_ids: Vec<(String, String)> = rows
+            .iter()
+            .filter(|r| !r.1)
+            .filter_map(|r| r.4.clone().map(|id| (r.0.author.clone(), id)))
+            .collect();
         let (mut own, context) = nest(rows);
         let others = r.incoming().split_sibling_times(s.item_id)?;
         s.split = !others.is_empty();
@@ -580,10 +701,18 @@ fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings, bodies: B
     let look = Lookup::load(r, settings, clock)?;
     let mut topics: Vec<TopicSignals> = vec![];
     for f in r.incoming().filed_signals()? {
-        let sig = Signal { update: f.update, ..to_signal(f.signal, clock) };
+        let sig = Signal {
+            update: f.update,
+            ..to_signal(f.signal, clock)
+        };
         match topics.iter_mut().find(|t| t.id == f.topic_id) {
             Some(t) => t.signals.push(sig),
-            None => topics.push(TopicSignals { id: f.topic_id, name: f.topic_name, category: f.topic_category, signals: vec![sig] }),
+            None => topics.push(TopicSignals {
+                id: f.topic_id,
+                name: f.topic_name,
+                category: f.topic_category,
+                signals: vec![sig],
+            }),
         }
     }
     // Most recent signal first (rows arrive newest first, so push order already is).
@@ -592,7 +721,12 @@ fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings, bodies: B
         load_messages(r, &look, &mut t.signals, bodies)?;
     }
 
-    let mut unsorted: Vec<Signal> = r.incoming().unsorted_signals()?.into_iter().map(|row| to_signal(row, clock)).collect();
+    let mut unsorted: Vec<Signal> = r
+        .incoming()
+        .unsorted_signals()?
+        .into_iter()
+        .map(|row| to_signal(row, clock))
+        .collect();
     load_messages(r, &look, &mut unsorted, bodies)?;
 
     // Agents waiting (2b): every agent signal waiting on you, oldest first, with its topic.
@@ -601,7 +735,14 @@ fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings, bodies: B
         .waiting_agents()?
         .into_iter()
         .map(|w| {
-            let time = meta(&w.signal.title, w.signal.occurred_at, w.signal.ended_at, w.signal.msg_count, None, clock);
+            let time = meta(
+                &w.signal.title,
+                w.signal.occurred_at,
+                w.signal.ended_at,
+                w.signal.msg_count,
+                None,
+                clock,
+            );
             let mut sig = to_signal(w.signal, clock);
             sig.topic_id = w.topic.as_ref().map(|t| t.0);
             sig.topic = w.topic.map(|t| t.1);
@@ -612,7 +753,11 @@ fn queue_with(r: &dyn Reads, clock: &Clock, settings: &PeopleSettings, bodies: B
         })
         .collect();
     load_messages(r, &look, &mut agents, Bodies::All)?;
-    Ok(Queue { topics, unsorted, agents })
+    Ok(Queue {
+        topics,
+        unsorted,
+        agents,
+    })
 }
 
 /// File the signal under its suggested (or already confirmed) topic.
@@ -654,7 +799,9 @@ fn confirm_series(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64) -> Result<(
 /// part to leave Incoming marks the conversation up to the family's newest
 /// marker.
 fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64, saw: Option<&Saw>) -> Result<()> {
-    let Some((source_id, kind, raws)) = settled_family(uow, item_id)? else { return Ok(()) };
+    let Some((source_id, kind, raws)) = settled_family(uow, item_id)? else {
+        return Ok(());
+    };
     match kind.as_str() {
         "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
         "gmail" => file_gmail(uow, source_id, item_id, &raws, topic_id, saw),
@@ -670,11 +817,20 @@ fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, Str
         return Ok(None);
     }
     let (source_id, kind) = (first.source_id, first.source_kind.clone());
-    let raws = family.into_iter().map(|p| (p.id, serde_json::from_str(&p.raw_json).unwrap_or_default())).collect();
+    let raws = family
+        .into_iter()
+        .map(|p| (p.id, serde_json::from_str(&p.raw_json).unwrap_or_default()))
+        .collect();
     Ok(Some((source_id, kind, raws)))
 }
 
-fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(i64, Value)], saw: Option<&Saw>) -> Result<()> {
+fn mark_slack_read(
+    uow: &dyn UnitOfWork,
+    source_id: i64,
+    item_id: i64,
+    raws: &[(i64, Value)],
+    saw: Option<&Saw>,
+) -> Result<()> {
     // A read-only source gets no remote op (the request would refuse it, after Confirm had done half its work).
     if crate::outbox::is_read_only(uow.reads(), source_id)? {
         return Ok(());
@@ -682,11 +838,27 @@ fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(
     let ts = |k: &str| k.parse::<f64>().ok();
     let mut newest: Option<(f64, String, String)> = None;
     for (id, raw) in raws {
-        let (Some(channel), Some(mut mark)) = (raw.get("channel").and_then(Value::as_str), raw.get("mark_ts").and_then(Value::as_str)) else { continue };
+        let (Some(channel), Some(mut mark)) = (
+            raw.get("channel").and_then(Value::as_str),
+            raw.get("mark_ts").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
         // This item: no further than the newest of its messages you saw.
         if let (true, Some(saw)) = (*id == item_id, saw) {
-            let msgs: Vec<&str> = raw.get("msgs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
-            let seen = saw.keys.iter().map(String::as_str).filter(|k| msgs.contains(k) && ts(k) <= ts(mark)).max_by(|a, b| ts(a).partial_cmp(&ts(b)).unwrap_or(std::cmp::Ordering::Equal));
+            let msgs: Vec<&str> = raw
+                .get("msgs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            let seen = saw
+                .keys
+                .iter()
+                .map(String::as_str)
+                .filter(|k| msgs.contains(k) && ts(k) <= ts(mark))
+                .max_by(|a, b| ts(a).partial_cmp(&ts(b)).unwrap_or(std::cmp::Ordering::Equal));
             match seen {
                 Some(k) => mark = k,
                 None => continue,
@@ -698,7 +870,13 @@ fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(
         }
     }
     if let Some((_, channel, ts)) = newest {
-        request(uow, source_id, "slack.mark_read", &json!({ "channel": channel, "ts": ts }), Some(item_id))?;
+        request(
+            uow,
+            source_id,
+            "slack.mark_read",
+            &json!({ "channel": channel, "ts": ts }),
+            Some(item_id),
+        )?;
     }
     Ok(())
 }
@@ -706,19 +884,43 @@ fn mark_slack_read(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(
 /// A source's Gmail label for a category (`config.category_labels`).
 fn category_label(config_json: &str, category: &str) -> Option<String> {
     let config: Value = serde_json::from_str(config_json).unwrap_or_default();
-    config.pointer(&format!("/category_labels/{category}")).and_then(Value::as_str).map(str::to_owned)
+    config
+        .pointer(&format!("/category_labels/{category}"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 /// The thread, every Gmail message id the user saw in it (so `gmail.file` can spot mail that came later), and the
 /// Gmail label of the topic's category (`config.category_labels`), if any.
-fn file_gmail(uow: &dyn UnitOfWork, source_id: i64, item_id: i64, raws: &[(i64, Value)], topic_id: i64, saw: Option<&Saw>) -> Result<()> {
-    let source = uow.reads().sources().get(source_id)?.ok_or_else(|| msg("no such source"))?;
+fn file_gmail(
+    uow: &dyn UnitOfWork,
+    source_id: i64,
+    item_id: i64,
+    raws: &[(i64, Value)],
+    topic_id: i64,
+    saw: Option<&Saw>,
+) -> Result<()> {
+    let source = uow
+        .reads()
+        .sources()
+        .get(source_id)?
+        .ok_or_else(|| msg("no such source"))?;
     if crate::outbox::read_only_name(&source).is_some() {
         return Ok(());
     }
-    let Some(thread) = raws.iter().find_map(|(_, r)| r.get("thread_id").and_then(Value::as_str)) else { return Ok(()) };
+    let Some(thread) = raws
+        .iter()
+        .find_map(|(_, r)| r.get("thread_id").and_then(Value::as_str))
+    else {
+        return Ok(());
+    };
     let mut ids: Vec<&str> = vec![];
-    for id in raws.iter().filter_map(|(_, r)| r.get("msgs").and_then(Value::as_array)).flatten().filter_map(Value::as_str) {
+    for id in raws
+        .iter()
+        .filter_map(|(_, r)| r.get("msgs").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+    {
         // Only mail you saw: anything later keeps the thread in the Inbox.
         if !ids.contains(&id) && saw.is_none_or(|s| s.keys.iter().any(|k| k == id)) {
             ids.push(id);
@@ -758,7 +960,11 @@ pub fn split_to(uow: &dyn UnitOfWork, now: Ts, item_id: i64, message_ids: &[i64]
     ids.dedup();
     let mut all = uow.splits().message_ids(item_id)?;
     all.sort_unstable();
-    let target = if ids == all { item_id } else { uow.splits().carve(item_id, &ids, false)? };
+    let target = if ids == all {
+        item_id
+    } else {
+        uow.splits().carve(item_id, &ids, false)?
+    };
     move_to(uow, now, target, topic_id, None)?;
     Ok(target)
 }
@@ -814,7 +1020,14 @@ pub fn move_to(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, from:
 }
 
 /// `move_to` of what you saw (`Saw`). Returns whether the item had changed since.
-pub fn move_seen(uow: &dyn UnitOfWork, now: Ts, item_id: i64, topic_id: i64, from: Option<i64>, saw: Option<&Saw>) -> Result<bool> {
+pub fn move_seen(
+    uow: &dyn UnitOfWork,
+    now: Ts,
+    item_id: i64,
+    topic_id: i64,
+    from: Option<i64>,
+    saw: Option<&Saw>,
+) -> Result<bool> {
     if let Some(f) = from.filter(|f| *f != topic_id) {
         wrong(uow, item_id, f)?;
     }
@@ -887,12 +1100,22 @@ fn review_parts(r: &dyn Reads, item_id: i64, scope: Option<&[i64]>) -> Result<(i
             };
             (p.dismissed && p.has_messages) || (!p.dismissed && wanted)
         })
-        .map(|p| Part { item_id: p.item_id, topic: if p.dismissed { None } else { p.topic }, dismissed: p.dismissed })
+        .map(|p| Part {
+            item_id: p.item_id,
+            topic: if p.dismissed { None } else { p.topic },
+            dismissed: p.dismissed,
+        })
         .collect();
     Ok((root, parts))
 }
 
-pub fn family(r: &dyn Reads, clock: &Clock, item_id: i64, scope: Option<&[i64]>, settings: &PeopleSettings) -> Result<Family> {
+pub fn family(
+    r: &dyn Reads,
+    clock: &Clock,
+    item_id: i64,
+    scope: Option<&[i64]>,
+    settings: &PeopleSettings,
+) -> Result<Family> {
     let (root, parts) = review_parts(r, item_id, scope)?;
     let h = r.incoming().item_header(item_id)?.ok_or_else(|| msg("no such item"))?;
     let look = Lookup::plain(r, settings, clock)?;
@@ -900,8 +1123,20 @@ pub fn family(r: &dyn Reads, clock: &Clock, item_id: i64, scope: Option<&[i64]>,
     let mut messages = messages_by_item(r, &ids)?;
     let mut all: Vec<(Message, Ts)> = vec![];
     for p in &parts {
-        let (own, _) = nest(message_rows(&look, &h.source_kind, messages.remove(&p.item_id).unwrap_or_default()));
-        all.extend(own.into_iter().map(|(m, at)| (Message { part: Some(p.item_id), ..m }, at)));
+        let (own, _) = nest(message_rows(
+            &look,
+            &h.source_kind,
+            messages.remove(&p.item_id).unwrap_or_default(),
+        ));
+        all.extend(own.into_iter().map(|(m, at)| {
+            (
+                Message {
+                    part: Some(p.item_id),
+                    ..m
+                },
+                at,
+            )
+        }));
     }
     all.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.id.cmp(&b.0.id)));
     let raw: Value = serde_json::from_str(&h.raw_json).unwrap_or_default();
@@ -953,7 +1188,10 @@ pub fn review_move(uow: &dyn UnitOfWork, from: i64, ids: &[i64], to: To, scope: 
                 _ => None,
             };
             let (_, parts) = review_parts(uow.reads(), from, scope)?;
-            match parts.iter().find(|p| !p.dismissed && p.topic.as_ref().map(|t| t.id) == topic) {
+            match parts
+                .iter()
+                .find(|p| !p.dismissed && p.topic.as_ref().map(|t| t.id) == topic)
+            {
                 Some(p) => p.item_id,
                 None => return new_part(uow, from, ids, topic, scope.is_some()),
             }
@@ -974,7 +1212,8 @@ fn new_part(uow: &dyn UnitOfWork, from: i64, ids: &[i64], topic: Option<i64>, fi
     uow.items().set_dismissed(child, false)?;
     uow.items().set_seen(child, filed && topic.is_some())?;
     if let Some(t) = topic {
-        uow.links().pick(child, t, if filed { "confirmed" } else { "suggested" })?;
+        uow.links()
+            .pick(child, t, if filed { "confirmed" } else { "suggested" })?;
     }
     settle_parts(uow, &[from, child])?;
     Ok(child)
@@ -984,7 +1223,13 @@ fn new_part(uow: &dyn UnitOfWork, from: i64, ids: &[i64], topic: Option<i64>, fi
 /// (made on first use), which never shows in Incoming. Returns that part.
 pub fn review_dismiss(uow: &dyn UnitOfWork, from: i64, ids: &[i64]) -> Result<i64> {
     let (_, family) = uow.reads().incoming().family(from)?;
-    let bin = uow.reads().incoming().parts(&family)?.into_iter().find(|p| p.dismissed).map(|p| p.item_id);
+    let bin = uow
+        .reads()
+        .incoming()
+        .parts(&family)?
+        .into_iter()
+        .find(|p| p.dismissed)
+        .map(|p| p.item_id);
     let bin = match bin {
         Some(b) if b != from => {
             uow.splits().move_messages(from, ids, b)?;
@@ -1045,19 +1290,31 @@ pub fn relabel_gmail(uow: &dyn UnitOfWork, item_id: i64, from_category: Option<&
     if from_category == Some(to_category) {
         return Ok(());
     }
-    let Some(item) = uow.items().get(item_id)? else { return Ok(()) };
-    let Some(source) = uow.reads().sources().get(item.source_id)? else { return Ok(()) };
+    let Some(item) = uow.items().get(item_id)? else {
+        return Ok(());
+    };
+    let Some(source) = uow.reads().sources().get(item.source_id)? else {
+        return Ok(());
+    };
     if item.source_kind != "gmail" || crate::outbox::read_only_name(&source).is_some() {
         return Ok(());
     }
     let raw: Value = serde_json::from_str(&item.raw_json).unwrap_or_default();
-    let Some(thread) = raw.get("thread_id").and_then(Value::as_str) else { return Ok(()) };
+    let Some(thread) = raw.get("thread_id").and_then(Value::as_str) else {
+        return Ok(());
+    };
     let label = |c: &str| category_label(&source.config_json, c);
     let (remove, add) = (from_category.and_then(label), label(to_category));
     if remove.is_none() && add.is_none() {
         return Ok(());
     }
-    request(uow, source.id, "gmail.relabel", &json!({ "thread_id": thread, "remove": remove, "add": add }), Some(item_id))?;
+    request(
+        uow,
+        source.id,
+        "gmail.relabel",
+        &json!({ "thread_id": thread, "remove": remove, "add": add }),
+        Some(item_id),
+    )?;
     Ok(())
 }
 
@@ -1078,7 +1335,13 @@ pub fn reclassify(uow: &dyn UnitOfWork, now: Ts, item_id: i64, from: Option<i64>
     let mut moved = vec![];
     for id in series_of(uow, item_id)? {
         let seen = uow.items().get(id)?.ok_or_else(|| msg("no such item"))?.seen;
-        let m = Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen, unread: uow.items().unread_keys(id)? };
+        let m = Moved {
+            item_id: id,
+            from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(),
+            to_state: uow.links().state(id, to)?,
+            seen,
+            unread: uow.items().unread_keys(id)?,
+        };
         if let (Some(f), Some(_)) = (from, &m.from_state) {
             uow.links().restore(id, f, Some("wrong"))?;
         }
@@ -1091,7 +1354,9 @@ pub fn reclassify(uow: &dyn UnitOfWork, now: Ts, item_id: i64, from: Option<i64>
     // its category label changes.
     let was_new = moved.iter().any(|m| m.item_id == item_id && !m.seen);
     match (was_new, settled_family(uow, item_id)?) {
-        (true, Some((source_id, kind, raws))) if kind == "gmail" => file_gmail(uow, source_id, item_id, &raws, to, None)?,
+        (true, Some((source_id, kind, raws))) if kind == "gmail" => {
+            file_gmail(uow, source_id, item_id, &raws, to, None)?
+        }
         _ => relabel_gmail(uow, item_id, from_cat.as_deref(), &to_cat)?,
     }
     super::todos::settle(uow, now, item_id, to)?;
@@ -1104,7 +1369,13 @@ fn snapshot(uow: &dyn UnitOfWork, item_id: i64, from: Option<i64>, to: i64) -> R
         .into_iter()
         .map(|id| {
             let seen = uow.items().get(id)?.ok_or_else(|| msg("no such item"))?.seen;
-            Ok(Moved { item_id: id, from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(), to_state: uow.links().state(id, to)?, seen, unread: uow.items().unread_keys(id)? })
+            Ok(Moved {
+                item_id: id,
+                from_state: from.map(|f| uow.links().state(id, f)).transpose()?.flatten(),
+                to_state: uow.links().state(id, to)?,
+                seen,
+                unread: uow.items().unread_keys(id)?,
+            })
         })
         .collect()
 }
@@ -1151,7 +1422,11 @@ pub struct Detail {
 }
 
 pub fn detail(r: &dyn Reads, clock: &Clock, item_id: i64, settings: &PeopleSettings) -> Result<Detail> {
-    let h = r.incoming().item_header(item_id)?.filter(|h| h.work).ok_or_else(|| msg("no such item"))?;
+    let h = r
+        .incoming()
+        .item_header(item_id)?
+        .filter(|h| h.work)
+        .ok_or_else(|| msg("no such item"))?;
     let look = Lookup::plain(r, settings, clock)?;
     let rows = messages_by_item(r, &[item_id])?.remove(&item_id).unwrap_or_default();
     let (own, mut context) = nest(message_rows(&look, &h.source_kind, rows));
@@ -1194,7 +1469,11 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         acme,
     );
     for (i, (t, who, text)) in [
-        ("09:05", "Jordan", "Root cause looks like a retry storm from the v2 delivery workers."),
+        (
+            "09:05",
+            "Jordan",
+            "Root cause looks like a retry storm from the v2 delivery workers.",
+        ),
         ("09:31", "Marco R.", "Backoff patch is up, needs a second reviewer."),
         ("10:02", "Sam", "Acme is asking for an exec on a call today."),
         ("10:40", "Jordan", "Fix ETA 14:00. Backlog is draining."),
@@ -1204,7 +1483,13 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     {
         ctx.slack_keyed(inc, ctx.at(0, t), who, text, Some(&format!("C2291.{i}")), None);
     }
-    ctx.sample().patch_item(inc, &crate::domain::sample::ItemPatch { raw_json: Some(&json!({ "channel": "C2291" }).to_string()), ..Default::default() })?;
+    ctx.sample().patch_item(
+        inc,
+        &crate::domain::sample::ItemPatch {
+            raw_json: Some(&json!({ "channel": "C2291" }).to_string()),
+            ..Default::default()
+        },
+    )?;
     seed_splits(ctx)?;
     suggest(
         ItemSeed {
@@ -1250,9 +1535,27 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     // Alerting · P2: the alert mail, grouped per alert rule. Each group is one
     // signal whose msg_count is the number of alert mails behind it (214 total).
     for (rule, count, from, to, sample) in [
-        ("disk-pressure · node-7", 168, "00:14", "10:36", "[P2] disk-pressure node-7: /var at 91%"),
-        ("queue-lag · ingest-eu", 31, "06:02", "10:31", "[P2] queue-lag ingest-eu: 4m12s behind"),
-        ("cert-expiry · api-gw staging", 15, "07:00", "10:00", "[P2] cert-expiry api-gw-staging: 13 days left"),
+        (
+            "disk-pressure · node-7",
+            168,
+            "00:14",
+            "10:36",
+            "[P2] disk-pressure node-7: /var at 91%",
+        ),
+        (
+            "queue-lag · ingest-eu",
+            31,
+            "06:02",
+            "10:31",
+            "[P2] queue-lag ingest-eu: 4m12s behind",
+        ),
+        (
+            "cert-expiry · api-gw staging",
+            15,
+            "07:00",
+            "10:00",
+            "[P2] cert-expiry api-gw-staging: 13 days left",
+        ),
     ] {
         let id = suggest(
             ItemSeed {
@@ -1380,8 +1683,14 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
     });
     for (t, text) in [
         ("09:12", "Globex still hasn't scheduled their v1 ingest cutover."),
-        ("09:13", "They want to wait until after their code freeze on Oct 20. OK to push PLAT-1170 out?"),
-        ("09:16", "Different thing: Lee asked me for data eng hiring numbers for the Q4 model."),
+        (
+            "09:13",
+            "They want to wait until after their code freeze on Oct 20. OK to push PLAT-1170 out?",
+        ),
+        (
+            "09:16",
+            "Different thing: Lee asked me for data eng hiring numbers for the Q4 model.",
+        ),
         ("09:20", "Can you look at the offsite agenda before Thursday?"),
     ] {
         ctx.slack(dm, ctx.at(0, t), "Priya", text);
@@ -1397,9 +1706,19 @@ pub fn seed(ctx: &Ctx) -> anyhow::Result<()> {
         msg_count: Some(1),
         ..Default::default()
     });
-    ctx.slack(eng, ctx.at(0, "08:12"), "Marco R.", "Anyone seen the staging deploy hang on migrations?");
+    ctx.slack(
+        eng,
+        ctx.at(0, "08:12"),
+        "Marco R.",
+        "Anyone seen the staging deploy hang on migrations?",
+    );
     // His Slack profile (users.info), so the strip reads as in 17a.
-    ctx.sample().profile("slack", &crate::seed::slack_id("Marco R."), "Marco Rossi", "marco.rossi@work.com")?;
+    ctx.sample().profile(
+        "slack",
+        &crate::seed::slack_id("Marco R."),
+        "Marco Rossi",
+        "marco.rossi@work.com",
+    )?;
     Ok(())
 }
 
@@ -1431,12 +1750,25 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
             ..Default::default()
         });
         let raw = json!({ "channel": channel, "msgs": keys, "mark_ts": keys.last() }).to_string();
-        ctx.sample().patch_item(root, &crate::domain::sample::ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
+        ctx.sample().patch_item(
+            root,
+            &crate::domain::sample::ItemPatch {
+                raw_json: Some(&raw),
+                ..Default::default()
+            },
+        )?;
         let mut groups: Vec<(G, Vec<i64>)> = vec![];
         for ((t, who, text, g, replies), key) in msgs.iter().zip(&keys) {
             let id = ctx.slack_keyed(root, ctx.at(0, t), who, text, Some(key), None);
             for (i, (rt, rwho, rtext)) in replies.iter().enumerate() {
-                ctx.slack_keyed(root, ctx.at(0, rt), rwho, rtext, Some(&format!("{key}.r{i}")), Some(key));
+                ctx.slack_keyed(
+                    root,
+                    ctx.at(0, rt),
+                    rwho,
+                    rtext,
+                    Some(&format!("{key}.r{i}")),
+                    Some(key),
+                );
             }
             match groups.iter_mut().find(|x| x.0 == *g) {
                 Some(x) => x.1.push(id),
@@ -1445,7 +1777,11 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
         }
         ctx.uow.splits().recount(root, 0)?;
         for (g, ids) in groups {
-            let item = if g == G::Acme { root } else { ctx.uow.splits().carve(root, &ids, false)? };
+            let item = if g == G::Acme {
+                root
+            } else {
+                ctx.uow.splits().carve(root, &ids, false)?
+            };
             match g {
                 G::Acme => ctx.link(item, "Acme outage", "suggested"),
                 G::Q4 => ctx.link(item, "Q4 headcount", "suggested"),
@@ -1459,16 +1795,40 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
         "DM · Jordan",
         "D0JORDAN",
         &[
-            ("09:12", "Jordan", "Retry storm is contained, backlog is down to 3k.", Acme, &[]),
+            (
+                "09:12",
+                "Jordan",
+                "Retry storm is contained, backlog is down to 3k.",
+                Acme,
+                &[],
+            ),
             ("09:13", "Zach", "Nice. Who's writing the RCA?", Acme, &[]),
-            ("09:14", "Jordan", "Also, can we talk about the SRE req before Wed?", Q4, &[]),
+            (
+                "09:14",
+                "Jordan",
+                "Also, can we talk about the SRE req before Wed?",
+                Q4,
+                &[],
+            ),
             ("09:15", "Jordan", "Priya said it might move to Q1.", Q4, &[]),
             ("09:16", "Zach", "Yes. Tue 15:00?", Q4, &[]),
-            ("09:40", "Jordan", "Acme wants the RCA by Friday. I can draft it.", Acme, &[]),
+            (
+                "09:40",
+                "Jordan",
+                "Acme wants the RCA by Friday. I can draft it.",
+                Acme,
+                &[],
+            ),
             ("09:41", "Jordan", "Who should review, you or Marco?", Acme, &[]),
             ("10:02", "Jordan", "lunch?", Unsorted, &[]),
             ("10:03", "Zach", "can't today, tomorrow?", Unsorted, &[]),
-            ("10:04", "Jordan", "Also the Acme dashboards are still red.", Unsorted, &[]),
+            (
+                "10:04",
+                "Jordan",
+                "Also the Acme dashboards are still red.",
+                Unsorted,
+                &[],
+            ),
             ("10:30", "Jordan", "Fix is deployed, watching error rates.", Acme, &[]),
         ],
     )?;
@@ -1488,7 +1848,13 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
                     ("09:22", "Sam", "Thanks. I'll tell Acme."),
                 ],
             ),
-            ("09:30", "Priya", "Unrelated, but is the SRE req still on for Q4?", Q4, &[]),
+            (
+                "09:30",
+                "Priya",
+                "Unrelated, but is the SRE req still on for Q4?",
+                Q4,
+                &[],
+            ),
             ("09:31", "Zach", "Yes, let's take it to our 1:1.", Q4, &[]),
             ("09:48", "Marco R.", "anyone else's VPN flaky today?", Unsorted, &[]),
             ("10:15", "Jordan", "Fix is deployed, watching error rates.", Acme, &[]),
@@ -1500,8 +1866,8 @@ fn seed_splits(ctx: &Ctx) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
     use super::*;
+    use rusqlite::params;
     use rusqlite::Connection;
 
     fn link_state(conn: &Connection, item: i64, topic: i64) -> Result<Option<String>> {
@@ -1522,7 +1888,8 @@ mod tests {
     }
 
     fn unseen(conn: &Connection) -> i64 {
-        conn.query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))
+            .unwrap()
     }
 
     fn shown(q: &Queue) -> usize {
@@ -1532,14 +1899,52 @@ mod tests {
     #[test]
     fn events_say_when_and_what_changed() {
         let now = &crate::sync::test_clock("2026-09-28T10:00:00Z");
-        assert_eq!(event_meta("2026-10-01T17:00:00Z".into(), Some("2026-10-01T19:00:00Z".into()), Some("Sam"), now), "Sam · Thu 17:00–19:00");
-        assert_eq!(event_meta("2026-10-01T00:00:00Z".into(), Some("2026-10-03T00:00:00Z".into()), None, now), "Thu–Fri");
-        assert_eq!(event_meta("2026-09-28T00:00:00Z".into(), Some("2026-09-29T00:00:00Z".into()), None, now), "Today");
-        assert_eq!(change_label("moved", Some("2026-09-29T14:00:00Z".into()), now).as_deref(), Some("Moved from Tue 14:00"));
+        assert_eq!(
+            event_meta(
+                "2026-10-01T17:00:00Z".into(),
+                Some("2026-10-01T19:00:00Z".into()),
+                Some("Sam"),
+                now
+            ),
+            "Sam · Thu 17:00–19:00"
+        );
+        assert_eq!(
+            event_meta(
+                "2026-10-01T00:00:00Z".into(),
+                Some("2026-10-03T00:00:00Z".into()),
+                None,
+                now
+            ),
+            "Thu–Fri"
+        );
+        assert_eq!(
+            event_meta(
+                "2026-09-28T00:00:00Z".into(),
+                Some("2026-09-29T00:00:00Z".into()),
+                None,
+                now
+            ),
+            "Today"
+        );
+        assert_eq!(
+            change_label("moved", Some("2026-09-29T14:00:00Z".into()), now).as_deref(),
+            Some("Moved from Tue 14:00")
+        );
         assert_eq!(change_label("cancelled", None, now).as_deref(), Some("Cancelled"));
         // Another zone, the same instants: the labels follow the wall clock there.
-        let la = &Clock::fixed(crate::time::t("2026-09-28T17:00:00"), jiff::tz::TimeZone::get("America/Los_Angeles").unwrap());
-        assert_eq!(event_meta("2026-10-02T00:00:00Z".into(), Some("2026-10-02T02:00:00Z".into()), Some("Sam"), la), "Sam · Thu 17:00–19:00");
+        let la = &Clock::fixed(
+            crate::time::t("2026-09-28T17:00:00"),
+            jiff::tz::TimeZone::get("America/Los_Angeles").unwrap(),
+        );
+        assert_eq!(
+            event_meta(
+                "2026-10-02T00:00:00Z".into(),
+                Some("2026-10-02T02:00:00Z".into()),
+                Some("Sam"),
+                la
+            ),
+            "Sam · Thu 17:00–19:00"
+        );
         assert_eq!(excerpt("abcdef", 3), "abc…");
     }
 
@@ -1548,14 +1953,31 @@ mod tests {
         let (conn, now, _d) = setup();
         let r = crate::store::over(&conn);
         let people = PeopleSettings::default();
-        let all = |q: &Queue| q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).chain(&q.agents).map(|s| json!(s)).collect::<Vec<_>>();
+        let all = |q: &Queue| {
+            q.topics
+                .iter()
+                .flat_map(|t| &t.signals)
+                .chain(&q.unsorted)
+                .chain(&q.agents)
+                .map(|s| json!(s))
+                .collect::<Vec<_>>()
+        };
         let (full, lazy) = (all(&queue(&r, &now).unwrap()), all(&list(&r, &now, &people).unwrap()));
         assert_eq!(full.len(), lazy.len());
         let mut lazy_rows = 0;
         for (f, l) in full.iter().zip(&lazy) {
             assert_eq!(f["item_id"], l["item_id"]);
             // What triage sends back, and what a collapsed row shows, are the same.
-            for k in ["rev", "keys", "n_messages", "split", "new_person", "author", "held", "meta"] {
+            for k in [
+                "rev",
+                "keys",
+                "n_messages",
+                "split",
+                "new_person",
+                "author",
+                "held",
+                "meta",
+            ] {
                 assert_eq!(f[k], l[k], "{k} of item {}", f["item_id"]);
             }
             assert_eq!(f["n_messages"], f["messages"].as_array().unwrap().len());
@@ -1581,9 +2003,22 @@ mod tests {
         let (conn, now, _d) = setup();
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let names: Vec<_> = q.topics.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["Acme outage", "Alerting · P2", "Q4 headcount", "v1 ingest deprecation", "Career"]);
+        assert_eq!(
+            names,
+            [
+                "Acme outage",
+                "Alerting · P2",
+                "Q4 headcount",
+                "v1 ingest deprecation",
+                "Career"
+            ]
+        );
         let acme = &q.topics[0];
-        assert_eq!(acme.signals.len(), 5, "inc-2291, the two split Slack signals (15g, 15h), mail, invite");
+        assert_eq!(
+            acme.signals.len(),
+            5,
+            "inc-2291, the two split Slack signals (15g, 15h), mail, invite"
+        );
         let slack = acme.signals.iter().find(|s| s.title == "#inc-2291").unwrap();
         assert_eq!(slack.meta, "42 new · 09:05–10:40");
         assert_eq!(slack.messages.len(), 4);
@@ -1591,13 +2026,21 @@ mod tests {
         assert_eq!(cal.meta, "Sam · Today 17:00–18:00");
         let rsvp = cal.rsvp.as_ref().expect("an unanswered invite offers Accept/Decline");
         assert_eq!(rsvp.status, "needs_action");
-        assert_eq!(rsvp.overlaps, ["DD prep 16:45–17:15", "Life 17:30–18:00"], "Life blocks never show a title");
+        assert_eq!(
+            rsvp.overlaps,
+            ["DD prep 16:45–17:15", "Life 17:30–18:00"],
+            "Life blocks never show a title"
+        );
         assert!(rsvp.answer.is_none());
         let mail = acme.signals.iter().find(|s| s.source == "gmail").unwrap();
         assert_eq!(mail.meta, "10:22");
         let alerts: i64 = q.topics[1].signals.iter().filter_map(|s| s.msg_count).sum();
         assert_eq!(alerts, 214);
-        assert_eq!(q.unsorted.len(), 9, "6 items, the Unsorted parts of both splits, #platform-eng");
+        assert_eq!(
+            q.unsorted.len(),
+            9,
+            "6 items, the Unsorted parts of both splits, #platform-eng"
+        );
         assert!(q.unsorted.iter().any(|s| s.source == "github"));
         assert!(q.unsorted.iter().any(|s| s.source == "jira"));
         // The tab badge (unseen items) matches what the queue shows.
@@ -1608,16 +2051,49 @@ mod tests {
     fn a_triaged_channel_run_drops_the_channel_context() {
         let (conn, now, _d) = setup();
         let q = queue(&crate::store::over(&conn), &now).unwrap();
-        let s = q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|s| s.source == "slack" && !s.split && !s.messages.is_empty()).unwrap();
+        let s = q
+            .topics
+            .iter()
+            .flat_map(|t| &t.signals)
+            .chain(&q.unsorted)
+            .find(|s| s.source == "slack" && !s.split && !s.messages.is_empty())
+            .unwrap();
         let (id, first) = (s.item_id, s.messages[0].id);
         conn.execute("INSERT INTO item_messages (item_id, at, author, text, context) VALUES (?1, '2000-01-01T00:00:00.000Z', 'x', 'earlier in the channel', 1)", [id]).unwrap();
-        conn.execute("UPDATE items SET raw_json = json_remove(raw_json, '$.thread_ts') WHERE id = ?1", [id]).unwrap();
-        let find = |q: &Queue| q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|x| x.item_id == id).map(|x| x.context.len()).unwrap();
-        assert!(find(&queue(&crate::store::over(&conn), &now).unwrap()) > 0, "nothing read yet: context shows");
-        conn.execute("UPDATE item_messages SET read = 1 WHERE id = ?1", [first]).unwrap();
-        assert_eq!(find(&queue(&crate::store::over(&conn), &now).unwrap()), 0, "already read: no channel context");
-        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.thread_ts', '1.0') WHERE id = ?1", [id]).unwrap();
-        assert!(find(&queue(&crate::store::over(&conn), &now).unwrap()) > 0, "a thread keeps its parent as context");
+        conn.execute(
+            "UPDATE items SET raw_json = json_remove(raw_json, '$.thread_ts') WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        let find = |q: &Queue| {
+            q.topics
+                .iter()
+                .flat_map(|t| &t.signals)
+                .chain(&q.unsorted)
+                .find(|x| x.item_id == id)
+                .map(|x| x.context.len())
+                .unwrap()
+        };
+        assert!(
+            find(&queue(&crate::store::over(&conn), &now).unwrap()) > 0,
+            "nothing read yet: context shows"
+        );
+        conn.execute("UPDATE item_messages SET read = 1 WHERE id = ?1", [first])
+            .unwrap();
+        assert_eq!(
+            find(&queue(&crate::store::over(&conn), &now).unwrap()),
+            0,
+            "already read: no channel context"
+        );
+        conn.execute(
+            "UPDATE items SET raw_json = json_set(raw_json, '$.thread_ts', '1.0') WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        assert!(
+            find(&queue(&crate::store::over(&conn), &now).unwrap()) > 0,
+            "a thread keeps its parent as context"
+        );
     }
 
     #[test]
@@ -1626,7 +2102,11 @@ mod tests {
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let mail = q.topics[0].signals.iter().find(|s| s.source == "gmail").unwrap();
         assert_eq!(mail.category, None, "no category stored yet");
-        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.category', 'vendors') WHERE id = ?1", [mail.item_id]).unwrap();
+        conn.execute(
+            "UPDATE items SET raw_json = json_set(raw_json, '$.category', 'vendors') WHERE id = ?1",
+            [mail.item_id],
+        )
+        .unwrap();
         let q2 = queue(&crate::store::over(&conn), &now).unwrap();
         let mail2 = q2.topics[0].signals.iter().find(|s| s.source == "gmail").unwrap();
         assert_eq!(mail2.category.as_deref(), Some("vendors"));
@@ -1638,7 +2118,13 @@ mod tests {
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let t = &q.topics[0];
         let item = t.signals[0].item_id;
-        confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, t.id).unwrap();
+        confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            t.id,
+        )
+        .unwrap();
         assert_eq!(link_state(&conn, item, t.id).unwrap().as_deref(), Some("confirmed"));
         let q2 = queue(&crate::store::over(&conn), &now).unwrap();
         assert_eq!(q2.topics[topic(&q2, "Acme outage").unwrap()].signals.len(), 4);
@@ -1650,15 +2136,28 @@ mod tests {
     fn updates_on_filed_items_show_under_their_topic() {
         let (conn, now, _d) = setup();
         let (item, topic): (i64, i64) = conn
-            .query_row("SELECT item_id, topic_id FROM topic_links WHERE state = 'confirmed' LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT item_id, topic_id FROM topic_links WHERE state = 'confirmed' LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         conn.execute("UPDATE items SET seen = 0 WHERE id = ?1", [item]).unwrap();
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let t = q.topics.iter().find(|t| t.id == topic).unwrap();
         assert!(t.signals.iter().any(|s| s.item_id == item && s.update));
         assert_eq!(unseen(&conn) as usize, shown(&q));
-        confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, topic).unwrap();
-        assert_eq!(unseen(&conn) as usize, shown(&queue(&crate::store::over(&conn), &now).unwrap()));
+        confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            topic,
+        )
+        .unwrap();
+        assert_eq!(
+            unseen(&conn) as usize,
+            shown(&queue(&crate::store::over(&conn), &now).unwrap())
+        );
     }
 
     #[test]
@@ -1671,14 +2170,22 @@ mod tests {
         assert!(!q2.unsorted.iter().any(|s| s.item_id == item));
         assert_eq!(unseen(&conn) as usize, shown(&q2));
         dismiss(&crate::store::over(&conn), item, false).unwrap();
-        assert!(queue(&crate::store::over(&conn), &now).unwrap().unsorted.iter().any(|s| s.item_id == item));
+        assert!(queue(&crate::store::over(&conn), &now)
+            .unwrap()
+            .unsorted
+            .iter()
+            .any(|s| s.item_id == item));
     }
 
     #[test]
     fn undoing_a_dismiss_leaves_the_same_messages_unread() {
         let (conn, now, _d) = setup();
         let item = slack_run(&conn, &["100.1", "100.2", "100.3"]);
-        conn.execute("UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND ext_key = '100.1'", [item]).unwrap();
+        conn.execute(
+            "UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND ext_key = '100.1'",
+            [item],
+        )
+        .unwrap();
         let sql = crate::store::over(&conn);
         let uow: &dyn UnitOfWork = &sql;
         let before = uow.items().unread_keys(item).unwrap();
@@ -1695,16 +2202,31 @@ mod tests {
     fn trash_sets_a_held_todo_aside_like_dismiss_and_undo_holds_it_again() {
         let (conn, _now, _d) = setup();
         let item: i64 = conn
-            .query_row("SELECT i.id FROM items i JOIN sources s ON s.id = i.source_id WHERE s.kind = 'gmail' LIMIT 1", [], |r| r.get(0))
+            .query_row(
+                "SELECT i.id FROM items i JOIN sources s ON s.id = i.source_id WHERE s.kind = 'gmail' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let sql = crate::store::over(&conn);
         let uow: &dyn UnitOfWork = &sql;
-        let todo = crate::domain::todos::Held { target: "local".into(), text: "Reply to Legal".into(), due: None, sched: None };
+        let todo = crate::domain::todos::Held {
+            target: "local".into(),
+            text: "Reply to Legal".into(),
+            due: None,
+            sched: None,
+        };
         uow.todos().hold(item, &todo).unwrap();
         trash(uow, item).unwrap();
-        assert!(uow.todos().held(item).unwrap().is_none(), "a trashed thread's held todo is set aside");
+        assert!(
+            uow.todos().held(item).unwrap().is_none(),
+            "a trashed thread's held todo is set aside"
+        );
         dismiss(uow, item, false).unwrap();
-        assert_eq!(uow.todos().held(item).unwrap().map(|h| h.text).as_deref(), Some("Reply to Legal"));
+        assert_eq!(
+            uow.todos().held(item).unwrap().map(|h| h.text).as_deref(),
+            Some("Reply to Legal")
+        );
     }
 
     #[test]
@@ -1717,7 +2239,10 @@ mod tests {
         wrong(&crate::store::over(&conn), item, career.id).unwrap();
         assert_eq!(link_state(&conn, item, career.id).unwrap().as_deref(), Some("wrong"));
         let q2 = queue(&crate::store::over(&conn), &now).unwrap();
-        assert!(topic(&q2, "Career").is_none(), "topic with no signals left drops off the list");
+        assert!(
+            topic(&q2, "Career").is_none(),
+            "topic with no signals left drops off the list"
+        );
         assert!(q2.unsorted.iter().any(|s| s.item_id == item));
         let after: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(before, after);
@@ -1730,8 +2255,19 @@ mod tests {
         let (conn, now, _d) = setup();
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let pr = q.unsorted.iter().find(|s| s.source == "github").unwrap().item_id;
-        let target: i64 = conn.query_row("SELECT id FROM topics WHERE name = 'Webhook reliability'", [], |r| r.get(0)).unwrap();
-        move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), pr, target, None).unwrap();
+        let target: i64 = conn
+            .query_row("SELECT id FROM topics WHERE name = 'Webhook reliability'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        move_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            pr,
+            target,
+            None,
+        )
+        .unwrap();
         assert_eq!(link_state(&conn, pr, target).unwrap().as_deref(), Some("confirmed"));
         let q2 = queue(&crate::store::over(&conn), &now).unwrap();
         assert_eq!(q2.unsorted.len(), 8);
@@ -1739,11 +2275,15 @@ mod tests {
     }
 
     fn topic_named(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT id FROM topics WHERE name = ?1", [name], |r| r.get(0))
+            .unwrap()
     }
 
     fn exists(conn: &Connection, item: i64) -> bool {
-        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1)", [item], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1)", [item], |r| {
+            r.get(0)
+        })
+        .unwrap()
     }
 
     #[test]
@@ -1758,13 +2298,27 @@ mod tests {
         let marco = &inc.messages[1].who;
         assert!(!marco.known);
         assert_eq!(marco.account.as_ref().map(|a| a.id.as_str()), Some("U0MARCO"));
-        assert_eq!(marco.color, people::hash_color("marco.rossi@work.com"), "coloured by his profile email");
+        assert_eq!(
+            marco.color,
+            people::hash_color("marco.rossi@work.com"),
+            "coloured by his profile email"
+        );
         let np = inc.new_person.as_ref().expect("Marco is in 3 signals today");
-        assert_eq!((np.account.as_str(), np.name.as_str(), np.signals), ("U0MARCO", "Marco R.", 3));
-        assert_eq!((np.real_name.as_deref(), np.email.as_deref()), (Some("Marco Rossi"), Some("marco.rossi@work.com")));
+        assert_eq!(
+            (np.account.as_str(), np.name.as_str(), np.signals),
+            ("U0MARCO", "Marco R.", 3)
+        );
+        assert_eq!(
+            (np.real_name.as_deref(), np.email.as_deref()),
+            (Some("Marco Rossi"), Some("marco.rossi@work.com"))
+        );
         let invite = acme.signals.iter().find(|s| s.source == "gcal").unwrap();
         let author = invite.author.as_ref().expect("the invite's organiser");
-        assert_eq!((author.name.as_str(), author.who.known), ("Sam", true), "matched like a message sender");
+        assert_eq!(
+            (author.name.as_str(), author.who.known),
+            ("Sam", true),
+            "matched like a message sender"
+        );
         assert!(invite.meta.starts_with("Sam · "));
         let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
         assert!(dm.messages[1].who.me, "your own messages are you, in your colour");
@@ -1780,10 +2334,23 @@ mod tests {
         let dm = acme.signals.iter().find(|s| s.title == "DM · Jordan").unwrap();
         assert!(dm.split);
         let times: Vec<(&str, bool)> = dm.messages.iter().map(|m| (m.time.as_str(), m.gap)).collect();
-        assert_eq!(times, [("09:12", false), ("09:13", false), ("09:40", true), ("09:41", false), ("10:30", true)]);
+        assert_eq!(
+            times,
+            [
+                ("09:12", false),
+                ("09:13", false),
+                ("09:40", true),
+                ("09:41", false),
+                ("10:30", true)
+            ]
+        );
         assert!(!acme.signals.iter().find(|s| s.title == "#inc-2291").unwrap().split);
         let chan = acme.signals.iter().find(|s| s.title == "#acme-incident").unwrap();
-        assert_eq!(chan.messages[0].replies.len(), 4, "the thread rides with its first message");
+        assert_eq!(
+            chan.messages[0].replies.len(),
+            4,
+            "the thread rides with its first message"
+        );
     }
 
     #[test]
@@ -1792,8 +2359,21 @@ mod tests {
         let settings = PeopleSettings::default();
         let acme = topic_named(&conn, "Acme outage");
         let q4 = topic_named(&conn, "Q4 headcount");
-        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, None, &settings).unwrap();
+        let dm: i64 = conn
+            .query_row(
+                "SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            None,
+            &settings,
+        )
+        .unwrap();
         assert_eq!((f.conv, f.root, f.messages.len()), ("dm", dm, 11));
         let topics: Vec<Option<i64>> = f.parts.iter().map(|p| p.topic.as_ref().map(|t| t.id)).collect();
         assert_eq!(topics, [Some(acme), Some(q4), None]);
@@ -1802,8 +2382,26 @@ mod tests {
         assert!(f.messages.iter().all(|m| m.part.is_some()));
 
         // t to a topic that has a group: straight into that part; u moves it back.
-        assert_eq!(review_move(&crate::store::over(&conn), uns, &[at("10:04")], To::Topic(acme), None).unwrap(), dm);
-        assert_eq!(family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, None, &settings).unwrap().messages.iter().find(|m| m.time == "10:04").unwrap().part, Some(dm));
+        assert_eq!(
+            review_move(&crate::store::over(&conn), uns, &[at("10:04")], To::Topic(acme), None).unwrap(),
+            dm
+        );
+        assert_eq!(
+            family(
+                &crate::store::over(&conn),
+                &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+                dm,
+                None,
+                &settings
+            )
+            .unwrap()
+            .messages
+            .iter()
+            .find(|m| m.time == "10:04")
+            .unwrap()
+            .part,
+            Some(dm)
+        );
         review_move(&crate::store::over(&conn), dm, &[at("10:04")], To::Part(uns), None).unwrap();
 
         // A topic with no group yet: a new part, suggested to it.
@@ -1813,16 +2411,35 @@ mod tests {
         assert_eq!(link_state(&conn, part, career).unwrap().as_deref(), Some("suggested"));
         // d: dismissed in place, into the family's seen part; a second one joins it.
         let bin = review_dismiss(&crate::store::over(&conn), uns, &[at("10:03")]).unwrap();
-        assert_eq!(review_dismiss(&crate::store::over(&conn), uns, &[at("10:04")]).unwrap(), bin);
-        let f2 = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, None, &settings).unwrap();
+        assert_eq!(
+            review_dismiss(&crate::store::over(&conn), uns, &[at("10:04")]).unwrap(),
+            bin
+        );
+        let f2 = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            None,
+            &settings,
+        )
+        .unwrap();
         assert!(f2.parts.iter().any(|p| p.item_id == bin && p.dismissed));
-        assert_eq!(f2.messages.len(), 11, "dismissed messages stay in the review, struck through");
+        assert_eq!(
+            f2.messages.len(),
+            11,
+            "dismissed messages stay in the review, struck through"
+        );
         assert!(!exists(&conn, uns), "the emptied Unsorted part is pruned");
         // u: back to Unsorted, which is made again.
         let uns2 = review_move(&crate::store::over(&conn), bin, &[at("10:04")], To::Unsorted, None).unwrap();
-        assert_eq!(review_move(&crate::store::over(&conn), bin, &[at("10:03")], To::Unsorted, None).unwrap(), uns2);
+        assert_eq!(
+            review_move(&crate::store::over(&conn), bin, &[at("10:03")], To::Unsorted, None).unwrap(),
+            uns2
+        );
         assert!(!exists(&conn, bin), "the dismissed part goes once it's empty");
-        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [uns2], |r| r.get(0)).unwrap();
+        let seen: bool = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [uns2], |r| r.get(0))
+            .unwrap();
         assert!(!seen);
         // Moving every message out of a part removes it.
         let career_msgs = super::super::split::message_ids(&conn, part).unwrap();
@@ -1831,17 +2448,33 @@ mod tests {
         assert_eq!(super::super::split::message_ids(&conn, uns2).unwrap().len(), 3);
 
         // ↵ confirms every part with a topic; Unsorted stays.
-        assert_eq!(review_confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm).unwrap(), 2);
+        assert_eq!(
+            review_confirm(
+                &crate::store::over(&conn),
+                crate::time::Ts::new(jiff::Timestamp::now()),
+                dm
+            )
+            .unwrap(),
+            2
+        );
         assert_eq!(link_state(&conn, dm, acme).unwrap().as_deref(), Some("confirmed"));
         let q = queue(&crate::store::over(&conn), &now).unwrap();
-        assert!(!q.topics.iter().flat_map(|t| &t.signals).any(|s| s.title == "DM · Jordan"));
+        assert!(!q
+            .topics
+            .iter()
+            .flat_map(|t| &t.signals)
+            .any(|s| s.title == "DM · Jordan"));
         assert!(q.unsorted.iter().any(|s| s.item_id == uns2));
         assert_eq!(unseen(&conn) as usize, shown(&q));
         // Moving Unsorted's messages into a confirmed part files them there:
         // the family is settled and the conversation is marked read once.
         let rest = super::super::split::message_ids(&conn, uns2).unwrap();
         review_move(&crate::store::over(&conn), uns2, &rest, To::Part(dm), None).unwrap();
-        let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        let marks: i64 = conn
+            .query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(marks, 0, "a move isn't a confirm");
     }
 
@@ -1851,23 +2484,68 @@ mod tests {
         let acme = topic_named(&conn, "Acme outage");
         let webhook = topic_named(&conn, "Webhook reliability");
         let item: i64 = conn
-            .query_row("SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1", [acme], |r| r.get(0))
+            .query_row(
+                "SELECT item_id FROM topic_links WHERE topic_id = ?1 AND state = 'confirmed' LIMIT 1",
+                [acme],
+                |r| r.get(0),
+            )
             .unwrap();
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![item, webhook]).unwrap();
-        let moved = reclassify(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, Some(acme), webhook).unwrap();
-        assert_eq!(moved, [Moved { item_id: item, from_state: Some("confirmed".into()), to_state: Some("wrong".into()), seen: true, unread: vec![] }]);
-        assert_eq!(link_state(&conn, item, acme).unwrap().as_deref(), Some("wrong"), "one topic per signal");
-        assert_eq!(link_state(&conn, item, webhook).unwrap().as_deref(), Some("confirmed"), "filed straight away");
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+            params![item, webhook],
+        )
+        .unwrap();
+        let moved = reclassify(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            Some(acme),
+            webhook,
+        )
+        .unwrap();
+        assert_eq!(
+            moved,
+            [Moved {
+                item_id: item,
+                from_state: Some("confirmed".into()),
+                to_state: Some("wrong".into()),
+                seen: true,
+                unread: vec![]
+            }]
+        );
+        assert_eq!(
+            link_state(&conn, item, acme).unwrap().as_deref(),
+            Some("wrong"),
+            "one topic per signal"
+        );
+        assert_eq!(
+            link_state(&conn, item, webhook).unwrap().as_deref(),
+            Some("confirmed"),
+            "filed straight away"
+        );
         unreclassify(&crate::store::over(&conn), &moved, Some(acme), webhook).unwrap();
         assert_eq!(link_state(&conn, item, acme).unwrap().as_deref(), Some("confirmed"));
         assert_eq!(link_state(&conn, item, webhook).unwrap().as_deref(), Some("wrong"));
         // A signal with no topic (from search) just gets one; undo removes it.
-        let pr: i64 = conn.query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| r.get(0)).unwrap();
-        let moved = reclassify(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), pr, None, webhook).unwrap();
+        let pr: i64 = conn
+            .query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let moved = reclassify(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            pr,
+            None,
+            webhook,
+        )
+        .unwrap();
         assert_eq!(link_state(&conn, pr, webhook).unwrap().as_deref(), Some("confirmed"));
         unreclassify(&crate::store::over(&conn), &moved, None, webhook).unwrap();
         assert_eq!(link_state(&conn, pr, webhook).unwrap(), None);
-        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0)).unwrap();
+        let seen: bool = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0))
+            .unwrap();
         assert!(!seen, "back in Incoming as it was");
     }
 
@@ -1878,11 +2556,26 @@ mod tests {
         let uow = crate::store::over(&conn);
         let acme = topic_named(&conn, "Acme outage");
         let webhook = topic_named(&conn, "Webhook reliability");
-        let pr: i64 = conn.query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| r.get(0)).unwrap();
-        let seen = || -> bool { conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0)).unwrap() };
-        conn.execute("DELETE FROM topic_links WHERE item_id = ?1", [pr]).unwrap();
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![pr, acme]).unwrap();
-        let before = (link_state(&conn, pr, acme).unwrap(), link_state(&conn, pr, webhook).unwrap());
+        let pr: i64 = conn
+            .query_row("SELECT id FROM items WHERE kind = 'pr' AND seen = 0 LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let seen = || -> bool {
+            conn.query_row("SELECT seen FROM items WHERE id = ?1", [pr], |r| r.get(0))
+                .unwrap()
+        };
+        conn.execute("DELETE FROM topic_links WHERE item_id = ?1", [pr])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![pr, acme],
+        )
+        .unwrap();
+        let before = (
+            link_state(&conn, pr, acme).unwrap(),
+            link_state(&conn, pr, webhook).unwrap(),
+        );
         let moved = snapshot(&uow, pr, None, acme).unwrap();
         wrong(&uow, pr, acme).unwrap();
         assert_eq!(link_state(&conn, pr, acme).unwrap().as_deref(), Some("wrong"));
@@ -1893,7 +2586,13 @@ mod tests {
         assert_eq!(link_state(&conn, pr, webhook).unwrap().as_deref(), Some("confirmed"));
         assert!(seen());
         unfile(&uow, &moved, Some(acme), webhook, true).unwrap();
-        assert_eq!((link_state(&conn, pr, acme).unwrap(), link_state(&conn, pr, webhook).unwrap()), before);
+        assert_eq!(
+            (
+                link_state(&conn, pr, acme).unwrap(),
+                link_state(&conn, pr, webhook).unwrap()
+            ),
+            before
+        );
         assert!(!seen(), "back in Incoming");
     }
 
@@ -1903,13 +2602,41 @@ mod tests {
         conn.execute("UPDATE sources SET config_json = '{\"category_labels\": {\"work\": \"Work\", \"jobs\": \"Jobs\"}}' WHERE kind = 'gmail'", []).unwrap();
         let career = topic_named(&conn, "Career");
         let acme = topic_named(&conn, "Acme outage");
-        let mail: i64 = conn.query_row("SELECT id FROM items WHERE title LIKE 'Lee%calibration%'", [], |r| r.get(0)).unwrap();
-        conn.execute("UPDATE items SET raw_json = '{\"thread_id\": \"t1\"}' WHERE id = ?1", [mail]).unwrap();
-        confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), mail, career).unwrap();
+        let mail: i64 = conn
+            .query_row("SELECT id FROM items WHERE title LIKE 'Lee%calibration%'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        conn.execute(
+            "UPDATE items SET raw_json = '{\"thread_id\": \"t1\"}' WHERE id = ?1",
+            [mail],
+        )
+        .unwrap();
+        confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            mail,
+            career,
+        )
+        .unwrap();
         conn.execute("DELETE FROM outbox", []).unwrap();
-        reclassify(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), mail, Some(career), acme).unwrap();
-        let payload: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'gmail.relabel'", [], |r| r.get(0)).unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({ "thread_id": "t1", "remove": "Jobs", "add": "Work" }));
+        reclassify(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            mail,
+            Some(career),
+            acme,
+        )
+        .unwrap();
+        let payload: String = conn
+            .query_row("SELECT payload_json FROM outbox WHERE op = 'gmail.relabel'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&payload).unwrap(),
+            json!({ "thread_id": "t1", "remove": "Jobs", "add": "Work" })
+        );
     }
 
     #[test]
@@ -1918,24 +2645,67 @@ mod tests {
         let settings = PeopleSettings::default();
         let acme = topic_named(&conn, "Acme outage");
         let webhook = topic_named(&conn, "Webhook reliability");
-        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
-        review_confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm).unwrap();
+        let dm: i64 = conn
+            .query_row(
+                "SELECT id FROM items WHERE title = 'DM · Jordan' AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        review_confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            dm,
+        )
+        .unwrap();
         // Reviewing just this filed signal: only its own part (and nothing from Incoming).
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, Some(&[dm]), &settings).unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            Some(&[dm]),
+            &settings,
+        )
+        .unwrap();
         assert_eq!(f.parts.len(), 1);
         assert_eq!(f.parts[0].topic.as_ref().map(|t| t.id), Some(acme));
         assert_eq!(f.messages.len(), 5);
         let last = f.messages.last().unwrap().id;
         let part = review_move(&crate::store::over(&conn), dm, &[last], To::Topic(webhook), Some(&[dm])).unwrap();
         assert_eq!(link_state(&conn, part, webhook).unwrap().as_deref(), Some("confirmed"));
-        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [part], |r| r.get(0)).unwrap();
+        let seen: bool = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [part], |r| r.get(0))
+            .unwrap();
         assert!(seen, "filed, not back in Incoming");
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, Some(&[dm, part]), &settings).unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            Some(&[dm, part]),
+            &settings,
+        )
+        .unwrap();
         assert_eq!(f.parts.len(), 2);
         // u: back to its old group by topic.
-        assert_eq!(review_move(&crate::store::over(&conn), part, &[last], To::Topic(acme), Some(&[dm, part])).unwrap(), dm);
+        assert_eq!(
+            review_move(
+                &crate::store::over(&conn),
+                part,
+                &[last],
+                To::Topic(acme),
+                Some(&[dm, part])
+            )
+            .unwrap(),
+            dm
+        );
         assert!(!exists(&conn, part));
-        let d = detail(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, &settings).unwrap();
+        let d = detail(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            &settings,
+        )
+        .unwrap();
         assert_eq!((d.messages.len(), d.source.as_str()), (5, "slack"));
     }
 
@@ -1946,26 +2716,60 @@ mod tests {
         let acme = topic_named(&conn, "Acme outage");
         let q4 = topic_named(&conn, "Q4 headcount");
         // Under a topic: one part, its suggested topic.
-        let inc: i64 = conn.query_row("SELECT id FROM items WHERE title = '#inc-2291'", [], |r| r.get(0)).unwrap();
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), inc, None, &settings).unwrap();
+        let inc: i64 = conn
+            .query_row("SELECT id FROM items WHERE title = '#inc-2291'", [], |r| r.get(0))
+            .unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            inc,
+            None,
+            &settings,
+        )
+        .unwrap();
         assert_eq!(f.parts.len(), 1);
         assert_eq!(f.parts[0].topic.as_ref().map(|t| t.id), Some(acme));
         let marco = f.messages.iter().find(|m| m.author == "Marco R.").unwrap().id;
         let part = review_move(&crate::store::over(&conn), inc, &[marco], To::Topic(q4), None).unwrap();
         assert_ne!(part, inc);
         assert_eq!(link_state(&conn, part, q4).unwrap().as_deref(), Some("suggested"));
-        assert_eq!(review_confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), inc).unwrap(), 2);
+        assert_eq!(
+            review_confirm(
+                &crate::store::over(&conn),
+                crate::time::Ts::new(jiff::Timestamp::now()),
+                inc
+            )
+            .unwrap(),
+            2
+        );
         assert_eq!(link_state(&conn, inc, acme).unwrap().as_deref(), Some("confirmed"));
         assert_eq!(link_state(&conn, part, q4).unwrap().as_deref(), Some("confirmed"));
 
         // In Unsorted: the rest stays there.
-        let dm: i64 = conn.query_row("SELECT id FROM items WHERE title = 'DM · Priya'", [], |r| r.get(0)).unwrap();
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), dm, None, &settings).unwrap();
+        let dm: i64 = conn
+            .query_row("SELECT id FROM items WHERE title = 'DM · Priya'", [], |r| r.get(0))
+            .unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            dm,
+            None,
+            &settings,
+        )
+        .unwrap();
         assert!(f.parts[0].topic.is_none());
         let first = f.messages[0].id;
         let v1 = topic_named(&conn, "v1 ingest deprecation");
         review_move(&crate::store::over(&conn), dm, &[first], To::Topic(v1), None).unwrap();
-        assert_eq!(review_confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm).unwrap(), 1);
+        assert_eq!(
+            review_confirm(
+                &crate::store::over(&conn),
+                crate::time::Ts::new(jiff::Timestamp::now()),
+                dm
+            )
+            .unwrap(),
+            1
+        );
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         assert!(q.unsorted.iter().any(|s| s.item_id == dm && s.messages.len() == 3));
         assert_eq!(unseen(&conn) as usize, shown(&q));
@@ -1974,15 +2778,40 @@ mod tests {
     #[test]
     fn confirming_a_review_leaves_the_unsorted_group_in_incoming() {
         let (conn, now, _d) = setup();
-        let chan: i64 = conn.query_row("SELECT id FROM items WHERE title = '#acme-incident' AND parent_id IS NULL", [], |r| r.get(0)).unwrap();
-        let f = family(&crate::store::over(&conn), &crate::sync::test_clock("2026-09-27T10:52:00Z"), chan, None, &PeopleSettings::default()).unwrap();
+        let chan: i64 = conn
+            .query_row(
+                "SELECT id FROM items WHERE title = '#acme-incident' AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let f = family(
+            &crate::store::over(&conn),
+            &crate::sync::test_clock("2026-09-27T10:52:00Z"),
+            chan,
+            None,
+            &PeopleSettings::default(),
+        )
+        .unwrap();
         assert_eq!(f.conv, "channel");
         assert_eq!(f.messages[0].replies.len(), 4);
         let uns = f.parts.iter().find(|p| p.topic.is_none()).unwrap().item_id;
-        assert_eq!(review_confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), chan).unwrap(), 2);
+        assert_eq!(
+            review_confirm(
+                &crate::store::over(&conn),
+                crate::time::Ts::new(jiff::Timestamp::now()),
+                chan
+            )
+            .unwrap(),
+            2
+        );
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         assert!(q.unsorted.iter().any(|s| s.item_id == uns));
-        let marks: i64 = conn.query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        let marks: i64 = conn
+            .query_row("SELECT count(*) FROM outbox WHERE op = 'slack.mark_read'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(marks, 0, "not marked read while part of it is still in Incoming");
         assert!(review_move(&crate::store::over(&conn), uns, &[9999], To::Part(chan), None).is_err());
     }
@@ -1995,13 +2824,23 @@ mod tests {
         assert_eq!(dm.messages.len(), 4);
         let v1 = topic_named(&conn, "v1 ingest deprecation");
         let picked = [dm.messages[1].id, dm.messages[0].id, dm.messages[0].id];
-        let child = split_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, &picked, v1).unwrap();
+        let child = split_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            dm.item_id,
+            &picked,
+            v1,
+        )
+        .unwrap();
         assert_ne!(child, dm.item_id);
         assert_eq!(link_state(&conn, child, v1).unwrap().as_deref(), Some("confirmed"));
         assert_eq!(link_state(&conn, dm.item_id, v1).unwrap(), None);
 
         let q2 = queue(&crate::store::over(&conn), &now).unwrap();
-        assert!(!q2.unsorted.iter().any(|s| s.item_id == child), "the split-off part is filed");
+        assert!(
+            !q2.unsorted.iter().any(|s| s.item_id == child),
+            "the split-off part is filed"
+        );
         let rest = q2.unsorted.iter().find(|s| s.item_id == dm.item_id).unwrap();
         let texts: Vec<&str> = rest.messages.iter().map(|m| m.text.as_str()).collect();
         assert_eq!(texts.len(), 2);
@@ -2011,20 +2850,54 @@ mod tests {
 
         // The child shows in the topic's chronology like any confirmed item.
         let n: i64 = conn
-            .query_row("SELECT count(*) FROM topic_links WHERE topic_id = ?1 AND item_id = ?2 AND state = 'confirmed'", params![v1, child], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM topic_links WHERE topic_id = ?1 AND item_id = ?2 AND state = 'confirmed'",
+                params![v1, child],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(n, 1);
 
         // Selecting everything that's left is a plain move of the item.
         let all: Vec<i64> = rest.messages.iter().map(|m| m.id).collect();
         let q4 = topic_named(&conn, "Q4 headcount");
-        assert_eq!(split_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, &all, q4).unwrap(), dm.item_id);
+        assert_eq!(
+            split_to(
+                &crate::store::over(&conn),
+                crate::time::Ts::new(jiff::Timestamp::now()),
+                dm.item_id,
+                &all,
+                q4
+            )
+            .unwrap(),
+            dm.item_id
+        );
         assert_eq!(link_state(&conn, dm.item_id, q4).unwrap().as_deref(), Some("confirmed"));
         // Nothing selected, or someone else's message: refused, nothing changes.
-        assert!(split_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, &[], q4).is_err());
+        assert!(split_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            dm.item_id,
+            &[],
+            q4
+        )
+        .is_err());
         let before: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
-        let other = q2.topics[0].signals.iter().find(|s| !s.messages.is_empty()).unwrap().messages[0].id;
-        assert!(split_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, &[all[0], other], q4).is_err());
+        let other = q2.topics[0]
+            .signals
+            .iter()
+            .find(|s| !s.messages.is_empty())
+            .unwrap()
+            .messages[0]
+            .id;
+        assert!(split_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            dm.item_id,
+            &[all[0], other],
+            q4
+        )
+        .is_err());
         let after: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(before, after);
     }
@@ -2032,9 +2905,19 @@ mod tests {
     /// A run of DM messages in the sample Slack source, keyed by ts, suggested to `topic`.
     fn slack_run(conn: &Connection, ts: &[&str]) -> i64 {
         use crate::sync::{apply_now, Batch, ItemUpsert, Message as M};
-        let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0)).unwrap();
+        let sid: i64 = conn
+            .query_row("SELECT id FROM sources WHERE kind = 'slack'", [], |r| r.get(0))
+            .unwrap();
         let src = crate::sync::load_source(conn, sid).unwrap();
-        let messages = ts.iter().map(|t| M { at: crate::time::Ts::from_unix_secs(1_790_000_000.0 + t.parse::<f64>().unwrap()).unwrap(), author: "Ana".into(), text: format!("m {t}"), ..Default::default() }).collect();
+        let messages = ts
+            .iter()
+            .map(|t| M {
+                at: crate::time::Ts::from_unix_secs(1_790_000_000.0 + t.parse::<f64>().unwrap()).unwrap(),
+                author: "Ana".into(),
+                text: format!("m {t}"),
+                ..Default::default()
+            })
+            .collect();
         let it = ItemUpsert {
             external_id: "D9/100.1".into(),
             kind: "thread".into(),
@@ -2046,14 +2929,32 @@ mod tests {
             bump: true,
             ..Default::default()
         };
-        apply_now(conn, &src, &Batch { items: vec![it], ..Default::default() }).unwrap();
-        conn.query_row("SELECT id FROM items WHERE external_id = 'D9/100.1'", [], |r| r.get(0)).unwrap()
+        apply_now(
+            conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        conn.query_row("SELECT id FROM items WHERE external_id = 'D9/100.1'", [], |r| r.get(0))
+            .unwrap()
     }
 
     fn listed(conn: &Connection, now: &Clock, item: i64) -> Saw {
         let q = queue(&crate::store::over(conn), now).unwrap();
-        let s = q.topics.iter().flat_map(|t| &t.signals).chain(&q.unsorted).find(|s| s.item_id == item).unwrap();
-        Saw { rev: s.rev, keys: s.keys.clone() }
+        let s = q
+            .topics
+            .iter()
+            .flat_map(|t| &t.signals)
+            .chain(&q.unsorted)
+            .find(|s| s.item_id == item)
+            .unwrap();
+        Saw {
+            rev: s.rev,
+            keys: s.keys.clone(),
+        }
     }
 
     #[test]
@@ -2061,7 +2962,11 @@ mod tests {
         let (conn, now, _d) = setup();
         let item = slack_run(&conn, &["100.1", "100.2"]);
         let topic = topic_named(&conn, "Q4 planning");
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![item, topic]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![item, topic],
+        )
+        .unwrap();
         let saw = listed(&conn, &now, item);
         assert_eq!(saw.keys, ["100.1", "100.2"]);
         // A sync lands a third message after the list was rendered.
@@ -2070,7 +2975,9 @@ mod tests {
         assert!(changed);
         // Filed under the topic, still in Incoming, with only the new message new.
         assert_eq!(link_state(&conn, item, topic).unwrap().as_deref(), Some("confirmed"));
-        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        let seen: bool = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
         assert!(!seen);
         let read: Vec<(String, bool)> = conn
             .prepare("SELECT ext_key, read FROM item_messages WHERE item_id = ?1 ORDER BY at")
@@ -2079,9 +2986,18 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert_eq!(read, vec![("100.1".into(), true), ("100.2".into(), true), ("100.3".into(), false)]);
+        assert_eq!(
+            read,
+            vec![("100.1".into(), true), ("100.2".into(), true), ("100.3".into(), false)]
+        );
         // Slack is marked read up to what you saw, not past it.
-        let mark: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = 'slack.mark_read'", [], |r| r.get(0)).unwrap();
+        let mark: String = conn
+            .query_row(
+                "SELECT payload_json FROM outbox WHERE op = 'slack.mark_read'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(serde_json::from_str::<Value>(&mark).unwrap()["ts"], "100.2");
     }
 
@@ -2091,7 +3007,9 @@ mod tests {
         let item = slack_run(&conn, &["100.1", "100.2"]);
         let saw = listed(&conn, &now, item);
         assert!(!dismiss_seen(&crate::store::over(&conn), item, Some(&saw)).unwrap());
-        let seen: bool = conn.query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        let seen: bool = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
         assert!(seen);
     }
 
@@ -2100,12 +3018,21 @@ mod tests {
         let (conn, now, _d) = setup();
         let thread = q_gmail_thread(&conn);
         let topic = topic_named(&conn, "Acme outage");
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![thread, topic]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![thread, topic],
+        )
+        .unwrap();
         // You saw g1; g2 came in after.
-        let saw = Saw { rev: -1, keys: vec!["g1".into()] };
+        let saw = Saw {
+            rev: -1,
+            keys: vec!["g1".into()],
+        };
         confirm_seen(&crate::store::over(&conn), now.now(), thread, topic, Some(&saw)).unwrap();
         let payload = |op: &str| -> Value {
-            let p: String = conn.query_row("SELECT payload_json FROM outbox WHERE op = ?1", [op], |r| r.get(0)).unwrap();
+            let p: String = conn
+                .query_row("SELECT payload_json FROM outbox WHERE op = ?1", [op], |r| r.get(0))
+                .unwrap();
             serde_json::from_str(&p).unwrap()
         };
         assert_eq!(payload("gmail.file")["message_ids"], json!(["g1"]));
@@ -2115,7 +3042,9 @@ mod tests {
 
     /// A Gmail thread item of the sample Gmail source with messages g1 and g2.
     fn q_gmail_thread(conn: &Connection) -> i64 {
-        let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'gmail'", [], |r| r.get(0)).unwrap();
+        let sid: i64 = conn
+            .query_row("SELECT id FROM sources WHERE kind = 'gmail'", [], |r| r.get(0))
+            .unwrap();
         conn.execute(
             r#"INSERT INTO items (source_id, external_id, kind, title, occurred_at, raw_json) VALUES (?1, 'th1', 'thread', 'Re: renewal', '2026-09-27T09:00:00.000Z', '{"thread_id":"th1","msgs":["g1","g2"]}')"#,
             [sid],
@@ -2147,15 +3076,35 @@ mod tests {
         let child = super::super::split::split_off(&tx, dm.item_id, &[dm.messages[3].id]).unwrap();
         tx.commit().unwrap();
         let q4 = topic_named(&conn, "Q4 planning");
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![child, q4]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![child, q4],
+        )
+        .unwrap();
         // Confirming it while the older part is still new must not mark the DM
         // read in Slack (that would mark the older messages read too).
-        confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), child, q4).unwrap();
+        confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            child,
+            q4,
+        )
+        .unwrap();
         assert!(marks().is_empty());
         // Once the rest is triaged, the conversation is marked up to the newest part.
         let v1 = topic_named(&conn, "v1 ingest deprecation");
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')", params![dm.item_id, v1]).unwrap();
-        confirm(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), dm.item_id, v1).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![dm.item_id, v1],
+        )
+        .unwrap();
+        confirm(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            dm.item_id,
+            v1,
+        )
+        .unwrap();
         let m = marks();
         assert_eq!(m.len(), 1);
         let v: Value = serde_json::from_str(&m[0]).unwrap();
@@ -2168,8 +3117,17 @@ mod tests {
         let q = queue(&crate::store::over(&conn), &now).unwrap();
         let q4 = &q.topics[topic(&q, "Q4 headcount").unwrap()];
         let item = q4.signals[0].item_id;
-        let target: i64 = conn.query_row("SELECT id FROM topics WHERE name = 'Q4 planning'", [], |r| r.get(0)).unwrap();
-        move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), item, target, Some(q4.id)).unwrap();
+        let target: i64 = conn
+            .query_row("SELECT id FROM topics WHERE name = 'Q4 planning'", [], |r| r.get(0))
+            .unwrap();
+        move_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            item,
+            target,
+            Some(q4.id),
+        )
+        .unwrap();
         assert_eq!(link_state(&conn, item, q4.id).unwrap().as_deref(), Some("wrong"));
         assert_eq!(link_state(&conn, item, target).unwrap().as_deref(), Some("confirmed"));
         // Picking a topic that was once marked wrong turns it back to confirmed.
@@ -2177,7 +3135,14 @@ mod tests {
         let acme = &q.topics[topic(&q, "Acme outage").unwrap()];
         let it = acme.signals[0].item_id;
         wrong(&crate::store::over(&conn), it, acme.id).unwrap();
-        move_to(&crate::store::over(&conn), crate::time::Ts::new(jiff::Timestamp::now()), it, acme.id, None).unwrap();
+        move_to(
+            &crate::store::over(&conn),
+            crate::time::Ts::new(jiff::Timestamp::now()),
+            it,
+            acme.id,
+            None,
+        )
+        .unwrap();
         assert_eq!(link_state(&conn, it, acme.id).unwrap().as_deref(), Some("confirmed"));
     }
 }

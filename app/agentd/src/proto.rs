@@ -13,7 +13,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
-    Hello { protocol: u32 },
+    Hello {
+        protocol: u32,
+    },
     /// Start an agent. `id` is the app's session id; it names the log too.
     /// `after`: number events from here on (the app's place in this id's log), so
     /// an agent started again under the same id never reuses a number.
@@ -27,26 +29,49 @@ pub enum Request {
         after: u64,
     },
     /// A line for the agent's stdin (an ACP message).
-    Write { id: String, line: String },
+    Write {
+        id: String,
+        line: String,
+    },
     /// Stop the agent (its whole process group).
-    Kill { id: String },
+    Kill {
+        id: String,
+    },
     List,
     /// Events after `from[id]` for every agent (0 or missing: from the start), then live ones.
-    Subscribe { from: BTreeMap<String, u64> },
+    Subscribe {
+        from: BTreeMap<String, u64>,
+    },
     /// Drop an exited agent's log.
-    Forget { id: String },
+    Forget {
+        id: String,
+    },
     /// Exit. Refused while agents run unless `force`.
-    Shutdown { force: bool },
+    Shutdown {
+        force: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Reply {
-    Hello { protocol: u32, version: String, pid: u32, started_ms: u64 },
-    Spawned { id: String, pid: u32 },
-    Hosts { hosts: Vec<HostInfo> },
+    Hello {
+        protocol: u32,
+        version: String,
+        pid: u32,
+        started_ms: u64,
+    },
+    Spawned {
+        id: String,
+        pid: u32,
+    },
+    Hosts {
+        hosts: Vec<HostInfo>,
+    },
     Ok,
-    Error { error: String },
+    Error {
+        error: String,
+    },
     Ev(Event),
 }
 
@@ -106,12 +131,19 @@ pub fn state_dir(dir: &Path) -> PathBuf {
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Ids name log files, so only a safe set of characters.
 pub fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
 }
 
 #[cfg(test)]
@@ -120,11 +152,25 @@ mod tests {
 
     #[test]
     fn wire_shapes() {
-        let r = serde_json::to_string(&Request::Write { id: "acp-1".into(), line: "{}".into() }).unwrap();
+        let r = serde_json::to_string(&Request::Write {
+            id: "acp-1".into(),
+            line: "{}".into(),
+        })
+        .unwrap();
         assert_eq!(r, r#"{"op":"write","id":"acp-1","line":"{}"}"#);
-        let e = Reply::Ev(Event { id: "acp-1".into(), seq: 3, at_ms: 5, kind: Kind::Out, line: Some("x".into()), code: None });
+        let e = Reply::Ev(Event {
+            id: "acp-1".into(),
+            seq: 3,
+            at_ms: 5,
+            kind: Kind::Out,
+            line: Some("x".into()),
+            code: None,
+        });
         let s = serde_json::to_string(&e).unwrap();
-        assert_eq!(s, r#"{"op":"ev","id":"acp-1","seq":3,"at_ms":5,"kind":"out","line":"x"}"#);
+        assert_eq!(
+            s,
+            r#"{"op":"ev","id":"acp-1","seq":3,"at_ms":5,"kind":"out","line":"x"}"#
+        );
         assert_eq!(serde_json::from_str::<Reply>(&s).unwrap(), e);
     }
 

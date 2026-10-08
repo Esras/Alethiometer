@@ -56,12 +56,29 @@ pub struct Plan {
 }
 
 pub fn manifest_path(data_dir: &Path, sb: &Sandbox) -> PathBuf {
-    let safe = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' }).collect::<String>();
-    data_dir.join("openshell-sync").join(format!("{}--{}.json", safe(if sb.gateway.is_empty() { "active" } else { &sb.gateway }), safe(&sb.name)))
+    let safe = |s: &str| {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+    };
+    data_dir.join("openshell-sync").join(format!(
+        "{}--{}.json",
+        safe(if sb.gateway.is_empty() { "active" } else { &sb.gateway }),
+        safe(&sb.name)
+    ))
 }
 
 pub fn load(path: &Path) -> Manifest {
-    std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
 }
 
 pub fn save(path: &Path, m: &Manifest) -> Result<()> {
@@ -74,24 +91,42 @@ pub fn save(path: &Path, m: &Manifest) -> Result<()> {
 /// The files OpenShell uploads from `dir`: what git lists (tracked, and untracked but not ignored) inside a work tree, else every file.
 pub fn local_files(dir: &Path) -> Result<Vec<String>> {
     if in_git(dir) {
-        let out = git(dir).args(["ls-files", "-co", "--exclude-standard", "-z"]).output().map_err(|e| msg(e.to_string()))?;
+        let out = git(dir)
+            .args(["ls-files", "-co", "--exclude-standard", "-z"])
+            .output()
+            .map_err(|e| msg(e.to_string()))?;
         if !out.status.success() {
             return Err(msg(format!("git ls-files failed in {}", dir.display())));
         }
-        return Ok(out.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| String::from_utf8_lossy(p).into_owned()).filter(|p| !in_dot_git(p)).collect());
+        return Ok(out
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .filter(|p| !in_dot_git(p))
+            .collect());
     }
     walk(dir)
 }
 
 fn in_git(dir: &Path) -> bool {
-    git(dir).args(["rev-parse", "--is-inside-work-tree"]).output().is_ok_and(|o| o.status.success() && o.stdout.starts_with(b"true"))
+    git(dir)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .is_ok_and(|o| o.status.success() && o.stdout.starts_with(b"true"))
 }
 
 /// git in `dir`, with an inherited GIT_DIR or GIT_WORK_TREE (a hook, a devshell) cleared, as OpenShell does.
 fn git(dir: &Path) -> Command {
     let mut c = Command::new("git");
     c.current_dir(dir).stdin(Stdio::null()).stderr(Stdio::null());
-    for v in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"] {
+    for v in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_PREFIX",
+        "GIT_COMMON_DIR",
+    ] {
         c.env_remove(v);
     }
     c
@@ -106,7 +141,8 @@ fn walk(dir: &Path) -> Result<Vec<String>> {
     let mut out = vec![];
     let mut stack = vec![PathBuf::new()];
     while let Some(rel) = stack.pop() {
-        let entries = std::fs::read_dir(dir.join(&rel)).map_err(|e| msg(format!("{}: {e}", dir.join(&rel).display())))?;
+        let entries =
+            std::fs::read_dir(dir.join(&rel)).map_err(|e| msg(format!("{}: {e}", dir.join(&rel).display())))?;
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if name == ".git" {
@@ -136,12 +172,18 @@ pub fn hash(path: &Path) -> Option<String> {
     }
     let bytes = std::fs::read(path).ok()?;
     let d = ring::digest::digest(&ring::digest::SHA256, &bytes);
-    Some(format!("sha256:{}", d.as_ref().iter().map(|b| format!("{b:02x}")).collect::<String>()))
+    Some(format!(
+        "sha256:{}",
+        d.as_ref().iter().map(|b| format!("{b:02x}")).collect::<String>()
+    ))
 }
 
 /// What was uploaded from `dir`, as it is now (taken right after the upload).
 pub fn snapshot(dir: &Path) -> Result<Manifest> {
-    let files = local_files(dir)?.into_iter().filter_map(|p| Some((p.clone(), hash(&dir.join(&p))?))).collect();
+    let files = local_files(dir)?
+        .into_iter()
+        .filter_map(|p| Some((p.clone(), hash(&dir.join(&p))?)))
+        .collect();
     Ok(Manifest { files })
 }
 
@@ -150,7 +192,14 @@ fn ignored(dir: &Path, paths: &[String]) -> BTreeSet<String> {
     if paths.is_empty() || !in_git(dir) {
         return BTreeSet::new();
     }
-    let Ok(mut child) = git(dir).args(["check-ignore", "--stdin", "-z"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() else { return BTreeSet::new() };
+    let Ok(mut child) = git(dir)
+        .args(["check-ignore", "--stdin", "-z"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+    else {
+        return BTreeSet::new();
+    };
     let input: Vec<u8> = paths.iter().flat_map(|p| p.bytes().chain([0])).collect();
     let mut stdin = child.stdin.take();
     let writer = std::thread::spawn(move || {
@@ -162,7 +211,14 @@ fn ignored(dir: &Path, paths: &[String]) -> BTreeSet<String> {
     let out = child.wait_with_output();
     let _ = writer.join();
     // Exit 1 means nothing is ignored.
-    out.map(|o| o.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| String::from_utf8_lossy(p).into_owned()).collect()).unwrap_or_default()
+    out.map(|o| {
+        o.stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Compare the base, the downloaded sandbox directory (`remote`) and the directory here (`local`).
@@ -175,7 +231,11 @@ pub fn plan(base: &Manifest, local: &Path, remote: &Path) -> Result<Plan> {
     let mut p = Plan::default();
     for path in paths {
         let b = base.files.get(&path).cloned();
-        let s = if remote_set.contains(&path) { hash(&remote.join(&path)) } else { None };
+        let s = if remote_set.contains(&path) {
+            hash(&remote.join(&path))
+        } else {
+            None
+        };
         if s == b {
             continue;
         }
@@ -185,7 +245,12 @@ pub fn plan(base: &Manifest, local: &Path, remote: &Path) -> Result<Plan> {
             (None, Some(_)) => "added",
             _ => "modified",
         };
-        let c = Change { path: path.clone(), what, local: l.clone(), remote: s.clone() };
+        let c = Change {
+            path: path.clone(),
+            what,
+            local: l.clone(),
+            remote: s.clone(),
+        };
         if l == s {
             p.same += 1;
             p.settle.insert(path, s);
@@ -203,11 +268,21 @@ pub fn plan(base: &Manifest, local: &Path, remote: &Path) -> Result<Plan> {
 /// was when planned (else it's a conflict now); with `force` (the sandbox
 /// wins) the conflicts too. Returns the paths applied, the conflicts left
 /// (the plan's and new ones), and the base to keep.
-pub fn apply(plan: &Plan, base: &Manifest, local: &Path, remote: &Path, force: bool) -> (Vec<Change>, Vec<Change>, Manifest) {
+pub fn apply(
+    plan: &Plan,
+    base: &Manifest,
+    local: &Path,
+    remote: &Path,
+    force: bool,
+) -> (Vec<Change>, Vec<Change>, Manifest) {
     let mut done = vec![];
     let mut conflicts = if force { vec![] } else { plan.conflicts.clone() };
     let mut next = base.clone();
-    let todo: Vec<&Change> = plan.changes.iter().chain(plan.conflicts.iter().filter(|_| force)).collect();
+    let todo: Vec<&Change> = plan
+        .changes
+        .iter()
+        .chain(plan.conflicts.iter().filter(|_| force))
+        .collect();
     for c in todo {
         let target = local.join(&c.path);
         if hash(&target) != c.local {
@@ -232,7 +307,11 @@ pub fn apply(plan: &Plan, base: &Manifest, local: &Path, remote: &Path, force: b
             }
         }
     }
-    for (path, h) in plan.settle.iter().filter(|(p, _)| !plan.changes.iter().any(|c| &c.path == *p)) {
+    for (path, h) in plan
+        .settle
+        .iter()
+        .filter(|(p, _)| !plan.changes.iter().any(|c| &c.path == *p))
+    {
         match h {
             Some(h) => next.files.insert(path.clone(), h.clone()),
             None => next.files.remove(path),
@@ -253,9 +332,17 @@ fn put(from: &Path, to: &Path) -> std::io::Result<()> {
         #[cfg(unix)]
         return std::os::unix::fs::symlink(target, to);
         #[cfg(not(unix))]
-        return Err(std::io::Error::other(format!("can't make the symlink to {}", target.display())));
+        return Err(std::io::Error::other(format!(
+            "can't make the symlink to {}",
+            target.display()
+        )));
     }
-    let tmp = to.with_file_name(format!(".{}.alethiometer-tmp", to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+    let tmp = to.with_file_name(format!(
+        ".{}.alethiometer-tmp",
+        to.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ));
     std::fs::copy(from, &tmp)?;
     std::fs::rename(&tmp, to)
 }
@@ -309,7 +396,14 @@ mod tests {
     fn only_what_the_agent_changed_and_you_didnt_comes_back() {
         let local = tempfile::tempdir().unwrap();
         let remote = tempfile::tempdir().unwrap();
-        for (p, t) in [("a.txt", "a"), ("b.txt", "b"), ("c.txt", "c"), ("d.txt", "d"), ("src/e.rs", "e"), ("f.txt", "f")] {
+        for (p, t) in [
+            ("a.txt", "a"),
+            ("b.txt", "b"),
+            ("c.txt", "c"),
+            ("d.txt", "d"),
+            ("src/e.rs", "e"),
+            ("f.txt", "f"),
+        ] {
             write(local.path(), p, t);
             write(remote.path(), p, t);
         }
@@ -325,7 +419,10 @@ mod tests {
         write(remote.path(), ".git/HEAD", "ref: refs/heads/agent"); // the sandbox's own repo
 
         let p = plan(&base, local.path(), remote.path()).unwrap();
-        assert_eq!(paths(&p.changes), [("a.txt", "modified"), ("new/g.txt", "added"), ("src/e.rs", "deleted")]);
+        assert_eq!(
+            paths(&p.changes),
+            [("a.txt", "modified"), ("new/g.txt", "added"), ("src/e.rs", "deleted")]
+        );
         assert_eq!(paths(&p.conflicts), [("b.txt", "modified")]);
         assert_eq!(p.same, 1);
 
@@ -333,10 +430,17 @@ mod tests {
         assert_eq!(done.len(), 3);
         assert_eq!(paths(&conflicts), [("b.txt", "modified")]);
         assert_eq!(std::fs::read_to_string(local.path().join("a.txt")).unwrap(), "a2");
-        assert_eq!(std::fs::read_to_string(local.path().join("b.txt")).unwrap(), "b-mine", "a conflict is left as it is");
+        assert_eq!(
+            std::fs::read_to_string(local.path().join("b.txt")).unwrap(),
+            "b-mine",
+            "a conflict is left as it is"
+        );
         assert_eq!(std::fs::read_to_string(local.path().join("c.txt")).unwrap(), "c-mine");
         assert_eq!(std::fs::read_to_string(local.path().join("new/g.txt")).unwrap(), "g");
-        assert!(!local.path().join("src").exists(), "the deleted file, and the directory it left empty");
+        assert!(
+            !local.path().join("src").exists(),
+            "the deleted file, and the directory it left empty"
+        );
         assert!(!local.path().join(".git").exists(), ".git never comes back");
 
         // The base moved: nothing new to bring back, but the conflict stays one.
@@ -358,7 +462,10 @@ mod tests {
         let (done, conflicts, next) = apply(&p, &base, local.path(), remote.path(), false);
         assert!(done.is_empty());
         assert_eq!(paths(&conflicts), [("a.txt", "modified")]);
-        assert_eq!(std::fs::read_to_string(local.path().join("a.txt")).unwrap(), "typed in the meantime");
+        assert_eq!(
+            std::fs::read_to_string(local.path().join("a.txt")).unwrap(),
+            "typed in the meantime"
+        );
         assert_eq!(next, base, "the base stays where it was");
     }
 
@@ -383,7 +490,11 @@ mod tests {
     fn in_git_ignored_files_stay_in_the_sandbox() {
         let local = tempfile::tempdir().unwrap();
         let remote = tempfile::tempdir().unwrap();
-        let ok = Command::new("git").args(["init", "-q"]).current_dir(local.path()).status().is_ok_and(|s| s.success());
+        let ok = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(local.path())
+            .status()
+            .is_ok_and(|s| s.success());
         if !ok {
             eprintln!("skipped: no git");
             return;
@@ -392,7 +503,11 @@ mod tests {
         write(local.path(), "src/main.js", "1");
         write(local.path(), "debug.log", "local log");
         let base = snapshot(local.path()).unwrap();
-        assert_eq!(base.files.keys().map(String::as_str).collect::<Vec<_>>(), [".gitignore", "src/main.js"], "what OpenShell uploads");
+        assert_eq!(
+            base.files.keys().map(String::as_str).collect::<Vec<_>>(),
+            [".gitignore", "src/main.js"],
+            "what OpenShell uploads"
+        );
         write(remote.path(), ".gitignore", "node_modules/\n*.log\n");
         write(remote.path(), "src/main.js", "2");
         write(remote.path(), "node_modules/x/index.js", "dep");
@@ -403,9 +518,22 @@ mod tests {
 
     #[test]
     fn manifests_are_named_per_gateway_and_sandbox() {
-        let sb = Sandbox { gateway: "my gw/1".into(), name: "aleth-1".into(), ..Default::default() };
-        assert_eq!(manifest_path(Path::new("/d"), &sb), Path::new("/d/openshell-sync/my_gw_1--aleth-1.json"));
-        let active = Sandbox { name: "aleth-1".into(), ..Default::default() };
-        assert_eq!(manifest_path(Path::new("/d"), &active), Path::new("/d/openshell-sync/active--aleth-1.json"));
+        let sb = Sandbox {
+            gateway: "my gw/1".into(),
+            name: "aleth-1".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            manifest_path(Path::new("/d"), &sb),
+            Path::new("/d/openshell-sync/my_gw_1--aleth-1.json")
+        );
+        let active = Sandbox {
+            name: "aleth-1".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            manifest_path(Path::new("/d"), &active),
+            Path::new("/d/openshell-sync/active--aleth-1.json")
+        );
     }
 }

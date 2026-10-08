@@ -19,8 +19,13 @@ impl Connector for Agents {
                 if s("name").is_empty() {
                     anyhow::bail!("no sandbox name");
                 }
-                let command = if s("command").is_empty() { "openshell" } else { s("command") };
-                let out = crate::agents::openshell::delete_sandbox(command, s("gateway"), s("name")).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let command = if s("command").is_empty() {
+                    "openshell"
+                } else {
+                    s("command")
+                };
+                let out = crate::agents::openshell::delete_sandbox(command, s("gateway"), s("name"))
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok(json!({ "deleted": s("name"), "said": out.trim() }))
             }
             _ => anyhow::bail!("the agents source doesn't support '{op}'"),

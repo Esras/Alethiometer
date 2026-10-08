@@ -85,9 +85,9 @@ pub fn prune(conn: &Connection, item_id: i64) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::{apply_now, load_source, register_sources, Batch, ItemUpsert, Message};
     use rusqlite::params;
     use serde_json::{json, Value};
-    use crate::sync::{apply_now, load_source, register_sources, Batch, ItemUpsert, Message};
 
     fn slack() -> (Connection, crate::sync::Source) {
         let conn = crate::db::open_in_memory().unwrap();
@@ -109,7 +109,12 @@ mod tests {
     fn run(ts: &[&str], bump: bool) -> ItemUpsert {
         let messages: Vec<Message> = ts
             .iter()
-            .map(|t| Message { at: crate::time::t(&format!("2026-09-27T09:{t}:00")), author: "Priya".into(), text: format!("msg {t}"), ..Default::default() })
+            .map(|t| Message {
+                at: crate::time::t(&format!("2026-09-27T09:{t}:00")),
+                author: "Priya".into(),
+                text: format!("msg {t}"),
+                ..Default::default()
+            })
             .collect();
         ItemUpsert {
             external_id: "D1/100.01".into(),
@@ -127,20 +132,25 @@ mod tests {
     }
 
     fn texts(conn: &Connection, item: i64) -> Vec<String> {
-        conn.prepare("SELECT text FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id")
-            .unwrap()
-            .query_map([item], |r| r.get(0))
-            .unwrap()
-            .collect::<rusqlite::Result<_>>()
-            .unwrap()
+        conn.prepare(
+            "SELECT text FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id",
+        )
+        .unwrap()
+        .query_map([item], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
     }
 
     fn item_id(conn: &Connection, ext: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE external_id = ?1", [ext], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT id FROM items WHERE external_id = ?1", [ext], |r| r.get(0))
+            .unwrap()
     }
 
     fn raw(conn: &Connection, item: i64) -> Value {
-        let s: String = conn.query_row("SELECT raw_json FROM items WHERE id = ?1", [item], |r| r.get(0)).unwrap();
+        let s: String = conn
+            .query_row("SELECT raw_json FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
         serde_json::from_str(&s).unwrap()
     }
 
@@ -150,11 +160,22 @@ mod tests {
         let mut it = run(&["10", "20"], true);
         it.raw_json["msgs"] = json!(["1790000010.000100", "1790000020.000200"]);
         it.url = Some("https://a.slack.com/archives/D1/p1790000020000200".into());
-        apply_now(&conn, &src, &Batch { items: vec![it], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let parent = item_id(&conn, "D1/100.01");
         let ids = message_ids(&conn, parent).unwrap();
         let child = split_off(&conn, parent, &[ids[0]]).unwrap();
-        let url = |id: i64| -> String { conn.query_row("SELECT url FROM items WHERE id = ?1", [id], |r| r.get(0)).unwrap() };
+        let url = |id: i64| -> String {
+            conn.query_row("SELECT url FROM items WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
         assert_eq!(url(child), "https://a.slack.com/archives/D1/p1790000010000100");
         assert_eq!(url(parent), "https://a.slack.com/archives/D1/p1790000020000200");
     }
@@ -162,38 +183,71 @@ mod tests {
     #[test]
     fn split_moves_messages_and_fixes_both_sides() {
         let (conn, src) = slack();
-        apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12", "13"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12", "13"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let parent = item_id(&conn, "D1/100.01");
         let ids = message_ids(&conn, parent).unwrap();
         let topic: i64 = {
-            conn.execute("INSERT INTO topics (name, category) VALUES ('X', 'work')", []).unwrap();
+            conn.execute("INSERT INTO topics (name, category) VALUES ('X', 'work')", [])
+                .unwrap();
             conn.last_insert_rowid()
         };
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", params![parent, topic]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+            params![parent, topic],
+        )
+        .unwrap();
         let child = split_off(&conn, parent, &[ids[0], ids[1]]).unwrap();
 
         assert_eq!(texts(&conn, child), ["msg 10", "msg 11"]);
         assert_eq!(texts(&conn, parent), ["msg 12", "msg 13"]);
-        let total: i64 = conn.query_row("SELECT count(*) FROM item_messages", [], |r| r.get(0)).unwrap();
+        let total: i64 = conn
+            .query_row("SELECT count(*) FROM item_messages", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(total, 4, "moved, not copied");
         let (ext, pid, count, at, seen): (String, i64, i64, String, i64) = conn
-            .query_row("SELECT external_id, parent_id, msg_count, occurred_at, seen FROM items WHERE id = ?1", [child], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })
+            .query_row(
+                "SELECT external_id, parent_id, msg_count, occurred_at, seen FROM items WHERE id = ?1",
+                [child],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
             .unwrap();
-        assert_eq!((ext.as_str(), pid, count, at.as_str(), seen), ("D1/100.01#1", parent, 2, "2026-09-27T09:10:00.000Z", 0));
+        assert_eq!(
+            (ext.as_str(), pid, count, at.as_str(), seen),
+            ("D1/100.01#1", parent, 2, "2026-09-27T09:10:00.000Z", 0)
+        );
         let c = raw(&conn, child);
         assert_eq!(c["msgs"], json!(["10", "11"]));
         assert_eq!(c["channel"], "D1");
-        assert!(c.get("mark_ts").is_none(), "older part never marks the conversation read");
+        assert!(
+            c.get("mark_ts").is_none(),
+            "older part never marks the conversation read"
+        );
         let p = raw(&conn, parent);
         assert_eq!(p["msgs"], json!(["12", "13"]));
         assert_eq!(p["first_ts"], "12");
-        let (pcount, pat): (i64, String) =
-            conn.query_row("SELECT msg_count, occurred_at FROM items WHERE id = ?1", [parent], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (pcount, pat): (i64, String) = conn
+            .query_row(
+                "SELECT msg_count, occurred_at FROM items WHERE id = ?1",
+                [parent],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!((pcount, pat.as_str()), (2, "2026-09-27T09:12:00.000Z"));
-        let wrong: i64 =
-            conn.query_row("SELECT count(*) FROM topic_links WHERE item_id = ?1 AND state = 'wrong'", [child], |r| r.get(0)).unwrap();
+        let wrong: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM topic_links WHERE item_id = ?1 AND state = 'wrong'",
+                [child],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(wrong, 1, "child inherits wrong-topic exclusions");
 
         // The newest part keeps the read marker; a second split off the parent
@@ -202,21 +256,37 @@ mod tests {
         let newest = split_off(&conn, parent, &[ids[1]]).unwrap();
         let n = raw(&conn, newest);
         assert_eq!(n["mark_ts"], "13");
-        let ext: String = conn.query_row("SELECT external_id FROM items WHERE id = ?1", [newest], |r| r.get(0)).unwrap();
+        let ext: String = conn
+            .query_row("SELECT external_id FROM items WHERE id = ?1", [newest], |r| r.get(0))
+            .unwrap();
         assert_eq!(ext, "D1/100.01#2");
         // Splitting a child again stays in the flat family.
-        assert!(split_off(&conn, child, &message_ids(&conn, child).unwrap()).is_err(), "all messages is a move");
+        assert!(
+            split_off(&conn, child, &message_ids(&conn, child).unwrap()).is_err(),
+            "all messages is a move"
+        );
         let ids = message_ids(&conn, child).unwrap();
         let grand = split_off(&conn, child, &[ids[1]]).unwrap();
-        let (gpid, gext): (i64, String) =
-            conn.query_row("SELECT parent_id, external_id FROM items WHERE id = ?1", [grand], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (gpid, gext): (i64, String) = conn
+            .query_row("SELECT parent_id, external_id FROM items WHERE id = ?1", [grand], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!((gpid, gext.as_str()), (parent, "D1/100.01#3"));
     }
 
     #[test]
     fn bad_selections_are_refused() {
         let (conn, src) = slack();
-        apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let parent = item_id(&conn, "D1/100.01");
         assert!(split_off(&conn, parent, &[]).is_err());
         assert!(split_off(&conn, parent, &[9999]).is_err());
@@ -226,29 +296,75 @@ mod tests {
     #[test]
     fn next_sync_does_not_readd_moved_messages() {
         let (conn, src) = slack();
-        apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let parent = item_id(&conn, "D1/100.01");
         let ids = message_ids(&conn, parent).unwrap();
         let child = split_off(&conn, parent, &[ids[0]]).unwrap();
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
 
         // Same run again, nothing new: moved message stays with the child, no bump.
-        assert_eq!(apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], false)], ..Default::default() }).unwrap(), 0);
+        assert_eq!(
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![run(&["10", "11", "12"], false)],
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            0
+        );
         assert_eq!(texts(&conn, parent), ["msg 11", "msg 12"]);
         assert_eq!(texts(&conn, child), ["msg 10"]);
-        let (count, first): (i64, String) =
-            conn.query_row("SELECT msg_count, json_extract(raw_json, '$.first_ts') FROM items WHERE id = ?1", [parent], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let (count, first): (i64, String) = conn
+            .query_row(
+                "SELECT msg_count, json_extract(raw_json, '$.first_ts') FROM items WHERE id = ?1",
+                [parent],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
         assert_eq!((count, first.as_str()), (2, "11"));
 
         // A new message lands on the parent and makes it new again.
-        assert_eq!(apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12", "14"], true)], ..Default::default() }).unwrap(), 1);
+        assert_eq!(
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![run(&["10", "11", "12", "14"], true)],
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
         assert_eq!(texts(&conn, parent), ["msg 11", "msg 12", "msg 14"]);
         assert_eq!(texts(&conn, child), ["msg 10"]);
 
         // Only moved messages left in the run: the connector's bump doesn't
         // count, and the parent keeps the messages it stored (a sync never
         // removes them; triage does).
-        assert_eq!(apply_now(&conn, &src, &Batch { items: vec![run(&["10"], true)], ..Default::default() }).unwrap(), 0);
+        assert_eq!(
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![run(&["10"], true)],
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            0
+        );
         assert_eq!(texts(&conn, parent), ["msg 11", "msg 12", "msg 14"]);
         assert_eq!(texts(&conn, child), ["msg 10"]);
     }
@@ -267,7 +383,15 @@ mod tests {
     #[test]
     fn a_thread_is_stored_under_its_parent_and_moves_with_it() {
         let (conn, src) = slack();
-        apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], true), thread("11", &["20", "21"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12"], true), thread("11", &["20", "21"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let dm = item_id(&conn, "D1/100.01");
         let n: i64 = conn.query_row("SELECT count(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1, "no thread item");
@@ -280,27 +404,76 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(under(dm), ["msg 20", "msg 21"]);
-        assert_eq!(texts(&conn, dm), ["msg 10", "msg 11", "msg 12"], "replies aren't top-level messages");
+        assert_eq!(
+            texts(&conn, dm),
+            ["msg 10", "msg 11", "msg 12"],
+            "replies aren't top-level messages"
+        );
 
         // The run re-synced keeps the replies; a new reply after triage brings it back.
         conn.execute("UPDATE items SET seen = 1", []).unwrap();
-        apply_now(&conn, &src, &Batch { items: vec![run(&["10", "11", "12"], false)], ..Default::default() }).unwrap();
-        assert_eq!(apply_now(&conn, &src, &Batch { items: vec![thread("11", &["20", "21", "22"], true)], ..Default::default() }).unwrap(), 1);
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12"], false)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![thread("11", &["20", "21", "22"], true)],
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
         assert_eq!(under(dm), ["msg 20", "msg 21", "msg 22"]);
-        let seen: i64 = conn.query_row("SELECT seen FROM items WHERE id = ?1", [dm], |r| r.get(0)).unwrap();
+        let seen: i64 = conn
+            .query_row("SELECT seen FROM items WHERE id = ?1", [dm], |r| r.get(0))
+            .unwrap();
         assert_eq!(seen, 0);
 
         // Splitting the parent off takes its replies; the next reply follows it there.
         let ids = message_ids(&conn, dm).unwrap();
         let child = split_off(&conn, dm, &[ids[1]]).unwrap();
         assert!(under(dm).is_empty());
-        apply_now(&conn, &src, &Batch { items: vec![thread("11", &["20", "21", "22", "23"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![thread("11", &["20", "21", "22", "23"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(under(child), ["msg 20", "msg 21", "msg 22", "msg 23"]);
 
         // Parent never captured: the thread is its own item, and stays one.
-        apply_now(&conn, &src, &Batch { items: vec![thread("05", &["30"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![thread("05", &["30"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let orphan = item_id(&conn, "D1/thread/05");
-        apply_now(&conn, &src, &Batch { items: vec![run(&["05"], true), thread("05", &["30", "31"], true)], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["05"], true), thread("05", &["30", "31"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(texts(&conn, orphan), ["msg 30", "msg 31"]);
     }
 
@@ -309,12 +482,28 @@ mod tests {
         let (conn, src) = slack();
         let mut it = run(&["10", "11"], true);
         it.raw_json = json!({});
-        apply_now(&conn, &src, &Batch { items: vec![it.clone()], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it.clone()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let parent = item_id(&conn, "D1/100.01");
         let ids = message_ids(&conn, parent).unwrap();
         split_off(&conn, parent, &[ids[0]]).unwrap();
         it.bump = false;
-        apply_now(&conn, &src, &Batch { items: vec![it], ..Default::default() }).unwrap();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(texts(&conn, parent), ["msg 11"]);
     }
 }

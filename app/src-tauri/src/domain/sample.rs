@@ -97,7 +97,15 @@ pub trait SampleData {
     fn topic_priority(&self, topic_id: i64, level: &str) -> Result<()>;
     fn message(&self, m: &SampleMessage) -> Result<i64>;
     fn event(&self, e: &SampleEvent) -> Result<()>;
-    fn note_line(&self, page_date: &str, position: i64, kind: &str, text: &str, target_json: &str, state: &str) -> Result<()>;
+    fn note_line(
+        &self,
+        page_date: &str,
+        position: i64,
+        kind: &str,
+        text: &str,
+        target_json: &str,
+        state: &str,
+    ) -> Result<()>;
     fn carry(&self, item_id: i64, period: &str, action: Option<&str>) -> Result<()>;
     fn reflection(&self, scope: &str, period_start: &str, note_path: &str, summary: Option<&str>) -> Result<()>;
 }

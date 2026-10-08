@@ -151,9 +151,17 @@ pub struct Reply {
 impl Reply {
     pub fn answer(self) -> anyhow::Result<String> {
         if self.text.is_empty() {
-            let why = if self.stop_reason.is_empty() { "none" } else { &self.stop_reason };
+            let why = if self.stop_reason.is_empty() {
+                "none"
+            } else {
+                &self.stop_reason
+            };
             // Models that think by default can spend the whole budget before answering.
-            let hint = if self.stop_reason == "max_tokens" { "; the model used its whole token budget, often on reasoning" } else { "" };
+            let hint = if self.stop_reason == "max_tokens" {
+                "; the model used its whole token budget, often on reasoning"
+            } else {
+                ""
+            };
             anyhow::bail!("Bedrock returned no text (stop reason: {why}{hint})");
         }
         Ok(self.text)
@@ -162,11 +170,17 @@ impl Reply {
 
 pub fn endpoint(region: &str, model: &str) -> anyhow::Result<String> {
     // The region becomes part of a hostname; only allow what AWS region names use.
-    let ok = !region.is_empty() && region.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    let ok = !region.is_empty()
+        && region
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     if !ok {
         anyhow::bail!("ai.region '{region}' doesn't look like an AWS region (e.g. us-east-1)");
     }
-    Ok(format!("https://bedrock-runtime.{region}.amazonaws.com/model/{}/converse", encode_label(model)))
+    Ok(format!(
+        "https://bedrock-runtime.{region}.amazonaws.com/model/{}/converse",
+        encode_label(model)
+    ))
 }
 
 /// Percent-encode a URI path label (model ids contain ':' and ARNs contain '/').
@@ -219,25 +233,42 @@ pub fn converse(http: &dyn Http, creds: &AwsCreds, req: &Request, time: SystemTi
 }
 
 pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
-    let v: Value = serde_json::from_str(body).map_err(|_| anyhow::anyhow!("Bedrock returned a response Alethiometer couldn't read"))?;
+    let v: Value = serde_json::from_str(body)
+        .map_err(|_| anyhow::anyhow!("Bedrock returned a response Alethiometer couldn't read"))?;
     let stop_reason = v.get("stopReason").and_then(Value::as_str).unwrap_or("").to_string();
     // Only `text` blocks are the answer. `reasoningContent` (Claude's
     // `reasoningText`, GPT-6's opaque `redactedContent`) is skipped.
     let text = v
         .pointer("/output/message/content")
         .and_then(Value::as_array)
-        .map(|blocks| blocks.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("")
+        })
         .unwrap_or_default();
     let text = text.trim().to_string();
     let tokens = |k: &str| v.pointer(&format!("/usage/{k}")).and_then(Value::as_i64).unwrap_or(0);
-    Ok(Reply { text, stop_reason, input_tokens: tokens("inputTokens"), output_tokens: tokens("outputTokens") })
+    Ok(Reply {
+        text,
+        stop_reason,
+        input_tokens: tokens("inputTokens"),
+        output_tokens: tokens("outputTokens"),
+    })
 }
 
 /// Turn a Bedrock error response into a message the user can act on.
 pub fn map_error(status: u16, body: &str, req: &Request) -> anyhow::Error {
     let aws: String = serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|v| v.get("message").or_else(|| v.get("Message")).and_then(Value::as_str).map(str::to_owned))
+        .and_then(|v| {
+            v.get("message")
+                .or_else(|| v.get("Message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| body.to_string())
         .chars()
         .take(300)
@@ -245,21 +276,27 @@ pub fn map_error(status: u16, body: &str, req: &Request) -> anyhow::Error {
     let lower = aws.to_lowercase();
     let (region, model) = (req.region, req.model);
     match status {
-        403 if lower.contains("signature") || lower.contains("security token") || lower.contains("expired") => anyhow::anyhow!(
-            "Bedrock rejected the AWS credentials (403). Check the keys or refresh the session. AWS said: {aws}"
-        ),
+        403 if lower.contains("signature") || lower.contains("security token") || lower.contains("expired") => {
+            anyhow::anyhow!(
+                "Bedrock rejected the AWS credentials (403). Check the keys or refresh the session. AWS said: {aws}"
+            )
+        }
         401 | 403 => anyhow::anyhow!(
             "Bedrock denied access to {model} (403): model access not enabled in Bedrock console for {region}, \
              or the IAM policy lacks bedrock:InvokeModel on this model/inference profile. AWS said: {aws}"
         ),
-        429 => anyhow::anyhow!("Bedrock is throttling requests or the model isn't ready (429). Try again in a minute. AWS said: {aws}"),
+        429 => anyhow::anyhow!(
+            "Bedrock is throttling requests or the model isn't ready (429). Try again in a minute. AWS said: {aws}"
+        ),
         404 => anyhow::anyhow!("Bedrock doesn't know model '{model}' in {region} (404). AWS said: {aws}"),
         400 if lower.contains("on-demand throughput") || lower.contains("inference profile") => anyhow::anyhow!(
             "Bedrock needs an inference-profile id for {model} in {region} (400); check the id under \
              Bedrock → Cross-region inference. AWS said: {aws}"
         ),
         400 => anyhow::anyhow!("Bedrock rejected the request (400). AWS said: {aws}"),
-        408 | 424 | 500..=599 => anyhow::anyhow!("Bedrock had a temporary problem (HTTP {status}). Try again. AWS said: {aws}"),
+        408 | 424 | 500..=599 => {
+            anyhow::anyhow!("Bedrock had a temporary problem (HTTP {status}). Try again. AWS said: {aws}")
+        }
         _ => anyhow::anyhow!("Bedrock returned HTTP {status}. AWS said: {aws}"),
     }
 }
@@ -279,10 +316,23 @@ pub fn sign_headers(
 ) -> anyhow::Result<Vec<(String, String)>> {
     use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
     use aws_sigv4::sign::v4;
-    let AwsCreds::Keys { access_key_id, secret_access_key, session_token, .. } = creds else {
+    let AwsCreds::Keys {
+        access_key_id,
+        secret_access_key,
+        session_token,
+        ..
+    } = creds
+    else {
         anyhow::bail!("sign_headers called with bearer credentials")
     };
-    let identity = aws_credential_types::Credentials::new(access_key_id, secret_access_key, session_token.clone(), None, "alethiometer").into();
+    let identity = aws_credential_types::Credentials::new(
+        access_key_id,
+        secret_access_key,
+        session_token.clone(),
+        None,
+        "alethiometer",
+    )
+    .into();
     let params = v4::SigningParams::builder()
         .identity(&identity)
         .region(region)
@@ -294,8 +344,13 @@ pub fn sign_headers(
         .into();
     let signable = SignableRequest::new(method, url, headers.iter().copied(), SignableBody::Bytes(body))
         .map_err(|e| anyhow::anyhow!("SigV4 couldn't sign this request: {e}"))?;
-    let (instructions, _sig) = sign(signable, &params).map_err(|e| anyhow::anyhow!("SigV4 signing failed: {e}"))?.into_parts();
-    Ok(instructions.headers().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+    let (instructions, _sig) = sign(signable, &params)
+        .map_err(|e| anyhow::anyhow!("SigV4 signing failed: {e}"))?
+        .into_parts();
+    Ok(instructions
+        .headers()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect())
 }
 
 #[cfg(test)]
@@ -307,7 +362,12 @@ mod tests {
     const SECRET: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 
     fn creds(token: Option<&str>) -> AwsCreds {
-        AwsCreds::Keys { access_key_id: "AKIDEXAMPLE".into(), secret_access_key: SECRET.into(), session_token: token.map(str::to_owned), source: "test".into() }
+        AwsCreds::Keys {
+            access_key_id: "AKIDEXAMPLE".into(),
+            secret_access_key: SECRET.into(),
+            session_token: token.map(str::to_owned),
+            source: "test".into(),
+        }
     }
 
     fn at(rfc3339: &str) -> SystemTime {
@@ -315,13 +375,26 @@ mod tests {
     }
 
     fn header<'a>(h: &'a [(String, String)], name: &str) -> &'a str {
-        h.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str()).unwrap_or("")
+        h.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("")
     }
 
     /// AWS SigV4 test suite, "get-vanilla" (published expected signature).
     #[test]
     fn sigv4_known_answer_aws_suite_get_vanilla() {
-        let h = sign_headers(&creds(None), "us-east-1", "service", "GET", "https://example.amazonaws.com/", &[], b"", at("2015-08-30T12:36:00Z")).unwrap();
+        let h = sign_headers(
+            &creds(None),
+            "us-east-1",
+            "service",
+            "GET",
+            "https://example.amazonaws.com/",
+            &[],
+            b"",
+            at("2015-08-30T12:36:00Z"),
+        )
+        .unwrap();
         assert_eq!(
             header(&h, "authorization"),
             "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, \
@@ -360,7 +433,11 @@ mod tests {
     /// `endpoint` only builds the URL (`check_route` decides what may be called).
     #[test]
     fn model_path_labels_are_encoded() {
-        let url = endpoint("us-east-1", "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x-v1:0").unwrap();
+        let url = endpoint(
+            "us-east-1",
+            "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x-v1:0",
+        )
+        .unwrap();
         assert!(url.contains("/model/arn%3Aaws%3Abedrock%3Aus-east-1%3A123456789012%3Ainference-profile%2Fus.anthropic.x-v1%3A0/converse"), "{url}");
         assert!(endpoint("evil.com/x", "m").is_err());
     }
@@ -372,27 +449,51 @@ mod tests {
     }
 
     impl Http for HeaderSpy {
-        fn request(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response> {
+        fn request(
+            &self,
+            method: &str,
+            url: &str,
+            headers: &[(&str, &str)],
+            body: Option<&str>,
+        ) -> anyhow::Result<Response> {
             *self.headers.lock().unwrap() = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
             self.inner.request(method, url, headers, body)
         }
     }
 
     fn req<'a>() -> Request<'a> {
-        Request { region: "us-east-1", model: "us.anthropic.claude-sonnet-4-6", system: "SYS", user: "USER", max_tokens: 256, effort: None }
+        Request {
+            region: "us-east-1",
+            model: "us.anthropic.claude-sonnet-4-6",
+            system: "SYS",
+            user: "USER",
+            max_tokens: 256,
+            effort: None,
+        }
     }
 
     #[test]
     fn converse_request_and_response_mapping() {
-        let spy = HeaderSpy { inner: FakeHttp::default(), headers: Mutex::new(vec![]) };
-        spy.inner.on("POST", "/model/us.anthropic.claude-sonnet-4-6/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
+        let spy = HeaderSpy {
+            inner: FakeHttp::default(),
+            headers: Mutex::new(vec![]),
+        };
+        spy.inner.on(
+            "POST",
+            "/model/us.anthropic.claude-sonnet-4-6/converse",
+            200,
+            include_str!("../../tests/fixtures/bedrock/converse_ok.json"),
+        );
         let r = converse(&spy, &creds(Some("TOK")), &req(), SystemTime::now()).unwrap();
         assert_eq!(r.text, "The renewal is due Friday; Kim owns the quote.");
         assert_eq!(r.stop_reason, "end_turn");
 
         let log = spy.inner.requests();
         assert_eq!(log.len(), 1);
-        assert_eq!(log[0].1, "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-6/converse");
+        assert_eq!(
+            log[0].1,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-6/converse"
+        );
         let sent: Value = serde_json::from_str(log[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(sent["system"][0]["text"], "SYS");
         assert_eq!(sent["messages"][0]["role"], "user");
@@ -406,37 +507,68 @@ mod tests {
         assert!(header(&h, "authorization").starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
         assert!(!header(&h, "x-amz-date").is_empty());
         assert_eq!(header(&h, "x-amz-security-token"), "TOK");
-        assert!(h.iter().all(|(_, v)| !v.contains(SECRET)), "secret key must never be sent");
+        assert!(
+            h.iter().all(|(_, v)| !v.contains(SECRET)),
+            "secret key must never be sent"
+        );
     }
 
     fn err_for(status: u16, fixture: &str) -> String {
         let http = FakeHttp::default();
         http.on("POST", "/converse", status, fixture);
-        converse(&http, &creds(None), &req(), SystemTime::now()).unwrap_err().to_string()
+        converse(&http, &creds(None), &req(), SystemTime::now())
+            .unwrap_err()
+            .to_string()
     }
 
     #[test]
     fn error_mapping() {
-        let e = err_for(403, r#"{"message":"You don't have access to the model with the specified model ID."}"#);
-        assert!(e.contains("model access not enabled in Bedrock console for us-east-1"), "{e}");
-        let e = err_for(403, r#"{"message":"The security token included in the request is invalid."}"#);
+        let e = err_for(
+            403,
+            r#"{"message":"You don't have access to the model with the specified model ID."}"#,
+        );
+        assert!(
+            e.contains("model access not enabled in Bedrock console for us-east-1"),
+            "{e}"
+        );
+        let e = err_for(
+            403,
+            r#"{"message":"The security token included in the request is invalid."}"#,
+        );
         assert!(e.contains("rejected the AWS credentials"), "{e}");
-        let e = err_for(429, r#"{"message":"Too many requests, please wait before trying again."}"#);
+        let e = err_for(
+            429,
+            r#"{"message":"Too many requests, please wait before trying again."}"#,
+        );
         assert!(e.contains("throttling"), "{e}");
-        let e = err_for(400, r#"{"message":"Invocation of model ID anthropic.claude-sonnet-4-6 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model."}"#);
+        let e = err_for(
+            400,
+            r#"{"message":"Invocation of model ID anthropic.claude-sonnet-4-6 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model."}"#,
+        );
         assert!(e.contains("inference-profile id"), "{e}");
         let e = err_for(400, r#"{"message":"The provided model identifier is invalid."}"#);
-        assert!(e.contains("rejected the request (400)") && e.contains("model identifier is invalid"), "{e}");
+        assert!(
+            e.contains("rejected the request (400)") && e.contains("model identifier is invalid"),
+            "{e}"
+        );
         // Model errors pass through Converse as a 400 ValidationException.
-        let e = err_for(400, r#"{"message":"The model returned the following errors: tool_choice: type \"tool\" and \"any\" are not supported for this model."}"#);
-        assert!(e.contains("rejected the request (400)") && e.contains("tool_choice"), "{e}");
+        let e = err_for(
+            400,
+            r#"{"message":"The model returned the following errors: tool_choice: type \"tool\" and \"any\" are not supported for this model."}"#,
+        );
+        assert!(
+            e.contains("rejected the request (400)") && e.contains("tool_choice"),
+            "{e}"
+        );
     }
 
     fn err_for_model(model: &str, status: u16, fixture: &str) -> String {
         let http = FakeHttp::default();
         http.on("POST", "/converse", status, fixture);
         let r = Request { model, ..req() };
-        converse(&http, &creds(None), &r, SystemTime::now()).unwrap_err().to_string()
+        converse(&http, &creds(None), &r, SystemTime::now())
+            .unwrap_err()
+            .to_string()
     }
 
     /// Non-`us.` ids fail closed before any request, with the `us.` id to use.
@@ -447,10 +579,20 @@ mod tests {
             ("openai.gpt-6-luna", "Use us.openai.gpt-6-luna"),
             ("global.anthropic.claude-opus-5-5", "use us.anthropic.claude-opus-5-5"),
             ("eu.anthropic.claude-opus-5-5", "route outside the US"),
-            ("arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x", "not a US inference profile"),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.x",
+                "not a US inference profile",
+            ),
         ] {
-            let e = err_for_model(model, 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
-            assert!(e.contains("not a US inference profile") && e.contains(hint) && e.contains("Nothing was sent"), "{model}: {e}");
+            let e = err_for_model(
+                model,
+                200,
+                include_str!("../../tests/fixtures/bedrock/converse_ok.json"),
+            );
+            assert!(
+                e.contains("not a US inference profile") && e.contains(hint) && e.contains("Nothing was sent"),
+                "{model}: {e}"
+            );
         }
         // A US profile of a vendor we don't know the request shape for.
         let e = err_for_model("us.meta.llama4-maverick-17b-instruct-v1:0", 200, "{}");
@@ -463,9 +605,19 @@ mod tests {
     fn non_us_regions_fail_closed_before_any_request() {
         for region in ["eu-west-1", "ca-central-1", "ap-northeast-1", "us-gov-west-1", ""] {
             let http = FakeHttp::default();
-            http.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
-            let e = converse(&http, &creds(None), &Request { region, ..req() }, SystemTime::now()).unwrap_err().to_string();
-            assert!(e.contains("Nothing was sent") && e.contains(&format!("'{region}'")), "{region}: {e}");
+            http.on(
+                "POST",
+                "/converse",
+                200,
+                include_str!("../../tests/fixtures/bedrock/converse_ok.json"),
+            );
+            let e = converse(&http, &creds(None), &Request { region, ..req() }, SystemTime::now())
+                .unwrap_err()
+                .to_string();
+            assert!(
+                e.contains("Nothing was sent") && e.contains(&format!("'{region}'")),
+                "{region}: {e}"
+            );
             assert!(http.requests().is_empty(), "{region}");
         }
         assert!(check_route("us-west-2", "us.openai.gpt-6-luna").is_ok());
@@ -482,10 +634,24 @@ mod tests {
     /// Effort lands under each vendor's own key in additionalModelRequestFields.
     #[test]
     fn effort_goes_where_each_family_expects_it() {
-        let claude = body(&Request { model: "us.anthropic.claude-opus-5-5", effort: Some(Effort::High), ..req() });
-        assert_eq!(claude["additionalModelRequestFields"], json!({ "output_config": { "effort": "high" } }));
-        let gpt = body(&Request { model: "us.openai.gpt-6-luna", effort: Some(Effort::Low), ..req() });
-        assert_eq!(gpt["additionalModelRequestFields"], json!({ "reasoning": { "effort": "low" } }));
+        let claude = body(&Request {
+            model: "us.anthropic.claude-opus-5-5",
+            effort: Some(Effort::High),
+            ..req()
+        });
+        assert_eq!(
+            claude["additionalModelRequestFields"],
+            json!({ "output_config": { "effort": "high" } })
+        );
+        let gpt = body(&Request {
+            model: "us.openai.gpt-6-luna",
+            effort: Some(Effort::Low),
+            ..req()
+        });
+        assert_eq!(
+            gpt["additionalModelRequestFields"],
+            json!({ "reasoning": { "effort": "low" } })
+        );
         assert!(gpt["additionalModelRequestFields"].get("reasoning_effort").is_none());
         assert_eq!(Effort::parse("").unwrap(), None);
         assert_eq!(Effort::parse(" medium ").unwrap(), Some(Effort::Medium));
@@ -508,8 +674,20 @@ mod tests {
         }"#;
         let http = FakeHttp::default();
         http.on("POST", "/model/us.openai.gpt-6-luna/converse", 200, body);
-        let r = converse(&http, &creds(None), &Request { model: "us.openai.gpt-6-luna", ..req() }, SystemTime::now()).unwrap();
-        assert_eq!(r.text, r#"{"topic_id": 3, "confidence": 0.82, "reason": "Same vendor renewal"}"#);
+        let r = converse(
+            &http,
+            &creds(None),
+            &Request {
+                model: "us.openai.gpt-6-luna",
+                ..req()
+            },
+            SystemTime::now(),
+        )
+        .unwrap();
+        assert_eq!(
+            r.text,
+            r#"{"topic_id": 3, "confidence": 0.82, "reason": "Same vendor renewal"}"#
+        );
         assert_eq!(r.stop_reason, "end_turn");
         // Reasoning that ate the whole budget is an error, not a blank answer.
         let cut = r#"{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"redactedContent":"eA=="}}]}},"stopReason":"max_tokens"}"#;
@@ -521,13 +699,37 @@ mod tests {
     /// ids: same endpoint, same signing scope.
     #[test]
     fn us_profiles_of_both_families_use_converse_and_bedrock_scope() {
-        for model in ["us.anthropic.claude-opus-5-5", "us.openai.gpt-6-luna", "us.anthropic.claude-opus-4-8"] {
-            let spy = HeaderSpy { inner: FakeHttp::default(), headers: Mutex::new(vec![]) };
-            spy.inner.on("POST", "/converse", 200, include_str!("../../tests/fixtures/bedrock/converse_ok.json"));
-            converse(&spy, &creds(None), &Request { model, ..req() }, at("2026-09-27T12:00:00Z")).unwrap();
-            assert_eq!(spy.inner.requests()[0].1, format!("https://bedrock-runtime.us-east-1.amazonaws.com/model/{model}/converse"));
+        for model in [
+            "us.anthropic.claude-opus-5-5",
+            "us.openai.gpt-6-luna",
+            "us.anthropic.claude-opus-4-8",
+        ] {
+            let spy = HeaderSpy {
+                inner: FakeHttp::default(),
+                headers: Mutex::new(vec![]),
+            };
+            spy.inner.on(
+                "POST",
+                "/converse",
+                200,
+                include_str!("../../tests/fixtures/bedrock/converse_ok.json"),
+            );
+            converse(
+                &spy,
+                &creds(None),
+                &Request { model, ..req() },
+                at("2026-09-27T12:00:00Z"),
+            )
+            .unwrap();
+            assert_eq!(
+                spy.inner.requests()[0].1,
+                format!("https://bedrock-runtime.us-east-1.amazonaws.com/model/{model}/converse")
+            );
             let h = spy.headers.lock().unwrap().clone();
-            assert!(header(&h, "authorization").contains("/20260927/us-east-1/bedrock/aws4_request"), "{model}");
+            assert!(
+                header(&h, "authorization").contains("/20260927/us-east-1/bedrock/aws4_request"),
+                "{model}"
+            );
         }
     }
 

@@ -3,13 +3,15 @@
 use super::Sql;
 use crate::domain::todos::{Held, TodoRow, TodoViews, Todos};
 use crate::domain::topics::TopicRef;
+use crate::error::Result;
 use crate::time::{Date, Due};
 use rusqlite::{params, OptionalExtension};
-use crate::error::Result;
 
 impl TodoViews for Sql<'_> {
     fn body(&self, item_id: i64) -> Result<String> {
-        Ok(self.conn().query_row("SELECT body FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
+        Ok(self
+            .conn()
+            .query_row("SELECT body FROM items WHERE id = ?1", [item_id], |r| r.get(0))?)
     }
 
     fn latest_messages(&self, item_id: i64, n: usize) -> Result<Vec<(String, String)>> {
@@ -73,9 +75,18 @@ impl Todos for Sql<'_> {
     fn held(&self, item_id: i64) -> Result<Option<Held>> {
         Ok(self
             .conn()
-            .query_row("SELECT target, text, due, sched FROM held_todos WHERE item_id = ?1 AND state = 'held'", [item_id], |r| {
-                Ok(Held { target: r.get(0)?, text: r.get(1)?, due: r.get(2)?, sched: r.get(3)? })
-            })
+            .query_row(
+                "SELECT target, text, due, sched FROM held_todos WHERE item_id = ?1 AND state = 'held'",
+                [item_id],
+                |r| {
+                    Ok(Held {
+                        target: r.get(0)?,
+                        text: r.get(1)?,
+                        due: r.get(2)?,
+                        sched: r.get(3)?,
+                    })
+                },
+            )
             .optional()?)
     }
 
@@ -90,7 +101,8 @@ impl Todos for Sql<'_> {
     }
 
     fn unhold(&self, item_id: i64) -> Result<()> {
-        self.conn().execute("DELETE FROM held_todos WHERE item_id = ?1", [item_id])?;
+        self.conn()
+            .execute("DELETE FROM held_todos WHERE item_id = ?1", [item_id])?;
         Ok(())
     }
 
@@ -103,10 +115,10 @@ impl Todos for Sql<'_> {
     }
 
     fn estimate_by_ai(&self, item_id: i64, minutes: i64) -> Result<bool> {
-        Ok(self
-            .conn()
-            .execute("INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'ai') ON CONFLICT (item_id) DO NOTHING", params![item_id, minutes])?
-            == 1)
+        Ok(self.conn().execute(
+            "INSERT INTO todo_estimates (item_id, minutes, by) VALUES (?1, ?2, 'ai') ON CONFLICT (item_id) DO NOTHING",
+            params![item_id, minutes],
+        )? == 1)
     }
 
     fn set_estimate(&self, item_id: i64, minutes: Option<i64>) -> Result<()> {
@@ -116,7 +128,9 @@ impl Todos for Sql<'_> {
                      ON CONFLICT (item_id) DO UPDATE SET minutes = excluded.minutes, by = 'you'",
                 params![item_id, m],
             )?,
-            None => self.conn().execute("DELETE FROM todo_estimates WHERE item_id = ?1", [item_id])?,
+            None => self
+                .conn()
+                .execute("DELETE FROM todo_estimates WHERE item_id = ?1", [item_id])?,
         };
         Ok(())
     }

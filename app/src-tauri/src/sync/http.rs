@@ -14,7 +14,10 @@ pub struct Response {
 impl Response {
     /// First header named `name` (case-insensitive).
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn json(&self) -> anyhow::Result<Value> {
@@ -34,7 +37,13 @@ impl Response {
 
 pub trait Http: Send + Sync {
     /// `body` is sent as-is; set a content-type header when you send one.
-    fn request(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response>;
+    fn request(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&str>,
+    ) -> anyhow::Result<Response>;
 
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> anyhow::Result<Response> {
         self.request("GET", url, headers, None)
@@ -76,7 +85,13 @@ impl UreqHttp {
 }
 
 impl Http for UreqHttp {
-    fn request(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response> {
+    fn request(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&str>,
+    ) -> anyhow::Result<Response> {
         let method: ureq::http::Method = method.parse()?;
         let mut req = ureq::http::Request::builder().method(method).uri(url);
         for (k, v) in headers {
@@ -110,7 +125,15 @@ pub struct FakeHttp {
 impl FakeHttp {
     /// Respond to `method` requests whose URL contains `url_part`. Later routes win.
     pub fn on(&self, method: &str, url_part: &str, status: u16, body: impl Into<String>) -> &Self {
-        self.on_response(method, url_part, Response { status, body: body.into(), headers: vec![] })
+        self.on_response(
+            method,
+            url_part,
+            Response {
+                status,
+                body: body.into(),
+                headers: vec![],
+            },
+        )
     }
 
     /// Like `on`, with full control over the response (e.g. headers).
@@ -125,9 +148,21 @@ impl FakeHttp {
 }
 
 impl Http for FakeHttp {
-    fn request(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<&str>) -> anyhow::Result<Response> {
-        self.log.lock().unwrap().push((method.into(), url.into(), body.map(str::to_owned)));
-        self.header_log.lock().unwrap().push(headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+    fn request(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&str>,
+    ) -> anyhow::Result<Response> {
+        self.log
+            .lock()
+            .unwrap()
+            .push((method.into(), url.into(), body.map(str::to_owned)));
+        self.header_log
+            .lock()
+            .unwrap()
+            .push(headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
         let routes = self.routes.lock().unwrap();
         routes
             .iter()

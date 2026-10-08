@@ -19,7 +19,9 @@
 //! again when you message it, and its ACP session resumed (`session/resume`,
 //! else `session/load` with the replay dropped: the transcript is stored).
 
-use super::model::{Choice, Delivery, Kind, PermOption, QueuedMessage, Request, Row, RowImage, Session, Status, Tool, Who};
+use super::model::{
+    Choice, Delivery, Kind, PermOption, QueuedMessage, Request, Row, RowImage, Session, Status, Tool, Who,
+};
 use super::store::HostState;
 use super::{daemon, now, session_thread};
 use crate::error::{msg, Result};
@@ -55,7 +57,12 @@ pub struct Host {
 
 impl Host {
     fn get(&self, id: &str) -> Option<Arc<Conn>> {
-        self.conns.lock().unwrap_or_else(|e| e.into_inner()).get(id).filter(|c| c.alive.load(Ordering::SeqCst)).cloned()
+        self.conns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .filter(|c| c.alive.load(Ordering::SeqCst))
+            .cloned()
     }
 
     fn any(&self, id: &str) -> Option<Arc<Conn>> {
@@ -63,7 +70,12 @@ impl Host {
     }
 
     fn all(&self) -> Vec<Arc<Conn>> {
-        self.conns.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+        self.conns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
     }
 }
 
@@ -170,7 +182,14 @@ impl Conn {
     fn write(&self, v: &Value) -> Result<()> {
         let app = self.app.upgrade().ok_or_else(|| msg("shutting down"))?;
         let line = serde_json::to_string(v)?;
-        daemon::call(&app, &dproto::Request::Write { id: self.session.clone(), line }).map(|_| ())
+        daemon::call(
+            &app,
+            &dproto::Request::Write {
+                id: self.session.clone(),
+                line,
+            },
+        )
+        .map(|_| ())
     }
 
     fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Result<Value> {
@@ -179,7 +198,9 @@ impl Conn {
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
         self.write(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
         let got = match timeout {
-            Some(t) => rx.recv_timeout(t).map_err(|_| msg(format!("{method}: no answer from the agent"))),
+            Some(t) => rx
+                .recv_timeout(t)
+                .map_err(|_| msg(format!("{method}: no answer from the agent"))),
             None => rx.recv().map_err(|_| msg(format!("{method}: the agent exited"))),
         };
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
@@ -200,7 +221,12 @@ impl Conn {
     /// Stop the agent in the host; its exit comes back as an event.
     fn kill(&self) {
         if let Some(app) = self.app.upgrade() {
-            if let Err(e) = daemon::call(&app, &dproto::Request::Kill { id: self.session.clone() }) {
+            if let Err(e) = daemon::call(
+                &app,
+                &dproto::Request::Kill {
+                    id: self.session.clone(),
+                },
+            ) {
                 eprintln!("agents: couldn't stop {}: {e}", self.session);
             }
         }
@@ -224,7 +250,10 @@ impl Conn {
 
 pub fn rpc_error(e: &Value) -> String {
     let m = e.get("message").and_then(Value::as_str).unwrap_or("error");
-    let detail = e.get("data").and_then(|d| d.get("details").or(d.get("message"))).and_then(Value::as_str);
+    let detail = e
+        .get("data")
+        .and_then(|d| d.get("details").or(d.get("message")))
+        .and_then(Value::as_str);
     match detail {
         Some(d) if d != m => format!("{m}: {d}"),
         _ => m.to_owned(),
@@ -236,10 +265,18 @@ pub fn host_label() -> String {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
         let run = |cmd: &str, args: &[&str]| {
-            let out = Command::new(cmd).args(args).output().ok().filter(|o| o.status.success())?;
+            let out = Command::new(cmd)
+                .args(args)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())?;
             Some(String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|s| !s.is_empty())
         };
-        let mac = if cfg!(target_os = "macos") { run("scutil", &["--get", "LocalHostName"]) } else { None };
+        let mac = if cfg!(target_os = "macos") {
+            run("scutil", &["--get", "LocalHostName"])
+        } else {
+            None
+        };
         mac.or_else(|| run("hostname", &["-s"]))
             .or_else(|| std::env::var("HOSTNAME").ok())
             .unwrap_or_else(|| "local".into())
@@ -256,7 +293,11 @@ pub(super) fn login_path() -> String {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let out = Command::new(shell).args(["-ilc", "printf '__P__%s__P__' \"$PATH\""]).stdin(Stdio::null()).stderr(Stdio::null()).output();
+            let out = Command::new(shell)
+                .args(["-ilc", "printf '__P__%s__P__' \"$PATH\""])
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output();
             let _ = tx.send(out);
         });
         let found = rx
@@ -290,14 +331,25 @@ pub(super) fn login_path() -> String {
 /// none: nothing. A devshell that's still building after two minutes is given
 /// up on, and the agent starts without it.
 fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
-    let Some(direnv) = which("direnv", path).filter(|_| !cwd.is_empty()) else { return BTreeMap::new() };
+    let Some(direnv) = which("direnv", path).filter(|_| !cwd.is_empty()) else {
+        return BTreeMap::new();
+    };
     let mut c = Command::new(direnv);
-    c.args(["export", "json"]).current_dir(cwd).env("PATH", path).stdin(Stdio::null()).stderr(Stdio::null());
+    c.args(["export", "json"])
+        .current_dir(cwd)
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(c.output());
     });
-    let Some(out) = rx.recv_timeout(Duration::from_secs(120)).ok().and_then(|o| o.ok()).filter(|o| o.status.success()) else {
+    let Some(out) = rx
+        .recv_timeout(Duration::from_secs(120))
+        .ok()
+        .and_then(|o| o.ok())
+        .filter(|o| o.status.success())
+    else {
         return BTreeMap::new();
     };
     direnv_vars(&out.stdout, std::env::var("DIRENV_WATCHES").ok())
@@ -308,7 +360,10 @@ fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
 /// `DIRENV_WATCHES`; the app's own is the one that applies.
 fn direnv_vars(out: &[u8], own_watches: Option<String>) -> BTreeMap<String, String> {
     let vars: BTreeMap<String, Value> = serde_json::from_slice(out).unwrap_or_default();
-    let mut env: BTreeMap<String, String> = vars.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
+    let mut env: BTreeMap<String, String> = vars
+        .iter()
+        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+        .collect();
     if !vars.contains_key("DIRENV_WATCHES") {
         if let Some(w) = own_watches {
             env.insert("DIRENV_WATCHES".into(), w);
@@ -321,10 +376,17 @@ fn direnv_vars(out: &[u8], own_watches: Option<String>) -> BTreeMap<String, Stri
 fn direnv_watches(env: &BTreeMap<String, String>) -> Vec<super::model::EnvWatch> {
     use base64::Engine;
     use std::io::Read;
-    let Some(raw) = env.get("DIRENV_WATCHES") else { return vec![] };
-    let Ok(zipped) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw.trim_end_matches('=')) else { return vec![] };
+    let Some(raw) = env.get("DIRENV_WATCHES") else {
+        return vec![];
+    };
+    let Ok(zipped) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw.trim_end_matches('=')) else {
+        return vec![];
+    };
     let mut json = String::new();
-    if flate2::read::ZlibDecoder::new(zipped.as_slice()).read_to_string(&mut json).is_err() {
+    if flate2::read::ZlibDecoder::new(zipped.as_slice())
+        .read_to_string(&mut json)
+        .is_err()
+    {
         return vec![];
     }
     serde_json::from_str(&json).unwrap_or_default()
@@ -332,10 +394,18 @@ fn direnv_watches(env: &BTreeMap<String, String>) -> Vec<super::model::EnvWatch>
 
 /// One of the watched files changed (direnv's own test: existence, then mtime in seconds).
 pub fn env_changed(watches: &[super::model::EnvWatch]) -> bool {
-    watches.iter().any(|w| match std::fs::metadata(&w.path).and_then(|m| m.modified()) {
-        Ok(t) => !w.exists || t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0) != w.modtime,
-        Err(_) => w.exists,
-    })
+    watches
+        .iter()
+        .any(|w| match std::fs::metadata(&w.path).and_then(|m| m.modified()) {
+            Ok(t) => {
+                !w.exists
+                    || t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0)
+                        != w.modtime
+            }
+            Err(_) => w.exists,
+        })
 }
 
 /// Where `cmd` is on the login PATH, or None.
@@ -344,7 +414,9 @@ pub(super) fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
         let p = std::path::PathBuf::from(cmd);
         return p.exists().then_some(p);
     }
-    path.split(':').map(|d| std::path::Path::new(d).join(cmd)).find(|p| p.is_file())
+    path.split(':')
+        .map(|d| std::path::Path::new(d).join(cmd))
+        .find(|p| p.is_file())
 }
 
 pub struct StartArgs {
@@ -397,17 +469,27 @@ fn title_from(task: &str) -> (String, String) {
 /// Start a new local session; the first prompt (if any) is sent once it's up.
 pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     let settings = app.settings();
-    let h = settings.agents.harnesses.iter().find(|h| h.key == a.harness).ok_or_else(|| msg(format!("no harness '{}' in agents.harnesses", a.harness)))?;
+    let h = settings
+        .agents
+        .harnesses
+        .iter()
+        .find(|h| h.key == a.harness)
+        .ok_or_else(|| msg(format!("no harness '{}' in agents.harnesses", a.harness)))?;
     let cwd = expand_home(a.cwd.trim());
     let existing = a.sandbox.as_ref().and_then(|b| b.existing.clone());
     if existing.is_none() && !std::path::Path::new(&cwd).is_dir() {
         return Err(msg(format!("{} isn't a directory", a.cwd)));
     }
     if existing.is_some() && !a.sandbox.as_ref().is_some_and(|b| b.workdir.trim().starts_with('/')) {
-        return Err(msg("Give its directory inside the sandbox, from / (e.g. /sandbox/project)"));
+        return Err(msg(
+            "Give its directory inside the sandbox, from / (e.g. /sandbox/project)",
+        ));
     }
     if a.sandbox.is_some() && super::openshell::cli(&settings.agents.openshell.command).is_none() {
-        return Err(msg(format!("{} isn't on your PATH (agents.openshell.command)", settings.agents.openshell.command)));
+        return Err(msg(format!(
+            "{} isn't on your PATH (agents.openshell.command)",
+            settings.agents.openshell.command
+        )));
     }
     let id = format!("acp-{:08x}", rand_u32());
     // An existing sandbox runs in the directory given inside it; a new one, in the upload (known once it's made).
@@ -423,10 +505,23 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         _ => cwd,
     };
     let place = match &sandbox {
-        Some(b) => format!("openshell · {} · {}", if b.gateway.is_empty() { "active gateway" } else { &b.gateway }, b.name),
+        Some(b) => format!(
+            "openshell · {} · {}",
+            if b.gateway.is_empty() {
+                "active gateway"
+            } else {
+                &b.gateway
+            },
+            b.name
+        ),
         None => format!("local · {}", tilde(&cwd)),
     };
-    let name = a.name.clone().filter(|n| !n.trim().is_empty()).map(|n| n.trim().to_owned()).unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
+    let name = a
+        .name
+        .clone()
+        .filter(|n| !n.trim().is_empty())
+        .map(|n| n.trim().to_owned())
+        .unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
     let group_key = a.group_id.clone().unwrap_or_else(|| "unsorted".into());
     let color = super::store::color_for(app.store(), &group_key, &id, settings.agents.names.palette.len())?;
     let (title, subtitle) = title_from(&a.task);
@@ -438,7 +533,16 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         name,
         template: h.key.clone(),
         harness: h.label.clone(),
-        host: sandbox.as_ref().map(|b| if b.gateway.is_empty() { "openshell".to_owned() } else { b.gateway.clone() }).unwrap_or_else(host_label),
+        host: sandbox
+            .as_ref()
+            .map(|b| {
+                if b.gateway.is_empty() {
+                    "openshell".to_owned()
+                } else {
+                    b.gateway.clone()
+                }
+            })
+            .unwrap_or_else(host_label),
         cwd: cwd.clone(),
         status: Status::Running,
         title,
@@ -448,14 +552,24 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         created_at: ts.clone(),
         active_at: ts.clone(),
         color,
-        stats: super::model::Stats { started_at: ts.clone(), ..Default::default() },
+        stats: super::model::Stats {
+            started_at: ts.clone(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     {
         let mut i = app.agents.store.lock();
         i.put_session(s);
-        let at = if sandbox.is_some() { place.clone() } else { format!("{} · {}", host_label(), tilde(&cwd)) };
-        i.push_row(&session_thread(&id), state_row(&ts, &format!("Session started · {} · {at}", h.label)));
+        let at = if sandbox.is_some() {
+            place.clone()
+        } else {
+            format!("{} · {}", host_label(), tilde(&cwd))
+        };
+        i.push_row(
+            &session_thread(&id),
+            state_row(&ts, &format!("Session started · {} · {at}", h.label)),
+        );
     }
     let task = a.task.trim().to_owned();
     let model = a.model.clone();
@@ -464,14 +578,31 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     let make = match (&sandbox, existing) {
         (Some(b), None) => {
             let o = h.openshell.clone().unwrap_or_default();
-            let from = a.sandbox.as_ref().map(|s| s.from.trim().to_owned()).filter(|f| !f.is_empty()).unwrap_or(o.from);
-            Some(super::openshell::NewSandbox { gateway: b.gateway.clone(), name: b.name.clone(), from, providers: o.providers, policy: o.policy, upload: b.upload.clone() })
+            let from = a
+                .sandbox
+                .as_ref()
+                .map(|s| s.from.trim().to_owned())
+                .filter(|f| !f.is_empty())
+                .unwrap_or(o.from);
+            Some(super::openshell::NewSandbox {
+                gateway: b.gateway.clone(),
+                name: b.name.clone(),
+                from,
+                providers: o.providers,
+                policy: o.policy,
+                upload: b.upload.clone(),
+            })
         }
         _ => None,
     };
     let Some(arc) = app.arc() else { return Ok(id) };
     // Running but not in the agent host yet (a sandbox can take minutes to make): a reattach must leave it be.
-    app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
+    app.agents
+        .acp
+        .starting
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.clone());
     let sid = id.clone();
     std::thread::spawn(move || {
         let queued = (!task.is_empty()).then(|| push_you(&arc, &sid, &task, true, vec![]));
@@ -480,7 +611,12 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
             None => Ok(()),
         };
         let connected = made.and_then(|_| connect(&arc, &sid, None).map_err(|e| e.to_string()));
-        arc.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&sid);
+        arc.agents
+            .acp
+            .starting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&sid);
         match connected {
             Ok(conn) => {
                 if let Some(m) = model {
@@ -507,29 +643,67 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
 
 /// Create the session's sandbox and upload its directory; the session then runs where the upload landed.
 fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result<()> {
-    let from = if n.from.is_empty() { "the gateway's default image".to_owned() } else { n.from.clone() };
+    let from = if n.from.is_empty() {
+        "the gateway's default image".to_owned()
+    } else {
+        n.from.clone()
+    };
     let ts = now(app);
-    app.agents.store.lock().push_row(&session_thread(id), state_row(&ts, &format!("Creating sandbox {} from {from} · uploading {}", n.name, tilde(&n.upload))));
+    app.agents.store.lock().push_row(
+        &session_thread(id),
+        state_row(
+            &ts,
+            &format!(
+                "Creating sandbox {} from {from} · uploading {}",
+                n.name,
+                tilde(&n.upload)
+            ),
+        ),
+    );
     let workdir = super::openshell::create(&app.settings().agents.openshell.command, n)?;
     // What went in, for bringing changes back (`openshell::sync`).
-    let sb = super::model::Sandbox { gateway: n.gateway.clone(), name: n.name.clone(), upload: n.upload.clone(), ..Default::default() };
+    let sb = super::model::Sandbox {
+        gateway: n.gateway.clone(),
+        name: n.name.clone(),
+        upload: n.upload.clone(),
+        ..Default::default()
+    };
     if let Err(e) = super::openshell::record_upload(app, &sb) {
         eprintln!("agents: couldn't record what went into sandbox {}: {e}", n.name);
     }
     let ts = now(app);
     let mut i = app.agents.store.lock();
     i.update_session(id, |s| s.cwd = workdir.clone());
-    i.push_row(&session_thread(id), state_row(&ts, &format!("Sandbox {} ready · {} → {workdir}", n.name, tilde(&n.upload))));
+    i.push_row(
+        &session_thread(id),
+        state_row(
+            &ts,
+            &format!("Sandbox {} ready · {} → {workdir}", n.name, tilde(&n.upload)),
+        ),
+    );
     Ok(())
 }
 
 fn set_model(app: &App, conn: &Conn, id: &str, model: &str) {
     let sid = conn.sid();
-    let by_model = conn.request("session/set_model", json!({ "sessionId": sid, "modelId": model }), Some(CALL_TIMEOUT));
-    let done = by_model.or_else(|_| conn.request("session/set_config_option", json!({ "sessionId": sid, "configId": "model", "value": model }), Some(CALL_TIMEOUT)));
+    let by_model = conn.request(
+        "session/set_model",
+        json!({ "sessionId": sid, "modelId": model }),
+        Some(CALL_TIMEOUT),
+    );
+    let done = by_model.or_else(|_| {
+        conn.request(
+            "session/set_config_option",
+            json!({ "sessionId": sid, "configId": "model", "value": model }),
+            Some(CALL_TIMEOUT),
+        )
+    });
     match done {
         Ok(_) => {
-            app.agents.store.lock().update_session(id, |s| s.model = super::explain::short_model(model));
+            app.agents
+                .store
+                .lock()
+                .update_session(id, |s| s.model = super::explain::short_model(model));
         }
         Err(e) => eprintln!("agents: couldn't switch {id} to model {model}: {e}"),
     }
@@ -543,11 +717,22 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
         return Ok(v.clone());
     }
     let settings = app.settings();
-    let h = settings.agents.harnesses.iter().find(|h| h.key == harness).ok_or_else(|| msg(format!("no harness '{harness}'")))?;
+    let h = settings
+        .agents
+        .harnesses
+        .iter()
+        .find(|h| h.key == harness)
+        .ok_or_else(|| msg(format!("no harness '{harness}'")))?;
     let path = login_path();
     let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH", h.command)))?;
     let cwd = expand_home(cwd.trim());
-    let cwd = if std::path::Path::new(&cwd).is_dir() { cwd } else { dirs::home_dir().map(|d| d.display().to_string()).unwrap_or_else(|| ".".into()) };
+    let cwd = if std::path::Path::new(&cwd).is_dir() {
+        cwd
+    } else {
+        dirs::home_dir()
+            .map(|d| d.display().to_string())
+            .unwrap_or_else(|| ".".into())
+    };
     let mut child = Command::new(exe)
         .args(&h.args)
         .envs(&h.env)
@@ -575,7 +760,9 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
     let new = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new", "params": { "cwd": cwd, "mcpServers": [] } });
     let sent = {
         use std::io::Write;
-        writeln!(stdin, "{init}").and_then(|_| writeln!(stdin, "{new}")).and_then(|_| stdin.flush())
+        writeln!(stdin, "{init}")
+            .and_then(|_| writeln!(stdin, "{new}"))
+            .and_then(|_| stdin.flush())
     };
     let deadline = std::time::Instant::now() + INIT_TIMEOUT;
     let mut reply = Err(msg("the agent didn't answer"));
@@ -597,14 +784,27 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
     let list = |items: Option<&Vec<Value>>, id: &str| -> Vec<Value> {
         items.map(|a| a.iter().filter_map(|m| Some(json!({ "id": m.get(id)?.as_str()?, "name": m.get("name").and_then(Value::as_str).unwrap_or_default() }))).collect()).unwrap_or_default()
     };
-    let option = r.get("configOptions").and_then(Value::as_array).and_then(|o| o.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")));
-    let mut models = list(r.pointer("/models/availableModels").and_then(Value::as_array), "modelId");
+    let option = r
+        .get("configOptions")
+        .and_then(Value::as_array)
+        .and_then(|o| o.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")));
+    let mut models = list(
+        r.pointer("/models/availableModels").and_then(Value::as_array),
+        "modelId",
+    );
     if models.is_empty() {
         models = list(option.and_then(|o| o.get("options")).and_then(Value::as_array), "value");
     }
-    let current = r.pointer("/models/currentModelId").and_then(Value::as_str).or_else(|| option.and_then(|o| o.get("currentValue")).and_then(Value::as_str)).unwrap_or_default();
+    let current = r
+        .pointer("/models/currentModelId")
+        .and_then(Value::as_str)
+        .or_else(|| option.and_then(|o| o.get("currentValue")).and_then(Value::as_str))
+        .unwrap_or_default();
     let out = json!({ "models": models, "current": current, "thinking": thinking_of(&r) });
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(harness.to_owned(), out.clone());
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(harness.to_owned(), out.clone());
     Ok(out)
 }
 
@@ -615,7 +815,12 @@ fn rand_u32() -> u32 {
 }
 
 fn state_row(at: &str, text: &str) -> Row {
-    Row { at: at.into(), kind: Kind::State, text: text.into(), ..Default::default() }
+    Row {
+        at: at.into(),
+        kind: Kind::State,
+        text: text.into(),
+        ..Default::default()
+    }
 }
 
 /// A "N queued" marker stands in for a held-back message until it's actually sent.
@@ -631,12 +836,21 @@ fn queue_message(app: &App, id: &str, text: &str, images: Vec<RowImage>) {
             i.update_row(&key, rid, |r| r.text = note);
             rid
         }
-        None => i.push_row(&key, Row { ext: "queue-marker".into(), ..state_row(&ts, &note) }),
+        None => i.push_row(
+            &key,
+            Row {
+                ext: "queue-marker".into(),
+                ..state_row(&ts, &note)
+            },
+        ),
     };
     i.update_session(id, |s| {
         s.queue_marker = Some(marker);
         s.queue_peak = n;
-        s.queued.push(QueuedMessage { text: text.to_owned(), images });
+        s.queued.push(QueuedMessage {
+            text: text.to_owned(),
+            images,
+        });
     });
 }
 
@@ -656,36 +870,82 @@ fn fail(app: &App, id: &str, why: &str) {
         s.live = false;
         s.problem = why.to_owned();
     });
-    i.push_row(&session_thread(id), Row { at: ts, kind: Kind::Failed, text: why.to_owned(), label: "couldn't start".into(), ..Default::default() });
+    i.push_row(
+        &session_thread(id),
+        Row {
+            at: ts,
+            kind: Kind::Failed,
+            text: why.to_owned(),
+            label: "couldn't start".into(),
+            ..Default::default()
+        },
+    );
 }
 
 /// Start the adapter in the agent host, initialize, and open (or resume) the ACP session.
 fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> {
-    let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
+    let s = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(id)
+        .cloned()
+        .ok_or_else(|| msg("no such session"))?;
     let settings = app.settings();
-    let h = settings.agents.harnesses.iter().find(|h| h.key == s.template).ok_or_else(|| msg(format!("the {} harness is gone from settings", s.template)))?;
+    let h = settings
+        .agents
+        .harnesses
+        .iter()
+        .find(|h| h.key == s.template)
+        .ok_or_else(|| msg(format!("the {} harness is gone from settings", s.template)))?;
     let path = login_path();
     // In a sandbox, the agent host runs the OpenShell CLI, which runs the adapter there.
     let (exe, args, spawn_cwd) = match &s.sandbox {
         Some(sb) => {
             let cli = &settings.agents.openshell.command;
-            let exe = which(cli, &path).ok_or_else(|| msg(format!("{cli} isn't on your PATH (agents.openshell.command)")))?;
-            super::openshell::ensure_started(cli, sb).map_err(|e| msg(format!("couldn't start sandbox {} · {e}", sb.name)))?;
-            let local = Some(sb.upload.clone()).filter(|d| std::path::Path::new(d).is_dir()).or_else(|| dirs::home_dir().map(|d| d.display().to_string())).unwrap_or_else(|| "/".into());
+            let exe =
+                which(cli, &path).ok_or_else(|| msg(format!("{cli} isn't on your PATH (agents.openshell.command)")))?;
+            super::openshell::ensure_started(cli, sb)
+                .map_err(|e| msg(format!("couldn't start sandbox {} · {e}", sb.name)))?;
+            let local = Some(sb.upload.clone())
+                .filter(|d| std::path::Path::new(d).is_dir())
+                .or_else(|| dirs::home_dir().map(|d| d.display().to_string()))
+                .unwrap_or_else(|| "/".into());
             (exe, super::openshell::exec_args(sb, &s.cwd, h), local)
         }
         None => {
-            let exe = which(&h.command, &path).ok_or_else(|| msg(format!("{} isn't on your PATH (agents.harnesses.{}.command)", h.command, h.key)))?;
+            let exe = which(&h.command, &path).ok_or_else(|| {
+                msg(format!(
+                    "{} isn't on your PATH (agents.harnesses.{}.command)",
+                    h.command, h.key
+                ))
+            })?;
             (exe, h.args.clone(), s.cwd.clone())
         }
     };
     // A new process starts its turn over; its events keep counting from where the log was read.
     let after = app.agents.store.lock().hosts.get(id).map(|h| h.seq).unwrap_or(0);
-    app.agents.store.lock().set_host(id, HostState { seq: after, turn: Value::Null });
+    app.agents.store.lock().set_host(
+        id,
+        HostState {
+            seq: after,
+            turn: Value::Null,
+        },
+    );
     let conn = Arc::new(Conn::new(app, id, Turn::default(), true));
-    app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), conn.clone());
+    app.agents
+        .acp
+        .conns
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.to_owned(), conn.clone());
     // The project's devshell is this machine's; a sandbox has its own environment (the harness's `openshell.env`).
-    let mut env = if s.sandbox.is_some() { BTreeMap::new() } else { direnv_env(&s.cwd, &path) };
+    let mut env = if s.sandbox.is_some() {
+        BTreeMap::new()
+    } else {
+        direnv_env(&s.cwd, &path)
+    };
     let watches = direnv_watches(&env);
     app.agents.store.lock().update_session(id, |s| {
         s.env_watches = watches;
@@ -695,7 +955,17 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     if s.sandbox.is_none() {
         env.extend(h.env.clone());
     }
-    let spawned = daemon::call(app, &dproto::Request::Spawn { id: id.to_owned(), cmd: exe.display().to_string(), args, env, cwd: spawn_cwd, after });
+    let spawned = daemon::call(
+        app,
+        &dproto::Request::Spawn {
+            id: id.to_owned(),
+            cmd: exe.display().to_string(),
+            args,
+            env,
+            cwd: spawn_cwd,
+            after,
+        },
+    );
     if let Err(e) = spawned {
         conn.alive.store(false, Ordering::SeqCst);
         return Err(e);
@@ -722,20 +992,38 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
 
     let cwd = s.cwd.clone();
     let opened = match resume {
-        Some(sid) if caps.pointer("/sessionCapabilities/resume").is_some() => {
-            conn.request("session/resume", json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }), Some(CALL_TIMEOUT)).map(|v| (sid.to_owned(), v))
-        }
+        Some(sid) if caps.pointer("/sessionCapabilities/resume").is_some() => conn
+            .request(
+                "session/resume",
+                json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }),
+                Some(CALL_TIMEOUT),
+            )
+            .map(|v| (sid.to_owned(), v)),
         Some(sid) if caps.get("loadSession").and_then(Value::as_bool) == Some(true) => {
             conn.replaying.store(true, Ordering::SeqCst);
-            let r = conn.request("session/load", json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }), Some(CALL_TIMEOUT));
+            let r = conn.request(
+                "session/load",
+                json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }),
+                Some(CALL_TIMEOUT),
+            );
             conn.replaying.store(false, Ordering::SeqCst);
             r.map(|v| (sid.to_owned(), v))
         }
         Some(_) => Err(msg("this agent can't resume a session; start a new one")),
-        None => conn.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), Some(CALL_TIMEOUT)).and_then(|v| {
-            let sid = v.get("sessionId").and_then(Value::as_str).ok_or_else(|| msg("session/new: no sessionId"))?.to_owned();
-            Ok((sid, v))
-        }),
+        None => conn
+            .request(
+                "session/new",
+                json!({ "cwd": cwd, "mcpServers": [] }),
+                Some(CALL_TIMEOUT),
+            )
+            .and_then(|v| {
+                let sid = v
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| msg("session/new: no sessionId"))?
+                    .to_owned();
+                Ok((sid, v))
+            }),
     };
     let (sid, opened) = opened.map_err(|e| {
         conn.kill();
@@ -745,9 +1033,21 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     // In a sandbox, Claude Code decides in its auto mode and other agents ask nothing (`openshell::mode`).
     // Otherwise in-project edits are the agent's call to let through (agents.accept_edits).
     let allow_all = s.sandbox.is_some() && !super::openshell::is_claude(&init);
-    let mode = if s.sandbox.is_some() { super::openshell::mode(&init, &opened) } else { settings.agents.accept_edits.then(|| accept_edits_mode(&opened)).flatten() };
+    let mode = if s.sandbox.is_some() {
+        super::openshell::mode(&init, &opened)
+    } else {
+        settings
+            .agents
+            .accept_edits
+            .then(|| accept_edits_mode(&opened))
+            .flatten()
+    };
     if let Some(mode) = mode {
-        if let Err(e) = conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": mode }), Some(CALL_TIMEOUT)) {
+        if let Err(e) = conn.request(
+            "session/set_mode",
+            json!({ "sessionId": sid, "modeId": mode }),
+            Some(CALL_TIMEOUT),
+        ) {
             eprintln!("agents: couldn't switch {id} to {mode}: {e}");
         }
     }
@@ -779,7 +1079,9 @@ fn save_turn(app: &App, conn: &Conn, seq: Option<u64>) {
 
 /// An event's time on the app's clock (which `fake_now` may shift).
 fn ts_of(app: &App, at_ms: u64) -> String {
-    crate::time::Ts::from_unix_ms(at_ms as i64 + app.clock.offset_ms()).map(crate::time::Ts::to_db).unwrap_or_else(|| now(app))
+    crate::time::Ts::from_unix_ms(at_ms as i64 + app.clock.offset_ms())
+        .map(crate::time::Ts::to_db)
+        .unwrap_or_else(|| now(app))
 }
 
 /// The Conn for a session's agent, made from its stored turn when this run hasn't seen it yet.
@@ -787,13 +1089,31 @@ fn conn_for(app: &App, id: &str) -> Option<Arc<Conn>> {
     if let Some(c) = app.agents.acp.any(id) {
         return Some(c);
     }
-    let exists = app.agents.store.lock().sessions.get(id).is_some_and(|s| s.source == "acp" && s.parent_id.is_none());
+    let exists = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(id)
+        .is_some_and(|s| s.source == "acp" && s.parent_id.is_none());
     if !exists {
         return None;
     }
-    let turn: Turn = app.agents.store.lock().hosts.get(id).and_then(|h| serde_json::from_value(h.turn.clone()).ok()).unwrap_or_default();
+    let turn: Turn = app
+        .agents
+        .store
+        .lock()
+        .hosts
+        .get(id)
+        .and_then(|h| serde_json::from_value(h.turn.clone()).ok())
+        .unwrap_or_default();
     let c = Arc::new(Conn::new(app, id, turn, false));
-    app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), c.clone());
+    app.agents
+        .acp
+        .conns
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.to_owned(), c.clone());
     Some(c)
 }
 
@@ -853,7 +1173,10 @@ fn apply_event(app: &Arc<App>, conn: &Arc<Conn>, ev: Event) -> Option<After> {
     let after = match ev.kind {
         dproto::Kind::Out => {
             // Adapters and wrappers sometimes print non-JSON lines; skip them.
-            ev.line.as_deref().and_then(|l| serde_json::from_str::<Value>(l.trim()).ok()).and_then(|v| handle(app, conn, v, &ts))
+            ev.line
+                .as_deref()
+                .and_then(|l| serde_json::from_str::<Value>(l.trim()).ok())
+                .and_then(|v| handle(app, conn, v, &ts))
         }
         dproto::Kind::Err => {
             let mut e = conn.stderr.lock().unwrap_or_else(|e| e.into_inner());
@@ -879,7 +1202,11 @@ fn exited(app: &App, conn: &Conn, note: Option<&str>, ts: &str) {
     let busy = {
         let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         let busy = !t.prompts.is_empty();
-        let open: Vec<(String, u64)> = t.open.drain().map(|(k, id)| (k.split('\u{1f}').next().unwrap_or("").to_owned(), id)).collect();
+        let open: Vec<(String, u64)> = t
+            .open
+            .drain()
+            .map(|(k, id)| (k.split('\u{1f}').next().unwrap_or("").to_owned(), id))
+            .collect();
         t.prompts.clear();
         t.waiting.clear();
         let mut i = app.agents.store.lock();
@@ -890,21 +1217,39 @@ fn exited(app: &App, conn: &Conn, note: Option<&str>, ts: &str) {
     };
     let tail = note.map(str::to_owned).unwrap_or_else(|| conn.stderr_tail());
     let mut i = app.agents.store.lock();
-    let reqs: Vec<String> = i.requests.values().filter(|r| r.session_id == conn.session).map(|r| r.id.clone()).collect();
+    let reqs: Vec<String> = i
+        .requests
+        .values()
+        .filter(|r| r.session_id == conn.session)
+        .map(|r| r.id.clone())
+        .collect();
     for r in reqs {
         i.remove_request(&r);
     }
-    let failed = !conn.stopping.swap(false, Ordering::SeqCst) && (busy || i.sessions.get(&conn.session).is_some_and(|s| s.status == Status::Waiting));
+    let failed = !conn.stopping.swap(false, Ordering::SeqCst)
+        && (busy
+            || i.sessions
+                .get(&conn.session)
+                .is_some_and(|s| s.status == Status::Waiting));
     i.update_session(&conn.session, |s| {
         s.live = false;
         if failed {
             s.status = Status::Failed;
-            s.problem = if tail.is_empty() { "the agent exited".into() } else { tail.clone() };
+            s.problem = if tail.is_empty() {
+                "the agent exited".into()
+            } else {
+                tail.clone()
+            };
         } else if s.status != Status::Failed {
             s.status = Status::Idle;
         }
     });
-    let children: Vec<String> = i.sessions.values().filter(|c| c.parent_id.as_deref() == Some(conn.session.as_str()) && c.status == Status::Running).map(|c| c.id.clone()).collect();
+    let children: Vec<String> = i
+        .sessions
+        .values()
+        .filter(|c| c.parent_id.as_deref() == Some(conn.session.as_str()) && c.status == Status::Running)
+        .map(|c| c.id.clone())
+        .collect();
     for c in children {
         i.update_session(&c, |c| {
             c.status = Status::Idle;
@@ -912,7 +1257,20 @@ fn exited(app: &App, conn: &Conn, note: Option<&str>, ts: &str) {
         });
     }
     if failed && (was_alive || note.is_some()) {
-        i.push_row(&session_thread(&conn.session), Row { at: ts.into(), kind: Kind::Failed, label: "exited".into(), text: if tail.is_empty() { "The agent exited.".into() } else { tail }, ..Default::default() });
+        i.push_row(
+            &session_thread(&conn.session),
+            Row {
+                at: ts.into(),
+                kind: Kind::Failed,
+                label: "exited".into(),
+                text: if tail.is_empty() {
+                    "The agent exited.".into()
+                } else {
+                    tail
+                },
+                ..Default::default()
+            },
+        );
     }
 }
 
@@ -920,14 +1278,29 @@ fn exited(app: &App, conn: &Conn, note: Option<&str>, ts: &str) {
 /// with the approvals they were waiting on; settle the ones that aren't.
 pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
     let alive: HashMap<&str, bool> = hosts.iter().map(|h| (h.id.as_str(), h.alive)).collect();
-    let local: Vec<Session> = app.agents.store.lock().sessions.values().filter(|s| s.source == "acp" && s.parent_id.is_none()).cloned().collect();
+    let local: Vec<Session> = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .values()
+        .filter(|s| s.source == "acp" && s.parent_id.is_none())
+        .cloned()
+        .collect();
     for s in local {
         match alive.get(s.id.as_str()) {
             Some(true) => {
                 let _ = app.agents.store.ensure_loaded(app.store(), &session_thread(&s.id));
                 let Some(conn) = conn_for(app, &s.id) else { continue };
                 conn.alive.store(true, Ordering::SeqCst);
-                let waiting: Vec<Waiting> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.values().cloned().collect();
+                let waiting: Vec<Waiting> = conn
+                    .turn
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .waiting
+                    .values()
+                    .cloned()
+                    .collect();
                 app.agents.store.lock().update_session(&s.id, |x| x.live = true);
                 for w in waiting {
                     let req = format!("{}:{}", s.id, w.rpc);
@@ -943,7 +1316,13 @@ pub fn restore(app: &Arc<App>, hosts: &[HostInfo]) {
             // Exited while we were away: its events (ending in the exit) are still to come.
             Some(false) => {}
             // Being started or reattached right now: not in the host yet.
-            None if app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).contains(&s.id) => {}
+            None if app
+                .agents
+                .acp
+                .starting
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&s.id) => {}
             None => {
                 // Nothing in the host: whatever it was doing is over.
                 if matches!(s.status, Status::Running | Status::Waiting) {
@@ -975,57 +1354,106 @@ pub fn host_gone(app: &App) {
 /// Anything local that needs the agent host.
 pub fn any_local(app: &App) -> bool {
     let i = app.agents.store.lock();
-    !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
-        || i.sessions.values().any(|s| s.source == "acp" && s.parent_id.is_none() && (matches!(s.status, Status::Running | Status::Waiting) || s.live))
+    !app.agents
+        .acp
+        .starting
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
+        || i.sessions.values().any(|s| {
+            s.source == "acp"
+                && s.parent_id.is_none()
+                && (matches!(s.status, Status::Running | Status::Waiting) || s.live)
+        })
 }
 
 /// The agent's own mode that applies edits without asking, if it has one.
 pub fn accept_edits_mode(v: &Value) -> Option<String> {
     let modes = v.pointer("/modes/availableModes")?.as_array()?;
     let current = v.pointer("/modes/currentModeId").and_then(Value::as_str);
-    let m = modes.iter().filter_map(|m| m.get("id").and_then(Value::as_str)).find(|id| *id == "acceptEdits" || *id == "accept_edits")?;
+    let m = modes
+        .iter()
+        .filter_map(|m| m.get("id").and_then(Value::as_str))
+        .find(|id| *id == "acceptEdits" || *id == "accept_edits")?;
     matches!(current, None | Some("default")).then(|| m.to_owned())
 }
 
 /// The current model's short name from a session/new (or resume) answer.
 pub fn model_of(v: &Value) -> Option<String> {
     let from_config = v.get("configOptions").and_then(Value::as_array).and_then(|opts| {
-        let o = opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))?;
+        let o = opts
+            .iter()
+            .find(|o| o.get("id").and_then(Value::as_str) == Some("model"))?;
         o.get("currentValue").and_then(Value::as_str).map(str::to_owned)
     });
-    let from_models = v.pointer("/models/currentModelId").and_then(Value::as_str).map(str::to_owned);
-    from_config.or(from_models).filter(|m| !m.is_empty()).map(|m| super::explain::short_model(&m))
+    let from_models = v
+        .pointer("/models/currentModelId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    from_config
+        .or(from_models)
+        .filter(|m| !m.is_empty())
+        .map(|m| super::explain::short_model(&m))
 }
 
 /// The agent's thinking option from a session/new, set_config_option or config_option_update.
 pub fn thinking_of(v: &Value) -> Option<super::model::ConfigChoice> {
-    let o = v.get("configOptions")?.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some("thought_level"))?;
+    let o = v
+        .get("configOptions")?
+        .as_array()?
+        .iter()
+        .find(|o| o.get("category").and_then(Value::as_str) == Some("thought_level"))?;
     let str_of = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let options: Vec<super::model::ChoiceOption> = o
         .get("options")?
         .as_array()?
         .iter()
-        .map(|x| super::model::ChoiceOption { value: str_of(x, "value"), name: str_of(x, "name") })
+        .map(|x| super::model::ChoiceOption {
+            value: str_of(x, "value"),
+            name: str_of(x, "name"),
+        })
         .filter(|x| !x.value.is_empty())
         .collect();
     let id = str_of(o, "id");
-    (!id.is_empty() && !options.is_empty()).then(|| super::model::ConfigChoice { id, current: str_of(o, "currentValue"), options })
+    (!id.is_empty() && !options.is_empty()).then(|| super::model::ConfigChoice {
+        id,
+        current: str_of(o, "currentValue"),
+        options,
+    })
 }
 
 fn set_thinking_on(app: &App, conn: &Conn, id: &str, value: &str) -> Result<()> {
-    let opt = app.agents.store.lock().sessions.get(id).and_then(|s| s.thinking.clone()).ok_or_else(|| msg("This agent has no thinking setting"))?;
+    let opt = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(id)
+        .and_then(|s| s.thinking.clone())
+        .ok_or_else(|| msg("This agent has no thinking setting"))?;
     if !opt.options.iter().any(|o| o.value == value) {
         return Err(msg(format!("'{value}' isn't one of this agent's thinking levels")));
     }
-    let r = conn.request("session/set_config_option", json!({ "sessionId": conn.sid(), "configId": opt.id, "value": value }), Some(CALL_TIMEOUT))?;
-    let next = thinking_of(&r).unwrap_or(super::model::ConfigChoice { current: value.to_owned(), ..opt });
+    let r = conn.request(
+        "session/set_config_option",
+        json!({ "sessionId": conn.sid(), "configId": opt.id, "value": value }),
+        Some(CALL_TIMEOUT),
+    )?;
+    let next = thinking_of(&r).unwrap_or(super::model::ConfigChoice {
+        current: value.to_owned(),
+        ..opt
+    });
     app.agents.store.lock().update_session(id, |s| s.thinking = Some(next));
     Ok(())
 }
 
 /// Change a running session's thinking level.
 pub fn set_thinking(app: &App, id: &str, value: &str) -> Result<()> {
-    let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running; send it a message first"))?;
+    let conn = app
+        .agents
+        .acp
+        .get(id)
+        .ok_or_else(|| msg("It isn't running; send it a message first"))?;
     set_thinking_on(app, &conn, id, value)
 }
 
@@ -1060,7 +1488,13 @@ fn handle(app: &Arc<App>, conn: &Arc<Conn>, v: Value, ts: &str) -> Option<After>
             };
             if let Some(tx) = conn.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
                 let _ = tx.send(r);
-            } else if conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.contains_key(&id) {
+            } else if conn
+                .turn
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .prompts
+                .contains_key(&id)
+            {
                 return finish_prompt(app, conn, id, r, ts);
             }
         }
@@ -1093,14 +1527,27 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                 return;
             }
             let (key, _) = target(turn, session, u);
-            let k = if kind == "agent_message_chunk" { Kind::Output } else { Kind::Thinking };
-            let other = if k == Kind::Output { Kind::Thinking } else { Kind::Output };
+            let k = if kind == "agent_message_chunk" {
+                Kind::Output
+            } else {
+                Kind::Thinking
+            };
+            let other = if k == Kind::Output {
+                Kind::Thinking
+            } else {
+                Kind::Output
+            };
             let mut i = store.lock();
             // A new kind of text closes the other open row.
             if let Some(id) = turn.open.remove(&open_key(&key, other)) {
                 i.update_row(&key, id, |r| r.open = false);
             }
-            let last_is_open = turn.open.get(&open_key(&key, k)).is_some_and(|id| i.threads.get(&key).and_then(|t| t.rows.last()).is_some_and(|r| r.id == *id));
+            let last_is_open = turn.open.get(&open_key(&key, k)).is_some_and(|id| {
+                i.threads
+                    .get(&key)
+                    .and_then(|t| t.rows.last())
+                    .is_some_and(|r| r.id == *id)
+            });
             if last_is_open {
                 let id = turn.open[&open_key(&key, k)];
                 i.update_row(&key, id, |r| {
@@ -1116,7 +1563,11 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                 let row = Row {
                     at: ts.into(),
                     kind: k,
-                    label: if k == Kind::Output { "output".into() } else { "thinking".into() },
+                    label: if k == Kind::Output {
+                        "output".into()
+                    } else {
+                        "thinking".into()
+                    },
                     text: text.into(),
                     tokens: (k == Kind::Thinking).then(|| super::model::rough_tokens(text)),
                     open: true,
@@ -1129,7 +1580,10 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
         "tool_call" | "tool_call_update" => tool_update(app, session, turn, u, ts),
         "plan" => {
             let entries = u.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
-            let done = entries.iter().filter(|e| e.get("status").and_then(Value::as_str) == Some("completed")).count();
+            let done = entries
+                .iter()
+                .filter(|e| e.get("status").and_then(Value::as_str) == Some("completed"))
+                .count();
             let current = entries
                 .iter()
                 .find(|e| e.get("status").and_then(Value::as_str) == Some("in_progress"))
@@ -1145,7 +1599,16 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                     i.update_row(&key, id, |r| r.text = text);
                 }
                 None => {
-                    i.push_row(&key, Row { at: ts.into(), kind: Kind::State, text, ext: "plan".into(), ..Default::default() });
+                    i.push_row(
+                        &key,
+                        Row {
+                            at: ts.into(),
+                            kind: Kind::State,
+                            text,
+                            ext: "plan".into(),
+                            ..Default::default()
+                        },
+                    );
                 }
             }
         }
@@ -1157,7 +1620,9 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
             let used = u.get("used").and_then(Value::as_u64);
             let size = u.get("size").and_then(Value::as_u64);
             let cost = u.pointer("/cost/amount").and_then(Value::as_f64);
-            let model = meta(u, "/_claude~1model").and_then(Value::as_str).map(super::explain::short_model);
+            let model = meta(u, "/_claude~1model")
+                .and_then(Value::as_str)
+                .map(super::explain::short_model);
             store.lock().update_session(session, |s| {
                 if let Some(x) = used {
                     s.stats.ctx_used = x;
@@ -1198,7 +1663,11 @@ fn strip_fence(s: &str) -> String {
 }
 
 fn rel(path: &str, cwd: &str) -> String {
-    let p = path.strip_prefix(cwd).map(|r| r.trim_start_matches('/')).filter(|r| !r.is_empty()).unwrap_or(path);
+    let p = path
+        .strip_prefix(cwd)
+        .map(|r| r.trim_start_matches('/'))
+        .filter(|r| !r.is_empty())
+        .unwrap_or(path);
     tilde(p)
 }
 
@@ -1226,7 +1695,11 @@ pub fn diff_stat(old: &str, new: &str) -> (u64, u64) {
     let mut dp = vec![vec![0u32; b.len() + 1]; a.len() + 1];
     for i in (0..a.len()).rev() {
         for j in (0..b.len()).rev() {
-            dp[i][j] = if a[i] == b[j] { dp[i + 1][j + 1] + 1 } else { dp[i + 1][j].max(dp[i][j + 1]) };
+            dp[i][j] = if a[i] == b[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
         }
     }
     let common = dp[0][0] as u64;
@@ -1235,18 +1708,42 @@ pub fn diff_stat(old: &str, new: &str) -> (u64, u64) {
 
 /// Short verb and what it acts on, from the tool's name, kind, title and input.
 pub fn tool_label(u: &Value, cwd: &str) -> (String, String) {
-    let name = meta(u, "/claudeCode/toolName").and_then(Value::as_str).or(u.get("name").and_then(Value::as_str)).unwrap_or("");
+    let name = meta(u, "/claudeCode/toolName")
+        .and_then(Value::as_str)
+        .or(u.get("name").and_then(Value::as_str))
+        .unwrap_or("");
     let kind = u.get("kind").and_then(Value::as_str).unwrap_or("");
     let title = u.get("title").and_then(Value::as_str).unwrap_or("").trim();
     let input = u.get("rawInput").cloned().unwrap_or(Value::Null);
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_owned);
-    let path = s("file_path").or(s("path")).or_else(|| u.pointer("/locations/0/path").and_then(Value::as_str).map(str::to_owned)).map(|p| rel(&p, cwd));
-    let strip = |verb: &str| title.strip_prefix(verb).map(|t| t.trim().to_owned()).unwrap_or_else(|| title.to_owned());
+    let path = s("file_path")
+        .or(s("path"))
+        .or_else(|| {
+            u.pointer("/locations/0/path")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .map(|p| rel(&p, cwd));
+    let strip = |verb: &str| {
+        title
+            .strip_prefix(verb)
+            .map(|t| t.trim().to_owned())
+            .unwrap_or_else(|| title.to_owned())
+    };
     let (n, d) = match name {
         "Read" => ("read", path.unwrap_or_else(|| strip("Read"))),
         "Edit" | "MultiEdit" => ("edit", path.unwrap_or_else(|| strip("Edit"))),
         "Write" => ("write", path.unwrap_or_else(|| strip("Write"))),
-        "Bash" => ("bash", s("command").unwrap_or_else(|| if title == "Terminal" { String::new() } else { title.to_owned() })),
+        "Bash" => (
+            "bash",
+            s("command").unwrap_or_else(|| {
+                if title == "Terminal" {
+                    String::new()
+                } else {
+                    title.to_owned()
+                }
+            }),
+        ),
         "Grep" => ("grep", strip("grep")),
         "Glob" => ("glob", s("pattern").unwrap_or_else(|| title.to_owned())),
         "WebFetch" => ("fetch", s("url").unwrap_or_else(|| title.to_owned())),
@@ -1254,16 +1751,34 @@ pub fn tool_label(u: &Value, cwd: &str) -> (String, String) {
         "TodoWrite" => ("todo", title.to_owned()),
         _ => match kind {
             // pi-acp: bash's title is the command; other tools are bare names.
-            "execute" => ("bash", if title.is_empty() { s("command").unwrap_or_default() } else { title.to_owned() }),
+            "execute" => (
+                "bash",
+                if title.is_empty() {
+                    s("command").unwrap_or_default()
+                } else {
+                    title.to_owned()
+                },
+            ),
             "read" => ("read", path.unwrap_or_else(|| title.to_owned())),
-            "edit" => (if title == "write" { "write" } else { "edit" }, path.unwrap_or_else(|| title.to_owned())),
+            "edit" => (
+                if title == "write" { "write" } else { "edit" },
+                path.unwrap_or_else(|| title.to_owned()),
+            ),
             "delete" => ("delete", path.unwrap_or_else(|| title.to_owned())),
             "move" => ("move", path.unwrap_or_else(|| title.to_owned())),
             "search" => ("search", title.to_owned()),
             "fetch" => ("fetch", title.to_owned()),
             _ => {
-                let n = if name.is_empty() { title.split_whitespace().next().unwrap_or("tool").to_lowercase() } else { name.to_lowercase() };
-                let d = if title.to_lowercase() == n { String::new() } else { title.to_owned() };
+                let n = if name.is_empty() {
+                    title.split_whitespace().next().unwrap_or("tool").to_lowercase()
+                } else {
+                    name.to_lowercase()
+                };
+                let d = if title.to_lowercase() == n {
+                    String::new()
+                } else {
+                    title.to_owned()
+                };
                 return (n, d);
             }
         },
@@ -1286,7 +1801,11 @@ fn remember(turn: &mut Turn, call: &str, u: &Value) {
     }
     if let Some(input) = u.get("rawInput").and_then(Value::as_object).filter(|o| !o.is_empty()) {
         // A Write's whole file isn't needed to label or parse it.
-        let small: serde_json::Map<String, Value> = input.iter().filter(|(_, v)| v.to_string().len() <= 8192).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let small: serde_json::Map<String, Value> = input
+            .iter()
+            .filter(|(_, v)| v.to_string().len() <= 8192)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         e["rawInput"] = Value::Object(small);
     }
     if matches!(u.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
@@ -1295,11 +1814,19 @@ fn remember(turn: &mut Turn, call: &str, u: &Value) {
 }
 
 fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
-    let Some(call) = u.get("toolCallId").and_then(Value::as_str) else { return };
+    let Some(call) = u.get("toolCallId").and_then(Value::as_str) else {
+        return;
+    };
     remember(turn, call, u);
     let store = &app.agents.store;
-    let cwd = store.lock().sessions.get(session).map(|s| s.cwd.clone()).unwrap_or_default();
-    let is_subagent = meta(u, "/claudeCode/subagent").and_then(Value::as_bool) == Some(true) || turn.subagents.contains_key(call);
+    let cwd = store
+        .lock()
+        .sessions
+        .get(session)
+        .map(|s| s.cwd.clone())
+        .unwrap_or_default();
+    let is_subagent =
+        meta(u, "/claudeCode/subagent").and_then(Value::as_bool) == Some(true) || turn.subagents.contains_key(call);
     if is_subagent {
         return subagent_update(app, session, turn, call, u, ts);
     }
@@ -1319,7 +1846,12 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
             let row = Row {
                 at: ts.into(),
                 kind: Kind::Tool,
-                tool: Some(Tool { name, detail, status: status.unwrap_or("pending").into(), ..Default::default() }),
+                tool: Some(Tool {
+                    name,
+                    detail,
+                    status: status.unwrap_or("pending").into(),
+                    ..Default::default()
+                }),
                 open: true,
                 ext: call.into(),
                 ..Default::default()
@@ -1330,11 +1862,15 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
         }
     };
     let started = turn.tools.get(call).map(|t| t.2).unwrap_or_else(now_ms);
-    let has_label = u.get("title").is_some() || u.get("rawInput").is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()));
+    let has_label = u.get("title").is_some()
+        || u.get("rawInput")
+            .is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()));
     let (name, detail) = tool_label(u, &cwd);
     let content = u.get("content").and_then(Value::as_array).cloned();
     let raw_out = u.get("rawOutput").and_then(Value::as_str).map(str::to_owned);
-    let term_out = meta(u, "/terminal_output/data").and_then(Value::as_str).map(str::to_owned);
+    let term_out = meta(u, "/terminal_output/data")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let exit = meta(u, "/terminal_exit/exit_code").and_then(Value::as_i64);
     let done = matches!(status, Some("completed") | Some("failed"));
     i.update_row(&key, row_id, |r| {
@@ -1365,7 +1901,10 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
                     }
                     Some("diff") => {
                         diffs = true;
-                        let (a, d) = diff_stat(b.get("oldText").and_then(Value::as_str).unwrap_or(""), b.get("newText").and_then(Value::as_str).unwrap_or(""));
+                        let (a, d) = diff_stat(
+                            b.get("oldText").and_then(Value::as_str).unwrap_or(""),
+                            b.get("newText").and_then(Value::as_str).unwrap_or(""),
+                        );
                         add += a;
                         del += d;
                     }
@@ -1422,9 +1961,13 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
         Some(c) => c.clone(),
         None => {
             let parent = store.lock().sessions.get(session).cloned().unwrap_or_default();
-            let child = format!("{session}~{}", call.trim_start_matches("toolu_").chars().take(8).collect::<String>());
+            let child = format!(
+                "{session}~{}",
+                call.trim_start_matches("toolu_").chars().take(8).collect::<String>()
+            );
             let group = parent.group_id.clone().unwrap_or_else(|| "unsorted".into());
-            let color = super::store::color_for(app.store(), &group, &child, app.settings().agents.names.palette.len()).unwrap_or(0);
+            let color = super::store::color_for(app.store(), &group, &child, app.settings().agents.names.palette.len())
+                .unwrap_or(0);
             let mut i = store.lock();
             i.put_session(Session {
                 id: child.clone(),
@@ -1452,9 +1995,16 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
                 to: Some(Who::agent("subagent", Some(child.clone()))),
                 label: "task".into(),
                 note: format!("subagent · {}", parent.model),
-                children: vec![
-                    Row { kind: Kind::Tool, tool: Some(Tool { name: "subagent".into(), summary: "starting".into(), ..Default::default() }), ext: "summary".into(), ..Default::default() },
-                ],
+                children: vec![Row {
+                    kind: Kind::Tool,
+                    tool: Some(Tool {
+                        name: "subagent".into(),
+                        summary: "starting".into(),
+                        ..Default::default()
+                    }),
+                    ext: "summary".into(),
+                    ..Default::default()
+                }],
                 ext: call.into(),
                 open: true,
                 ..Default::default()
@@ -1465,14 +2015,25 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
             child
         }
     };
-    let name = s("subagent_type").filter(|t| t != "general-purpose").map(|t| t.to_lowercase()).or_else(|| s("description").map(|d| slug(&d)));
+    let name = s("subagent_type")
+        .filter(|t| t != "general-purpose")
+        .map(|t| t.to_lowercase())
+        .or_else(|| s("description").map(|d| slug(&d)));
     let task = s("prompt").or(s("description"));
-    let Some((_, row_id, started)) = turn.tools.get(call).cloned() else { return };
+    let Some((_, row_id, started)) = turn.tools.get(call).cloned() else {
+        return;
+    };
     let done = matches!(status, Some("completed") | Some("failed"));
     let result = u
         .get("content")
         .and_then(Value::as_array)
-        .map(|b| b.iter().filter_map(|b| b.pointer("/content/text").and_then(Value::as_str)).map(strip_fence).collect::<Vec<_>>().join("\n"))
+        .map(|b| {
+            b.iter()
+                .filter_map(|b| b.pointer("/content/text").and_then(Value::as_str))
+                .map(strip_fence)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .filter(|t| !t.is_empty());
     let total_ms = meta(u, "/claudeCode/toolResponse/totalDurationMs").and_then(Value::as_u64);
     let mut i = store.lock();
@@ -1500,7 +2061,12 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
         if done {
             r.open = false;
             let ms = total_ms.unwrap_or(now_ms().saturating_sub(started));
-            if let Some(summary) = r.children.iter_mut().find(|c| c.ext == "summary").and_then(|c| c.tool.as_mut()) {
+            if let Some(summary) = r
+                .children
+                .iter_mut()
+                .find(|c| c.ext == "summary")
+                .and_then(|c| c.tool.as_mut())
+            {
                 summary.ms = Some(ms);
                 summary.status = status.unwrap_or("completed").into();
             }
@@ -1520,13 +2086,26 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
     });
     if done {
         i.update_session(&child, |c| {
-            c.status = if status == Some("failed") { Status::Failed } else { Status::Done };
+            c.status = if status == Some("failed") {
+                Status::Failed
+            } else {
+                Status::Done
+            };
             c.live = false;
             c.active_at = ts.into();
         });
         if let Some(res) = result {
             let k = session_thread(&child);
-            i.push_row(&k, Row { at: ts.into(), kind: Kind::Output, label: "output".into(), text: res, ..Default::default() });
+            i.push_row(
+                &k,
+                Row {
+                    at: ts.into(),
+                    kind: Kind::Output,
+                    label: "output".into(),
+                    text: res,
+                    ..Default::default()
+                },
+            );
         }
     }
     drop(i);
@@ -1536,7 +2115,17 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
 }
 
 fn slug(s: &str) -> String {
-    let words: Vec<String> = s.split_whitespace().take(3).map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase()).filter(|w| !w.is_empty()).collect();
+    let words: Vec<String> = s
+        .split_whitespace()
+        .take(3)
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
     if words.is_empty() {
         "subagent".into()
     } else {
@@ -1546,8 +2135,17 @@ fn slug(s: &str) -> String {
 
 /// "5 tool calls · read ×3, grep ×2 · 4.8s" from the subagent's own thread.
 fn refresh_subagent_summary(app: &App, turn: &Turn, child: &str) {
-    let Some(call) = turn.subagents.iter().find(|(_, c)| c.as_str() == child).map(|(k, _)| k.clone()) else { return };
-    let Some((key, row_id, _)) = turn.tools.get(&call).cloned() else { return };
+    let Some(call) = turn
+        .subagents
+        .iter()
+        .find(|(_, c)| c.as_str() == child)
+        .map(|(k, _)| k.clone())
+    else {
+        return;
+    };
+    let Some((key, row_id, _)) = turn.tools.get(&call).cloned() else {
+        return;
+    };
     let mut i = app.agents.store.lock();
     let mut counts: Vec<(String, usize)> = vec![];
     let mut n = 0;
@@ -1561,12 +2159,31 @@ fn refresh_subagent_summary(app: &App, turn: &Turn, child: &str) {
             }
         }
     }
-    let parts = counts.iter().map(|(k, c)| if *c > 1 { format!("{k} ×{c}") } else { k.clone() }).collect::<Vec<_>>().join(", ");
+    let parts = counts
+        .iter()
+        .map(|(k, c)| if *c > 1 { format!("{k} ×{c}") } else { k.clone() })
+        .collect::<Vec<_>>()
+        .join(", ");
     i.update_row(&key, row_id, |r| {
-        if let Some(t) = r.children.iter_mut().find(|c| c.ext == "summary").and_then(|c| c.tool.as_mut()) {
-            let secs = t.ms.map(|ms| format!(" · {:.1}s", ms as f64 / 1000.0)).unwrap_or_default();
-            let calls = if n == 1 { "1 tool call".to_string() } else { format!("{n} tool calls") };
-            t.summary = if n == 0 { format!("no tool calls{secs}") } else { format!("{calls} · {parts}{secs}") };
+        if let Some(t) = r
+            .children
+            .iter_mut()
+            .find(|c| c.ext == "summary")
+            .and_then(|c| c.tool.as_mut())
+        {
+            let secs =
+                t.ms.map(|ms| format!(" · {:.1}s", ms as f64 / 1000.0))
+                    .unwrap_or_default();
+            let calls = if n == 1 {
+                "1 tool call".to_string()
+            } else {
+                format!("{n} tool calls")
+            };
+            t.summary = if n == 0 {
+                format!("no tool calls{secs}")
+            } else {
+                format!("{calls} · {parts}{secs}")
+            };
         }
     });
 }
@@ -1577,7 +2194,14 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let asked = p.get("toolCall").cloned().unwrap_or(Value::Null);
     let call = asked.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
     // The request's toolCall is an update: what it leaves out is what the call already said.
-    let mut tc = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).calls.get(&call).cloned().unwrap_or_else(|| json!({}));
+    let mut tc = conn
+        .turn
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .calls
+        .get(&call)
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     if let Some(o) = asked.as_object() {
         for (k, v) in o.iter().filter(|(_, v)| !v.is_null()) {
             tc[k] = v.clone();
@@ -1587,12 +2211,40 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let message = asked
         .get("content")
         .and_then(Value::as_array)
-        .map(|blocks| blocks.iter().filter(|b| b.get("type").and_then(Value::as_str) == Some("content")).filter_map(|b| b.pointer("/content/text").and_then(Value::as_str)).map(|t| strip_fence(t).trim().to_owned()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n"))
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("content"))
+                .filter_map(|b| b.pointer("/content/text").and_then(Value::as_str))
+                .map(|t| strip_fence(t).trim().to_owned())
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
         .unwrap_or_default();
     let ts = now(app);
-    let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
-    let known = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).tools.get(&call).cloned();
-    let known = known.and_then(|(k, id, _)| app.agents.store.lock().find_row(&k, |r| r.id == id).and_then(|r| r.tool.clone()));
+    let s = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(&session)
+        .cloned()
+        .unwrap_or_default();
+    let known = conn
+        .turn
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .tools
+        .get(&call)
+        .cloned();
+    let known = known.and_then(|(k, id, _)| {
+        app.agents
+            .store
+            .lock()
+            .find_row(&k, |r| r.id == id)
+            .and_then(|r| r.tool.clone())
+    });
     let (name, detail) = match known {
         Some(t) if tc.get("kind").is_none() => (t.name, t.detail),
         _ => tool_label(&tc, &s.cwd),
@@ -1603,7 +2255,11 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         "read" | "delete" | "move" | "fetch" | "search" => name.as_str(),
         _ => "",
     });
-    let command = tc.pointer("/rawInput/command").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| edit_preview(&tc).unwrap_or_else(|| detail.clone()));
+    let command = tc
+        .pointer("/rawInput/command")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| edit_preview(&tc).unwrap_or_else(|| detail.clone()));
     let req_id = format!("{session}:{}", rpc_id);
     let options: Vec<PermOption> = p
         .get("options")
@@ -1614,7 +2270,12 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
                 .map(|(i, o)| {
                     let kind = o.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
                     let name = o.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-                    PermOption { id: o.get("optionId").and_then(Value::as_str).unwrap_or("").into(), name, kind, key: (i + 1).to_string() }
+                    PermOption {
+                        id: o.get("optionId").and_then(Value::as_str).unwrap_or("").into(),
+                        name,
+                        kind,
+                        key: (i + 1).to_string(),
+                    }
                 })
                 .collect()
         })
@@ -1624,15 +2285,25 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     // way): a question, shown with its own words, never answered for you.
     let (known_call, call_pending) = {
         let turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        (!call.is_empty() && (turn.tools.contains_key(&call) || turn.calls.contains_key(&call)), turn.calls.iter().any(|(id, c)| *id != call && c.get("status").and_then(Value::as_str) == Some("pending")))
+        (
+            !call.is_empty() && (turn.tools.contains_key(&call) || turn.calls.contains_key(&call)),
+            turn.calls
+                .iter()
+                .any(|(id, c)| *id != call && c.get("status").and_then(Value::as_str) == Some("pending")),
+        )
     };
     let question = !known_call && !call_pending;
-    let asked_text = asked.get("title").and_then(Value::as_str).map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    let asked_text = asked
+        .get("title")
+        .and_then(Value::as_str)
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty());
     let command = match (&asked_text, question) {
         (Some(t), true) => t.clone(),
         _ => command,
     };
-    let parsed = (!question && (kind == "execute" || name == "bash")).then(|| super::shell::parse(&command, &s.cwd, &local_bins(&s.cwd)));
+    let parsed = (!question && (kind == "execute" || name == "bash"))
+        .then(|| super::shell::parse(&command, &s.cwd, &local_bins(&s.cwd)));
     let outside = |p: &str| p.starts_with('/') && !p.starts_with(&s.cwd) || p.starts_with('~');
     let tag = match &parsed {
         Some(p) => match p.verdict.as_str() {
@@ -1648,7 +2319,10 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         None if kind == "read" || kind == "search" => "low".into(),
         None => kind.to_owned(),
     };
-    let title = p.pointer("/_meta/permission/title").and_then(Value::as_str).map(str::to_owned);
+    let title = p
+        .pointer("/_meta/permission/title")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let plain = match kind {
         "execute" => "Run a shell command".to_owned(),
         "edit" => format!("Edit {detail}"),
@@ -1656,7 +2330,11 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         "delete" => format!("Delete {detail}"),
         "fetch" => format!("Fetch {detail}"),
         "switch_mode" => title.clone().unwrap_or_else(|| "Switch mode".into()),
-        _ if question => asked_text.as_deref().and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty())).map(|l| crate::ai::context::clip(l, 120)).unwrap_or_else(|| "The agent asks".into()),
+        _ if question => asked_text
+            .as_deref()
+            .and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty()))
+            .map(|l| crate::ai::context::clip(l, 120))
+            .unwrap_or_else(|| "The agent asks".into()),
         _ => title.clone().unwrap_or_else(|| format!("Use {name}")),
     };
     let req = Request {
@@ -1682,18 +2360,45 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     };
     let _ = target;
     // An agent whose checks are off in its sandbox gets its own allow option at once, for a gate (`openshell::auto_allow`).
-    let auto = s.sandbox.as_ref().filter(|b| b.allow_all).and_then(|_| super::openshell::auto_allow(&req.options, known_call, call_pending)).map(|o| o.id.clone());
+    let auto = s
+        .sandbox
+        .as_ref()
+        .filter(|b| b.allow_all)
+        .and_then(|_| super::openshell::auto_allow(&req.options, known_call, call_pending))
+        .map(|o| o.id.clone());
     {
         let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         if auto.is_none() {
-            turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id.clone(), params: p.clone(), method: "session/request_permission".into() });
+            turn.waiting.insert(
+                req_id.clone(),
+                Waiting {
+                    rpc: rpc_id.clone(),
+                    params: p.clone(),
+                    method: "session/request_permission".into(),
+                },
+            );
         }
         let mut i = app.agents.store.lock();
         let existing = turn.tools.get(&call).map(|(_, id, _)| *id);
         let row_id = match existing {
             Some(id) => id,
             None => {
-                let id = i.push_row(&key, Row { at: ts.clone(), kind: Kind::Tool, tool: Some(Tool { name: name.clone(), detail: detail.clone(), status: "pending".into(), ..Default::default() }), ext: call.clone(), open: true, ..Default::default() });
+                let id = i.push_row(
+                    &key,
+                    Row {
+                        at: ts.clone(),
+                        kind: Kind::Tool,
+                        tool: Some(Tool {
+                            name: name.clone(),
+                            detail: detail.clone(),
+                            status: "pending".into(),
+                            ..Default::default()
+                        }),
+                        ext: call.clone(),
+                        open: true,
+                        ..Default::default()
+                    },
+                );
                 if !call.is_empty() {
                     turn.tools.insert(call.clone(), (key.clone(), id, now_ms()));
                 }
@@ -1709,16 +2414,27 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         } else {
             i.update_row(&key, row_id, |r| {
                 r.kind = Kind::Approval;
-                r.label = if question { "asks you".into() } else { "needs approval".into() };
+                r.label = if question {
+                    "asks you".into()
+                } else {
+                    "needs approval".into()
+                };
                 r.request = Some(req_id.clone());
-                r.text = if question || kind == "execute" || name == "bash" { command.clone() } else { detail.clone() };
+                r.text = if question || kind == "execute" || name == "bash" {
+                    command.clone()
+                } else {
+                    detail.clone()
+                };
             });
             i.put_request(req);
             i.update_session(&session, |s| s.status = Status::Waiting);
         }
     }
     if let Some(option) = auto {
-        if let Err(e) = conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": option } })) {
+        if let Err(e) = conn.respond(
+            &rpc_id,
+            json!({ "outcome": { "outcome": "selected", "optionId": option } }),
+        ) {
             eprintln!("agents: couldn't allow {req_id} in the sandbox: {e}");
         }
         return;
@@ -1734,7 +2450,8 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
 fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let session = conn.session.clone();
     let schema = p.get("requestedSchema").cloned().unwrap_or(Value::Null);
-    if p.get("mode").and_then(Value::as_str) != Some("form") || !schema.get("properties").is_some_and(Value::is_object) {
+    if p.get("mode").and_then(Value::as_str) != Some("form") || !schema.get("properties").is_some_and(Value::is_object)
+    {
         let _ = conn.respond(&rpc_id, json!({ "action": "decline" }));
         return;
     }
@@ -1752,7 +2469,14 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     let ts = now(app);
     let req_id = format!("{session}:{rpc_id}");
     let question = p.get("message").and_then(Value::as_str).unwrap_or("").trim().to_owned();
-    let s = app.agents.store.lock().sessions.get(&session).cloned().unwrap_or_default();
+    let s = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(&session)
+        .cloned()
+        .unwrap_or_default();
     let req = Request {
         id: req_id.clone(),
         session_id: session.clone(),
@@ -1769,11 +2493,30 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         ..Default::default()
     };
     let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-    turn.waiting.insert(req_id.clone(), Waiting { rpc: rpc_id, params: p.clone(), method: ELICIT.into() });
+    turn.waiting.insert(
+        req_id.clone(),
+        Waiting {
+            rpc: rpc_id,
+            params: p.clone(),
+            method: ELICIT.into(),
+        },
+    );
     let mut i = app.agents.store.lock();
     let key = session_thread(&session);
-    if i.find_row(&key, |r| r.request.as_deref() == Some(req_id.as_str())).is_none() {
-        i.push_row(&key, Row { at: ts, kind: Kind::Ask, who: Some(Who::agent(&s.name, Some(session.clone()))), text: question, request: Some(req_id), ..Default::default() });
+    if i.find_row(&key, |r| r.request.as_deref() == Some(req_id.as_str()))
+        .is_none()
+    {
+        i.push_row(
+            &key,
+            Row {
+                at: ts,
+                kind: Kind::Ask,
+                who: Some(Who::agent(&s.name, Some(session.clone()))),
+                text: question,
+                request: Some(req_id),
+                ..Default::default()
+            },
+        );
     }
     i.put_request(req);
     i.update_session(&session, |s| s.status = Status::Waiting);
@@ -1783,7 +2526,11 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
 /// needs (other fields optional free text): answered with a click.
 fn one_choice(schema: &Value) -> Option<(String, Vec<Choice>)> {
     let props = schema.get("properties")?.as_object()?;
-    let required: Vec<&str> = schema.get("required").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     let mut found = None;
     for (name, f) in props {
         match (field_options(f), f.get("type").and_then(Value::as_str)) {
@@ -1800,14 +2547,28 @@ fn one_choice(schema: &Value) -> Option<(String, Vec<Choice>)> {
             let value = o.get("const").and_then(Value::as_str).unwrap_or("").to_owned();
             let title = o.get("title").and_then(Value::as_str).unwrap_or(&value);
             // pi's questionnaire writes "1. Label - what it means" as one label.
-            let title = title.trim().trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches(['.', ')']).trim_start();
+            let title = title
+                .trim()
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .trim_start_matches(['.', ')'])
+                .trim_start();
             let title = if title.is_empty() { value.as_str() } else { title };
             let (title, detail) = match o.get("description").and_then(Value::as_str) {
                 Some(d) => (title.to_owned(), d.to_owned()),
-                None => title.split_once(" - ").or_else(|| title.split_once(" — ")).map(|(a, b)| (a.trim().to_owned(), b.trim().to_owned())).unwrap_or_else(|| (title.to_owned(), String::new())),
+                None => title
+                    .split_once(" - ")
+                    .or_else(|| title.split_once(" — "))
+                    .map(|(a, b)| (a.trim().to_owned(), b.trim().to_owned()))
+                    .unwrap_or_else(|| (title.to_owned(), String::new())),
             };
             let free = title.trim_end_matches('.').eq_ignore_ascii_case("type something");
-            Choice { key: (i + 1).to_string(), title, detail, value, free }
+            Choice {
+                key: (i + 1).to_string(),
+                title,
+                detail,
+                value,
+                free,
+            }
         })
         .collect();
     Some((name, choices))
@@ -1820,7 +2581,12 @@ fn field_options(f: &Value) -> Option<Vec<Value>> {
     }
     let e = f.get("enum")?.as_array()?;
     let names = f.get("enumNames").and_then(Value::as_array);
-    Some(e.iter().enumerate().map(|(i, v)| json!({ "const": v, "title": names.and_then(|n| n.get(i)).cloned().unwrap_or(v.clone()) })).collect())
+    Some(
+        e.iter()
+            .enumerate()
+            .map(|(i, v)| json!({ "const": v, "title": names.and_then(|n| n.get(i)).cloned().unwrap_or(v.clone()) }))
+            .collect(),
+    )
 }
 
 fn plain(v: &Value) -> String {
@@ -1829,24 +2595,55 @@ fn plain(v: &Value) -> String {
 
 /// The first free-text field: where a written reply goes.
 fn text_field(schema: &Value) -> Option<String> {
-    schema.get("properties")?.as_object()?.iter().find(|(_, f)| f.get("type").and_then(Value::as_str) == Some("string") && field_options(f).is_none()).map(|(k, _)| k.clone())
+    schema
+        .get("properties")?
+        .as_object()?
+        .iter()
+        .find(|(_, f)| f.get("type").and_then(Value::as_str) == Some("string") && field_options(f).is_none())
+        .map(|(k, _)| k.clone())
 }
 
 /// Answer an Ask from `elicitation/create`: one of its choices (by key),
 /// written text, or the whole form. Text with nowhere to go declines the
 /// question and is sent as your next message instead.
 pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>, content: Option<Value>) -> Result<()> {
-    let req = app.agents.store.lock().requests.get(req_id).cloned().ok_or_else(|| msg("That question was already answered"))?;
-    let conn = app.agents.acp.get(&req.session_id).ok_or_else(|| msg("the agent isn't running anymore"))?;
+    let req = app
+        .agents
+        .store
+        .lock()
+        .requests
+        .get(req_id)
+        .cloned()
+        .ok_or_else(|| msg("That question was already answered"))?;
+    let conn = app
+        .agents
+        .acp
+        .get(&req.session_id)
+        .ok_or_else(|| msg("the agent isn't running anymore"))?;
     let schema = req.form.clone().unwrap_or(Value::Null);
     let text = text.map(str::trim).filter(|t| !t.is_empty());
     let mut follow_up = None;
     let (reply, said, after) = if let Some(c) = content {
-        let said = c.as_object().map(|o| o.values().map(|v| v.as_array().map(|a| a.iter().map(plain).collect::<Vec<_>>().join(", ")).unwrap_or_else(|| plain(v))).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+        let said = c
+            .as_object()
+            .map(|o| {
+                o.values()
+                    .map(|v| {
+                        v.as_array()
+                            .map(|a| a.iter().map(plain).collect::<Vec<_>>().join(", "))
+                            .unwrap_or_else(|| plain(v))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_default();
         (json!({ "action": "accept", "content": c }), said, None)
     } else if let Some(key) = choice {
         let (field, choices) = one_choice(&schema).ok_or_else(|| msg("That question has no choices"))?;
-        let c = choices.iter().find(|c| c.key == key || c.value == key).ok_or_else(|| msg("not one of its choices"))?;
+        let c = choices
+            .iter()
+            .find(|c| c.key == key || c.value == key)
+            .ok_or_else(|| msg("not one of its choices"))?;
         let said = match text.filter(|_| c.free) {
             Some(t) => {
                 follow_up = Some(t.to_owned());
@@ -1857,15 +2654,26 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
         (json!({ "action": "accept", "content": { field: c.value } }), said, None)
     } else if let Some(t) = text {
         match text_field(&schema) {
-            Some(field) => (json!({ "action": "accept", "content": { field: t } }), t.to_owned(), None),
-            None => (json!({ "action": "decline" }), "replied below".to_owned(), Some(t.to_owned())),
+            Some(field) => (
+                json!({ "action": "accept", "content": { field: t } }),
+                t.to_owned(),
+                None,
+            ),
+            None => (
+                json!({ "action": "decline" }),
+                "replied below".to_owned(),
+                Some(t.to_owned()),
+            ),
         }
     } else {
         return Err(msg("Pick a choice or write a reply"));
     };
     let w = {
         let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
-        let w = t.waiting.remove(req_id).ok_or_else(|| msg("That question was already answered"))?;
+        let w = t
+            .waiting
+            .remove(req_id)
+            .ok_or_else(|| msg("That question was already answered"))?;
         if let Some(f) = follow_up {
             t.deny_reason = Some((f, true));
         }
@@ -1896,7 +2704,11 @@ pub fn answer(app: &App, req_id: &str, choice: Option<&str>, text: Option<&str>,
 
 /// An edit's diff, shortened, for the approval card: the path, then -/+ lines.
 fn edit_preview(tc: &Value) -> Option<String> {
-    let d = tc.get("content")?.as_array()?.iter().find(|b| b.get("type").and_then(Value::as_str) == Some("diff"))?;
+    let d = tc
+        .get("content")?
+        .as_array()?
+        .iter()
+        .find(|b| b.get("type").and_then(Value::as_str) == Some("diff"))?;
     let old = d.get("oldText").and_then(Value::as_str).unwrap_or("");
     let new = d.get("newText").and_then(Value::as_str).unwrap_or("");
     let a: Vec<&str> = old.lines().collect();
@@ -1925,20 +2737,45 @@ fn edit_preview(tc: &Value) -> Option<String> {
 
 fn local_bins(cwd: &str) -> Vec<String> {
     std::fs::read_dir(std::path::Path::new(cwd).join("node_modules/.bin"))
-        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// Answer an approval with one of the agent's options. A reason on a deny is
 /// sent as your next message.
 pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> Result<()> {
-    let req = app.agents.store.lock().requests.get(req_id).cloned().ok_or_else(|| msg("that request is gone"))?;
-    let conn = app.agents.acp.get(&req.session_id).ok_or_else(|| msg("the agent isn't running anymore"))?;
-    let opt = req.options.iter().find(|o| o.id == option || (!o.key.is_empty() && o.key == option)).cloned().ok_or_else(|| msg("not one of the agent's options"))?;
+    let req = app
+        .agents
+        .store
+        .lock()
+        .requests
+        .get(req_id)
+        .cloned()
+        .ok_or_else(|| msg("that request is gone"))?;
+    let conn = app
+        .agents
+        .acp
+        .get(&req.session_id)
+        .ok_or_else(|| msg("the agent isn't running anymore"))?;
+    let opt = req
+        .options
+        .iter()
+        .find(|o| o.id == option || (!o.key.is_empty() && o.key == option))
+        .cloned()
+        .ok_or_else(|| msg("not one of the agent's options"))?;
     let rpc_id = {
         let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         // The tool's time starts when it's allowed, not while it waited on you.
-        let call = app.agents.store.lock().find_row(&req.thread, |r| r.request.as_deref() == Some(req_id)).map(|r| r.ext.clone());
+        let call = app
+            .agents
+            .store
+            .lock()
+            .find_row(&req.thread, |r| r.request.as_deref() == Some(req_id))
+            .map(|r| r.ext.clone());
         if let Some(entry) = call.and_then(|c| t.tools.get_mut(&c)) {
             entry.2 = now_ms();
         }
@@ -1974,10 +2811,14 @@ pub fn respond(app: &App, req_id: &str, option: &str, reason: Option<&str>) -> R
         }
     }
     if let Some(r) = reason.map(str::trim).filter(|r| !r.is_empty()) {
-        conn.turn.lock().unwrap_or_else(|e| e.into_inner()).deny_reason = Some((r.to_owned(), opt.name.to_lowercase().contains("reason")));
+        conn.turn.lock().unwrap_or_else(|e| e.into_inner()).deny_reason =
+            Some((r.to_owned(), opt.name.to_lowercase().contains("reason")));
     }
     // Stored before it's sent: a turn that ends at once must find nothing waiting, or it never goes idle.
-    conn.respond(&rpc_id, json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }))?;
+    conn.respond(
+        &rpc_id,
+        json!({ "outcome": { "outcome": "selected", "optionId": opt.id } }),
+    )?;
     Ok(())
 }
 
@@ -1990,11 +2831,29 @@ fn push_you(app: &App, id: &str, text: &str, mid_turn: bool, images: Vec<RowImag
     let first = i.find_row(&session_thread(id), |r| r.kind == Kind::You).is_none();
     let name = i.sessions.get(id).map(|s| s.name.clone()).unwrap_or_default();
     let delivery = if mid_turn && !first {
-        Delivery { state: "deferred".into(), at: ts.clone(), reason: format!("{name} was mid-turn"), ..Default::default() }
+        Delivery {
+            state: "deferred".into(),
+            at: ts.clone(),
+            reason: format!("{name} was mid-turn"),
+            ..Default::default()
+        }
     } else {
-        Delivery { state: "pending".into(), at: ts.clone(), ..Default::default() }
+        Delivery {
+            state: "pending".into(),
+            at: ts.clone(),
+            ..Default::default()
+        }
     };
-    let row = Row { at: ts, kind: Kind::You, who: Some(Who::you()), label: if first { "prompt".into() } else { "message".into() }, text: text.into(), images, delivery: Some(delivery), ..Default::default() };
+    let row = Row {
+        at: ts,
+        kind: Kind::You,
+        who: Some(Who::you()),
+        label: if first { "prompt".into() } else { "message".into() },
+        text: text.into(),
+        images,
+        delivery: Some(delivery),
+        ..Default::default()
+    };
     i.push_row(&session_thread(id), row)
 }
 
@@ -2006,7 +2865,11 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     let rpc = conn.next.fetch_add(1, Ordering::SeqCst);
     // The prompt is tracked before anything else is stored, so a crash can't keep one without the other.
     let gate = app.agents.store.gate();
-    conn.turn.lock().unwrap_or_else(|e| e.into_inner()).prompts.insert(rpc, row);
+    conn.turn
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .prompts
+        .insert(rpc, row);
     {
         let ts = now(app);
         let mut i = app.agents.store.lock();
@@ -2026,7 +2889,11 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     drop(gate);
     let sid = conn.sid();
     let mut blocks = vec![json!({ "type": "text", "text": text })];
-    blocks.extend(images.iter().map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })));
+    blocks.extend(
+        images
+            .iter()
+            .map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })),
+    );
     let sent = conn.write(&json!({ "jsonrpc": "2.0", "id": rpc, "method": "session/prompt", "params": { "sessionId": sid, "prompt": blocks } }));
     if let Err(e) = sent {
         // Not under the gate here (it was dropped before writing).
@@ -2064,8 +2931,21 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Opti
         Err(e) => {
             let e = rpc_error(e);
             let auth = e.contains("uthentication") || e.contains("login") || e.contains("log in");
-            let text = if auth { format!("{e} · sign in to the harness in a terminal, then send again") } else { e.clone() };
-            i.push_row(&key, Row { at: ts.into(), kind: Kind::Failed, label: "prompt failed".into(), text, ..Default::default() });
+            let text = if auth {
+                format!("{e} · sign in to the harness in a terminal, then send again")
+            } else {
+                e.clone()
+            };
+            i.push_row(
+                &key,
+                Row {
+                    at: ts.into(),
+                    kind: Kind::Failed,
+                    label: "prompt failed".into(),
+                    text,
+                    ..Default::default()
+                },
+            );
             i.update_row(&key, row, |r| {
                 if let Some(d) = r.delivery.as_mut() {
                     if d.state != "delivered" {
@@ -2078,10 +2958,19 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Opti
         }
     }
     if let Some((r, _)) = t.deny_reason.take() {
-        i.update_session(&id, |s| s.queued.push(QueuedMessage { text: r, images: vec![] }));
+        i.update_session(&id, |s| {
+            s.queued.push(QueuedMessage {
+                text: r,
+                images: vec![],
+            })
+        });
     }
     // Only truly send the next queued message once this turn (end or cancel) is done.
-    let next = if idle { i.sessions.get(&id).and_then(|s| s.queued.first().cloned()) } else { None };
+    let next = if idle {
+        i.sessions.get(&id).and_then(|s| s.queued.first().cloned())
+    } else {
+        None
+    };
     let drained = next.is_some() && i.sessions.get(&id).map(|s| s.queued.len() == 1).unwrap_or(false);
     let marker = i.sessions.get(&id).and_then(|s| s.queue_marker);
     i.update_session(&id, |s| {
@@ -2099,13 +2988,23 @@ fn finish_prompt(app: &App, conn: &Conn, rpc: u64, res: Reply, ts: &str) -> Opti
             s.problem = p.clone();
         }
         if idle && !waiting && next.is_none() {
-            s.status = if problem.is_some() { Status::Failed } else { Status::Idle };
+            s.status = if problem.is_some() {
+                Status::Failed
+            } else {
+                Status::Idle
+            };
         }
     });
     if drained {
         if let Some(rid) = marker {
             i.update_row(&key, rid, |r| {
-                r.delivery = Some(Delivery { state: "delivered".into(), at: ts.to_owned(), delivered_at: ts.to_owned(), count: 1, ..Default::default() });
+                r.delivery = Some(Delivery {
+                    state: "delivered".into(),
+                    at: ts.to_owned(),
+                    delivered_at: ts.to_owned(),
+                    count: 1,
+                    ..Default::default()
+                });
             });
         }
     }
@@ -2136,15 +3035,32 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
         return Ok(());
     }
     let arc = app.arc().ok_or_else(|| msg("not ready"))?;
-    let s = app.agents.store.lock().sessions.get(id).cloned().ok_or_else(|| msg("no such session"))?;
-    if !app.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned()) {
+    let s = app
+        .agents
+        .store
+        .lock()
+        .sessions
+        .get(id)
+        .cloned()
+        .ok_or_else(|| msg("no such session"))?;
+    if !app
+        .agents
+        .acp
+        .starting
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.to_owned())
+    {
         return Err(msg("Still starting; send again in a moment"));
     }
     let row = push_you(app, id, text, true, images.clone());
     let ts = now(app);
     {
         let mut i = app.agents.store.lock();
-        i.push_row(&session_thread(id), state_row(&ts, &format!("reattaching · {}", s.harness)));
+        i.push_row(
+            &session_thread(id),
+            state_row(&ts, &format!("reattaching · {}", s.harness)),
+        );
         i.update_session(id, |s| {
             s.status = Status::Running;
             s.problem.clear();
@@ -2154,7 +3070,12 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
     std::thread::spawn(move || {
         let resume = (!s.ext.is_empty()).then_some(s.ext.as_str());
         let r = connect(&arc, &id, resume);
-        arc.agents.acp.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        arc.agents
+            .acp
+            .starting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
         match r {
             Ok(conn) => prompt(&arc, &conn, row, text, images),
             Err(e) => {
@@ -2176,7 +3097,13 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
 pub fn interrupt(app: &App, id: &str) -> Result<()> {
     let id = id.split('~').next().unwrap_or(id);
     let conn = app.agents.acp.get(id).ok_or_else(|| msg("It isn't running"))?;
-    let waiting: Vec<(String, Waiting)> = conn.turn.lock().unwrap_or_else(|e| e.into_inner()).waiting.drain().collect();
+    let waiting: Vec<(String, Waiting)> = conn
+        .turn
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .waiting
+        .drain()
+        .collect();
     for (req, w) in waiting {
         let _ = conn.respond(&w.rpc, w.cancelled());
         app.agents.store.lock().remove_request(&req);
@@ -2198,7 +3125,9 @@ pub fn send_queued(app: &App, id: &str) -> Result<()> {
     let q = {
         let mut i = app.agents.store.lock();
         let Some(s) = i.sessions.get(id) else { return Ok(()) };
-        let (Some(q), drained, marker) = (s.queued.first().cloned(), s.queued.len() == 1, s.queue_marker) else { return Ok(()) };
+        let (Some(q), drained, marker) = (s.queued.first().cloned(), s.queued.len() == 1, s.queue_marker) else {
+            return Ok(());
+        };
         i.update_session(id, |s| {
             s.queued.remove(0);
             if drained {
@@ -2208,7 +3137,15 @@ pub fn send_queued(app: &App, id: &str) -> Result<()> {
         });
         if let (true, Some(rid)) = (drained, marker) {
             let ts = now(app);
-            i.update_row(&key, rid, |r| r.delivery = Some(Delivery { state: "delivered".into(), at: ts.clone(), delivered_at: ts.clone(), count: 1, ..Default::default() }));
+            i.update_row(&key, rid, |r| {
+                r.delivery = Some(Delivery {
+                    state: "delivered".into(),
+                    at: ts.clone(),
+                    delivered_at: ts.clone(),
+                    count: 1,
+                    ..Default::default()
+                })
+            });
         }
         q
     };
@@ -2224,7 +3161,12 @@ pub fn stop(app: &App, id: &str) {
         c.kill();
     }
     let mut i = app.agents.store.lock();
-    let reqs: Vec<String> = i.requests.values().filter(|r| r.session_id == id).map(|r| r.id.clone()).collect();
+    let reqs: Vec<String> = i
+        .requests
+        .values()
+        .filter(|r| r.session_id == id)
+        .map(|r| r.id.clone())
+        .collect();
     for r in reqs {
         i.remove_request(&r);
     }
@@ -2238,7 +3180,14 @@ pub fn stop(app: &App, id: &str) {
 
 /// Stop every local agent.
 pub fn stop_all(app: &App) -> usize {
-    let live: Vec<String> = app.agents.acp.all().into_iter().filter(|c| c.alive.load(Ordering::SeqCst)).map(|c| c.session.clone()).collect();
+    let live: Vec<String> = app
+        .agents
+        .acp
+        .all()
+        .into_iter()
+        .filter(|c| c.alive.load(Ordering::SeqCst))
+        .map(|c| c.session.clone())
+        .collect();
     for id in &live {
         stop(app, id);
     }
@@ -2247,13 +3196,19 @@ pub fn stop_all(app: &App) -> usize {
 
 /// Open in Zed: the session's directory.
 pub fn open_in_editor(app: &App, cwd: &str) -> Result<()> {
-    app.platform.open_in_app("Zed", cwd).map_err(|e| msg(format!("couldn't open Zed: {e}")))
+    app.platform
+        .open_in_app("Zed", cwd)
+        .map_err(|e| msg(format!("couldn't open Zed: {e}")))
 }
 
 /// Directories of earlier sessions, newest first, for the new-session form.
 pub fn recent_dirs(app: &App) -> Vec<String> {
     let i = app.agents.store.lock();
-    let mut s: Vec<&Session> = i.sessions.values().filter(|s| s.source == "acp" && s.parent_id.is_none()).collect();
+    let mut s: Vec<&Session> = i
+        .sessions
+        .values()
+        .filter(|s| s.source == "acp" && s.parent_id.is_none())
+        .collect();
     s.sort_by(|a, b| b.active_at.cmp(&a.active_at));
     let mut out: Vec<String> = vec![];
     for x in s {
@@ -2273,7 +3228,8 @@ pub(crate) mod tests {
 
     /// Replay a recorded claude-agent-acp scenario through `apply`.
     pub(crate) fn replay(app: &App, session: &str, file: &str) -> Turn {
-        let text = std::fs::read_to_string(format!("{}/tests/fixtures/acp/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let text =
+            std::fs::read_to_string(format!("{}/tests/fixtures/acp/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
         let mut turn = Turn::default();
         for line in text.lines() {
             let v: Value = serde_json::from_str(line).unwrap();
@@ -2286,17 +3242,37 @@ pub(crate) mod tests {
 
     fn session(app: &App) -> String {
         let id = "acp-0000test".to_string();
-        app.agents.store.lock().put_session(Session { id: id.clone(), source: "acp".into(), name: "header-fix".into(), cwd: "<cwd>".into(), ..Default::default() });
+        app.agents.store.lock().put_session(Session {
+            id: id.clone(),
+            source: "acp".into(),
+            name: "header-fix".into(),
+            cwd: "<cwd>".into(),
+            ..Default::default()
+        });
         id
     }
 
     fn rows(app: &App, key: &str) -> Vec<Row> {
-        app.agents.store.lock().threads.get(key).map(|t| t.rows.clone()).unwrap_or_default()
+        app.agents
+            .store
+            .lock()
+            .threads
+            .get(key)
+            .map(|t| t.rows.clone())
+            .unwrap_or_default()
     }
 
     /// A `Conn` with no real process: enough to make `send` think a turn is in flight.
     fn fake_conn(app: &App, id: &str) -> Arc<Conn> {
-        Arc::new(Conn::new(app, id, Turn { prompts: BTreeMap::from([(1, 1)]), ..Default::default() }, true))
+        Arc::new(Conn::new(
+            app,
+            id,
+            Turn {
+                prompts: BTreeMap::from([(1, 1)]),
+                ..Default::default()
+            },
+            true,
+        ))
     }
 
     #[test]
@@ -2307,7 +3283,13 @@ pub(crate) mod tests {
         let conn = fake_conn(&app, &id);
         let key = session_thread(&id);
         let mut turn = Turn::default();
-        apply(&app, &id, &mut turn, &json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "ls -la", "status": "pending" }), "2026-10-03T10:41:00");
+        apply(
+            &app,
+            &id,
+            &mut turn,
+            &json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "ls -la", "status": "pending" }),
+            "2026-10-03T10:41:00",
+        );
         conn.turn.lock().unwrap().tools = turn.tools;
         // pi-acp: the request carries the tool call's id and title, no kind or rawInput.
         let p = json!({ "options": [{ "kind": "allow_once", "name": "Yes", "optionId": "yes" }], "toolCall": { "toolCallId": "t1", "title": "ls -la", "status": "in_progress" } });
@@ -2324,7 +3306,12 @@ pub(crate) mod tests {
         let (app, _d) = app();
         let id = session(&app);
         let conn = fake_conn(&app, &id);
-        app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), conn);
+        app.agents
+            .acp
+            .conns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), conn);
 
         send(&app, &id, "are you there?", vec![]).unwrap();
 
@@ -2347,7 +3334,11 @@ pub(crate) mod tests {
 
         conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), false));
         elicit(&app, &conn, json!(1), &form);
-        assert_eq!(app.agents.store.lock().requests.len(), 1, "a plain No doesn't claim the question");
+        assert_eq!(
+            app.agents.store.lock().requests.len(),
+            1,
+            "a plain No doesn't claim the question"
+        );
         assert!(conn.turn.lock().unwrap().deny_reason.is_some());
 
         conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), true));
@@ -2375,7 +3366,10 @@ pub(crate) mod tests {
         assert_eq!(conn.turn.lock().unwrap().deny_reason, Some(("blue".into(), true)));
         let text = json!({ "mode": "form", "message": "Your answer", "requestedSchema": { "type": "object", "properties": { "value": { "type": "string" } }, "required": ["value"] } });
         elicit(&app, &conn, json!(2), &text);
-        assert!(app.agents.store.lock().requests.is_empty(), "answered without a second card");
+        assert!(
+            app.agents.store.lock().requests.is_empty(),
+            "answered without a second card"
+        );
     }
 
     #[test]
@@ -2385,7 +3379,11 @@ pub(crate) mod tests {
         let project = tempfile::tempdir().unwrap();
         // Stands in for direnv: prints what `export json` would.
         let fake = bin.path().join("direnv");
-        std::fs::write(&fake, "#!/bin/sh\nprintf '{\"GONE\":null,\"PATH\":\"/nix/bin:%s\"}' \"$PATH\"\n").unwrap();
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nprintf '{\"GONE\":null,\"PATH\":\"/nix/bin:%s\"}' \"$PATH\"\n",
+        )
+        .unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:/usr/bin:/bin", bin.path().display());
         let env = direnv_env(project.path().to_str().unwrap(), &path);
@@ -2396,9 +3394,21 @@ pub(crate) mod tests {
     #[test]
     fn an_up_to_date_environment_keeps_the_apps_watches() {
         let own = Some("app-watches".to_string());
-        assert_eq!(direnv_vars(b"", own.clone()).get("DIRENV_WATCHES").map(String::as_str), Some("app-watches"), "nothing changed");
-        assert_eq!(direnv_vars(br#"{"DIRENV_WATCHES":"new"}"#, own.clone()).get("DIRENV_WATCHES").map(String::as_str), Some("new"));
-        assert!(!direnv_vars(br#"{"DIRENV_WATCHES":null}"#, own).contains_key("DIRENV_WATCHES"), "unloaded: none");
+        assert_eq!(
+            direnv_vars(b"", own.clone()).get("DIRENV_WATCHES").map(String::as_str),
+            Some("app-watches"),
+            "nothing changed"
+        );
+        assert_eq!(
+            direnv_vars(br#"{"DIRENV_WATCHES":"new"}"#, own.clone())
+                .get("DIRENV_WATCHES")
+                .map(String::as_str),
+            Some("new")
+        );
+        assert!(
+            !direnv_vars(br#"{"DIRENV_WATCHES":null}"#, own).contains_key("DIRENV_WATCHES"),
+            "unloaded: none"
+        );
     }
 
     #[test]
@@ -2408,7 +3418,15 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let envrc = dir.path().join(".envrc");
         std::fs::write(&envrc, "use flake").unwrap();
-        let secs = |p: &std::path::Path| std::fs::metadata(p).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let secs = |p: &std::path::Path| {
+            std::fs::metadata(p)
+                .unwrap()
+                .modified()
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        };
         let missing = dir.path().join(".env");
         let list = json!([
             { "path": envrc.to_str().unwrap(), "modtime": secs(&envrc), "exists": true },
@@ -2424,7 +3442,8 @@ pub(crate) mod tests {
         assert!(env_changed(&watches), "a file that didn't exist now does");
         std::fs::remove_file(&missing).unwrap();
         let f = std::fs::File::options().write(true).open(&envrc).unwrap();
-        f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs(&envrc) + 5)).unwrap();
+        f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs(&envrc) + 5))
+            .unwrap();
         assert!(env_changed(&watches), "edited");
     }
 
@@ -2435,7 +3454,13 @@ pub(crate) mod tests {
         let id = session(&app);
         let conn = fake_conn(&app, &id);
         conn.turn.lock().unwrap().deny_reason = Some(("too risky".into(), false));
-        let after = finish_prompt(&app, &conn, 1, Ok(json!({ "stopReason": "end_turn" })), "2026-10-05T10:00:00");
+        let after = finish_prompt(
+            &app,
+            &conn,
+            1,
+            Ok(json!({ "stopReason": "end_turn" })),
+            "2026-10-05T10:00:00",
+        );
         assert!(matches!(after, Some(After::Send(q)) if q.text == "too risky"));
     }
 
@@ -2447,7 +3472,13 @@ pub(crate) mod tests {
         let conn = fake_conn(&app, &id);
         assert_eq!(crate::agents::attention(&app), 0);
 
-        finish_prompt(&app, &conn, 1, Ok(json!({ "stopReason": "end_turn" })), "2026-10-05T10:00:00");
+        finish_prompt(
+            &app,
+            &conn,
+            1,
+            Ok(json!({ "stopReason": "end_turn" })),
+            "2026-10-05T10:00:00",
+        );
         assert_eq!(crate::agents::attention(&app), 1);
 
         crate::agents::call(&app, "seen", &json!({ "session": id })).unwrap();
@@ -2460,14 +3491,21 @@ pub(crate) mod tests {
         let app = App::shared(app);
         let id = session(&app);
         let conn = fake_conn(&app, &id);
-        app.agents.acp.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), conn.clone());
+        app.agents
+            .acp
+            .conns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), conn.clone());
         send(&app, &id, "why not", vec![]).unwrap();
         conn.turn.lock().unwrap().prompts.clear();
 
         send_queued(&app, &id).unwrap();
 
         assert!(app.agents.store.lock().sessions[&id].queued.is_empty());
-        assert!(rows(&app, &session_thread(&id)).iter().any(|r| r.kind == Kind::You && r.text == "why not"));
+        assert!(rows(&app, &session_thread(&id))
+            .iter()
+            .any(|r| r.kind == Kind::You && r.text == "why not"));
     }
 
     #[test]
@@ -2478,7 +3516,10 @@ pub(crate) mod tests {
         let r = rows(&app, &session_thread(&id));
         let tool = r.iter().find(|r| r.kind == Kind::Tool).unwrap();
         let t = tool.tool.as_ref().unwrap();
-        assert_eq!((t.name.as_str(), t.detail.as_str(), t.status.as_str()), ("bash", "ls -la", "completed"));
+        assert_eq!(
+            (t.name.as_str(), t.detail.as_str(), t.status.as_str()),
+            ("bash", "ls -la", "completed")
+        );
         assert_eq!(t.result, "a.ts\nb.ts");
         let out = r.iter().find(|r| r.kind == Kind::Output).unwrap();
         assert_eq!(out.text, "Done.", "chunks join into one output row");
@@ -2497,7 +3538,10 @@ pub(crate) mod tests {
         let read = tools.iter().find(|t| t.name == "read").unwrap();
         assert!(read.result.ends_with(" lines"), "{}", read.result);
         let edit = tools.iter().find(|t| t.name == "edit").unwrap();
-        assert_eq!(edit.detail, "src/app.ts", "paths are relative to the session's directory");
+        assert_eq!(
+            edit.detail, "src/app.ts",
+            "paths are relative to the session's directory"
+        );
         assert_eq!((edit.added, edit.removed), (Some(1), Some(1)));
         assert_eq!(edit.result, "applied");
     }
@@ -2509,7 +3553,10 @@ pub(crate) mod tests {
         replay(&app, &id, "claude-text-and-thinking.jsonl");
         let r = rows(&app, &session_thread(&id));
         let kinds: Vec<Kind> = r.iter().map(|r| r.kind).collect();
-        assert!(kinds.contains(&Kind::Thinking) && kinds.contains(&Kind::Output), "{kinds:?}");
+        assert!(
+            kinds.contains(&Kind::Thinking) && kinds.contains(&Kind::Output),
+            "{kinds:?}"
+        );
         let th = r.iter().find(|r| r.kind == Kind::Thinking).unwrap();
         assert!(th.tokens.unwrap_or(0) > 0);
     }
@@ -2523,14 +3570,30 @@ pub(crate) mod tests {
         let task = r.iter().find(|r| r.kind == Kind::Message && r.label == "task").unwrap();
         assert_eq!(task.text, "Find the parser");
         let child = task.to.as_ref().unwrap().session.clone().unwrap();
-        let summary = task.children.iter().find(|c| c.ext == "summary").unwrap().tool.clone().unwrap();
+        let summary = task
+            .children
+            .iter()
+            .find(|c| c.ext == "summary")
+            .unwrap()
+            .tool
+            .clone()
+            .unwrap();
         assert!(summary.summary.contains("tool call"), "{}", summary.summary);
-        assert!(task.children.iter().any(|c| c.label == "result"), "the result is the box's last row");
+        assert!(
+            task.children.iter().any(|c| c.label == "result"),
+            "the result is the box's last row"
+        );
         let i = app.agents.store.lock();
         let c = &i.sessions[&child];
         assert_eq!(c.parent_id.as_deref(), Some(id.as_str()));
         assert_eq!(c.status, Status::Done);
-        assert!(i.threads[&session_thread(&child)].rows.iter().any(|r| r.kind == Kind::Tool), "inner calls go to the subagent's thread");
+        assert!(
+            i.threads[&session_thread(&child)]
+                .rows
+                .iter()
+                .any(|r| r.kind == Kind::Tool),
+            "inner calls go to the subagent's thread"
+        );
     }
 
     #[test]
@@ -2552,8 +3615,15 @@ pub(crate) mod tests {
         ] } }, "required": ["value"] });
         let (field, c) = one_choice(&pi).unwrap();
         assert_eq!(field, "value");
-        assert_eq!((c[0].key.as_str(), c[0].title.as_str(), c[0].detail.as_str()), ("1", "Postgres", "the one we run"));
-        assert_eq!((c[1].title.as_str(), c[1].value.as_str()), ("SQLite", "2. SQLite"), "answers with the agent's own value");
+        assert_eq!(
+            (c[0].key.as_str(), c[0].title.as_str(), c[0].detail.as_str()),
+            ("1", "Postgres", "the one we run")
+        );
+        assert_eq!(
+            (c[1].title.as_str(), c[1].value.as_str()),
+            ("SQLite", "2. SQLite"),
+            "answers with the agent's own value"
+        );
         assert_eq!(text_field(&pi), None);
         // Claude Code: a choice and an optional "Other", which a written reply fills.
         let claude = json!({ "type": "object", "properties": {
@@ -2586,13 +3656,19 @@ pub(crate) mod tests {
     fn accept_edits_mode_only_when_offered() {
         let claude = json!({ "modes": { "currentModeId": "default", "availableModes": [{ "id": "default" }, { "id": "acceptEdits" }, { "id": "plan" }] } });
         assert_eq!(accept_edits_mode(&claude).as_deref(), Some("acceptEdits"));
-        let already = json!({ "modes": { "currentModeId": "acceptEdits", "availableModes": [{ "id": "acceptEdits" }] } });
+        let already =
+            json!({ "modes": { "currentModeId": "acceptEdits", "availableModes": [{ "id": "acceptEdits" }] } });
         assert_eq!(accept_edits_mode(&already), None);
-        let pi = json!({ "modes": { "currentModeId": "medium", "availableModes": [{ "id": "low" }, { "id": "medium" }] } });
+        let pi =
+            json!({ "modes": { "currentModeId": "medium", "availableModes": [{ "id": "low" }, { "id": "medium" }] } });
         assert_eq!(accept_edits_mode(&pi), None, "pi's modes are thinking levels");
         for looser in ["auto", "bypassPermissions", "dontAsk", "plan"] {
             let started = json!({ "modes": { "currentModeId": looser, "availableModes": [{ "id": "default" }, { "id": "acceptEdits" }, { "id": looser }] } });
-            assert_eq!(accept_edits_mode(&started), None, "a session that starts in {looser} stays there");
+            assert_eq!(
+                accept_edits_mode(&started),
+                None,
+                "a session that starts in {looser} stays there"
+            );
         }
     }
 

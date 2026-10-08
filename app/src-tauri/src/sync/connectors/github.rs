@@ -63,7 +63,11 @@ fn gh_candidates() -> Vec<String> {
     ];
     // Last resort: ask the login shell, which sees the user's full PATH.
     if let Ok(shell) = std::env::var("SHELL") {
-        if let Ok(o) = std::process::Command::new(shell).args(["-lc", "command -v gh"]).stdin(std::process::Stdio::null()).output() {
+        if let Ok(o) = std::process::Command::new(shell)
+            .args(["-lc", "command -v gh"])
+            .stdin(std::process::Stdio::null())
+            .output()
+        {
             let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if o.status.success() && p.starts_with('/') {
                 c.push(p);
@@ -87,7 +91,11 @@ fn run_gh(path: Option<&str>) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> +
         };
         let mut last = std::io::Error::from(std::io::ErrorKind::NotFound);
         for c in candidates {
-            match std::process::Command::new(&c).args(args).stdin(std::process::Stdio::null()).output() {
+            match std::process::Command::new(&c)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .output()
+            {
                 Ok(o) => {
                     return Ok(GhOutput {
                         success: o.status.success(),
@@ -117,22 +125,39 @@ fn gh_hostname(base: &str) -> String {
 /// `gh auth token` prints for this host (and `config.gh_user`, when gh is
 /// logged in to several accounts). The token is never logged or put in an error.
 fn token(ctx: &Ctx, base: &str, gh: &GhRunner<'_>) -> anyhow::Result<String> {
-    let secret = ctx.source.config.get("secret").and_then(Value::as_str).unwrap_or(DEFAULT_SECRET);
+    let secret = ctx
+        .source
+        .config
+        .get("secret")
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_SECRET);
     if let Some(t) = (ctx.secret)(secret).filter(|t| !t.trim().is_empty()) {
         return Ok(t);
     }
     let host = gh_hostname(base);
     let mut args = vec!["auth", "token", "--hostname", host.as_str()];
-    let user = ctx.source.config.get("gh_user").and_then(Value::as_str).filter(|u| !u.is_empty());
+    let user = ctx
+        .source
+        .config
+        .get("gh_user")
+        .and_then(Value::as_str)
+        .filter(|u| !u.is_empty());
     if let Some(u) = user {
         args.extend(["--user", u]);
     }
     let shown = args.join(" ");
-    let fail = |why: String| anyhow::anyhow!("GitHub: no '{secret}' secret for source '{}', and `gh {shown}` {why}", ctx.source.name);
+    let fail = |why: String| {
+        anyhow::anyhow!(
+            "GitHub: no '{secret}' secret for source '{}', and `gh {shown}` {why}",
+            ctx.source.name
+        )
+    };
     let out = match gh(&args) {
         Ok(o) => o,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(fail("didn't run: the GitHub CLI isn't installed (or set config.gh_path)".into()))
+            return Err(fail(
+                "didn't run: the GitHub CLI isn't installed (or set config.gh_path)".into(),
+            ))
         }
         Err(e) => return Err(fail(format!("didn't run: {e}"))),
     };
@@ -140,7 +165,15 @@ fn token(ctx: &Ctx, base: &str, gh: &GhRunner<'_>) -> anyhow::Result<String> {
     if !out.success || t.is_empty() {
         // gh's own reason ("no oauth token found for github.com", "not logged
         // in to github.com account x"). Never stdout: that's where a token goes.
-        let why: String = out.stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("printed no token").chars().take(200).collect();
+        let why: String = out
+            .stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("printed no token")
+            .chars()
+            .take(200)
+            .collect();
         let login = match user {
             Some(u) => format!("gh auth login --hostname {host} (as {u})"),
             None => format!("gh auth login --hostname {host}"),
@@ -158,9 +191,20 @@ struct Api<'a> {
 
 impl<'a> Api<'a> {
     fn new(ctx: &'a Ctx<'a>, gh: &GhRunner<'_>) -> anyhow::Result<Api<'a>> {
-        let base = ctx.source.config.get("api_url").and_then(Value::as_str).unwrap_or(API).trim_end_matches('/').to_string();
+        let base = ctx
+            .source
+            .config
+            .get("api_url")
+            .and_then(Value::as_str)
+            .unwrap_or(API)
+            .trim_end_matches('/')
+            .to_string();
         let token = token(ctx, &base, gh)?;
-        Ok(Api { ctx, base, auth: format!("Bearer {token}") })
+        Ok(Api {
+            ctx,
+            base,
+            auth: format!("Bearer {token}"),
+        })
     }
 
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> anyhow::Result<Response> {
@@ -206,7 +250,9 @@ fn error(resp: &Response) -> anyhow::Error {
                 .map(str::to_owned)
                 .unwrap_or_else(|| {
                     let f = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-                    format!("{} {} {}", f("resource"), f("field"), f("code")).trim().to_string()
+                    format!("{} {} {}", f("resource"), f("field"), f("code"))
+                        .trim()
+                        .to_string()
                 }),
         })
         .collect();
@@ -218,7 +264,12 @@ fn error(resp: &Response) -> anyhow::Error {
         422 => "GitHub rejected the request",
         _ => "",
     };
-    let mut text = [hint, message.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(": ");
+    let mut text = [hint, message.as_str()]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(": ");
     if !details.is_empty() {
         text.push_str(&format!(" ({})", details.join("; ")));
     }
@@ -229,7 +280,9 @@ fn error(resp: &Response) -> anyhow::Error {
 /// the token, a rate limit or the network.
 fn about_one_item(e: &anyhow::Error) -> bool {
     let m = e.to_string();
-    m.starts_with("GitHub 404") || m.starts_with("GitHub 410") || (m.starts_with("GitHub 403") && !m.contains("rate limit"))
+    m.starts_with("GitHub 404")
+        || m.starts_with("GitHub 410")
+        || (m.starts_with("GitHub 403") && !m.contains("rate limit"))
 }
 
 /// Query-string encoding: everything but RFC 3986 unreserved characters.
@@ -263,7 +316,11 @@ impl Connector for GitHub {
 }
 
 fn gh_path<'c>(ctx: &'c Ctx) -> Option<&'c str> {
-    ctx.source.config.get("gh_path").and_then(Value::as_str).filter(|p| !p.is_empty())
+    ctx.source
+        .config
+        .get("gh_path")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
 }
 
 impl GitHub {
@@ -273,27 +330,53 @@ impl GitHub {
     }
 
     /// A poll with the stored revisions and the stale open items to read again.
-    pub fn poll_known_with(&self, ctx: &Ctx, gh: &GhRunner<'_>, revs: &std::collections::HashMap<String, String>, stale: &[String]) -> anyhow::Result<Batch> {
+    pub fn poll_known_with(
+        &self,
+        ctx: &Ctx,
+        gh: &GhRunner<'_>,
+        revs: &std::collections::HashMap<String, String>,
+        stale: &[String],
+    ) -> anyhow::Result<Batch> {
         let api = Api::new(ctx, gh)?;
-        let me = api.get("/user")?.get("login").and_then(Value::as_str).unwrap_or_default().to_string();
+        let me = api
+            .get("/user")?
+            .get("login")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         let cursor = ctx.source.cursor.as_deref().and_then(Ts::parse);
         let since = match cursor {
             Some(c) => c - SignedDuration::from_mins(OVERLAP_MINUTES),
             None => {
-                let days = ctx.source.config.get("lookback_days").and_then(Value::as_i64).unwrap_or(DEFAULT_LOOKBACK_DAYS);
+                let days = ctx
+                    .source
+                    .config
+                    .get("lookback_days")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(DEFAULT_LOOKBACK_DAYS);
                 ctx.now - SignedDuration::from_hours(24 * days)
             }
         };
         // What changed after an item's stored revision is new, whatever the cursor says.
-        let since_for = |ext: &str| revs.get(ext).and_then(|r| r.split('#').next()).and_then(Ts::parse).or(cursor);
+        let since_for = |ext: &str| {
+            revs.get(ext)
+                .and_then(|r| r.split('#').next())
+                .and_then(Ts::parse)
+                .or(cursor)
+        };
         let scope = scope(ctx);
 
         // (search result, review requested from me, matched involves:@me for another reason)
         let mut found: Vec<(Value, bool, bool)> = vec![];
-        for (role, is, review) in
-            [("involves:@me", "is:issue", false), ("involves:@me", "is:pr", false), ("review-requested:@me", "is:pr", true)]
-        {
-            let q = format!("updated:>={} {scope}{role} {is}", since.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ"));
+        for (role, is, review) in [
+            ("involves:@me", "is:issue", false),
+            ("involves:@me", "is:pr", false),
+            ("review-requested:@me", "is:pr", true),
+        ] {
+            let q = format!(
+                "updated:>={} {scope}{role} {is}",
+                since.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ")
+            );
             for it in search(&api, &q)? {
                 let url = it.get("html_url").cloned();
                 match found.iter_mut().find(|(f, _, _)| f.get("html_url") == url.as_ref()) {
@@ -306,11 +389,18 @@ impl GitHub {
             }
         }
 
-        let team_reviews = ctx.source.config.get("team_review_requests").and_then(Value::as_bool).unwrap_or(true);
+        let team_reviews = ctx
+            .source
+            .config
+            .get("team_review_requests")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let mut batch = Batch::default();
         let mut newest = cursor;
         for (it, review, involved) in &found {
-            let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, &since_for)? else { continue };
+            let Some(item) = map_item(&api, it, *review, *involved, team_reviews, &me, &since_for)? else {
+                continue;
+            };
             if let Some(u) = it.get("updated_at").and_then(Value::as_str).and_then(Ts::parse) {
                 if newest.is_none_or(|n| u > n) {
                     newest = Some(u);
@@ -326,14 +416,21 @@ impl GitHub {
                 batch.streams.push(StreamOutcome { key, error: None });
                 continue;
             }
-            let Some((repo, number)) = ext.rsplit_once('#') else { continue };
-            let read = api.get(&format!("/repos/{repo}/issues/{number}")).and_then(|it| map_item(&api, &it, false, true, team_reviews, &me, &since_for));
+            let Some((repo, number)) = ext.rsplit_once('#') else {
+                continue;
+            };
+            let read = api
+                .get(&format!("/repos/{repo}/issues/{number}"))
+                .and_then(|it| map_item(&api, &it, false, true, team_reviews, &me, &since_for));
             match read {
                 Ok(item) => {
                     batch.items.extend(item);
                     batch.streams.push(StreamOutcome { key, error: None });
                 }
-                Err(e) if about_one_item(&e) => batch.streams.push(StreamOutcome { key, error: Some(e.to_string()) }),
+                Err(e) if about_one_item(&e) => batch.streams.push(StreamOutcome {
+                    key,
+                    error: Some(e.to_string()),
+                }),
                 Err(e) => return Err(e),
             }
         }
@@ -345,11 +442,21 @@ impl GitHub {
     pub fn send_with(&self, ctx: &Ctx, op: &str, payload: &Value, gh: &GhRunner<'_>) -> anyhow::Result<Value> {
         let api = Api::new(ctx, gh)?;
         let repo = repo_arg(payload)?;
-        let number = payload.get("number").and_then(Value::as_u64).filter(|n| *n > 0).ok_or_else(|| anyhow::anyhow!("payload needs a 'number'"))?;
+        let number = payload
+            .get("number")
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0)
+            .ok_or_else(|| anyhow::anyhow!("payload needs a 'number'"))?;
         match op {
             "github.comment" => {
                 let body = text(payload, "body")?;
-                let r = api.call("POST", &format!("/repos/{repo}/issues/{number}/comments"), Some(&json!({ "body": body })))?.json()?;
+                let r = api
+                    .call(
+                        "POST",
+                        &format!("/repos/{repo}/issues/{number}/comments"),
+                        Some(&json!({ "body": body })),
+                    )?
+                    .json()?;
                 Ok(json!({ "repo": repo, "number": number, "comment_id": r.get("id"), "url": r.get("html_url") }))
             }
             "github.review_comment" => {
@@ -361,9 +468,15 @@ impl GitHub {
                 }
                 let body = text(payload, "body")?;
                 let r = api
-                    .call("POST", &format!("/repos/{repo}/pulls/{number}/reviews"), Some(&json!({ "body": body, "event": "COMMENT" })))?
+                    .call(
+                        "POST",
+                        &format!("/repos/{repo}/pulls/{number}/reviews"),
+                        Some(&json!({ "body": body, "event": "COMMENT" })),
+                    )?
                     .json()?;
-                Ok(json!({ "repo": repo, "number": number, "review_id": r.get("id"), "state": r.get("state"), "url": r.get("html_url") }))
+                Ok(
+                    json!({ "repo": repo, "number": number, "review_id": r.get("id"), "state": r.get("state"), "url": r.get("html_url") }),
+                )
             }
             "github.label" => {
                 let labels: Vec<String> = payload
@@ -380,8 +493,19 @@ impl GitHub {
                     anyhow::bail!("github.label needs at least one label");
                 }
                 // POST adds to the existing labels; it never removes any.
-                let r = api.call("POST", &format!("/repos/{repo}/issues/{number}/labels"), Some(&json!({ "labels": labels })))?.json()?;
-                let now: Vec<&str> = r.as_array().into_iter().flatten().filter_map(|l| l.get("name").and_then(Value::as_str)).collect();
+                let r = api
+                    .call(
+                        "POST",
+                        &format!("/repos/{repo}/issues/{number}/labels"),
+                        Some(&json!({ "labels": labels })),
+                    )?
+                    .json()?;
+                let now: Vec<&str> = r
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| l.get("name").and_then(Value::as_str))
+                    .collect();
                 Ok(json!({
                     "repo": repo, "number": number, "added": labels, "labels": now,
                     "url": format!("https://github.com/{repo}/issues/{number}"),
@@ -395,17 +519,32 @@ impl GitHub {
 /// `repo:a/b repo:c/d ` when `config.repos` is set, else `org:x ` per `config.orgs`.
 fn scope(ctx: &Ctx) -> String {
     let list = |k: &str| -> Vec<String> {
-        ctx.source.config.get(k).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+        ctx.source
+            .config
+            .get(k)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
     };
     let repos = list("repos");
-    let (qual, names) = if repos.is_empty() { ("org", list("orgs")) } else { ("repo", repos) };
+    let (qual, names) = if repos.is_empty() {
+        ("org", list("orgs"))
+    } else {
+        ("repo", repos)
+    };
     names.iter().map(|n| format!("{qual}:{n} ")).collect()
 }
 
 fn search(api: &Api, q: &str) -> anyhow::Result<Vec<Value>> {
     let mut out = vec![];
     for page in 1..=MAX_PAGES {
-        let v = api.get(&format!("/search/issues?q={}&sort=updated&order=asc&per_page={PER_PAGE}&page={page}", urlencode(q)))?;
+        let v = api.get(&format!(
+            "/search/issues?q={}&sort=updated&order=asc&per_page={PER_PAGE}&page={page}",
+            urlencode(q)
+        ))?;
         let items = v.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
         let total = v.get("total_count").and_then(Value::as_u64).unwrap_or(0) as usize;
         let empty = items.is_empty();
@@ -419,10 +558,20 @@ fn search(api: &Api, q: &str) -> anyhow::Result<Vec<Value>> {
 
 /// `since_for(external id)`: changes after it are new signal (the item's
 /// stored revision, else the cursor).
-fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_reviews: bool, me: &str, since_for: &dyn Fn(&str) -> Option<Ts>) -> anyhow::Result<Option<ItemUpsert>> {
+fn map_item(
+    api: &Api,
+    it: &Value,
+    review_hit: bool,
+    involved: bool,
+    team_reviews: bool,
+    me: &str,
+    since_for: &dyn Fn(&str) -> Option<Ts>,
+) -> anyhow::Result<Option<ItemUpsert>> {
     let s = |p: &str| it.pointer(p).and_then(Value::as_str);
     let (Some(repo), Some(number)) = (
-        s("/repository_url").and_then(|u| u.split("/repos/").nth(1)).map(str::to_owned),
+        s("/repository_url")
+            .and_then(|u| u.split("/repos/").nth(1))
+            .map(str::to_owned),
         it.get("number").and_then(Value::as_u64),
     ) else {
         return Ok(None);
@@ -433,18 +582,30 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     let changed_since = |t: Option<Ts>| matches!((t, cursor), (Some(t), Some(c)) if t > c);
     let closed = s("/state") == Some("closed");
     let author = s("/user/login").unwrap_or("");
-    let assignees: Vec<&str> = it.get("assignees").and_then(Value::as_array).into_iter().flatten().filter_map(|a| a.get("login")?.as_str()).collect();
+    let assignees: Vec<&str> = it
+        .get("assignees")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a.get("login")?.as_str())
+        .collect();
     let assigned_to_me = assignees.contains(&me);
 
     let (mut review, mut label) = (review_hit, String::new());
     if is_pr {
         let pr = api.get(&format!("/repos/{repo}/pulls/{number}"))?;
-        let individually_requested = pr.get("requested_reviewers").and_then(Value::as_array).into_iter().flatten().any(|r| r.get("login").and_then(Value::as_str) == Some(me));
+        let individually_requested = pr
+            .get("requested_reviewers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(|r| r.get("login").and_then(Value::as_str) == Some(me));
         review |= individually_requested;
         if review_hit && !involved && !individually_requested && !team_reviews {
             return Ok(None);
         }
-        let merged = pr.get("merged").and_then(Value::as_bool).unwrap_or(false) || it.pointer("/pull_request/merged_at").is_some_and(|m| !m.is_null());
+        let merged = pr.get("merged").and_then(Value::as_bool).unwrap_or(false)
+            || it.pointer("/pull_request/merged_at").is_some_and(|m| !m.is_null());
         let state = if merged {
             "Merged"
         } else if closed {
@@ -473,7 +634,9 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
     let mut others_commented = false;
     if let (Some(c), true) = (cursor, comment_count > 0 && changed_since(updated)) {
         let since = urlencode(&c.timestamp().strftime("%Y-%m-%dT%H:%M:%SZ").to_string());
-        let comments = api.get(&format!("/repos/{repo}/issues/{number}/comments?since={since}&per_page={PER_PAGE}"))?;
+        let comments = api.get(&format!(
+            "/repos/{repo}/issues/{number}/comments?since={since}&per_page={PER_PAGE}"
+        ))?;
         for cm in comments.as_array().into_iter().flatten() {
             let login = cm.pointer("/user/login").and_then(Value::as_str).unwrap_or("?");
             let created = cm.get("created_at").and_then(Value::as_str).and_then(Ts::parse);
@@ -511,7 +674,10 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
         body: s("/body").unwrap_or("").to_string(),
         summary: Some(label),
         url: s("/html_url").map(str::to_owned),
-        author: (!author.is_empty()).then(|| Handle { handle: author.to_string(), display_name: author.to_string() }),
+        author: (!author.is_empty()).then(|| Handle {
+            handle: author.to_string(),
+            display_name: author.to_string(),
+        }),
         occurred_at,
         source_created_at: None,
         ended_at: None,
@@ -542,7 +708,9 @@ fn map_item(api: &Api, it: &Value, review_hit: bool, involved: bool, team_review
 fn repo_arg(payload: &Value) -> anyhow::Result<String> {
     let repo = text(payload, "repo")?;
     let ok = repo.split_once('/').is_some_and(|(o, r)| {
-        let valid = |s: &str| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+        let valid = |s: &str| {
+            !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        };
         valid(o) && valid(r)
     });
     if !ok {
@@ -579,13 +747,26 @@ mod tests {
     const EMPTY: &str = r#"{"total_count":0,"incomplete_results":false,"items":[]}"#;
 
     fn source(cursor: Option<&str>, config: Value) -> Source {
-        Source { id: 1, kind: "github".into(), tag: "work".into(), name: "GitHub".into(), config, cursor: cursor.map(str::to_owned) }
+        Source {
+            id: 1,
+            kind: "github".into(),
+            tag: "work".into(),
+            name: "GitHub".into(),
+            config,
+            cursor: cursor.map(str::to_owned),
+        }
     }
 
     fn with_ctx<T>(src: &Source, http: &FakeHttp, f: impl FnOnce(&Ctx) -> T) -> T {
         let secret = |k: &str| (k == DEFAULT_SECRET).then(|| "github_pat_secret".to_string());
         let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
-        f(&Ctx { source: src, http, secret: &secret, now: clock.now(), clock })
+        f(&Ctx {
+            source: src,
+            http,
+            secret: &secret,
+            now: clock.now(),
+            clock,
+        })
     }
 
     /// With the secret stored, `gh` must never run.
@@ -605,13 +786,23 @@ mod tests {
         http.on("GET", "/search/issues", 200, EMPTY);
         http.on("GET", "involves%3A%40me%20is%3Aissue&", 200, ISSUES);
         http.on("GET", "involves%3A%40me%20is%3Apr&", 200, PRS_1);
-        http.on("GET", "involves%3A%40me%20is%3Apr&sort=updated&order=asc&per_page=100&page=2", 200, PRS_2);
+        http.on(
+            "GET",
+            "involves%3A%40me%20is%3Apr&sort=updated&order=asc&per_page=100&page=2",
+            200,
+            PRS_2,
+        );
         http.on("GET", "review-requested%3A%40me%20is%3Apr&", 200, REVIEW);
         http.on("GET", "/repos/platform/ingest/pulls/482", 200, PR_482);
         http.on("GET", "/repos/platform/rfcs/pulls/41", 200, PR_41);
         http.on("GET", "/repos/platform/ingest/pulls/77", 200, PR_77);
         http.on("GET", "/repos/platform/ingest/issues/482/comments", 200, COMMENTS_482);
-        http.on("GET", "/repos/platform/observability-config/issues/9/comments", 200, COMMENTS_9);
+        http.on(
+            "GET",
+            "/repos/platform/observability-config/issues/9/comments",
+            200,
+            COMMENTS_9,
+        );
         http
     }
 
@@ -633,13 +824,31 @@ mod tests {
     fn an_item_is_judged_against_its_own_revision_not_the_cursor() {
         // The cursor is past #482's last update, but the stored revision is
         // older (search returned it late): its changes since then still count.
-        let b = poll_known("2026-09-28T00:00:00Z", &[("platform/ingest#482", "2026-09-26T12:00:00Z#1")], &[], &fake()).unwrap();
+        let b = poll_known(
+            "2026-09-28T00:00:00Z",
+            &[("platform/ingest#482", "2026-09-26T12:00:00Z#1")],
+            &[],
+            &fake(),
+        )
+        .unwrap();
         let pr = b.items.iter().find(|i| i.external_id == "platform/ingest#482").unwrap();
         assert!(pr.bump, "Kim's comment after the stored revision is new");
         assert_eq!(pr.remote_rev.as_deref(), Some("2026-09-27T07:40:00Z#4"));
         // Already applied at this revision: nothing after it is new.
-        let b = poll_known("2026-09-26T12:00:00Z", &[("platform/ingest#482", "2026-09-27T07:40:00Z#4")], &[], &fake()).unwrap();
-        assert!(!b.items.iter().find(|i| i.external_id == "platform/ingest#482").unwrap().bump);
+        let b = poll_known(
+            "2026-09-26T12:00:00Z",
+            &[("platform/ingest#482", "2026-09-27T07:40:00Z#4")],
+            &[],
+            &fake(),
+        )
+        .unwrap();
+        assert!(
+            !b.items
+                .iter()
+                .find(|i| i.external_id == "platform/ingest#482")
+                .unwrap()
+                .bump
+        );
     }
 
     #[test]
@@ -653,15 +862,33 @@ mod tests {
             "state": "closed", "comments": 0, "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-27T09:00:00Z",
             "closed_at": "2026-09-27T09:00:00Z"
         }"#);
-        http.on("GET", "/repos/platform/ingest/issues/301", 404, r#"{"message": "Not Found"}"#);
-        let b = poll_known("2026-09-26T12:00:00Z", &[], &["platform/ingest#300", "platform/ingest#301"], &http).unwrap();
+        http.on(
+            "GET",
+            "/repos/platform/ingest/issues/301",
+            404,
+            r#"{"message": "Not Found"}"#,
+        );
+        let b = poll_known(
+            "2026-09-26T12:00:00Z",
+            &[],
+            &["platform/ingest#300", "platform/ingest#301"],
+            &http,
+        )
+        .unwrap();
         let gone = b.items.iter().find(|i| i.external_id == "platform/ingest#300").unwrap();
         assert_eq!(gone.status, "done");
         let outcome = |k: &str| b.streams.iter().find(|o| o.key == k).map(|o| o.error.clone());
         assert_eq!(outcome("item:platform/ingest#300"), Some(None));
-        assert!(outcome("item:platform/ingest#301").flatten().is_some_and(|e| e.starts_with("GitHub 404")));
+        assert!(outcome("item:platform/ingest#301")
+            .flatten()
+            .is_some_and(|e| e.starts_with("GitHub 404")));
         // A rejected token isn't one item's problem.
-        http.on("GET", "/repos/platform/ingest/issues/301", 401, r#"{"message": "Bad credentials"}"#);
+        http.on(
+            "GET",
+            "/repos/platform/ingest/issues/301",
+            401,
+            r#"{"message": "Bad credentials"}"#,
+        );
         assert!(poll_known("2026-09-26T12:00:00Z", &[], &["platform/ingest#301"], &http).is_err());
     }
 
@@ -670,14 +897,19 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "/user", 200, USER);
         http.on("GET", "/search/issues", 200, EMPTY);
-        http.on("GET", "review-requested%3A%40me%20is%3Apr&", 200, r#"{"total_count":1,"incomplete_results":false,"items":[{
+        http.on(
+            "GET",
+            "review-requested%3A%40me%20is%3Apr&",
+            200,
+            r#"{"total_count":1,"incomplete_results":false,"items":[{
             "url": "https://api.github.com/repos/platform/ingest/issues/90",
             "repository_url": "https://api.github.com/repos/platform/ingest",
             "html_url": "https://github.com/platform/ingest/pull/90",
             "number": 90, "title": "Team-requested PR", "user": {"login": "kimlee"}, "assignees": [],
             "state": "open", "comments": 0, "created_at": "2026-09-20T10:00:00Z", "updated_at": "2026-09-27T07:40:00Z",
             "closed_at": null, "draft": false, "pull_request": {"merged_at": null}
-        }]}"#);
+        }]}"#,
+        );
         http.on(
             "GET",
             "/repos/platform/ingest/pulls/90",
@@ -703,7 +935,15 @@ mod tests {
         assert!(searches[2].ends_with("&page=2"));
         // Merged by URL: #482 came from both involves and review-requested.
         let ids: Vec<&str> = b.items.iter().map(|i| i.external_id.as_str()).collect();
-        assert_eq!(ids, ["platform/observability-config#9", "platform/ingest#482", "platform/rfcs#41", "platform/ingest#77"]);
+        assert_eq!(
+            ids,
+            [
+                "platform/observability-config#9",
+                "platform/ingest#482",
+                "platform/rfcs#41",
+                "platform/ingest#77"
+            ]
+        );
         // First sync: no comment fetches, no bumps.
         assert!(!urls.iter().any(|u| u.contains("/comments")));
         assert!(b.items.iter().all(|i| !i.bump));
@@ -738,12 +978,18 @@ mod tests {
 
     #[test]
     fn scope_and_cursor_go_into_the_query() {
-        let (_, urls) = poll(Some("2026-09-26T12:00:00Z"), json!({ "repos": ["platform/ingest", "platform/rfcs"], "orgs": ["ignored"] }));
+        let (_, urls) = poll(
+            Some("2026-09-26T12:00:00Z"),
+            json!({ "repos": ["platform/ingest", "platform/rfcs"], "orgs": ["ignored"] }),
+        );
         // An hour before the cursor: search lags behind writes.
-        let q = urlencode("updated:>=2026-09-26T11:00:00Z repo:platform/ingest repo:platform/rfcs involves:@me is:issue");
+        let q =
+            urlencode("updated:>=2026-09-26T11:00:00Z repo:platform/ingest repo:platform/rfcs involves:@me is:issue");
         assert!(urls.iter().any(|u| u.contains(&q)), "{urls:#?}");
         let (_, urls) = poll(None, json!({ "orgs": ["platform"] }));
-        assert!(urls.iter().any(|u| u.contains(&urlencode(" org:platform review-requested:@me is:pr"))));
+        assert!(urls
+            .iter()
+            .any(|u| u.contains(&urlencode(" org:platform review-requested:@me is:pr"))));
     }
 
     #[test]
@@ -753,7 +999,9 @@ mod tests {
         // #482: review requested from me and updated since; also Kim commented.
         assert!(get("platform/ingest#482").bump);
         assert_eq!(get("platform/ingest#482").messages.len(), 2);
-        assert!(urls.iter().any(|u| u.contains("/repos/platform/ingest/issues/482/comments?since=2026-09-26T12%3A00%3A00Z")));
+        assert!(urls
+            .iter()
+            .any(|u| u.contains("/repos/platform/ingest/issues/482/comments?since=2026-09-26T12%3A00%3A00Z")));
         // #9: the only comment since the cursor is mine.
         assert!(!get("platform/observability-config#9").bump);
         // #77: merged (closed_at) after the cursor.
@@ -771,12 +1019,22 @@ mod tests {
     fn auth_errors_are_explained_without_the_token() {
         let http = FakeHttp::default();
         let src = source(None, json!({}));
-        http.on("GET", "/user", 401, r#"{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}"#);
+        http.on(
+            "GET",
+            "/user",
+            401,
+            r#"{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}"#,
+        );
         let err = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap_err().to_string();
         assert_eq!(err, "GitHub 401: token rejected or expired: Bad credentials");
         assert!(!err.contains("github_pat_secret"));
         http.on("GET", "/user", 200, USER);
-        http.on("GET", "/search/issues", 403, r#"{"message":"API rate limit exceeded for user ID 1."}"#);
+        http.on(
+            "GET",
+            "/search/issues",
+            403,
+            r#"{"message":"API rate limit exceeded for user ID 1."}"#,
+        );
         let err = with_ctx(&src, &http, |ctx| GitHub.poll_t(ctx)).unwrap_err().to_string();
         assert!(err.starts_with("GitHub 403: rate limited"), "{err}");
         http.on(
@@ -797,7 +1055,10 @@ mod tests {
     type GhCalls = std::sync::Mutex<Vec<Vec<String>>>;
 
     /// A fake `gh` that records its arguments and answers with `out`.
-    fn fake_gh<'a>(calls: &'a GhCalls, out: impl Fn() -> std::io::Result<GhOutput> + 'a) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> + 'a {
+    fn fake_gh<'a>(
+        calls: &'a GhCalls,
+        out: impl Fn() -> std::io::Result<GhOutput> + 'a,
+    ) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> + 'a {
         move |args: &[&str]| {
             calls.lock().unwrap().push(args.iter().map(|a| a.to_string()).collect());
             out()
@@ -805,7 +1066,11 @@ mod tests {
     }
 
     fn gh_ok() -> std::io::Result<GhOutput> {
-        Ok(GhOutput { success: true, stdout: "gho_fromcli123\n".into(), stderr: String::new() })
+        Ok(GhOutput {
+            success: true,
+            stdout: "gho_fromcli123\n".into(),
+            stderr: String::new(),
+        })
     }
 
     fn poll_no_secret(config: Value, gh: &GhRunner<'_>) -> (anyhow::Result<Batch>, Vec<String>) {
@@ -813,7 +1078,16 @@ mod tests {
         let src = source(None, config);
         let secret = |_: &str| None;
         let clock = crate::sync::test_clock("2026-09-27T10:00:00Z");
-        let r = GitHub.poll_with(&Ctx { source: &src, http: &http, secret: &secret, now: clock.now(), clock }, gh);
+        let r = GitHub.poll_with(
+            &Ctx {
+                source: &src,
+                http: &http,
+                secret: &secret,
+                now: clock.now(),
+                clock,
+            },
+            gh,
+        );
         (r, http.requests().into_iter().map(|r| r.1).collect())
     }
 
@@ -823,14 +1097,20 @@ mod tests {
         let (b, urls) = poll_no_secret(json!({}), &fake_gh(&calls, gh_ok));
         assert_eq!(b.unwrap().items.len(), 4);
         assert_eq!(urls[0], "https://api.github.com/user");
-        assert_eq!(calls.lock().unwrap().clone(), vec![vec!["auth", "token", "--hostname", "github.com"]]);
+        assert_eq!(
+            calls.lock().unwrap().clone(),
+            vec![vec!["auth", "token", "--hostname", "github.com"]]
+        );
 
         // Enterprise host from api_url; a specific account when gh has several.
         let calls = GhCalls::default();
         let cfg = json!({ "api_url": "https://ghe.acme.com/api/v3/", "gh_user": "sam-acme" });
         let (_, urls) = poll_no_secret(cfg, &fake_gh(&calls, gh_ok));
         assert_eq!(urls[0], "https://ghe.acme.com/api/v3/user");
-        assert_eq!(calls.lock().unwrap()[0], ["auth", "token", "--hostname", "ghe.acme.com", "--user", "sam-acme"]);
+        assert_eq!(
+            calls.lock().unwrap()[0],
+            ["auth", "token", "--hostname", "ghe.acme.com", "--user", "sam-acme"]
+        );
     }
 
     #[test]
@@ -852,12 +1132,26 @@ mod tests {
         };
         let (r, _) = poll_no_secret(json!({ "gh_user": "sam-acme" }), &fake_gh(&calls, logged_out));
         let err = r.unwrap_err().to_string();
-        assert!(err.contains("`gh auth token --hostname github.com --user sam-acme` failed: no oauth token found for github.com"), "{err}");
-        assert!(err.contains("gh auth login --hostname github.com (as sam-acme)"), "{err}");
+        assert!(
+            err.contains(
+                "`gh auth token --hostname github.com --user sam-acme` failed: no oauth token found for github.com"
+            ),
+            "{err}"
+        );
+        assert!(
+            err.contains("gh auth login --hostname github.com (as sam-acme)"),
+            "{err}"
+        );
         assert!(!err.contains("gho_should_never_show"));
 
         // Exit 0 but nothing printed.
-        let empty = || Ok(GhOutput { success: true, stdout: "\n".into(), stderr: String::new() });
+        let empty = || {
+            Ok(GhOutput {
+                success: true,
+                stdout: "\n".into(),
+                stderr: String::new(),
+            })
+        };
         let (r, _) = poll_no_secret(json!({}), &fake_gh(&calls, empty));
         assert!(r.unwrap_err().to_string().contains("printed no token"));
     }
@@ -882,13 +1176,37 @@ mod tests {
             201,
             r#"{"id":1001,"html_url":"https://github.com/platform/ingest/pull/482#issuecomment-1001","body":"On it"}"#,
         );
-        let r = send("github.comment", json!({ "repo": "platform/ingest", "number": 482, "body": "On it" }), &http).unwrap();
-        assert_eq!(r["url"], "https://github.com/platform/ingest/pull/482#issuecomment-1001");
+        let r = send(
+            "github.comment",
+            json!({ "repo": "platform/ingest", "number": 482, "body": "On it" }),
+            &http,
+        )
+        .unwrap();
+        assert_eq!(
+            r["url"],
+            "https://github.com/platform/ingest/pull/482#issuecomment-1001"
+        );
         let req = http.requests().pop().unwrap();
-        assert_eq!((req.0.as_str(), req.1.as_str()), ("POST", "https://api.github.com/repos/platform/ingest/issues/482/comments"));
+        assert_eq!(
+            (req.0.as_str(), req.1.as_str()),
+            (
+                "POST",
+                "https://api.github.com/repos/platform/ingest/issues/482/comments"
+            )
+        );
         assert_eq!(last_body(&http), json!({ "body": "On it" }));
-        assert!(send("github.comment", json!({ "repo": "../x", "number": 1, "body": "hi" }), &http).is_err());
-        assert!(send("github.comment", json!({ "repo": "platform/ingest", "number": 482, "body": "" }), &http).is_err());
+        assert!(send(
+            "github.comment",
+            json!({ "repo": "../x", "number": 1, "body": "hi" }),
+            &http
+        )
+        .is_err());
+        assert!(send(
+            "github.comment",
+            json!({ "repo": "platform/ingest", "number": 482, "body": "" }),
+            &http
+        )
+        .is_err());
     }
 
     #[test]
@@ -900,12 +1218,28 @@ mod tests {
             200,
             r#"{"id":80,"state":"COMMENTED","body":"Nice","html_url":"https://github.com/platform/ingest/pull/482#pullrequestreview-80"}"#,
         );
-        let r = send("github.review_comment", json!({ "repo": "platform/ingest", "number": 482, "body": "Nice", "event": "COMMENT" }), &http).unwrap();
+        let r = send(
+            "github.review_comment",
+            json!({ "repo": "platform/ingest", "number": 482, "body": "Nice", "event": "COMMENT" }),
+            &http,
+        )
+        .unwrap();
         assert_eq!(r["state"], "COMMENTED");
-        assert_eq!(r["url"], "https://github.com/platform/ingest/pull/482#pullrequestreview-80");
-        assert_eq!(http.requests()[0].1, "https://api.github.com/repos/platform/ingest/pulls/482/reviews");
+        assert_eq!(
+            r["url"],
+            "https://github.com/platform/ingest/pull/482#pullrequestreview-80"
+        );
+        assert_eq!(
+            http.requests()[0].1,
+            "https://api.github.com/repos/platform/ingest/pulls/482/reviews"
+        );
         assert_eq!(last_body(&http), json!({ "body": "Nice", "event": "COMMENT" }));
-        let err = send("github.review_comment", json!({ "repo": "platform/ingest", "number": 482, "body": "ok", "event": "APPROVE" }), &http).unwrap_err();
+        let err = send(
+            "github.review_comment",
+            json!({ "repo": "platform/ingest", "number": 482, "body": "ok", "event": "APPROVE" }),
+            &http,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("only sends COMMENT"));
     }
 
@@ -918,10 +1252,20 @@ mod tests {
             200,
             r#"[{"id":1,"name":"bug","color":"f29513","default":true},{"id":2,"name":"needs-review","color":"ededed","default":false}]"#,
         );
-        let r = send("github.label", json!({ "repo": "platform/ingest", "number": 482, "labels": ["needs-review"] }), &http).unwrap();
+        let r = send(
+            "github.label",
+            json!({ "repo": "platform/ingest", "number": 482, "labels": ["needs-review"] }),
+            &http,
+        )
+        .unwrap();
         assert_eq!(r["labels"], json!(["bug", "needs-review"]));
         assert_eq!(last_body(&http), json!({ "labels": ["needs-review"] }));
-        assert!(send("github.label", json!({ "repo": "platform/ingest", "number": 482, "labels": [] }), &http).is_err());
+        assert!(send(
+            "github.label",
+            json!({ "repo": "platform/ingest", "number": 482, "labels": [] }),
+            &http
+        )
+        .is_err());
 
         http.on(
             "POST",
@@ -929,8 +1273,16 @@ mod tests {
             422,
             r#"{"message":"Validation Failed","errors":[{"resource":"Label","code":"invalid","field":"name"}],"documentation_url":"https://docs.github.com/rest"}"#,
         );
-        let err = send("github.label", json!({ "repo": "platform/ingest", "number": 482, "labels": ["x"] }), &http).unwrap_err();
-        assert_eq!(err.to_string(), "GitHub 422: GitHub rejected the request: Validation Failed (Label name invalid)");
+        let err = send(
+            "github.label",
+            json!({ "repo": "platform/ingest", "number": 482, "labels": ["x"] }),
+            &http,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "GitHub 422: GitHub rejected the request: Validation Failed (Label name invalid)"
+        );
     }
 
     #[test]
@@ -945,26 +1297,58 @@ mod tests {
             config: json!({}),
         };
         crate::sync::register_sources(&conn, &[cfg]).unwrap();
-        let sid: i64 = conn.query_row("SELECT id FROM sources WHERE kind = 'github'", [], |r| r.get(0)).unwrap();
+        let sid: i64 = conn
+            .query_row("SELECT id FROM sources WHERE kind = 'github'", [], |r| r.get(0))
+            .unwrap();
         let src = crate::sync::load_source(&conn, sid).unwrap();
         let (b, _) = poll(None, json!({}));
         crate::sync::apply_in(&conn, &src, &b, crate::time::t("2026-09-28T10:52:00")).unwrap();
 
         let topic = |name: &str| {
-            conn.execute("INSERT INTO topics (name, category) VALUES (?1, 'work')", [name]).unwrap();
+            conn.execute("INSERT INTO topics (name, category) VALUES (?1, 'work')", [name])
+                .unwrap();
             conn.last_insert_rowid()
         };
         let (dd, ingest, other) = (topic("Datadog migration"), topic("Ingest"), topic("Retries"));
-        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/observability-config')", [dd]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/observability-config')",
+            [dd],
+        )
+        .unwrap();
         // platform/ingest is linked to two topics: ambiguous, so no suggestion.
-        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/ingest')", [ingest]).unwrap();
-        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'Platform/Ingest')", [other]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/ingest')",
+            [ingest],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'Platform/Ingest')",
+            [other],
+        )
+        .unwrap();
         // platform/rfcs → Ingest, but the user already marked that item wrong elsewhere.
-        conn.execute("INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/rfcs')", [ingest]).unwrap();
-        let rfc: i64 = conn.query_row("SELECT id FROM items WHERE external_id = 'platform/rfcs#41'", [], |r| r.get(0)).unwrap();
-        conn.execute("INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')", [rfc, dd]).unwrap();
+        conn.execute(
+            "INSERT INTO topic_repos (topic_id, repo) VALUES (?1, 'platform/rfcs')",
+            [ingest],
+        )
+        .unwrap();
+        let rfc: i64 = conn
+            .query_row("SELECT id FROM items WHERE external_id = 'platform/rfcs#41'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'wrong')",
+            [rfc, dd],
+        )
+        .unwrap();
 
-        assert_eq!(crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn)).suggest_from_repos(sid).unwrap(), 1);
+        assert_eq!(
+            crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn))
+                .suggest_from_repos(sid)
+                .unwrap(),
+            1
+        );
         let links: Vec<(String, i64, String, Option<String>)> = conn
             .prepare("SELECT i.external_id, l.topic_id, l.state, l.reason FROM topic_links l JOIN items i ON i.id = l.item_id ORDER BY i.external_id")
             .unwrap()
@@ -973,10 +1357,23 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(links.len(), 2);
-        assert_eq!(links[0], ("platform/observability-config#9".into(), dd, "suggested".into(), Some("linked repo platform/observability-config".into())));
+        assert_eq!(
+            links[0],
+            (
+                "platform/observability-config#9".into(),
+                dd,
+                "suggested".into(),
+                Some("linked repo platform/observability-config".into())
+            )
+        );
         assert_eq!(links[1].2, "wrong", "existing links are left alone");
         // Idempotent.
-        assert_eq!(crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn)).suggest_from_repos(sid).unwrap(), 0);
+        assert_eq!(
+            crate::domain::ports::UnitOfWork::links(&crate::store::over(&conn))
+                .suggest_from_repos(sid)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

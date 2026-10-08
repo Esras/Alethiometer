@@ -5,8 +5,16 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub enum AwsCreds {
-    Keys { access_key_id: String, secret_access_key: String, session_token: Option<String>, source: String },
-    Bearer { token: String, source: String },
+    Keys {
+        access_key_id: String,
+        secret_access_key: String,
+        session_token: Option<String>,
+        source: String,
+    },
+    Bearer {
+        token: String,
+        source: String,
+    },
 }
 
 impl AwsCreds {
@@ -20,7 +28,9 @@ impl AwsCreds {
 
 impl std::fmt::Debug for AwsCreds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AwsCreds").field("source", &self.source()).finish_non_exhaustive()
+        f.debug_struct("AwsCreds")
+            .field("source", &self.source())
+            .finish_non_exhaustive()
     }
 }
 
@@ -35,29 +45,57 @@ pub fn resolve(l: &Lookup) -> anyhow::Result<AwsCreds> {
     let env = |k: &str| (l.env)(k).filter(|v| !v.is_empty());
     let sec = |k: &str| (l.secret)(k).filter(|v| !v.is_empty());
     if let Some(token) = env("AWS_BEARER_TOKEN_BEDROCK") {
-        return Ok(AwsCreds::Bearer { token, source: "env".into() });
+        return Ok(AwsCreds::Bearer {
+            token,
+            source: "env".into(),
+        });
     }
     if let Some(token) = sec("bedrock_api_key") {
-        return Ok(AwsCreds::Bearer { token, source: "keychain".into() });
+        return Ok(AwsCreds::Bearer {
+            token,
+            source: "keychain".into(),
+        });
     }
     if let (Some(id), Some(key)) = (env("AWS_ACCESS_KEY_ID"), env("AWS_SECRET_ACCESS_KEY")) {
-        return Ok(AwsCreds::Keys { access_key_id: id, secret_access_key: key, session_token: env("AWS_SESSION_TOKEN"), source: "env".into() });
+        return Ok(AwsCreds::Keys {
+            access_key_id: id,
+            secret_access_key: key,
+            session_token: env("AWS_SESSION_TOKEN"),
+            source: "env".into(),
+        });
     }
     if let (Some(id), Some(key)) = (sec("aws_access_key_id"), sec("aws_secret_access_key")) {
-        return Ok(AwsCreds::Keys { access_key_id: id, secret_access_key: key, session_token: sec("aws_session_token"), source: "keychain".into() });
+        return Ok(AwsCreds::Keys {
+            access_key_id: id,
+            secret_access_key: key,
+            session_token: sec("aws_session_token"),
+            source: "keychain".into(),
+        });
     }
 
-    let profile = if !l.profile.is_empty() { l.profile.to_string() } else { env("AWS_PROFILE").unwrap_or_else(|| "default".into()) };
+    let profile = if !l.profile.is_empty() {
+        l.profile.to_string()
+    } else {
+        env("AWS_PROFILE").unwrap_or_else(|| "default".into())
+    };
     let aws_dir = l.home.as_ref().map(|h| h.join(".aws"));
-    let creds_file = env("AWS_SHARED_CREDENTIALS_FILE").map(PathBuf::from).or_else(|| aws_dir.as_ref().map(|d| d.join("credentials")));
-    let config_file = env("AWS_CONFIG_FILE").map(PathBuf::from).or_else(|| aws_dir.as_ref().map(|d| d.join("config")));
+    let creds_file = env("AWS_SHARED_CREDENTIALS_FILE")
+        .map(PathBuf::from)
+        .or_else(|| aws_dir.as_ref().map(|d| d.join("credentials")));
+    let config_file = env("AWS_CONFIG_FILE")
+        .map(PathBuf::from)
+        .or_else(|| aws_dir.as_ref().map(|d| d.join("config")));
 
     if let Some(sect) = creds_file.as_deref().and_then(|p| section(p, &profile)) {
         if let Some(c) = static_keys(&sect, &profile) {
             return Ok(c);
         }
     }
-    let name = if profile == "default" { "default".to_string() } else { format!("profile {profile}") };
+    let name = if profile == "default" {
+        "default".to_string()
+    } else {
+        format!("profile {profile}")
+    };
     if let Some(sect) = config_file.as_deref().and_then(|p| section(p, &name)) {
         if let Some(c) = static_keys(&sect, &profile) {
             return Ok(c);
@@ -118,7 +156,9 @@ fn parse_section(text: &str, name: &str) -> Option<BTreeMap<String, String>> {
         }
         if current.as_deref() == Some(name) {
             if let Some((k, v)) = line.split_once('=') {
-                found.get_or_insert_with(BTreeMap::new).insert(k.trim().to_lowercase(), v.trim().to_string());
+                found
+                    .get_or_insert_with(BTreeMap::new)
+                    .insert(k.trim().to_lowercase(), v.trim().to_string());
             }
         }
     }
@@ -130,10 +170,19 @@ fn credential_process(cmd: &str, profile: &str) -> anyhow::Result<AwsCreds> {
     let out = std::process::Command::new("sh").arg("-c").arg(cmd).output();
     #[cfg(not(unix))]
     let out = std::process::Command::new("cmd").arg("/C").arg(cmd).output();
-    let out = out.map_err(|e| anyhow::anyhow!("credential_process for AWS profile '{profile}' could not start: {e}"))?;
+    let out =
+        out.map_err(|e| anyhow::anyhow!("credential_process for AWS profile '{profile}' could not start: {e}"))?;
     if !out.status.success() {
-        let err: String = String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("").chars().take(200).collect();
-        anyhow::bail!("credential_process for AWS profile '{profile}' failed (expired SSO login? run `aws sso login`): {err}");
+        let err: String = String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(200)
+            .collect();
+        anyhow::bail!(
+            "credential_process for AWS profile '{profile}' failed (expired SSO login? run `aws sso login`): {err}"
+        );
     }
     parse_process_output(&String::from_utf8_lossy(&out.stdout), profile)
 }
@@ -141,7 +190,12 @@ fn credential_process(cmd: &str, profile: &str) -> anyhow::Result<AwsCreds> {
 fn parse_process_output(stdout: &str, profile: &str) -> anyhow::Result<AwsCreds> {
     let bad = || anyhow::anyhow!("credential_process for AWS profile '{profile}' returned unexpected output");
     let v: serde_json::Value = serde_json::from_str(stdout).map_err(|_| bad())?;
-    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(str::to_owned);
+    let s = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .filter(|x| !x.is_empty())
+            .map(str::to_owned)
+    };
     Ok(AwsCreds::Keys {
         access_key_id: s("AccessKeyId").ok_or_else(bad)?,
         secret_access_key: s("SecretAccessKey").ok_or_else(bad)?,
@@ -175,9 +229,26 @@ mod tests {
             "AWS_SESSION_TOKEN" => Some("t".to_string()),
             _ => None,
         };
-        let c = resolve(&Lookup { env: &env, secret: &none, home: None, profile: "" }).unwrap();
-        let AwsCreds::Keys { access_key_id, session_token, source, .. } = c else { panic!("expected Keys") };
-        assert_eq!((access_key_id.as_str(), session_token.as_deref(), source.as_str()), ("AKIDENV", Some("t"), "env"));
+        let c = resolve(&Lookup {
+            env: &env,
+            secret: &none,
+            home: None,
+            profile: "",
+        })
+        .unwrap();
+        let AwsCreds::Keys {
+            access_key_id,
+            session_token,
+            source,
+            ..
+        } = c
+        else {
+            panic!("expected Keys")
+        };
+        assert_eq!(
+            (access_key_id.as_str(), session_token.as_deref(), source.as_str()),
+            ("AKIDENV", Some("t"), "env")
+        );
     }
 
     #[test]
@@ -188,8 +259,16 @@ mod tests {
             "AWS_SECRET_ACCESS_KEY" => Some("s".to_string()),
             _ => None,
         };
-        let c = resolve(&Lookup { env: &env, secret: &none, home: None, profile: "" }).unwrap();
-        let AwsCreds::Bearer { token, source } = c else { panic!("expected Bearer") };
+        let c = resolve(&Lookup {
+            env: &env,
+            secret: &none,
+            home: None,
+            profile: "",
+        })
+        .unwrap();
+        let AwsCreds::Bearer { token, source } = c else {
+            panic!("expected Bearer")
+        };
         assert_eq!((token.as_str(), source.as_str()), ("bt", "env"));
     }
 
@@ -201,8 +280,16 @@ mod tests {
             "AWS_SECRET_ACCESS_KEY" => Some("s".to_string()),
             _ => None,
         };
-        let c = resolve(&Lookup { env: &env, secret: &sec, home: None, profile: "" }).unwrap();
-        let AwsCreds::Bearer { token, source } = c else { panic!("expected Bearer") };
+        let c = resolve(&Lookup {
+            env: &env,
+            secret: &sec,
+            home: None,
+            profile: "",
+        })
+        .unwrap();
+        let AwsCreds::Bearer { token, source } = c else {
+            panic!("expected Bearer")
+        };
         assert_eq!((token.as_str(), source.as_str()), ("bt", "keychain"));
     }
 
@@ -213,9 +300,20 @@ mod tests {
             "aws_secret_access_key" => Some("s".to_string()),
             _ => None,
         };
-        let home = home_with(&[("credentials", "[default]\naws_access_key_id=AKIDFILE\naws_secret_access_key=x\n")]);
-        let c = resolve(&Lookup { env: &none, secret: &sec, home: Some(home.path().into()), profile: "" }).unwrap();
-        let AwsCreds::Keys { access_key_id, .. } = c else { panic!("expected Keys") };
+        let home = home_with(&[(
+            "credentials",
+            "[default]\naws_access_key_id=AKIDFILE\naws_secret_access_key=x\n",
+        )]);
+        let c = resolve(&Lookup {
+            env: &none,
+            secret: &sec,
+            home: Some(home.path().into()),
+            profile: "",
+        })
+        .unwrap();
+        let AwsCreds::Keys { access_key_id, .. } = c else {
+            panic!("expected Keys")
+        };
         assert_eq!(access_key_id, "AKIDKC");
     }
 
@@ -226,11 +324,35 @@ mod tests {
             "[default]\naws_access_key_id = AKIDDEF\naws_secret_access_key = a\n\n# work\n[work]\naws_access_key_id = AKIDWORK\naws_secret_access_key = b\naws_session_token = tok\n",
         )]);
         let env = |k: &str| (k == "AWS_PROFILE").then(|| "work".to_string());
-        let c = resolve(&Lookup { env: &env, secret: &none, home: Some(home.path().into()), profile: "" }).unwrap();
-        let AwsCreds::Keys { access_key_id, session_token, .. } = c else { panic!("expected Keys") };
-        assert_eq!((access_key_id.as_str(), session_token.as_deref()), ("AKIDWORK", Some("tok")));
-        let c = resolve(&Lookup { env: &env, secret: &none, home: Some(home.path().into()), profile: "default" }).unwrap();
-        let AwsCreds::Keys { access_key_id, .. } = c else { panic!("expected Keys") };
+        let c = resolve(&Lookup {
+            env: &env,
+            secret: &none,
+            home: Some(home.path().into()),
+            profile: "",
+        })
+        .unwrap();
+        let AwsCreds::Keys {
+            access_key_id,
+            session_token,
+            ..
+        } = c
+        else {
+            panic!("expected Keys")
+        };
+        assert_eq!(
+            (access_key_id.as_str(), session_token.as_deref()),
+            ("AKIDWORK", Some("tok"))
+        );
+        let c = resolve(&Lookup {
+            env: &env,
+            secret: &none,
+            home: Some(home.path().into()),
+            profile: "default",
+        })
+        .unwrap();
+        let AwsCreds::Keys { access_key_id, .. } = c else {
+            panic!("expected Keys")
+        };
         assert_eq!(access_key_id, "AKIDDEF");
     }
 
@@ -240,37 +362,88 @@ mod tests {
             "config",
             "[profile alethiometer]\nregion = us-east-1\ncredential_process = echo '{\"Version\":1,\"AccessKeyId\":\"AKIDPROC\",\"SecretAccessKey\":\"s\",\"SessionToken\":\"t\"}'\n",
         )]);
-        let c = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "alethiometer" }).unwrap();
-        let AwsCreds::Keys { access_key_id, session_token, .. } = c else { panic!("expected Keys") };
-        assert_eq!((access_key_id.as_str(), session_token.as_deref()), ("AKIDPROC", Some("t")));
+        let c = resolve(&Lookup {
+            env: &none,
+            secret: &none,
+            home: Some(home.path().into()),
+            profile: "alethiometer",
+        })
+        .unwrap();
+        let AwsCreds::Keys {
+            access_key_id,
+            session_token,
+            ..
+        } = c
+        else {
+            panic!("expected Keys")
+        };
+        assert_eq!(
+            (access_key_id.as_str(), session_token.as_deref()),
+            ("AKIDPROC", Some("t"))
+        );
     }
 
     #[test]
     fn sso_profile_explains_what_to_do() {
         let home = home_with(&[("config", "[profile sso]\nsso_session = corp\nsso_account_id = 1\n")]);
-        let err = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "sso" }).unwrap_err().to_string();
+        let err = resolve(&Lookup {
+            env: &none,
+            secret: &none,
+            home: Some(home.path().into()),
+            profile: "sso",
+        })
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("export-credentials"), "{err}");
     }
 
     #[test]
     fn missing_everywhere_is_a_clear_error() {
         let home = home_with(&[]);
-        let err = resolve(&Lookup { env: &none, secret: &none, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
-        assert!(err.starts_with("No AWS credentials found for Bedrock. Store a Bedrock API key"), "{err}");
+        let err = resolve(&Lookup {
+            env: &none,
+            secret: &none,
+            home: Some(home.path().into()),
+            profile: "",
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.starts_with("No AWS credentials found for Bedrock. Store a Bedrock API key"),
+            "{err}"
+        );
         assert!(err.contains("Keychain on the Mac, secrets.json on Linux dev"), "{err}");
         assert!(err.contains("aws_access_key_id and aws_secret_access_key"), "{err}");
         assert!(err.contains("profile 'default'"), "{err}");
         let sec = |k: &str| (k == "aws_access_key_id").then(|| "AKIDHALF".to_string());
-        let err = resolve(&Lookup { env: &none, secret: &sec, home: Some(home.path().into()), profile: "" }).unwrap_err().to_string();
+        let err = resolve(&Lookup {
+            env: &none,
+            secret: &sec,
+            home: Some(home.path().into()),
+            profile: "",
+        })
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("No AWS credentials") && !err.contains("AKIDHALF"), "{err}");
     }
 
     #[test]
     fn debug_never_shows_keys() {
-        let c = AwsCreds::Keys { access_key_id: "AKIDX".into(), secret_access_key: "SECRETX".into(), session_token: Some("TOKX".into()), source: "env".into() };
+        let c = AwsCreds::Keys {
+            access_key_id: "AKIDX".into(),
+            secret_access_key: "SECRETX".into(),
+            session_token: Some("TOKX".into()),
+            source: "env".into(),
+        };
         let d = format!("{c:?}");
-        assert!(!d.contains("AKIDX") && !d.contains("SECRETX") && !d.contains("TOKX"), "{d}");
-        let c = AwsCreds::Bearer { token: "BEARERTOK".into(), source: "env".into() };
+        assert!(
+            !d.contains("AKIDX") && !d.contains("SECRETX") && !d.contains("TOKX"),
+            "{d}"
+        );
+        let c = AwsCreds::Bearer {
+            token: "BEARERTOK".into(),
+            source: "env".into(),
+        };
         let d = format!("{c:?}");
         assert!(!d.contains("BEARERTOK"), "{d}");
     }

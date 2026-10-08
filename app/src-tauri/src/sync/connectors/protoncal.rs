@@ -38,7 +38,12 @@ impl Connector for ProtonCalendar {
             let d = ctx.clock.today();
             NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32).expect("valid date")
         };
-        let zone: chrono_tz::Tz = ctx.clock.tz().iana_name().and_then(|n| n.parse().ok()).unwrap_or(chrono_tz::UTC);
+        let zone: chrono_tz::Tz = ctx
+            .clock
+            .tz()
+            .iana_name()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(chrono_tz::UTC);
         let window = Window {
             start: today - Duration::days(days("past_days", 1)),
             end: today + Duration::days(days("future_days", 14) + 1),
@@ -63,9 +68,25 @@ impl Connector for ProtonCalendar {
             }
             all.extend(busy_from_ics(&resp.body, &window, &zone).map_err(|e| anyhow::anyhow!("calendar {n}: {e}"))?);
         }
-        let here = |t: NaiveDateTime| ctx.clock.from_local(t.format("%Y-%m-%dT%H:%M:%S").to_string().parse().expect("a wall-clock time"));
-        let busy = merge(all).into_iter().map(|(s, e)| Busy { start: here(s), end: here(e) }).collect();
-        Ok(Batch { busy: Some(busy), ..Default::default() })
+        let here = |t: NaiveDateTime| {
+            ctx.clock.from_local(
+                t.format("%Y-%m-%dT%H:%M:%S")
+                    .to_string()
+                    .parse()
+                    .expect("a wall-clock time"),
+            )
+        };
+        let busy = merge(all)
+            .into_iter()
+            .map(|(s, e)| Busy {
+                start: here(s),
+                end: here(e),
+            })
+            .collect();
+        Ok(Batch {
+            busy: Some(busy),
+            ..Default::default()
+        })
     }
 }
 
@@ -77,9 +98,17 @@ impl Connector for ProtonCalendar {
 /// untitled busy blocks. Requiring a second, matching entry in `sources`
 /// would just be a way to get it wrong. The addition is logged (without links).
 pub fn resolve_config(settings: &mut Settings) {
-    let links: Vec<Value> = settings.life_calendars.iter().filter(|u| !u.trim().is_empty()).map(|u| json!(u)).collect();
+    let links: Vec<Value> = settings
+        .life_calendars
+        .iter()
+        .filter(|u| !u.trim().is_empty())
+        .map(|u| json!(u))
+        .collect();
     if !links.is_empty() && !settings.sources.iter().any(|s| s.kind == "protoncal") {
-        eprintln!("sync: added personal source 'Life' for {} life_calendars link(s)", links.len());
+        eprintln!(
+            "sync: added personal source 'Life' for {} life_calendars link(s)",
+            links.len()
+        );
         settings.sources.push(SourceConfig {
             kind: "protoncal".into(),
             tag: "personal".into(),
@@ -91,7 +120,10 @@ pub fn resolve_config(settings: &mut Settings) {
     }
     for s in settings.sources.iter_mut().filter(|s| s.kind == "protoncal") {
         if s.tag != "personal" {
-            eprintln!("sync: source '{}' is a Proton calendar; treating it as personal", s.name);
+            eprintln!(
+                "sync: source '{}' is a Proton calendar; treating it as personal",
+                s.name
+            );
             s.tag = "personal".into();
         }
         if !s.config.is_object() {
@@ -108,8 +140,13 @@ fn redact(err: &str, url: &str) -> String {
     let mut out = err.replace(url, "<calendar link>");
     let (base, query) = url.split_once('?').unwrap_or((url, ""));
     out = out.replace(base, "<calendar link>");
-    let path = base.split_once("://").map_or(base, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p));
-    let secrets = path.split('/').chain(query.split('&')).chain(query.split('&').filter_map(|kv| kv.split_once('=').map(|(_, v)| v)));
+    let path = base
+        .split_once("://")
+        .map_or(base, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p));
+    let secrets = path
+        .split('/')
+        .chain(query.split('&'))
+        .chain(query.split('&').filter_map(|kv| kv.split_once('=').map(|(_, v)| v)));
     for s in secrets.filter(|s| s.len() >= 8) {
         out = out.replace(s, "…");
     }
@@ -162,7 +199,9 @@ impl When {
 /// Resolve a wall time in `tz`. In the autumn overlap take the first; in the
 /// spring gap move forward an hour, as calendar apps do.
 fn zoned<T: TimeZone>(tz: T, n: NaiveDateTime) -> Option<chrono::DateTime<T>> {
-    tz.from_local_datetime(&n).earliest().or_else(|| tz.from_local_datetime(&(n + Duration::hours(1))).earliest())
+    tz.from_local_datetime(&n)
+        .earliest()
+        .or_else(|| tz.from_local_datetime(&(n + Duration::hours(1))).earliest())
 }
 
 #[derive(Default)]
@@ -196,7 +235,10 @@ fn unfold(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in text.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
-        match (line.strip_prefix(' ').or_else(|| line.strip_prefix('\t')), out.last_mut()) {
+        match (
+            line.strip_prefix(' ').or_else(|| line.strip_prefix('\t')),
+            out.last_mut(),
+        ) {
             (Some(cont), Some(prev)) => prev.push_str(cont),
             _ => out.push(line.to_string()),
         }
@@ -207,12 +249,15 @@ fn unfold(text: &str) -> Vec<String> {
 fn parse_prop(line: &str) -> Option<Prop> {
     // The value starts at the first ':' outside a quoted parameter value.
     let mut quoted = false;
-    let colon = line.char_indices().find(|&(_, c)| {
-        if c == '"' {
-            quoted = !quoted;
-        }
-        c == ':' && !quoted
-    })?.0;
+    let colon = line
+        .char_indices()
+        .find(|&(_, c)| {
+            if c == '"' {
+                quoted = !quoted;
+            }
+            c == ':' && !quoted
+        })?
+        .0;
     let (head, value) = (&line[..colon], &line[colon + 1..]);
     let mut parts = head.split(';');
     let name = parts.next()?.trim().to_ascii_uppercase();
@@ -220,7 +265,11 @@ fn parse_prop(line: &str) -> Option<Prop> {
         .filter_map(|p| p.split_once('='))
         .map(|(k, v)| (k.trim().to_ascii_uppercase(), v.trim_matches('"').to_string()))
         .collect();
-    Some(Prop { name, params, value: value.trim().to_string() })
+    Some(Prop {
+        name,
+        params,
+        value: value.trim().to_string(),
+    })
 }
 
 /// IANA names, including the `/mozilla.org/…/Europe/Berlin` style prefixes some
@@ -264,7 +313,10 @@ fn prop_when(p: &Prop) -> Option<When> {
 }
 
 fn prop_whens(p: &Prop) -> Vec<When> {
-    p.value.split(',').filter_map(|v| parse_when(v, p.param("VALUE"), p.param("TZID"))).collect()
+    p.value
+        .split(',')
+        .filter_map(|v| parse_when(v, p.param("VALUE"), p.param("TZID")))
+        .collect()
 }
 
 /// `P1W`, `P2D`, `PT1H30M`, `P1DT2H`… (negative durations are ignored).
@@ -294,7 +346,8 @@ fn parse_duration(v: &str) -> Option<Duration> {
 
 /// FNV-1a: a stable, in-memory key for pairing overrides with their series.
 fn hash(s: &str) -> u64 {
-    s.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+    s.bytes()
+        .fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
 }
 
 fn parse_events(ics: &str) -> Vec<Event> {
@@ -325,7 +378,9 @@ fn parse_events(ics: &str) -> Vec<Event> {
             }
             _ => {}
         }
-        let (Some(ev), 0) = (cur.as_mut(), nested) else { continue };
+        let (Some(ev), 0) = (cur.as_mut(), nested) else {
+            continue;
+        };
         // Only timing properties are read. Everything else (SUMMARY,
         // DESCRIPTION, LOCATION, ATTENDEE, ORGANIZER…) falls through untouched.
         match p.name.as_str() {
@@ -352,7 +407,11 @@ fn key(dt: &chrono::DateTime<Tz>) -> NaiveDateTime {
 
 /// Busy intervals (local naive, in `target`) for every opaque, non-cancelled
 /// event overlapping the window. Not merged.
-pub fn busy_from_ics<T: TimeZone>(ics: &str, window: &Window, target: &T) -> anyhow::Result<Vec<(NaiveDateTime, NaiveDateTime)>> {
+pub fn busy_from_ics<T: TimeZone>(
+    ics: &str,
+    window: &Window,
+    target: &T,
+) -> anyhow::Result<Vec<(NaiveDateTime, NaiveDateTime)>> {
     let events = parse_events(ics);
     if events.is_empty() && !ics.contains("BEGIN:VCALENDAR") {
         anyhow::bail!("not an ICS calendar");
@@ -406,8 +465,11 @@ pub fn busy_from_ics<T: TimeZone>(ics: &str, window: &Window, target: &T) -> any
             }
             starts.extend(ev.rdates.iter().filter_map(|w| w.to_rr()));
             let ex: HashSet<NaiveDateTime> = ev.exdates.iter().filter_map(|w| w.to_rr()).map(|d| key(&d)).collect();
-            let ex_days: HashSet<NaiveDate> =
-                ev.exdates.iter().filter_map(|w| if let When::Date(d) = w { Some(*d) } else { None }).collect();
+            let ex_days: HashSet<NaiveDate> = ev
+                .exdates
+                .iter()
+                .filter_map(|w| if let When::Date(d) = w { Some(*d) } else { None })
+                .collect();
             let moved = overridden.get(&ev.uid_hash);
             starts.retain(|s| {
                 !ex.contains(&key(s))
@@ -423,7 +485,10 @@ pub fn busy_from_ics<T: TimeZone>(ics: &str, window: &Window, target: &T) -> any
             let (ls, le) = if floating {
                 (s.naive_utc(), e.naive_utc())
             } else {
-                (s.with_timezone(target).naive_local(), e.with_timezone(target).naive_local())
+                (
+                    s.with_timezone(target).naive_local(),
+                    e.with_timezone(target).naive_local(),
+                )
             };
             if le > win_start && ls < win_end {
                 out.push((ls, le));
@@ -435,7 +500,13 @@ pub fn busy_from_ics<T: TimeZone>(ics: &str, window: &Window, target: &T) -> any
 
 /// Occurrences of one RRULE between `lo` and `hi`. A rule we can't parse or
 /// validate contributes nothing beyond DTSTART (which the caller keeps).
-fn expand(rule: &str, dtstart: chrono::DateTime<Tz>, start: &When, lo: chrono::DateTime<Tz>, hi: chrono::DateTime<Tz>) -> Vec<chrono::DateTime<Tz>> {
+fn expand(
+    rule: &str,
+    dtstart: chrono::DateTime<Tz>,
+    start: &When,
+    lo: chrono::DateTime<Tz>,
+    hi: chrono::DateTime<Tz>,
+) -> Vec<chrono::DateTime<Tz>> {
     // UNTIL is resolved here rather than by the crate, which would read a
     // floating UNTIL in this machine's zone.
     let mut until = None;
@@ -449,13 +520,24 @@ fn expand(rule: &str, dtstart: chrono::DateTime<Tz>, start: &When, lo: chrono::D
             _ => true,
         })
         .collect();
-    let Ok(mut rr) = parts.join(";").parse::<RRule<Unvalidated>>() else { return vec![] };
+    let Ok(mut rr) = parts.join(";").parse::<RRule<Unvalidated>>() else {
+        return vec![];
+    };
     if let Some(u) = until {
         rr = rr.until(u);
     }
     let Ok(rr) = rr.validate(dtstart) else { return vec![] };
-    let lo = if lo < dtstart { dtstart } else { lo.with_timezone(&dtstart.timezone()) };
-    RRuleSet::new(dtstart).rrule(rr).after(lo).before(hi.with_timezone(&dtstart.timezone())).all(2000).dates
+    let lo = if lo < dtstart {
+        dtstart
+    } else {
+        lo.with_timezone(&dtstart.timezone())
+    };
+    RRuleSet::new(dtstart)
+        .rrule(rr)
+        .after(lo)
+        .before(hi.with_timezone(&dtstart.timezone()))
+        .all(2000)
+        .dates
 }
 
 /// UNTIL as UTC (what the crate requires), read in the frame of DTSTART.
@@ -501,7 +583,11 @@ mod tests {
 
     fn window(start: &str, days: i64) -> Window {
         let start = NaiveDate::parse_from_str(start, "%Y-%m-%d").unwrap();
-        Window { start, end: start + Duration::days(days), skip_all_day: false }
+        Window {
+            start,
+            end: start + Duration::days(days),
+            skip_all_day: false,
+        }
     }
 
     fn busy(ics: &str, w: &Window) -> Vec<(String, String)> {
@@ -568,14 +654,20 @@ mod tests {
                 ("10-02 00:00", "10-04 00:00"),
             ])
         );
-        let skip = Window { skip_all_day: true, ..window("2026-09-27", 16) };
+        let skip = Window {
+            skip_all_day: true,
+            ..window("2026-09-27", 16)
+        };
         assert_eq!(busy(MIXED, &skip).len(), 1);
     }
 
     #[test]
     fn nested_alarm_and_folded_lines_are_handled() {
         let ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;TZID=Europe/Zurich:20260928T120000\r\nDTEND;TZID=Europe/Zu\r\n rich:20260928T130000\r\nBEGIN:VALARM\r\nDTSTART:20000101T000000Z\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        assert_eq!(busy(ics, &window("2026-09-28", 1)), pairs(&[("09-28 12:00", "09-28 13:00")]));
+        assert_eq!(
+            busy(ics, &window("2026-09-28", 1)),
+            pairs(&[("09-28 12:00", "09-28 13:00")])
+        );
     }
 
     #[test]
@@ -586,11 +678,24 @@ mod tests {
             (dt("2026-09-28T09:30"), dt("2026-09-28T09:45")),
             (dt("2026-09-28T10:00"), dt("2026-09-28T11:00")),
         ]);
-        assert_eq!(m, vec![(dt("2026-09-28T09:00"), dt("2026-09-28T11:00")), (dt("2026-09-28T13:00"), dt("2026-09-28T14:00"))]);
+        assert_eq!(
+            m,
+            vec![
+                (dt("2026-09-28T09:00"), dt("2026-09-28T11:00")),
+                (dt("2026-09-28T13:00"), dt("2026-09-28T14:00"))
+            ]
+        );
     }
 
     fn source(config: Value) -> Source {
-        Source { id: 1, kind: "protoncal".into(), tag: "personal".into(), name: "Life".into(), config, cursor: None }
+        Source {
+            id: 1,
+            kind: "protoncal".into(),
+            tag: "personal".into(),
+            name: "Life".into(),
+            config,
+            cursor: None,
+        }
     }
 
     const LINK: &str = "https://calendar.proton.me/api/calendar/v1/url/AbCdEfGhIjKlMnOp/calendar.ics?CacheKey=q1w2e3r4t5y6&PassphraseKey=Zx9Yw8Vu7Ts6";
@@ -600,9 +705,17 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "/url/AbCdEfGhIjKlMnOp/", 200, MIXED);
         http.on("GET", "/url/SecondCalendar00/", 200, TIMEZONES);
-        let src = source(json!({ "urls": [LINK, "webcal://calendar.proton.me/api/calendar/v1/url/SecondCalendar00/calendar.ics?x=1"] }));
+        let src = source(
+            json!({ "urls": [LINK, "webcal://calendar.proton.me/api/calendar/v1/url/SecondCalendar00/calendar.ics?x=1"] }),
+        );
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: crate::time::t("2026-09-28T10:52:00"),
+            clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
+        };
         let batch = ProtonCalendar.poll(&ctx).unwrap();
         assert!(batch.items.is_empty());
         assert!(batch.cursor.is_none());
@@ -612,13 +725,28 @@ mod tests {
         // appear nowhere in what we return.
         let dump = format!("{batch:?}");
         for secret_text in [
-            "Physio", "Pickup", "Dentist", "Birthday", "Holiday", "therapist", "Hauptstrasse", "friend@example.com", "Sam",
-            "uid-", "@proton.me", "SUMMARY", "DESCRIPTION", "LOCATION",
+            "Physio",
+            "Pickup",
+            "Dentist",
+            "Birthday",
+            "Holiday",
+            "therapist",
+            "Hauptstrasse",
+            "friend@example.com",
+            "Sam",
+            "uid-",
+            "@proton.me",
+            "SUMMARY",
+            "DESCRIPTION",
+            "LOCATION",
         ] {
             assert!(!dump.contains(secret_text), "{secret_text} leaked into {dump}");
         }
         for fixture in [MIXED, TIMEZONES] {
-            assert!(fixture.contains("SUMMARY:"), "fixtures must carry titles for this test to mean anything");
+            assert!(
+                fixture.contains("SUMMARY:"),
+                "fixtures must carry titles for this test to mean anything"
+            );
         }
         // webcal:// is fetched over https.
         assert!(http.requests().iter().all(|(_, u, _)| u.starts_with("https://")));
@@ -627,7 +755,10 @@ mod tests {
     #[test]
     fn apply_stores_untitled_life_blocks() {
         let conn = crate::db::open_in_memory().unwrap();
-        let mut settings = Settings { life_calendars: vec![LINK.into()], ..Default::default() };
+        let mut settings = Settings {
+            life_calendars: vec![LINK.into()],
+            ..Default::default()
+        };
         resolve_config(&mut settings);
         crate::sync::register_sources(&conn, &settings.sources).unwrap();
         let src = crate::sync::load_source(&conn, 1).unwrap();
@@ -635,7 +766,13 @@ mod tests {
         let http = FakeHttp::default();
         http.on("GET", "calendar.proton.me", 200, MIXED);
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: crate::time::t("2026-09-28T10:52:00"),
+            clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
+        };
         let batch = ProtonCalendar.poll(&ctx).unwrap();
         crate::sync::apply_in(&conn, &src, &batch, crate::time::t("2026-09-28T10:52:00")).unwrap();
         let (n, titled, items): (i64, i64, i64) = conn
@@ -651,16 +788,33 @@ mod tests {
     #[test]
     fn errors_never_contain_the_link() {
         let http = FakeHttp::default();
-        http.on("GET", "calendar.proton.me", 404, "<html>Not found: /api/calendar/v1/url/AbCdEfGhIjKlMnOp</html>");
+        http.on(
+            "GET",
+            "calendar.proton.me",
+            404,
+            "<html>Not found: /api/calendar/v1/url/AbCdEfGhIjKlMnOp</html>",
+        );
         let src = source(json!({ "urls": [LINK] }));
         let secret = |_: &str| None;
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: crate::time::t("2026-09-28T10:52:00"),
+            clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
+        };
         let err = ProtonCalendar.poll(&ctx).unwrap_err().to_string();
         assert_eq!(err, "calendar 1: HTTP 404");
 
         // No route: FakeHttp's error message includes the URL; it must be redacted.
         let http = FakeHttp::default();
-        let ctx = Ctx { source: &src, http: &http, secret: &secret, now: crate::time::t("2026-09-28T10:52:00"), clock: crate::sync::test_clock("2026-09-28T10:52:00Z") };
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secret,
+            now: crate::time::t("2026-09-28T10:52:00"),
+            clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
+        };
         let err = ProtonCalendar.poll(&ctx).unwrap_err().to_string();
         for part in ["AbCdEfGhIjKlMnOp", "q1w2e3r4t5y6", "Zx9Yw8Vu7Ts6"] {
             assert!(!err.contains(part), "{err}");
@@ -669,7 +823,10 @@ mod tests {
 
     #[test]
     fn resolve_adds_source_and_fills_links() {
-        let mut s = Settings { life_calendars: vec![LINK.into()], ..Default::default() };
+        let mut s = Settings {
+            life_calendars: vec![LINK.into()],
+            ..Default::default()
+        };
         resolve_config(&mut s);
         assert_eq!(s.sources.len(), 1);
         assert_eq!(s.sources[0].config["urls"], json!([LINK]));

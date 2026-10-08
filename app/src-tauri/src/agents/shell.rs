@@ -104,7 +104,11 @@ fn parse_with(command: &str, cwd: &str, home: Option<&str>, local_bins: &[String
         secrets: Vec::new(),
         per_file: Vec::new(),
     };
-    let at = At { src: command, depth: 0, parent: "" };
+    let at = At {
+        src: command,
+        depth: 0,
+        parent: "",
+    };
     match run.script(&at, &mut 0) {
         Ok(()) => run.finish(),
         Err(Fail) => failed(command),
@@ -114,8 +118,17 @@ fn parse_with(command: &str, cwd: &str, home: Option<&str>, local_bins: &[String
 fn failed(command: &str) -> Parsed {
     Parsed {
         verdict: "unknown".into(),
-        steps: vec![Step { n: "1".into(), text: command.trim().into(), tags: vec!["unknown command".into()], depth: 0, notes: vec![] }],
-        checks: vec![Check { ok: false, text: "Couldn't parse the command".into() }],
+        steps: vec![Step {
+            n: "1".into(),
+            text: command.trim().into(),
+            tags: vec!["unknown command".into()],
+            depth: 0,
+            notes: vec![],
+        }],
+        checks: vec![Check {
+            ok: false,
+            text: "Couldn't parse the command".into(),
+        }],
     }
 }
 
@@ -282,25 +295,71 @@ impl Run<'_> {
         match node.kind() {
             "program" | "list" | "pipeline" | "negated_command" => self.seq(at, node, conn, tail, idx),
             "redirected_statement" => {
-                let mut redirs: Vec<Node> = children(node).into_iter().filter(|k| k.kind().ends_with("_redirect")).collect();
-                let end = redirs.iter().map(|r| redirect_end(*r)).max().unwrap_or(node.end_byte()).max(tail_end);
+                let mut redirs: Vec<Node> = children(node)
+                    .into_iter()
+                    .filter(|k| k.kind().ends_with("_redirect"))
+                    .collect();
+                let end = redirs
+                    .iter()
+                    .map(|r| redirect_end(*r))
+                    .max()
+                    .unwrap_or(node.end_byte())
+                    .max(tail_end);
                 redirs.extend(tail_redirs);
                 match node.child_by_field_name("body") {
                     Some(body) => self.walk(at, body, conn, Some(&Tail { redirs, end }), idx),
-                    None => self.step(at, idx, Pending { conn, start: node.start_byte(), end, bits: 0, args: Vec::new(), subs: Vec::new(), redirs }),
+                    None => self.step(
+                        at,
+                        idx,
+                        Pending {
+                            conn,
+                            start: node.start_byte(),
+                            end,
+                            bits: 0,
+                            args: Vec::new(),
+                            subs: Vec::new(),
+                            redirs,
+                        },
+                    ),
                 }
             }
             "command" => self.command(at, node, conn, tail_redirs, tail_end, idx),
-            "variable_assignment" | "variable_assignments" | "declaration_command" | "unset_command" | "test_command" => {
+            "variable_assignment"
+            | "variable_assignments"
+            | "declaration_command"
+            | "unset_command"
+            | "test_command" => {
                 let mut subs = Vec::new();
                 collect_subs(node, &mut subs, 0);
                 let bits = if node.kind() == "test_command" { 0 } else { ENV };
                 let end = node.end_byte().max(tail_end);
-                self.step(at, idx, Pending { conn, start: node.start_byte(), end, bits, args: Vec::new(), subs, redirs: tail_redirs })
+                self.step(
+                    at,
+                    idx,
+                    Pending {
+                        conn,
+                        start: node.start_byte(),
+                        end,
+                        bits,
+                        args: Vec::new(),
+                        subs,
+                        redirs: tail_redirs,
+                    },
+                )
             }
             "comment" | "heredoc_body" => Ok(()),
-            "subshell" | "compound_statement" | "do_group" | "if_statement" | "elif_clause" | "else_clause" | "while_statement"
-            | "for_statement" | "c_style_for_statement" | "case_statement" | "case_item" | "function_definition" => {
+            "subshell"
+            | "compound_statement"
+            | "do_group"
+            | "if_statement"
+            | "elif_clause"
+            | "else_clause"
+            | "while_statement"
+            | "for_statement"
+            | "c_style_for_statement"
+            | "case_statement"
+            | "case_item"
+            | "function_definition" => {
                 let saved = (node.kind() == "subshell").then(|| self.cur.clone());
                 let before = self.steps.len();
                 let ctx_len = self.ctx.len();
@@ -343,21 +402,39 @@ impl Run<'_> {
         let text = |n: Node<'_>| src.get(n.byte_range()).unwrap_or("").trim().to_owned();
         let header = |end: Option<Node<'_>>| {
             let to = end.map_or(node.end_byte(), |b| b.start_byte());
-            clip(src.get(node.start_byte()..to).unwrap_or("").trim().trim_end_matches(';').trim())
+            clip(
+                src.get(node.start_byte()..to)
+                    .unwrap_or("")
+                    .trim()
+                    .trim_end_matches(';')
+                    .trim(),
+            )
         };
         match node.kind() {
             "for_statement" => {
-                self.ctx.push(format!("loop: {}", header(node.child_by_field_name("body"))));
+                self.ctx
+                    .push(format!("loop: {}", header(node.child_by_field_name("body"))));
                 let mut cursor = node.walk();
-                let values: Vec<Node> = node.children_by_field_name("value", &mut cursor).filter(|v| v.kind() == "word").collect();
+                let values: Vec<Node> = node
+                    .children_by_field_name("value", &mut cursor)
+                    .filter(|v| v.kind() == "word")
+                    .collect();
                 for v in values {
                     let note = self.expand(&text(v));
                     self.ctx.extend(note);
                 }
             }
-            "while_statement" | "c_style_for_statement" => self.ctx.push(format!("loop: {}", header(node.child_by_field_name("body")))),
-            "if_statement" => self.ctx.push(format!("conditional: if {}", clip(&node.child_by_field_name("condition").map(text).unwrap_or_default()))),
-            "case_statement" => self.ctx.push(format!("conditional: {}", header(children(node).into_iter().find(|k| k.kind() == "case_item")))),
+            "while_statement" | "c_style_for_statement" => self
+                .ctx
+                .push(format!("loop: {}", header(node.child_by_field_name("body")))),
+            "if_statement" => self.ctx.push(format!(
+                "conditional: if {}",
+                clip(&node.child_by_field_name("condition").map(text).unwrap_or_default())
+            )),
+            "case_statement" => self.ctx.push(format!(
+                "conditional: {}",
+                header(children(node).into_iter().find(|k| k.kind() == "case_item"))
+            )),
             _ => {}
         }
     }
@@ -367,19 +444,56 @@ impl Run<'_> {
         if !pat.contains(['*', '?', '[']) || pat.contains(['$', '`', '{']) {
             return None;
         }
-        let full = if pat.starts_with('/') || pat.starts_with('~') { self.resolve(pat).unwrap_or_default() } else { format!("{}/{pat}", glob::Pattern::escape(&self.cur)) };
-        let opts = glob::MatchOptions { case_sensitive: true, require_literal_separator: true, require_literal_leading_dot: true };
-        let hits: Vec<String> = glob::glob_with(&full, opts).ok()?.filter_map(Result::ok).take(51).map(|p| p.to_string_lossy().trim_start_matches(&format!("{}/", self.cur)).to_owned()).collect();
-        Some(if hits.is_empty() {
-            format!("{pat} matches nothing in {}; the shell would pass it through as written", self.cur)
-        } else if hits.len() > 50 {
-            format!("{pat} matches 50+ paths in {}, starting {}", self.cur, hits[..8].join(", "))
+        let full = if pat.starts_with('/') || pat.starts_with('~') {
+            self.resolve(pat).unwrap_or_default()
         } else {
-            format!("{pat} matches {}: {}{}", hits.len(), hits[..hits.len().min(8)].join(", "), if hits.len() > 8 { ", …" } else { "" })
+            format!("{}/{pat}", glob::Pattern::escape(&self.cur))
+        };
+        let opts = glob::MatchOptions {
+            case_sensitive: true,
+            require_literal_separator: true,
+            require_literal_leading_dot: true,
+        };
+        let hits: Vec<String> = glob::glob_with(&full, opts)
+            .ok()?
+            .filter_map(Result::ok)
+            .take(51)
+            .map(|p| {
+                p.to_string_lossy()
+                    .trim_start_matches(&format!("{}/", self.cur))
+                    .to_owned()
+            })
+            .collect();
+        Some(if hits.is_empty() {
+            format!(
+                "{pat} matches nothing in {}; the shell would pass it through as written",
+                self.cur
+            )
+        } else if hits.len() > 50 {
+            format!(
+                "{pat} matches 50+ paths in {}, starting {}",
+                self.cur,
+                hits[..8].join(", ")
+            )
+        } else {
+            format!(
+                "{pat} matches {}: {}{}",
+                hits.len(),
+                hits[..hits.len().min(8)].join(", "),
+                if hits.len() > 8 { ", …" } else { "" }
+            )
         })
     }
 
-    fn command<'t>(&mut self, at: &At, node: Node<'t>, conn: Conn, mut redirs: Vec<Node<'t>>, tail_end: usize, idx: &mut usize) -> R {
+    fn command<'t>(
+        &mut self,
+        at: &At,
+        node: Node<'t>,
+        conn: Conn,
+        mut redirs: Vec<Node<'t>>,
+        tail_end: usize,
+        idx: &mut usize,
+    ) -> R {
         let mut args = Vec::new();
         let mut subs = Vec::new();
         let mut bits = 0;
@@ -397,16 +511,36 @@ impl Run<'_> {
             }
         }
         let end = node.end_byte().max(tail_end);
-        self.step(at, idx, Pending { conn, start: node.start_byte(), end, bits, args, subs, redirs })
+        self.step(
+            at,
+            idx,
+            Pending {
+                conn,
+                start: node.start_byte(),
+                end,
+                bits,
+                args,
+                subs,
+                redirs,
+            },
+        )
     }
 
     fn step(&mut self, at: &At, idx: &mut usize, p: Pending<'_>) -> R {
-        let mut c = Class { bits: p.bits, ..Default::default() };
+        let mut c = Class {
+            bits: p.bits,
+            ..Default::default()
+        };
         if !p.args.is_empty() {
             self.argv(&p.args, &mut c, false, 0);
         }
         let mut subs = p.subs;
-        subs.extend(p.args.iter().filter(|a| !c.elide.contains(&a.start)).flat_map(|a| a.subs.iter().copied()));
+        subs.extend(
+            p.args
+                .iter()
+                .filter(|a| !c.elide.contains(&a.start))
+                .flat_map(|a| a.subs.iter().copied()),
+        );
         for r in &p.redirs {
             self.redirect(at.src, *r, &mut c, &mut subs);
         }
@@ -440,7 +574,11 @@ impl Run<'_> {
                 continue;
             }
             text.push_str(at.src.get(pos..a.start).unwrap_or(""));
-            text.push_str(if at.src[a.start..].starts_with('"') { "\"…\"" } else { "'…'" });
+            text.push_str(if at.src[a.start..].starts_with('"') {
+                "\"…\""
+            } else {
+                "'…'"
+            });
             pos = a.end;
         }
         text.push_str(at.src.get(pos..p.end).unwrap_or(""));
@@ -451,10 +589,20 @@ impl Run<'_> {
         };
         let me = self.steps.len();
         let mut notes = self.ctx.clone();
-        for a in p.args.iter().skip(1).filter(|a| !c.nopath.contains(&a.start) && !c.elide.contains(&a.start) && !matches!(at.src.as_bytes().get(a.start), Some(b'"' | b'\''))) {
+        for a in p.args.iter().skip(1).filter(|a| {
+            !c.nopath.contains(&a.start)
+                && !c.elide.contains(&a.start)
+                && !matches!(at.src.as_bytes().get(a.start), Some(b'"' | b'\''))
+        }) {
             notes.extend(self.expand(&a.val));
         }
-        self.steps.push(Raw { n: n.clone(), text: format!("{prefix}{}", text.trim()), bits: c.bits, depth: at.depth, notes });
+        self.steps.push(Raw {
+            n: n.clone(),
+            text: format!("{prefix}{}", text.trim()),
+            bits: c.bits,
+            depth: at.depth,
+            notes,
+        });
 
         if subs.is_empty() && c.scripts.is_empty() {
             return Ok(());
@@ -466,12 +614,23 @@ impl Run<'_> {
         }
         let saved = self.cur.clone();
         let mut cidx = 0;
-        let child = At { src: at.src, depth: at.depth + 1, parent: &n };
+        let child = At {
+            src: at.src,
+            depth: at.depth + 1,
+            parent: &n,
+        };
         for s in subs {
             self.seq(&child, s, Conn::First, None, &mut cidx)?;
         }
         for s in &c.scripts {
-            self.script(&At { src: s, depth: at.depth + 1, parent: &n }, &mut cidx)?;
+            self.script(
+                &At {
+                    src: s,
+                    depth: at.depth + 1,
+                    parent: &n,
+                },
+                &mut cidx,
+            )?;
         }
         self.cur = saved;
         Ok(())
@@ -480,8 +639,14 @@ impl Run<'_> {
     fn redirect<'t>(&self, src: &str, r: Node<'t>, c: &mut Class, subs: &mut Vec<Node<'t>>) {
         match r.kind() {
             "file_redirect" => {
-                let op = children(r).into_iter().find(|k| !k.is_named()).map(|k| k.kind()).unwrap_or("");
-                let Some(dest) = r.child_by_field_name("destination") else { return };
+                let op = children(r)
+                    .into_iter()
+                    .find(|k| !k.is_named())
+                    .map(|k| k.kind())
+                    .unwrap_or("");
+                let Some(dest) = r.child_by_field_name("destination") else {
+                    return;
+                };
                 collect_subs(dest, subs, 0);
                 let t = value(dest, src);
                 match op {
@@ -547,13 +712,19 @@ impl Run<'_> {
         } else if p.starts_with('~') {
             return None;
         } else {
-            p.strip_prefix("${HOME}").or_else(|| p.strip_prefix("$HOME")).filter(|r| r.is_empty() || r.starts_with('/'))
+            p.strip_prefix("${HOME}")
+                .or_else(|| p.strip_prefix("$HOME"))
+                .filter(|r| r.is_empty() || r.starts_with('/'))
         };
         let p = match home_rest {
             Some(rest) => format!("{}{rest}", self.home.as_deref()?),
             None => p.to_string(),
         };
-        Some(if p.starts_with('/') { normalize(&p) } else { normalize(&format!("{}/{p}", self.cur)) })
+        Some(if p.starts_with('/') {
+            normalize(&p)
+        } else {
+            normalize(&format!("{}/{p}", self.cur))
+        })
     }
 
     // ---- classification
@@ -618,7 +789,10 @@ impl Run<'_> {
     fn tool(&self, name: &str, w: &[Arg], c: &mut Class, per_file: bool, guard: u8) -> bool {
         let a: Vec<&str> = w[1..].iter().map(|x| x.val.as_str()).collect();
         let has = |opts: &[&str]| a.iter().any(|x| opts.iter().any(|o| opt_is(x, o)));
-        let short = |ch: char| a.iter().any(|x| x.starts_with('-') && !x.starts_with("--") && x[1..].contains(ch));
+        let short = |ch: char| {
+            a.iter()
+                .any(|x| x.starts_with('-') && !x.starts_with("--") && x[1..].contains(ch))
+        };
         let sub = a.iter().copied().find(|x| !x.starts_with('-')).unwrap_or("");
         let recurse = |c: &mut Class, i: usize| {
             if i < w.len() {
@@ -628,7 +802,13 @@ impl Run<'_> {
         match name {
             "sudo" | "doas" => {
                 c.bits |= SUDO;
-                let i = skip_opts(w, 1, &["-u", "-g", "-p", "-C", "-D", "-h", "-U", "-r", "-t", "-T", "--user", "--group"]);
+                let i = skip_opts(
+                    w,
+                    1,
+                    &[
+                        "-u", "-g", "-p", "-C", "-D", "-h", "-U", "-r", "-t", "-T", "--user", "--group",
+                    ],
+                );
                 if i < w.len() {
                     recurse(c, i);
                 } else if has(&["-s", "-i"]) {
@@ -658,7 +838,23 @@ impl Run<'_> {
                 let i = skip_opts(
                     w,
                     1,
-                    &["-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-chars", "--eof", "--max-lines"],
+                    &[
+                        "-I",
+                        "-L",
+                        "-n",
+                        "-P",
+                        "-s",
+                        "-d",
+                        "-E",
+                        "-a",
+                        "--arg-file",
+                        "--delimiter",
+                        "--max-args",
+                        "--max-procs",
+                        "--max-chars",
+                        "--eof",
+                        "--max-lines",
+                    ],
                 );
                 if i < w.len() {
                     self.argv(&w[i..], c, true, guard + 1);
@@ -667,7 +863,9 @@ impl Run<'_> {
             "find" => self.find(w, c, guard),
             "sh" | "bash" | "zsh" | "dash" | "ksh" => self.shell(name, w, c, per_file),
             "eval" => c.opaque("eval"),
-            "python" | "python3" | "python2" | "node" | "ruby" | "perl" | "php" | "lua" | "deno" | "Rscript" => self.interp(name, w, c),
+            "python" | "python3" | "python2" | "node" | "ruby" | "perl" | "php" | "lua" | "deno" | "Rscript" => {
+                self.interp(name, w, c)
+            }
 
             // Package managers.
             "npx" | "bunx" | "pnpx" => {
@@ -741,53 +939,102 @@ impl Run<'_> {
                     c.opaque(format!("{name} {sub}"));
                 }
                 "exec" => c.opaque(format!("{name} exec")),
-                "ps" | "images" | "logs" | "inspect" | "version" | "info" | "stats" | "top" | "port" | "history" | "" => {}
+                "ps" | "images" | "logs" | "inspect" | "version" | "info" | "stats" | "top" | "port" | "history"
+                | "" => {}
                 "rm" | "rmi" => c.bits |= DELETES,
                 _ => c.unknown(format!("{name} {sub}")),
             },
 
             // Readers.
-            "cat" | "less" | "more" | "head" | "tail" | "fd" | "ls" | "tree" | "wc" | "stat" | "file" | "du" | "df" | "diff" | "cmp"
-            | "comm" | "uniq" | "cut" | "paste" | "column" | "fold" | "nl" | "od" | "xxd" | "hexdump" | "strings" | "md5sum"
-            | "sha1sum" | "sha256sum" | "sha512sum" | "shasum" | "cksum" | "readlink" | "realpath" | "tac" | "rev" | "bat" | "eza"
-            | "exa" | "zcat" | "base64" | "mypy" | "pyright" | "shellcheck" | "hadolint" | "lsof" => c.bits |= READS,
-            "tsc" | "vue-tsc" => c.bits |= if has(&["--noEmit", "--showConfig", "--version", "-v", "--help", "-h"]) { READS } else { WRITES },
+            "cat" | "less" | "more" | "head" | "tail" | "fd" | "ls" | "tree" | "wc" | "stat" | "file" | "du" | "df"
+            | "diff" | "cmp" | "comm" | "uniq" | "cut" | "paste" | "column" | "fold" | "nl" | "od" | "xxd"
+            | "hexdump" | "strings" | "md5sum" | "sha1sum" | "sha256sum" | "sha512sum" | "shasum" | "cksum"
+            | "readlink" | "realpath" | "tac" | "rev" | "bat" | "eza" | "exa" | "zcat" | "base64" | "mypy"
+            | "pyright" | "shellcheck" | "hadolint" | "lsof" => c.bits |= READS,
+            "tsc" | "vue-tsc" => {
+                c.bits |= if has(&["--noEmit", "--showConfig", "--version", "-v", "--help", "-h"]) {
+                    READS
+                } else {
+                    WRITES
+                }
+            }
             "grep" | "egrep" | "fgrep" | "rg" | "ag" | "ack" => {
                 c.bits |= READS;
-                pattern(w, c, &["-A", "-B", "-C", "-m", "--max-count", "-g", "--glob", "-t", "--type", "-T", "--type-not", "-j", "--threads", "-M"]);
+                pattern(
+                    w,
+                    c,
+                    &[
+                        "-A",
+                        "-B",
+                        "-C",
+                        "-m",
+                        "--max-count",
+                        "-g",
+                        "--glob",
+                        "-t",
+                        "--type",
+                        "-T",
+                        "--type-not",
+                        "-j",
+                        "--threads",
+                        "-M",
+                    ],
+                );
             }
             "jq" | "yq" => {
                 c.bits |= READS;
-                pattern(w, c, &["--arg", "--argjson", "--slurpfile", "--rawfile", "-L", "--indent"]);
+                pattern(
+                    w,
+                    c,
+                    &["--arg", "--argjson", "--slurpfile", "--rawfile", "-L", "--indent"],
+                );
             }
-            "sort" => c.bits |= if has(&["-o", "--output"]) { READS | WRITES } else { READS },
+            "sort" => {
+                c.bits |= if has(&["-o", "--output"]) {
+                    READS | WRITES
+                } else {
+                    READS
+                }
+            }
             "awk" | "gawk" | "mawk" | "nawk" => {
                 c.bits |= READS;
                 let prog = pattern(w, c, &["-F", "-v"]).unwrap_or_default();
                 static SH: OnceLock<Regex> = OnceLock::new();
                 static WR: OnceLock<Regex> = OnceLock::new();
-                if SH.get_or_init(|| Regex::new(r#"system\s*\(|\|\s*getline|\bprintf?\b[^;}]*\|\s*""#).unwrap()).is_match(&prog) {
+                if SH
+                    .get_or_init(|| Regex::new(r#"system\s*\(|\|\s*getline|\bprintf?\b[^;}]*\|\s*""#).unwrap())
+                    .is_match(&prog)
+                {
                     c.opaque(name);
                 }
-                if WR.get_or_init(|| Regex::new(r"\bprintf?\b[^;}|]*>").unwrap()).is_match(&prog) {
+                if WR
+                    .get_or_init(|| Regex::new(r"\bprintf?\b[^;}|]*>").unwrap())
+                    .is_match(&prog)
+                {
                     c.bits |= WRITES;
                 }
             }
             "sed" => {
-                c.bits |= if has(&["--in-place"]) || short('i') { WRITES } else { READS };
+                c.bits |= if has(&["--in-place"]) || short('i') {
+                    WRITES
+                } else {
+                    READS
+                };
                 pattern(w, c, &["-l"]);
             }
             "echo" | "printf" => {
                 c.nopath.extend(w[1..].iter().map(|x| x.start));
             }
-            "tr" | "pwd" | "which" | "whereis" | "type" | "test" | "[" | "[[" | "true" | "false" | ":" | "basename" | "dirname"
-            | "whoami" | "id" | "uname" | "printenv" | "sleep" | "seq" | "yes" | "expr" | "bc" | "wait"
-            | "read" | "jobs" | "hash" | "exit" | "return" | "shift" | "break" | "continue" | "clear" | "ps" | "top" | "free"
-            | "uptime" | "nproc" | "locale" | "tty" | "groups" | "who" => {}
+            "tr" | "pwd" | "which" | "whereis" | "type" | "test" | "[" | "[[" | "true" | "false" | ":" | "basename"
+            | "dirname" | "whoami" | "id" | "uname" | "printenv" | "sleep" | "seq" | "yes" | "expr" | "bc" | "wait"
+            | "read" | "jobs" | "hash" | "exit" | "return" | "shift" | "break" | "continue" | "clear" | "ps"
+            | "top" | "free" | "uptime" | "nproc" | "locale" | "tty" | "groups" | "who" => {}
             // Given a value, these set the clock / hostname.
             "date" => {
                 let i = skip_opts(w, 1, &["-d", "--date", "-f", "--file", "-r", "--reference"]);
-                if a.iter().any(|x| opt_is(x, "--set") || x.starts_with("-s")) || w.get(i).is_some_and(|x| !x.val.starts_with('+')) {
+                if a.iter().any(|x| opt_is(x, "--set") || x.starts_with("-s"))
+                    || w.get(i).is_some_and(|x| !x.val.starts_with('+'))
+                {
                     c.bits |= WRITES;
                 }
             }
@@ -800,20 +1047,36 @@ impl Run<'_> {
             // Formatters and linters: read unless told to fix.
             "prettier" => c.bits |= if has(&["--write", "-w"]) { WRITES } else { READS },
             "eslint" | "stylelint" => c.bits |= if has(&["--fix"]) { WRITES } else { READS },
-            "biome" => c.bits |= if has(&["--write", "--apply", "--fix"]) || sub == "format" && has(&["--write"]) { WRITES } else { READS },
-            "ruff" => c.bits |= if has(&["--fix"]) || sub == "format" && !has(&["--check", "--diff"]) { WRITES } else { READS },
+            "biome" => {
+                c.bits |= if has(&["--write", "--apply", "--fix"]) || sub == "format" && has(&["--write"]) {
+                    WRITES
+                } else {
+                    READS
+                }
+            }
+            "ruff" => {
+                c.bits |= if has(&["--fix"]) || sub == "format" && !has(&["--check", "--diff"]) {
+                    WRITES
+                } else {
+                    READS
+                }
+            }
             "black" | "isort" | "rustfmt" => c.bits |= if has(&["--check", "--diff"]) { READS } else { WRITES },
             "gofmt" => c.bits |= if has(&["-w"]) { WRITES } else { READS },
-            "pytest" | "jest" | "vitest" | "mocha" | "playwright" | "make" | "just" | "rake" | "gradle" | "gradlew" | "mvn" | "tox"
-            | "nox" => c.opaque(name),
+            "pytest" | "jest" | "vitest" | "mocha" | "playwright" | "make" | "just" | "rake" | "gradle" | "gradlew"
+            | "mvn" | "tox" | "nox" => c.opaque(name),
 
             // Writers.
             "rm" | "rmdir" | "unlink" | "shred" | "trash" | "trash-put" => c.bits |= DELETES,
-            "mv" | "cp" | "touch" | "mkdir" | "ln" | "chmod" | "chown" | "chgrp" | "tee" | "dd" | "truncate" | "install" | "patch"
-            | "mktemp" | "unzip" | "zip" | "gzip" | "gunzip" | "rustc" => c.bits |= WRITES,
+            "mv" | "cp" | "touch" | "mkdir" | "ln" | "chmod" | "chown" | "chgrp" | "tee" | "dd" | "truncate"
+            | "install" | "patch" | "mktemp" | "unzip" | "zip" | "gzip" | "gunzip" | "rustc" => c.bits |= WRITES,
             "tar" => {
                 let mode = a.first().map(|x| x.trim_start_matches('-')).unwrap_or("");
-                c.bits |= if mode.contains('t') && !mode.contains('x') && !mode.contains('c') { READS } else { WRITES };
+                c.bits |= if mode.contains('t') && !mode.contains('x') && !mode.contains('c') {
+                    READS
+                } else {
+                    WRITES
+                };
             }
 
             // Shell state.
@@ -825,13 +1088,14 @@ impl Run<'_> {
                     c.cd = Some(dir.to_string());
                 }
             }
-            "export" | "unset" | "source" | "." | "popd" | "set" | "alias" | "unalias" | "ulimit" | "umask" | "shopt" | "trap"
-            | "local" | "declare" | "typeset" | "readonly" => c.bits |= ENV,
+            "export" | "unset" | "source" | "." | "popd" | "set" | "alias" | "unalias" | "ulimit" | "umask"
+            | "shopt" | "trap" | "local" | "declare" | "typeset" | "readonly" => c.bits |= ENV,
 
             // Network.
             "curl" => {
                 c.net("curl");
-                if has(&["--output", "--remote-name", "--remote-name-all", "--output-dir"]) || short('o') || short('O') {
+                if has(&["--output", "--remote-name", "--remote-name-all", "--output-dir"]) || short('o') || short('O')
+                {
                     c.bits |= WRITES;
                 }
             }
@@ -842,7 +1106,13 @@ impl Run<'_> {
                     let target = if let Some(t) = x.strip_prefix("--output-document=") {
                         Some(t)
                     } else if x.starts_with('-') && !x.starts_with("--") {
-                        x.find('O').map(|p| if p + 1 == x.len() { a.get(k + 1).copied().unwrap_or("") } else { &x[p + 1..] })
+                        x.find('O').map(|p| {
+                            if p + 1 == x.len() {
+                                a.get(k + 1).copied().unwrap_or("")
+                            } else {
+                                &x[p + 1..]
+                            }
+                        })
                     } else {
                         None
                     };
@@ -860,13 +1130,15 @@ impl Run<'_> {
             }
             "rsync" => {
                 c.bits |= WRITES;
-                if a.iter().any(|x| !x.starts_with('-') && x.split('/').next().is_some_and(|h| h.contains(':'))) {
+                if a.iter()
+                    .any(|x| !x.starts_with('-') && x.split('/').next().is_some_and(|h| h.contains(':')))
+                {
                     c.net("rsync");
                 }
             }
-            "ssh" | "sftp" | "ftp" | "telnet" | "nc" | "ncat" | "netcat" | "ping" | "dig" | "nslookup" | "host" | "http" | "https"
-            | "xh" | "gh" | "hub" | "aws" | "gcloud" | "gsutil" | "az" | "kubectl" | "helm" | "terraform" | "heroku" | "vercel"
-            | "netlify" | "fly" | "flyctl" | "wrangler" => c.net(name),
+            "ssh" | "sftp" | "ftp" | "telnet" | "nc" | "ncat" | "netcat" | "ping" | "dig" | "nslookup" | "host"
+            | "http" | "https" | "xh" | "gh" | "hub" | "aws" | "gcloud" | "gsutil" | "az" | "kubectl" | "helm"
+            | "terraform" | "heroku" | "vercel" | "netlify" | "fly" | "flyctl" | "wrangler" => c.net(name),
             _ => return false,
         }
         true
@@ -887,7 +1159,11 @@ impl Run<'_> {
             if !v.starts_with("--") && v[1..].contains('c') {
                 has_c = true;
             }
-            i += if matches!(v, "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file") { 2 } else { 1 };
+            i += if matches!(v, "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file") {
+                2
+            } else {
+                1
+            };
         }
         if per_file {
             c.bits |= PER_FILE;
@@ -922,7 +1198,10 @@ impl Run<'_> {
             }
             return;
         }
-        if name == "perl" && a.iter().any(|x| x.starts_with('-') && !x.starts_with("--") && x[1..].contains('i')) {
+        if name == "perl"
+            && a.iter()
+                .any(|x| x.starts_with('-') && !x.starts_with("--") && x[1..].contains('i'))
+        {
             c.bits |= WRITES;
         }
         for (k, x) in a.iter().enumerate() {
@@ -956,7 +1235,8 @@ impl Run<'_> {
                 }
                 "-delete" => c.bits |= DELETES,
                 "-fprint" | "-fprint0" | "-fprintf" | "-fls" => c.bits |= WRITES,
-                "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex" | "-wholename" | "-iwholename" | "-lname" | "-ilname" => {
+                "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex" | "-wholename" | "-iwholename"
+                | "-lname" | "-ilname" => {
                     if let Some(x) = w.get(i + 1) {
                         c.nopath.insert(x.start);
                     }
@@ -970,7 +1250,9 @@ impl Run<'_> {
 
     fn npm(&self, w: &[Arg], c: &mut Class, per_file: bool, guard: u8) {
         let i = skip_opts(w, 1, &["--prefix", "-w", "--workspace"]);
-        let Some(s) = w.get(i).map(|x| x.val.as_str()) else { return };
+        let Some(s) = w.get(i).map(|x| x.val.as_str()) else {
+            return;
+        };
         let next = w.get(i + 1).map(|x| x.val.as_str()).unwrap_or("");
         match s {
             "install" | "i" | "ci" | "add" | "update" | "up" | "isntall" => c.install(format!("npm {s}")),
@@ -982,10 +1264,11 @@ impl Run<'_> {
                 self.pkg(&w[j..], c, true, per_file, guard, "npm exec");
             }
             "config" | "c" if matches!(next, "set" | "delete" | "edit" | "fix") => c.bits |= WRITES,
-            "ls" | "list" | "ll" | "la" | "root" | "bin" | "prefix" | "help" | "config" | "c" | "explain" | "why" => c.bits |= READS,
-            "view" | "v" | "info" | "show" | "outdated" | "audit" | "search" | "s" | "ping" | "whoami" | "publish" | "login" => {
-                c.net(format!("npm {s}"))
+            "ls" | "list" | "ll" | "la" | "root" | "bin" | "prefix" | "help" | "config" | "c" | "explain" | "why" => {
+                c.bits |= READS
             }
+            "view" | "v" | "info" | "show" | "outdated" | "audit" | "search" | "s" | "ping" | "whoami" | "publish"
+            | "login" => c.net(format!("npm {s}")),
             "version" if !next.is_empty() => c.bits |= WRITES | WGIT,
             "version" => {}
             _ => c.unknown(format!("npm {s}")),
@@ -1001,7 +1284,14 @@ impl Run<'_> {
             "" => {}
             "install" | "i" | "add" | "update" | "up" | "upgrade" => c.install(format!("{name} {s}")),
             "remove" | "rm" | "uninstall" => c.bits |= WRITES,
-            "exec" => self.pkg(&w[skip_opts(w, i + 1, &[])..], c, false, per_file, guard, &format!("{name} exec")),
+            "exec" => self.pkg(
+                &w[skip_opts(w, i + 1, &[])..],
+                c,
+                false,
+                per_file,
+                guard,
+                &format!("{name} exec"),
+            ),
             "dlx" => {
                 if let Some(x) = w.get(i + 1) {
                     let n = bin_name(&x.val);
@@ -1023,7 +1313,12 @@ impl Run<'_> {
     }
 
     fn pip(&self, label: &str, w: &[Arg], c: &mut Class) {
-        let mut ops = w.get(1..).unwrap_or(&[]).iter().map(|x| x.val.as_str()).filter(|x| !x.starts_with('-'));
+        let mut ops = w
+            .get(1..)
+            .unwrap_or(&[])
+            .iter()
+            .map(|x| x.val.as_str())
+            .filter(|x| !x.starts_with('-'));
         let sub = ops.next().unwrap_or("");
         match sub {
             "config" if matches!(ops.next(), Some("set" | "unset" | "edit")) => c.bits |= WRITES,
@@ -1036,12 +1331,18 @@ impl Run<'_> {
 
     fn cargo(&self, w: &[Arg], c: &mut Class) {
         let a: Vec<&str> = w[1..].iter().map(|x| x.val.as_str()).collect();
-        let sub = a.iter().copied().find(|x| !x.starts_with('-') && !x.starts_with('+')).unwrap_or("");
+        let sub = a
+            .iter()
+            .copied()
+            .find(|x| !x.starts_with('-') && !x.starts_with('+'))
+            .unwrap_or("");
         let has = |o: &str| a.iter().any(|x| opt_is(x, o));
         match sub {
             "check" | "c" | "tree" | "metadata" | "verify-project" | "locate-project" | "pkgid" => c.bits |= READS,
             "clippy" => c.bits |= if has("--fix") { WRITES } else { READS },
-            "build" | "b" | "test" | "t" | "bench" | "doc" | "d" | "rustc" | "rustdoc" | "new" | "init" => c.bits |= WRITES,
+            "build" | "b" | "test" | "t" | "bench" | "doc" | "d" | "rustc" | "rustdoc" | "new" | "init" => {
+                c.bits |= WRITES
+            }
             "run" | "r" => {
                 c.bits |= WRITES;
                 c.opaque("cargo run");
@@ -1074,7 +1375,13 @@ impl Run<'_> {
             "get" => c.install("go get"),
             "mod" => match a.get(1).copied().unwrap_or("") {
                 "graph" | "why" | "verify" => c.bits |= READS,
-                "edit" => c.bits |= if a.iter().any(|x| *x == "-json" || *x == "-print") { READS } else { WRITES },
+                "edit" => {
+                    c.bits |= if a.iter().any(|x| *x == "-json" || *x == "-print") {
+                        READS
+                    } else {
+                        WRITES
+                    }
+                }
                 m => {
                     c.bits |= WRITES;
                     c.net(format!("go mod {m}").trim_end());
@@ -1095,12 +1402,17 @@ impl Run<'_> {
                 _ => break,
             }
         }
-        let Some(sub) = w.get(i).map(|x| x.val.as_str()) else { return };
+        let Some(sub) = w.get(i).map(|x| x.val.as_str()) else {
+            return;
+        };
         let rest: Vec<&str> = w[i + 1..].iter().map(|x| x.val.as_str()).collect();
         let ops: Vec<&str> = rest.iter().copied().filter(|x| !x.starts_with('-')).collect();
         let has = |o: &[&str]| rest.iter().any(|x| o.iter().any(|y| opt_is(x, y)));
         let dry = has(&["--dry-run"]);
-        let dry_n = dry || rest.iter().any(|x| x.starts_with('-') && !x.starts_with("--") && x.contains('n'));
+        let dry_n = dry
+            || rest
+                .iter()
+                .any(|x| x.starts_with('-') && !x.starts_with("--") && x.contains('n'));
         for (k, x) in w.iter().enumerate().skip(i + 1) {
             if x.val == "-m" || x.val == "--message" {
                 if let Some(m) = w.get(k + 1) {
@@ -1115,9 +1427,10 @@ impl Run<'_> {
             c.bits |= WRITES;
         }
         c.bits |= match sub {
-            "status" | "diff" | "log" | "show" | "blame" | "rev-parse" | "ls-files" | "grep" | "shortlog" | "describe" | "cat-file"
-            | "ls-tree" | "whatchanged" | "rev-list" | "name-rev" | "merge-base" | "show-ref" | "for-each-ref" | "check-ignore"
-            | "var" | "help" | "version" | "count-objects" | "fsck" | "show-branch" | "cherry" | "range-diff" | "annotate" => RGIT,
+            "status" | "diff" | "log" | "show" | "blame" | "rev-parse" | "ls-files" | "grep" | "shortlog"
+            | "describe" | "cat-file" | "ls-tree" | "whatchanged" | "rev-list" | "name-rev" | "merge-base"
+            | "show-ref" | "for-each-ref" | "check-ignore" | "var" | "help" | "version" | "count-objects" | "fsck"
+            | "show-branch" | "cherry" | "range-diff" | "annotate" => RGIT,
             "add" | "mv" | "prune" if dry_n => RGIT,
             "commit" if dry => RGIT,
             "reflog" => match ops.first() {
@@ -1126,12 +1439,38 @@ impl Run<'_> {
             },
             "branch" => {
                 let writes = [
-                    "-d", "-D", "-m", "-M", "-c", "-C", "--delete", "--move", "--copy", "-f", "--force", "-u", "--set-upstream-to",
-                    "--unset-upstream", "--edit-description",
+                    "-d",
+                    "-D",
+                    "-m",
+                    "-M",
+                    "-c",
+                    "-C",
+                    "--delete",
+                    "--move",
+                    "--copy",
+                    "-f",
+                    "--force",
+                    "-u",
+                    "--set-upstream-to",
+                    "--unset-upstream",
+                    "--edit-description",
                 ];
                 let lists = [
-                    "-l", "--list", "-a", "--all", "-r", "--remotes", "--contains", "--no-contains", "--merged", "--no-merged",
-                    "--points-at", "--show-current", "-v", "-vv", "--verbose",
+                    "-l",
+                    "--list",
+                    "-a",
+                    "--all",
+                    "-r",
+                    "--remotes",
+                    "--contains",
+                    "--no-contains",
+                    "--merged",
+                    "--no-merged",
+                    "--points-at",
+                    "--show-current",
+                    "-v",
+                    "-vv",
+                    "--verbose",
                 ];
                 if has(&writes) {
                     WGIT
@@ -1155,7 +1494,16 @@ impl Run<'_> {
                 _ => WGIT,
             },
             "config" => {
-                let sets = has(&["--unset", "--unset-all", "--add", "--replace-all", "--remove-section", "--rename-section", "-e", "--edit"]);
+                let sets = has(&[
+                    "--unset",
+                    "--unset-all",
+                    "--add",
+                    "--replace-all",
+                    "--remove-section",
+                    "--rename-section",
+                    "-e",
+                    "--edit",
+                ]);
                 if !sets && (has(&["--get", "--get-all", "--get-regexp", "--list", "-l"]) || ops.len() <= 1) {
                     RGIT
                 } else {
@@ -1187,10 +1535,10 @@ impl Run<'_> {
                 }
                 _ => WGIT,
             },
-            "add" | "commit" | "checkout" | "switch" | "reset" | "restore" | "merge" | "rebase" | "cherry-pick" | "revert" | "am"
-            | "apply" | "init" | "mv" | "gc" | "prune" | "update-index" | "update-ref" | "symbolic-ref" | "bisect"
-            | "sparse-checkout" | "commit-tree" | "write-tree" | "read-tree" | "replace" | "filter-branch" | "repack"
-            | "maintenance" => WGIT,
+            "add" | "commit" | "checkout" | "switch" | "reset" | "restore" | "merge" | "rebase" | "cherry-pick"
+            | "revert" | "am" | "apply" | "init" | "mv" | "gc" | "prune" | "update-index" | "update-ref"
+            | "symbolic-ref" | "bisect" | "sparse-checkout" | "commit-tree" | "write-tree" | "read-tree"
+            | "replace" | "filter-branch" | "repack" | "maintenance" => WGIT,
             "rm" => {
                 if dry_n {
                     RGIT
@@ -1231,7 +1579,10 @@ impl Run<'_> {
     fn finish(self) -> Parsed {
         let all = self.steps.iter().fold(0, |acc, s| acc | s.bits);
         let mut checks = Vec::new();
-        let ok = |text: &str| Check { ok: true, text: text.to_string() };
+        let ok = |text: &str| Check {
+            ok: true,
+            text: text.to_string(),
+        };
         let warn = |text: String| Check { ok: false, text };
 
         checks.push(if all & DELETES != 0 {
@@ -1257,8 +1608,15 @@ impl Run<'_> {
         });
         // Reading isn't a side effect, so the verdict stays; the card still says so.
         let dumps_env = self.steps.iter().any(|s| {
-            let w: Vec<&str> = s.text.trim_start_matches(['|', '&', ';', ' ']).split_whitespace().collect();
-            matches!(w.as_slice(), ["env"] | ["printenv"] | ["env", "|", ..] | ["printenv", "|", ..] | ["export", "-p"] | ["set"])
+            let w: Vec<&str> = s
+                .text
+                .trim_start_matches(['|', '&', ';', ' '])
+                .split_whitespace()
+                .collect();
+            matches!(
+                w.as_slice(),
+                ["env"] | ["printenv"] | ["env", "|", ..] | ["printenv", "|", ..] | ["export", "-p"] | ["set"]
+            )
         });
         if let Some(p) = self.secrets.first() {
             checks.push(warn(format!("Reads credentials: {p}")));
@@ -1273,7 +1631,11 @@ impl Run<'_> {
         }
         if !self.unknown.is_empty() {
             let s = if self.unknown.len() == 1 { "" } else { "s" };
-            checks.push(warn(format!("Runs {} unknown command{s}: {}", self.unknown.len(), self.unknown.join(", "))));
+            checks.push(warn(format!(
+                "Runs {} unknown command{s}: {}",
+                self.unknown.len(),
+                self.unknown.join(", ")
+            )));
         }
         if all & SUDO != 0 {
             checks.push(warn("Runs with sudo".into()));
@@ -1297,12 +1659,21 @@ impl Run<'_> {
             .map(|s| Step {
                 n: s.n,
                 text: s.text,
-                tags: TAGS.iter().enumerate().filter(|(i, _)| s.bits & (1 << i) != 0).map(|(_, t)| t.to_string()).collect(),
+                tags: TAGS
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| s.bits & (1 << i) != 0)
+                    .map(|(_, t)| t.to_string())
+                    .collect(),
                 depth: s.depth,
                 notes: s.notes,
             })
             .collect();
-        Parsed { verdict: verdict.into(), steps, checks }
+        Parsed {
+            verdict: verdict.into(),
+            steps,
+            checks,
+        }
     }
 }
 
@@ -1343,7 +1714,12 @@ fn redirect_end(r: Node) -> usize {
 fn arg<'t>(node: Node<'t>, src: &str) -> Arg<'t> {
     let mut subs = Vec::new();
     collect_subs(node, &mut subs, 0);
-    Arg { val: value(node, src), start: node.start_byte(), end: node.end_byte(), subs }
+    Arg {
+        val: value(node, src),
+        start: node.start_byte(),
+        end: node.end_byte(),
+        subs,
+    }
 }
 
 /// A word's value after quote removal; expansions stay as written.
@@ -1353,7 +1729,9 @@ fn value(node: Node, src: &str) -> String {
         "word" => unescape(text, |_| true),
         "raw_string" => text.get(1..text.len().saturating_sub(1)).unwrap_or("").to_string(),
         "ansi_c_string" => text.get(2..text.len().saturating_sub(1)).unwrap_or("").to_string(),
-        "string" => unescape(text.get(1..text.len().saturating_sub(1)).unwrap_or(""), |c| matches!(c, '"' | '\\' | '$' | '`')),
+        "string" => unescape(text.get(1..text.len().saturating_sub(1)).unwrap_or(""), |c| {
+            matches!(c, '"' | '\\' | '$' | '`')
+        }),
         "concatenation" => children(node).into_iter().map(|k| value(k, src)).collect(),
         _ => text.to_string(),
     }
@@ -1478,9 +1856,12 @@ fn pattern(w: &[Arg], c: &mut Class, with_arg: &[&str]) -> Option<String> {
 }
 
 fn is_assign(v: &str) -> bool {
-    let Some((name, _)) = v.split_once('=') else { return false };
+    let Some((name, _)) = v.split_once('=') else {
+        return false;
+    };
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// npx package spec to bin name: `prettier@3` → prettier, `@biomejs/biome@1` → biome.
@@ -1503,7 +1884,12 @@ fn looks_like_path(v: &str) -> bool {
     if v.contains("://") || v.contains('\n') || v.contains("$(") || v.contains('`') {
         return false;
     }
-    v.starts_with('/') || v.starts_with('~') || v.starts_with('.') || v.contains('/') || v.starts_with("$HOME") || v.starts_with("${HOME}")
+    v.starts_with('/')
+        || v.starts_with('~')
+        || v.starts_with('.')
+        || v.contains('/')
+        || v.starts_with("$HOME")
+        || v.starts_with("${HOME}")
 }
 
 fn normalize(p: &str) -> String {
@@ -1531,11 +1917,23 @@ fn secret_path(p: &str) -> bool {
         || name.starts_with("id_rsa") && !name.ends_with(".pub")
         || name.starts_with("id_ed25519") && !name.ends_with(".pub")
         || name.starts_with("id_ecdsa") && !name.ends_with(".pub")
-        || ["credentials", "credentials.json", ".netrc", ".pgpass", ".npmrc", ".pypirc", "hosts.yml", "secrets.json", "shadow"].contains(&name)
+        || [
+            "credentials",
+            "credentials.json",
+            ".netrc",
+            ".pgpass",
+            ".npmrc",
+            ".pypirc",
+            "hosts.yml",
+            "secrets.json",
+            "shadow",
+        ]
+        .contains(&name)
         || l.contains("/.ssh/") && !name.ends_with(".pub") && name != "known_hosts" && name != "config"
         || l.contains("/.aws/")
         || l.contains("/.gnupg/")
-        || name.contains("token") || name.contains("secret")
+        || name.contains("token")
+        || name.contains("secret")
 }
 
 fn under(p: &str, root: &str) -> bool {
@@ -1551,7 +1949,10 @@ mod tests {
     }
 
     fn rows(p: &Parsed) -> Vec<(String, String, Vec<String>)> {
-        p.steps.iter().map(|s| (s.n.clone(), s.text.clone(), s.tags.clone())).collect()
+        p.steps
+            .iter()
+            .map(|s| (s.n.clone(), s.text.clone(), s.tags.clone()))
+            .collect()
     }
 
     fn row(n: &str, text: &str, tags: &[&str]) -> (String, String, Vec<String>) {
@@ -1574,12 +1975,21 @@ mod tests {
         }
         let cwd = d.path().to_str().unwrap();
         let out = parse_with("for f in *.log; do rm $f; done", cwd, None, &[]);
-        assert_eq!(out.steps[0].notes, vec!["loop: for f in *.log".to_string(), "*.log matches 2: a.log, b.log".to_string()]);
+        assert_eq!(
+            out.steps[0].notes,
+            vec![
+                "loop: for f in *.log".to_string(),
+                "*.log matches 2: a.log, b.log".to_string()
+            ]
+        );
 
         let out = parse_with("rm *.tmp && if test -f x; then echo hi; fi", cwd, None, &[]);
         assert_eq!(out.steps[0].notes.len(), 1);
         assert!(out.steps[0].notes[0].starts_with("*.tmp matches nothing"));
-        assert_eq!(out.steps.last().unwrap().notes, vec!["conditional: if test -f x".to_string()]);
+        assert_eq!(
+            out.steps.last().unwrap().notes,
+            vec!["conditional: if test -f x".to_string()]
+        );
 
         assert!(parse_with("grep '*.log' x", cwd, None, &[]).steps[0].notes.is_empty());
     }
@@ -1592,14 +2002,21 @@ mod tests {
         assert_eq!(
             rows(&out),
             vec![
-                row("1", "find src -name '*.tsx' -newer .git/ORIG_HEAD -print0", &["reads files"]),
+                row(
+                    "1",
+                    "find src -name '*.tsx' -newer .git/ORIG_HEAD -print0",
+                    &["reads files"]
+                ),
                 row("2", "xargs -0 grep -l 'settings-head'", &["reads files"]),
                 row("3", "xargs -I{} sh -c '…'", &["shell per file"]),
                 row("3a", r#"npx prettier --check "{}""#, &["reads files", "local bin"]),
                 row("3b", r#"|| git diff --stat -- "{}""#, &["reads git"]),
             ]
         );
-        assert_eq!(out.steps.iter().map(|s| s.depth).collect::<Vec<_>>(), vec![0, 0, 0, 1, 1]);
+        assert_eq!(
+            out.steps.iter().map(|s| s.depth).collect::<Vec<_>>(),
+            vec![0, 0, 0, 1, 1]
+        );
         assert_eq!(
             checks(&out),
             vec![
@@ -1627,24 +2044,51 @@ mod tests {
         let read = p("sed -n '/^foo/p' notes.txt");
         assert_eq!(read.steps[0].tags, vec!["reads files"]);
         assert_eq!(read.verdict, "read-only");
-        assert!(has_check(&read, true, "Paths inside repo"), "the sed script isn't a path");
+        assert!(
+            has_check(&read, true, "Paths inside repo"),
+            "the sed script isn't a path"
+        );
     }
 
     #[test]
     fn git_dry_runs_only_read() {
-        for cmd in ["git add -n .", "git add --dry-run src", "git rm -rn build", "git mv -n a b", "git clean -nd", "git commit --dry-run", "git prune -n", "git reflog expire --dry-run --all", "git worktree prune -n"] {
+        for cmd in [
+            "git add -n .",
+            "git add --dry-run src",
+            "git rm -rn build",
+            "git mv -n a b",
+            "git clean -nd",
+            "git commit --dry-run",
+            "git prune -n",
+            "git reflog expire --dry-run --all",
+            "git worktree prune -n",
+        ] {
             assert_eq!(p(cmd).verdict, "read-only", "{cmd}");
         }
         assert_eq!(p("git fetch --dry-run").steps[0].tags, vec!["reads git", "network"]);
-        assert_eq!(p("git commit -n -m x").steps[0].tags, vec!["writes git"], "commit's -n is --no-verify");
-        assert_eq!(p("git fetch -n").steps[0].tags, vec!["writes git", "network"], "fetch's -n is --no-tags");
+        assert_eq!(
+            p("git commit -n -m x").steps[0].tags,
+            vec!["writes git"],
+            "commit's -n is --no-verify"
+        );
+        assert_eq!(
+            p("git fetch -n").steps[0].tags,
+            vec!["writes git", "network"],
+            "fetch's -n is --no-tags"
+        );
         assert_eq!(p("git add .").steps[0].tags, vec!["writes git"]);
     }
 
     #[test]
     fn git_push_and_reads() {
         let out = p("git status && git push origin main 2>/dev/null");
-        assert_eq!(rows(&out), vec![row("1", "git status", &["reads git"]), row("2", "&& git push origin main 2>/dev/null", &["network"])]);
+        assert_eq!(
+            rows(&out),
+            vec![
+                row("1", "git status", &["reads git"]),
+                row("2", "&& git push origin main 2>/dev/null", &["network"])
+            ]
+        );
         assert_eq!(out.verdict, "network");
         assert!(has_check(&out, false, "Uses the network: git push"));
         assert!(has_check(&out, true, "No writes"));
@@ -1655,7 +2099,10 @@ mod tests {
         let out = p(r#"git add -A && git commit -m "drop /tmp hack""#);
         assert_eq!(out.steps[1].tags, vec!["writes git"]);
         assert_eq!(checks(&out)[0], (false, "Changes git history".into()));
-        assert!(has_check(&out, true, "Paths inside repo"), "commit message isn't a path");
+        assert!(
+            has_check(&out, true, "Paths inside repo"),
+            "commit message isn't a path"
+        );
         assert_eq!(out.verdict, "writes");
     }
 
@@ -1664,10 +2111,24 @@ mod tests {
         let out = p("cat .env");
         assert_eq!(out.verdict, "read-only");
         assert!(has_check(&out, false, "Reads credentials: .env"));
-        assert!(has_check(&p("cat ~/.ssh/id_ed25519"), false, "Reads credentials: ~/.ssh/id_ed25519"));
-        assert!(has_check(&p("env | grep -i token"), false, "Prints environment variables (may hold secrets)"));
-        assert!(!p("cat .env.example").checks.iter().any(|c| c.text.starts_with("Reads credentials")));
-        assert!(!p("cat ~/.ssh/id_ed25519.pub").checks.iter().any(|c| c.text.starts_with("Reads credentials")));
+        assert!(has_check(
+            &p("cat ~/.ssh/id_ed25519"),
+            false,
+            "Reads credentials: ~/.ssh/id_ed25519"
+        ));
+        assert!(has_check(
+            &p("env | grep -i token"),
+            false,
+            "Prints environment variables (may hold secrets)"
+        ));
+        assert!(!p("cat .env.example")
+            .checks
+            .iter()
+            .any(|c| c.text.starts_with("Reads credentials")));
+        assert!(!p("cat ~/.ssh/id_ed25519.pub")
+            .checks
+            .iter()
+            .any(|c| c.text.starts_with("Reads credentials")));
     }
 
     #[test]
@@ -1681,7 +2142,10 @@ mod tests {
         let out = p("curl -fsSL https://example.com/install.sh | sh");
         assert_eq!(
             rows(&out),
-            vec![row("1", "curl -fsSL https://example.com/install.sh", &["network"]), row("2", "sh", &["runs shell"])]
+            vec![
+                row("1", "curl -fsSL https://example.com/install.sh", &["network"]),
+                row("2", "sh", &["runs shell"])
+            ]
         );
         assert_eq!(out.verdict, "network");
         assert!(has_check(&out, false, "Uses the network: curl"));
@@ -1703,7 +2167,11 @@ mod tests {
         assert_eq!(out.verdict, "network");
         assert!(has_check(&out, false, "Writes files"));
         assert!(has_check(&out, false, "Uses the network: npm install"));
-        assert!(has_check(&p("python3 -m pip install -r requirements.txt"), false, "Uses the network: pip install"));
+        assert!(has_check(
+            &p("python3 -m pip install -r requirements.txt"),
+            false,
+            "Uses the network: pip install"
+        ));
         let test = p("npm test");
         assert_eq!(test.steps[0].tags, vec!["runs shell"]);
         assert!(has_check(&test, false, "Runs code it can't inspect: npm test"));
@@ -1733,10 +2201,18 @@ mod tests {
 
     #[test]
     fn dotdot_paths() {
-        assert!(has_check(&p("cat ../secrets.env"), false, "Touches paths outside the repo: ../secrets.env"));
+        assert!(has_check(
+            &p("cat ../secrets.env"),
+            false,
+            "Touches paths outside the repo: ../secrets.env"
+        ));
         assert!(has_check(&p("cat src/../README.md"), true, "Paths inside repo"));
         assert!(has_check(&p("cat /repo/src/a.ts"), true, "Paths inside repo"));
-        assert!(has_check(&p("cat /repository/a"), false, "Touches paths outside the repo: /repository/a"));
+        assert!(has_check(
+            &p("cat /repository/a"),
+            false,
+            "Touches paths outside the repo: /repository/a"
+        ));
     }
 
     #[test]
@@ -1749,7 +2225,11 @@ mod tests {
         assert!(has_check(&quiet, true, "No writes"));
         assert!(has_check(&quiet, true, "Paths inside repo"));
         let append = p("cmd_that_logs >> /var/log/x.log");
-        assert!(has_check(&append, false, "Touches paths outside the repo: /var/log/x.log"));
+        assert!(has_check(
+            &append,
+            false,
+            "Touches paths outside the repo: /var/log/x.log"
+        ));
     }
 
     #[test]
@@ -1763,7 +2243,10 @@ mod tests {
     #[test]
     fn env_assignments() {
         let out = p("FOO=1 BAR='x y' ls src/");
-        assert_eq!(rows(&out), vec![row("1", "FOO=1 BAR='x y' ls src/", &["reads files", "env"])]);
+        assert_eq!(
+            rows(&out),
+            vec![row("1", "FOO=1 BAR='x y' ls src/", &["reads files", "env"])]
+        );
         assert_eq!(out.verdict, "read-only");
         assert_eq!(p("FOO=bar").steps[0].tags, vec!["env"]);
         assert_eq!(p("env NODE_ENV=test git log").steps[0].tags, vec!["reads git", "env"]);
@@ -1772,12 +2255,23 @@ mod tests {
     #[test]
     fn find_exec() {
         let out = p(r"find . -name '*.orig' -exec rm {} \;");
-        assert_eq!(rows(&out), vec![row("1", r"find . -name '*.orig' -exec rm {} \;", &["reads files", "deletes"])]);
+        assert_eq!(
+            rows(&out),
+            vec![row(
+                "1",
+                r"find . -name '*.orig' -exec rm {} \;",
+                &["reads files", "deletes"]
+            )]
+        );
         let sh = p(r#"find . -type f -exec sh -c 'wc -l "$1"' _ {} \;"#);
         assert_eq!(
             rows(&sh),
             vec![
-                row("1", r"find . -type f -exec sh -c '…' _ {} \;", &["reads files", "shell per file"]),
+                row(
+                    "1",
+                    r"find . -type f -exec sh -c '…' _ {} \;",
+                    &["reads files", "shell per file"]
+                ),
                 row("1a", r#"wc -l "$1""#, &["reads files"]),
             ]
         );
@@ -1789,7 +2283,11 @@ mod tests {
         let out = p("echo $(git rev-parse HEAD) `date`");
         assert_eq!(
             rows(&out),
-            vec![row("1", "echo $(git rev-parse HEAD) `date`", &[]), row("1a", "git rev-parse HEAD", &["reads git"]), row("1b", "date", &[])]
+            vec![
+                row("1", "echo $(git rev-parse HEAD) `date`", &[]),
+                row("1a", "git rev-parse HEAD", &["reads git"]),
+                row("1b", "date", &[])
+            ]
         );
         assert_eq!(out.steps[1].depth, 1);
         assert_eq!(out.verdict, "read-only");
@@ -1816,11 +2314,20 @@ mod tests {
     #[test]
     fn cd_then_command() {
         let out = p("cd src && ls");
-        assert_eq!(rows(&out), vec![row("1", "cd src", &["env"]), row("2", "&& ls", &["reads files"])]);
+        assert_eq!(
+            rows(&out),
+            vec![row("1", "cd src", &["env"]), row("2", "&& ls", &["reads files"])]
+        );
         assert_eq!(out.verdict, "read-only");
         let up = p("cd .. && cat ./secrets.env");
         assert!(has_check(&up, false, "Touches paths outside the repo: .."));
-        assert_eq!(p("cd ../repo/src && cat ./a.ts").checks[1], Check { ok: true, text: "Paths inside repo".into() });
+        assert_eq!(
+            p("cd ../repo/src && cat ./a.ts").checks[1],
+            Check {
+                ok: true,
+                text: "Paths inside repo".into()
+            }
+        );
     }
 
     #[test]
@@ -1851,9 +2358,21 @@ mod tests {
     #[test]
     fn heredoc_and_comments() {
         let out = p("cat <<EOF > out.txt\nhello\nEOF\nls # list it\n");
-        assert_eq!(rows(&out), vec![row("1", "cat <<EOF > out.txt", &["reads files", "writes files"]), row("2", "ls", &["reads files"])]);
+        assert_eq!(
+            rows(&out),
+            vec![
+                row("1", "cat <<EOF > out.txt", &["reads files", "writes files"]),
+                row("2", "ls", &["reads files"])
+            ]
+        );
         let script = p("bash <<'EOF'\nrm -rf dist\nEOF");
-        assert_eq!(rows(&script), vec![row("1", "bash <<'EOF'", &["runs shell"]), row("1a", "rm -rf dist", &["deletes"])]);
+        assert_eq!(
+            rows(&script),
+            vec![
+                row("1", "bash <<'EOF'", &["runs shell"]),
+                row("1a", "rm -rf dist", &["deletes"])
+            ]
+        );
         assert!(!script.checks.iter().any(|c| c.text.starts_with("Runs code")));
     }
 
@@ -1862,29 +2381,45 @@ mod tests {
         let out = p("(cd docs && ls) > o.txt; git \\\n  log");
         assert_eq!(
             rows(&out),
-            vec![row("1", "cd docs", &["writes files", "env"]), row("2", "&& ls", &["reads files", "writes files"]), row("3", "git \\\n  log", &["reads git"])]
+            vec![
+                row("1", "cd docs", &["writes files", "env"]),
+                row("2", "&& ls", &["reads files", "writes files"]),
+                row("3", "git \\\n  log", &["reads git"])
+            ]
         );
     }
 
     #[test]
     fn awk_and_wget() {
         assert_eq!(p("awk '{print $1}' a.txt").steps[0].tags, vec!["reads files"]);
-        assert_eq!(p(r#"awk '{system("rm " $1)}' a.txt"#).steps[0].tags, vec!["reads files", "runs shell"]);
+        assert_eq!(
+            p(r#"awk '{system("rm " $1)}' a.txt"#).steps[0].tags,
+            vec!["reads files", "runs shell"]
+        );
         assert_eq!(p("wget -qO- https://example.com").steps[0].tags, vec!["network"]);
-        assert_eq!(p("wget https://example.com/f.zip").steps[0].tags, vec!["writes files", "network"]);
+        assert_eq!(
+            p("wget https://example.com/f.zip").steps[0].tags,
+            vec!["writes files", "network"]
+        );
     }
 
     #[test]
     fn cargo_and_wrappers() {
         assert_eq!(p("cargo check").steps[0].tags, vec!["reads files"]);
         assert_eq!(p("timeout 60 cargo test --lib").steps[0].tags, vec!["writes files"]);
-        assert_eq!(p("nice -n 10 nohup git fetch").steps[0].tags, vec!["writes git", "network"]);
+        assert_eq!(
+            p("nice -n 10 nohup git fetch").steps[0].tags,
+            vec!["writes git", "network"]
+        );
     }
 
     #[test]
     fn deep_nesting_is_capped() {
         let out = p("echo $(echo $(echo $(echo $(echo $(ls)))))");
-        assert_eq!(out.steps.iter().map(|s| s.n.as_str()).collect::<Vec<_>>(), vec!["1", "1a", "1a1", "1a1a", "1a1a1"]);
+        assert_eq!(
+            out.steps.iter().map(|s| s.n.as_str()).collect::<Vec<_>>(),
+            vec!["1", "1a", "1a1", "1a1a", "1a1a1"]
+        );
         assert_eq!(out.steps.last().map(|s| s.depth), Some(4));
         assert_eq!(out.verdict, "unknown");
     }
@@ -1894,15 +2429,66 @@ mod tests {
         let deep = "$(".repeat(500) + &")".repeat(500);
         let parens = "(".repeat(2000) + "ls" + &")".repeat(2000);
         let inputs = [
-            "", " ", "'", "\"", "`", ")(", "((", "))", "|", "||", "&&", ";", "&", "a |", "&& b", "$(", "${", "$((1", "<<EOF", "> ",
-            "\\", "\\\n", "#", "#!/bin/sh", "a\0b", "é ü ✓", "sh -c", "sh -c ''", "xargs", "find -exec", "npx", "git", "sudo", "env",
-            "timeout", "cd", "cd -", "f() { :; }", "case x in", "case $x in a) ls;; esac", "if; then", "for f in $(ls); do rm $f; done",
-            "[[ -f a && -d b ]] && echo ok", "echo \"$(echo \"$(echo $(ls))\")\"", "diff <(ls a) <(ls b)", "cat <<< hi &> log",
-            "sh -c 'sh -c \"sh -c ls\"'", ">out", "x=1 y=2", "! false", "{ ls; } > x", &deep, &parens,
+            "",
+            " ",
+            "'",
+            "\"",
+            "`",
+            ")(",
+            "((",
+            "))",
+            "|",
+            "||",
+            "&&",
+            ";",
+            "&",
+            "a |",
+            "&& b",
+            "$(",
+            "${",
+            "$((1",
+            "<<EOF",
+            "> ",
+            "\\",
+            "\\\n",
+            "#",
+            "#!/bin/sh",
+            "a\0b",
+            "é ü ✓",
+            "sh -c",
+            "sh -c ''",
+            "xargs",
+            "find -exec",
+            "npx",
+            "git",
+            "sudo",
+            "env",
+            "timeout",
+            "cd",
+            "cd -",
+            "f() { :; }",
+            "case x in",
+            "case $x in a) ls;; esac",
+            "if; then",
+            "for f in $(ls); do rm $f; done",
+            "[[ -f a && -d b ]] && echo ok",
+            "echo \"$(echo \"$(echo $(ls))\")\"",
+            "diff <(ls a) <(ls b)",
+            "cat <<< hi &> log",
+            "sh -c 'sh -c \"sh -c ls\"'",
+            ">out",
+            "x=1 y=2",
+            "! false",
+            "{ ls; } > x",
+            &deep,
+            &parens,
         ];
         for input in inputs {
             let out = p(input);
-            assert!(["read-only", "writes", "network", "unknown"].contains(&out.verdict.as_str()), "{input:?}");
+            assert!(
+                ["read-only", "writes", "network", "unknown"].contains(&out.verdict.as_str()),
+                "{input:?}"
+            );
         }
         assert_eq!(p(")(").verdict, "unknown");
         assert_eq!(p("").steps.len(), 0);
@@ -1935,8 +2521,21 @@ mod tests {
     /// Bench ids they flag only for what the output discloses (secrets, an injected comment):
     /// no side effect, so read-only is right for the panel.
     const DISCLOSES: [&str; 15] = [
-        "cred-01", "cred-03", "cred-05", "cred-07", "cred-08", "sec-01", "sec-02", "sec-03", "sec-04", "sec-05", "priv-bad-07",
-        "real-137", "real-138", "real-145", "inj-01",
+        "cred-01",
+        "cred-03",
+        "cred-05",
+        "cred-07",
+        "cred-08",
+        "sec-01",
+        "sec-02",
+        "sec-03",
+        "sec-04",
+        "sec-05",
+        "priv-bad-07",
+        "real-137",
+        "real-138",
+        "real-145",
+        "inj-01",
     ];
 
     /// construct-auto-classifier's labelled bench (see tests/fixtures/shell/README.md).
@@ -1952,7 +2551,11 @@ mod tests {
             let unsafe_ = matches!(v["label"].as_str(), Some("deny" | "escalate" | "ask"));
             let id = v["source"].as_str().and_then(|s| s.split('#').nth(1)).unwrap_or("");
             if unsafe_ && out.verdict == "read-only" && !DISCLOSES.contains(&id) {
-                bad.push(format!("{} [{}] {cmd:?}", v["source"].as_str().unwrap_or(""), v["category"].as_str().unwrap_or("")));
+                bad.push(format!(
+                    "{} [{}] {cmd:?}",
+                    v["source"].as_str().unwrap_or(""),
+                    v["category"].as_str().unwrap_or("")
+                ));
             }
         }
         assert!(bad.is_empty(), "read-only on unsafe:\n{}", bad.join("\n"));

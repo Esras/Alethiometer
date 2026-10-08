@@ -6,7 +6,8 @@ use crate::error::Result;
 use crate::time::{Date, Ts, SQL_NOW};
 use rusqlite::{params, OptionalExtension, Row};
 
-const ENTRY: &str = "o.id, o.source_id, s.name, o.op, o.payload_json, o.state, o.error, o.item_id, o.created_at, o.confirmed_at";
+const ENTRY: &str =
+    "o.id, o.source_id, s.name, o.op, o.payload_json, o.state, o.error, o.item_id, o.created_at, o.confirmed_at";
 
 fn entry(r: &Row) -> rusqlite::Result<OutboxEntry> {
     Ok(OutboxEntry {
@@ -25,7 +26,14 @@ fn entry(r: &Row) -> rusqlite::Result<OutboxEntry> {
 
 impl OutboxViews for Sql<'_> {
     fn get(&self, id: i64) -> Result<Option<OutboxEntry>> {
-        Ok(self.conn().query_row(&format!("SELECT {ENTRY} FROM outbox o JOIN sources s ON s.id = o.source_id WHERE o.id = ?1"), [id], entry).optional()?)
+        Ok(self
+            .conn()
+            .query_row(
+                &format!("SELECT {ENTRY} FROM outbox o JOIN sources s ON s.id = o.source_id WHERE o.id = ?1"),
+                [id],
+                entry,
+            )
+            .optional()?)
     }
 
     fn recent(&self, since: Ts, limit: usize) -> Result<Vec<OutboxEntry>> {
@@ -41,7 +49,11 @@ impl OutboxViews for Sql<'_> {
     }
 
     fn failed(&self, op: &str) -> Result<usize> {
-        Ok(self.conn().query_row("SELECT count(*) FROM outbox WHERE op = ?1 AND state = 'failed'", [op], |r| r.get::<_, i64>(0))? as usize)
+        Ok(self.conn().query_row(
+            "SELECT count(*) FROM outbox WHERE op = ?1 AND state = 'failed'",
+            [op],
+            |r| r.get::<_, i64>(0),
+        )? as usize)
     }
 
     fn open_for_path(&self, source_id: i64, op: &str, path: &str) -> Result<Option<OutboxEntry>> {
@@ -120,26 +132,37 @@ impl Outbox for Sql<'_> {
     }
 
     fn fail(&self, id: i64, error: &str) -> Result<()> {
-        self.conn().execute("UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1", params![id, error])?;
+        self.conn().execute(
+            "UPDATE outbox SET state = 'failed', error = ?2 WHERE id = ?1",
+            params![id, error],
+        )?;
         Ok(())
     }
 
     fn retry(&self, id: Option<i64>) -> Result<usize> {
         Ok(match id {
-            Some(id) => self.conn().execute("UPDATE outbox SET state = 'pending' WHERE id = ?1 AND state = 'failed'", [id])?,
-            None => self.conn().execute("UPDATE outbox SET state = 'pending' WHERE state = 'failed'", [])?,
+            Some(id) => self.conn().execute(
+                "UPDATE outbox SET state = 'pending' WHERE id = ?1 AND state = 'failed'",
+                [id],
+            )?,
+            None => self
+                .conn()
+                .execute("UPDATE outbox SET state = 'pending' WHERE state = 'failed'", [])?,
         })
     }
 
     fn update_open(&self, id: i64, payload_json: &str) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE outbox SET payload_json = ?2 WHERE id = ?1 AND state IN ('pending', 'failed')", params![id, payload_json])? == 1)
+        Ok(self.conn().execute(
+            "UPDATE outbox SET payload_json = ?2 WHERE id = ?1 AND state IN ('pending', 'failed')",
+            params![id, payload_json],
+        )? == 1)
     }
 
     fn resend(&self, id: i64, payload_json: &str) -> Result<bool> {
-        Ok(self
-            .conn()
-            .execute("UPDATE outbox SET payload_json = ?2, state = 'pending', error = NULL WHERE id = ?1 AND state = 'failed'", params![id, payload_json])?
-            == 1)
+        Ok(self.conn().execute(
+            "UPDATE outbox SET payload_json = ?2, state = 'pending', error = NULL WHERE id = ?1 AND state = 'failed'",
+            params![id, payload_json],
+        )? == 1)
     }
 
     fn cancel_pending_hold(&self, item_id: i64, period: Date) -> Result<usize> {

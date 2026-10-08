@@ -16,7 +16,9 @@ fn owned_keys(conn: &Connection, source_id: i64, external_id: &str) -> Result<Ha
            JOIN item_messages m ON m.item_id = c.id
           WHERE p.source_id = ?1 AND p.external_id = ?2 AND m.ext_key IS NOT NULL",
     )?;
-    let keys = stmt.query_map(params![source_id, external_id], |r| r.get(0))?.collect::<rusqlite::Result<HashSet<String>>>()?;
+    let keys = stmt
+        .query_map(params![source_id, external_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<HashSet<String>>>()?;
     Ok(keys)
 }
 
@@ -27,7 +29,9 @@ type Row = (i64, String, String, String, Option<String>);
 fn messages(conn: &Connection, item_id: i64) -> Result<Vec<Row>> {
     let mut stmt = conn.prepare_cached("SELECT id, at, author, text, ext_key FROM item_messages WHERE item_id = ?1 AND context = 0 AND reply_to IS NULL ORDER BY at, id")?;
     let rows = stmt
-        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+        .query_map([item_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -42,7 +46,10 @@ fn ensure_keys(conn: &Connection, raw: &Value, rows: &mut [Row]) -> Result<()> {
     if rows.iter().all(|r| r.4.is_some()) {
         return Ok(());
     }
-    let tuples: Vec<(&str, &str, &str)> = rows.iter().map(|r| (r.1.as_str(), r.2.as_str(), r.3.as_str())).collect();
+    let tuples: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|r| (r.1.as_str(), r.2.as_str(), r.3.as_str()))
+        .collect();
     let ks = keys(raw, &tuples);
     for (r, k) in rows.iter_mut().zip(ks) {
         if r.4.is_none() {
@@ -75,10 +82,15 @@ fn recount(conn: &Connection, item_id: i64, removed: usize) -> Result<()> {
 fn recount_by(conn: &Connection, item_id: i64, delta: i64) -> Result<()> {
     let rows = messages(conn, item_id)?;
     let (count, raw): (Option<i64>, String) =
-        conn.query_row("SELECT msg_count, raw_json FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        conn.query_row("SELECT msg_count, raw_json FROM items WHERE id = ?1", [item_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
     let count = (count.unwrap_or(0) + delta).max(rows.len() as i64);
     let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
-        conn.execute("UPDATE items SET msg_count = ?2, seen = 1 WHERE id = ?1", params![item_id, count])?;
+        conn.execute(
+            "UPDATE items SET msg_count = ?2, seen = 1 WHERE id = ?1",
+            params![item_id, count],
+        )?;
         return Ok(());
     };
     let mut raw: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
@@ -94,7 +106,11 @@ fn recount_by(conn: &Connection, item_id: i64, delta: i64) -> Result<()> {
             o.insert("msgs".into(), json!(ks));
         }
     }
-    let body = rows.iter().map(|r| format!("{}: {}", r.2, r.3)).collect::<Vec<_>>().join("\n");
+    let body = rows
+        .iter()
+        .map(|r| format!("{}: {}", r.2, r.3))
+        .collect::<Vec<_>>()
+        .join("\n");
     let url: Option<String> = conn.query_row("SELECT url FROM items WHERE id = ?1", [item_id], |r| r.get(0))?;
     let url = match (url, last.4.as_deref().and_then(|k| k.split_once('.'))) {
         (Some(u), Some((secs, micros))) if secs.chars().chain(micros.chars()).all(|c| c.is_ascii_digit()) => {
@@ -110,10 +126,13 @@ fn recount_by(conn: &Connection, item_id: i64, delta: i64) -> Result<()> {
     Ok(())
 }
 
-
 fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) -> Result<i64> {
     let (source_id, parent_id, raw, kind): (i64, Option<i64>, String, String) = conn
-        .query_row("SELECT source_id, parent_id, raw_json, kind FROM items WHERE id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .query_row(
+            "SELECT source_id, parent_id, raw_json, kind FROM items WHERE id = ?1",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
         .optional()?
         .ok_or_else(|| msg("no such item"))?;
     if kind == "email" {
@@ -139,8 +158,11 @@ fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) 
     let ext = loop {
         n += 1;
         let ext = format!("{root_ext}#{n}");
-        let taken: bool =
-            conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE source_id = ?1 AND external_id = ?2)", params![source_id, ext], |r| r.get(0))?;
+        let taken: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM items WHERE source_id = ?1 AND external_id = ?2)",
+            params![source_id, ext],
+            |r| r.get(0),
+        )?;
         if !taken {
             break ext;
         }
@@ -158,7 +180,11 @@ fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) 
         o.insert("split_from".into(), json!(root_ext));
     }
     let moved = rows.iter().filter(|r| wanted.contains(&r.0)).count();
-    let first = rows.iter().find(|r| wanted.contains(&r.0)).map(|r| r.1.clone()).unwrap_or_default();
+    let first = rows
+        .iter()
+        .find(|r| wanted.contains(&r.0))
+        .map(|r| r.1.clone())
+        .unwrap_or_default();
     conn.execute(
         "INSERT INTO items (source_id, external_id, kind, title, url, author_person_id, occurred_at, status, msg_count, seen, raw_json, parent_id)
          SELECT source_id, ?2, kind, title, url, author_person_id, ?3, 'open', ?4, seen, ?5, ?6 FROM items WHERE id = ?1",
@@ -166,7 +192,10 @@ fn carve(conn: &Connection, item_id: i64, message_ids: &[i64], allow_all: bool) 
     )?;
     let child = conn.last_insert_rowid();
     for id in &wanted {
-        conn.execute("UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3", params![child, id, item_id])?;
+        conn.execute(
+            "UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3",
+            params![child, id, item_id],
+        )?;
     }
     conn.execute(
         "UPDATE item_messages SET item_id = ?1 WHERE item_id = ?2
@@ -207,20 +236,30 @@ fn move_messages(conn: &Connection, from: i64, message_ids: &[i64], to: i64) -> 
         return Err(msg("those messages aren't in that part"));
     }
     for id in &wanted {
-        conn.execute("UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3", params![to, id, from])?;
+        conn.execute(
+            "UPDATE item_messages SET item_id = ?1 WHERE id = ?2 AND item_id = ?3",
+            params![to, id, from],
+        )?;
     }
     conn.execute(
         "UPDATE item_messages SET item_id = ?1 WHERE item_id = ?2
             AND reply_to IN (SELECT ext_key FROM item_messages WHERE item_id = ?1 AND reply_to IS NULL)",
         params![to, from],
     )?;
-    let ts = |v: &Value| v.get("mark_ts").and_then(Value::as_str).map(|t| (t.parse::<f64>().unwrap_or(0.0), t.to_owned()));
+    let ts = |v: &Value| {
+        v.get("mark_ts")
+            .and_then(Value::as_str)
+            .map(|t| (t.parse::<f64>().unwrap_or(0.0), t.to_owned()))
+    };
     if let Some((n, t)) = ts(&from_raw) {
         let mut to_raw = raw_of(to)?;
         if ts(&to_raw).is_none_or(|(m, _)| m < n) {
             if let Some(o) = to_raw.as_object_mut() {
                 o.insert("mark_ts".into(), json!(t));
-                conn.execute("UPDATE items SET raw_json = ?2 WHERE id = ?1", params![to, to_raw.to_string()])?;
+                conn.execute(
+                    "UPDATE items SET raw_json = ?2 WHERE id = ?1",
+                    params![to, to_raw.to_string()],
+                )?;
             }
         }
     }
@@ -262,7 +301,6 @@ fn prune(conn: &Connection, item_id: i64) -> Result<bool> {
         }
     }
 }
-
 
 impl Splits for Sql<'_> {
     fn message_ids(&self, item_id: i64) -> Result<Vec<i64>> {

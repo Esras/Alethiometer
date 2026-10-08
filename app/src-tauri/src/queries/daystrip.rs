@@ -51,7 +51,13 @@ fn get(r: &dyn Reads, ctx: &Ctx, topic_id: Option<i64>) -> Result<Value> {
     let now = clock.now();
     let (day_start, day_end) = clock.day_range(clock.today());
     // Minutes since midnight here; a block running past midnight ends at the day's end.
-    let minute = |t: Ts| if t >= day_end { 24 * 60 } else { minute_of_day(clock.local(t)) };
+    let minute = |t: Ts| {
+        if t >= day_end {
+            24 * 60
+        } else {
+            minute_of_day(clock.local(t))
+        }
+    };
     let blocks: Vec<Block> = r
         .day_strip()
         .blocks(day_start, day_end)?
@@ -98,14 +104,26 @@ fn get(r: &dyn Reads, ctx: &Ctx, topic_id: Option<i64>) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::clock::Clock;
-    use crate::state::App;
-    use rusqlite::params;
     use crate::settings::Settings;
+    use crate::state::App;
     use jiff::tz::TimeZone;
+    use rusqlite::params;
 
     fn blocks(app: &App) -> Vec<(String, i64, i64)> {
         let v = crate::api::call(app, "daystrip.get", &json!({})).unwrap();
-        v["blocks"].as_array().unwrap().iter().filter(|b| b["title"].as_str().is_some_and(|t| t.starts_with("dst-"))).map(|b| (b["title"].as_str().unwrap().to_owned(), b["start_min"].as_i64().unwrap(), b["end_min"].as_i64().unwrap())).collect()
+        v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["title"].as_str().is_some_and(|t| t.starts_with("dst-")))
+            .map(|b| {
+                (
+                    b["title"].as_str().unwrap().to_owned(),
+                    b["start_min"].as_i64().unwrap(),
+                    b["end_min"].as_i64().unwrap(),
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -113,10 +131,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
         // Nov 1 2026, 10:00 in Los Angeles: the day runs 07:00Z to 08:00Z the next day (25 hours).
-        app.clock = Clock::fixed(Ts::parse("2026-11-01T18:00:00Z").unwrap(), TimeZone::get("America/Los_Angeles").unwrap());
+        app.clock = Clock::fixed(
+            Ts::parse("2026-11-01T18:00:00Z").unwrap(),
+            TimeZone::get("America/Los_Angeles").unwrap(),
+        );
         {
             let conn = app.db();
-            conn.execute("INSERT INTO sources (id, kind, tag, name) VALUES (99, 'gcal', 'work', 'cal')", []).unwrap();
+            conn.execute(
+                "INSERT INTO sources (id, kind, tag, name) VALUES (99, 'gcal', 'work', 'cal')",
+                [],
+            )
+            .unwrap();
             for (title, start, end) in [
                 ("dst-before", "2026-11-01T06:30:00Z", "2026-11-01T07:00:00Z"), // Oct 31, 23:30 PDT
                 ("dst-fold", "2026-11-01T08:30:00Z", "2026-11-01T09:15:00Z"),   // 01:30 PDT to 01:15 PST
@@ -125,18 +150,33 @@ mod tests {
                 ("dst-after", "2026-11-02T08:30:00Z", "2026-11-02T09:00:00Z"),  // Nov 2
             ] {
                 let (start, end) = (Ts::parse(start).unwrap(), Ts::parse(end).unwrap());
-                conn.execute("INSERT INTO events (source_id, start, end, title, category) VALUES (99, ?1, ?2, ?3, 'work')", params![start, end, title]).unwrap();
+                conn.execute(
+                    "INSERT INTO events (source_id, start, end, title, category) VALUES (99, ?1, ?2, ?3, 'work')",
+                    params![start, end, title],
+                )
+                .unwrap();
             }
         }
         assert_eq!(
             blocks(&app),
-            [("dst-fold".into(), 90, 90), ("dst-morning".into(), 540, 600), ("dst-late".into(), 1410, 1440)],
+            [
+                ("dst-fold".into(), 90, 90),
+                ("dst-morning".into(), 540, 600),
+                ("dst-late".into(), 1410, 1440)
+            ],
         );
         // The same events seen from Zurich on its Nov 1 (CET since Oct 25).
-        app.clock = Clock::fixed(Ts::parse("2026-11-01T09:00:00Z").unwrap(), TimeZone::get("Europe/Zurich").unwrap());
+        app.clock = Clock::fixed(
+            Ts::parse("2026-11-01T09:00:00Z").unwrap(),
+            TimeZone::get("Europe/Zurich").unwrap(),
+        );
         assert_eq!(
             blocks(&app),
-            [("dst-before".into(), 450, 480), ("dst-fold".into(), 570, 615), ("dst-morning".into(), 1080, 1140)],
+            [
+                ("dst-before".into(), 450, 480),
+                ("dst-fold".into(), 570, 615),
+                ("dst-morning".into(), 1080, 1140)
+            ],
         );
     }
 }

@@ -100,13 +100,21 @@ pub fn rsvps(r: &dyn Reads, item_ids: &[i64], clock: &Clock) -> Result<HashMap<i
         return Ok(HashMap::new());
     }
     let ids: Vec<i64> = invites.iter().map(|i| i.item_id).collect();
-    let answers: HashMap<i64, AnswerRow> = r.respond().latest_rsvps(&ids)?.into_iter().map(|a| (a.item_id, a)).collect();
+    let answers: HashMap<i64, AnswerRow> = r
+        .respond()
+        .latest_rsvps(&ids)?
+        .into_iter()
+        .map(|a| (a.item_id, a))
+        .collect();
     let mut overlaps: HashMap<i64, Vec<String>> = HashMap::new();
     for o in r.respond().overlaps(&ids)? {
         let hm = |t: Ts| clock.local(t).strftime("%H:%M").to_string();
         // Life blocks never show a title (boundary rule).
         let what = o.title.unwrap_or_else(|| "Life".into());
-        overlaps.entry(o.item_id).or_default().push(format!("{what} {}–{}", hm(o.start), hm(o.end)));
+        overlaps
+            .entry(o.item_id)
+            .or_default()
+            .push(format!("{what} {}–{}", hm(o.start), hm(o.end)));
     }
     let now = clock.now();
     let mut out = HashMap::new();
@@ -116,8 +124,20 @@ pub fn rsvps(r: &dyn Reads, item_ids: &[i64], clock: &Clock) -> Result<HashMap<i
         if !open && answer.is_none() {
             continue;
         }
-        let status = if inv.response == "needsAction" { "needs_action".to_string() } else { inv.response };
-        out.insert(inv.item_id, Rsvp { status, answer, overlaps: overlaps.remove(&inv.item_id).unwrap_or_default(), url: inv.url });
+        let status = if inv.response == "needsAction" {
+            "needs_action".to_string()
+        } else {
+            inv.response
+        };
+        out.insert(
+            inv.item_id,
+            Rsvp {
+                status,
+                answer,
+                overlaps: overlaps.remove(&inv.item_id).unwrap_or_default(),
+                url: inv.url,
+            },
+        );
     }
     Ok(out)
 }
@@ -127,15 +147,29 @@ pub fn replies(r: &dyn Reads, item_ids: &[i64], clock: &Clock) -> Result<HashMap
     if item_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    Ok(r.respond().latest_replies(item_ids)?.iter().map(|a| (a.item_id, answer(a, clock))).collect())
+    Ok(r.respond()
+        .latest_replies(item_ids)?
+        .iter()
+        .map(|a| (a.item_id, answer(a, clock)))
+        .collect())
 }
 
 /// Queue an answer, or put it in place of the failed one before it (which
 /// would otherwise hold back every later write for the item).
 /// `one_at_a_time`: refuse while the last one is still sending (an RSVP; replies queue up).
-fn queue(uow: &dyn UnitOfWork, last: Option<&AnswerRow>, one_at_a_time: bool, source_id: i64, op: &str, payload: &Value, item_id: i64) -> Result<i64> {
+fn queue(
+    uow: &dyn UnitOfWork,
+    last: Option<&AnswerRow>,
+    one_at_a_time: bool,
+    source_id: i64,
+    op: &str,
+    payload: &Value,
+    item_id: i64,
+) -> Result<i64> {
     match last {
-        Some(a) if one_at_a_time && (a.state == "pending" || a.state == "sent") => Err(msg("your last answer is still sending")),
+        Some(a) if one_at_a_time && (a.state == "pending" || a.state == "sent") => {
+            Err(msg("your last answer is still sending"))
+        }
         Some(a) if a.state == "failed" && uow.outbox().resend(a.outbox_id, &payload.to_string())? => Ok(a.outbox_id),
         _ => request(uow, source_id, op, payload, Some(item_id)),
     }
@@ -150,7 +184,11 @@ fn rsvp(uow: &dyn UnitOfWork, item_id: i64, response: &str, comment: Option<&str
         return Err(msg("a note only goes with a decline"));
     }
     let r = uow.reads();
-    let invite = r.respond().invites(&[item_id])?.pop().ok_or_else(|| msg("not an invite you're a guest of"))?;
+    let invite = r
+        .respond()
+        .invites(&[item_id])?
+        .pop()
+        .ok_or_else(|| msg("not an invite you're a guest of"))?;
     let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
     let mut payload = json!({ "event_id": invite.event_id, "response": response });
     if let Some(c) = comment {
@@ -170,7 +208,12 @@ fn slack_reply(uow: &dyn UnitOfWork, item_id: i64, text: &str, thread: bool, mes
         return Err(msg("only Slack signals take a reply"));
     }
     let raw: Value = serde_json::from_str(&item.raw_json).unwrap_or_default();
-    let field = |k: &str| raw.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    let field = |k: &str| {
+        raw.get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
     let channel = field("channel").ok_or_else(|| msg("this signal doesn't say which conversation it's from"))?;
     let mut payload = json!({ "channel": channel, "text": text });
     if thread {
@@ -195,7 +238,15 @@ fn slack_reply(uow: &dyn UnitOfWork, item_id: i64, text: &str, thread: bool, mes
         payload["thread_ts"] = json!(ts);
     }
     let last = r.respond().latest_replies(&[item_id])?.pop();
-    queue(uow, last.as_ref(), false, item.source_id, "slack.reply", &payload, item_id)
+    queue(
+        uow,
+        last.as_ref(),
+        false,
+        item.source_id,
+        "slack.reply",
+        &payload,
+        item_id,
+    )
 }
 
 #[cfg(test)]
@@ -213,12 +264,18 @@ mod tests {
     }
 
     fn item(conn: &Connection, title: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE title = ?1", [title], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT id FROM items WHERE title = ?1", [title], |r| r.get(0))
+            .unwrap()
     }
 
     fn signal(conn: &Connection, clock: &Clock, item_id: i64) -> Signal {
         let q = incoming_queue(&crate::store::over(conn), clock).unwrap();
-        q.topics.into_iter().flat_map(|t| t.signals).chain(q.unsorted).find(|s| s.item_id == item_id).expect("in Incoming")
+        q.topics
+            .into_iter()
+            .flat_map(|t| t.signals)
+            .chain(q.unsorted)
+            .find(|s| s.item_id == item_id)
+            .expect("in Incoming")
     }
 
     fn outbox(conn: &Connection, op: &str) -> Vec<(i64, String, String, Option<i64>)> {
@@ -245,21 +302,36 @@ mod tests {
         let (conn, clock, _d) = setup();
         let invite = item(&conn, "Acme postmortem review");
         let before = signal(&conn, &clock, invite);
-        let ext: String = conn.query_row("SELECT external_id FROM items WHERE id = ?1", [invite], |r| r.get(0)).unwrap();
+        let ext: String = conn
+            .query_row("SELECT external_id FROM items WHERE id = ?1", [invite], |r| r.get(0))
+            .unwrap();
 
         rsvp(&uow(&conn), invite, "accepted", None).unwrap();
         let rows = outbox(&conn, "gcal.rsvp");
         assert_eq!(rows.len(), 1);
-        assert_eq!(serde_json::from_str::<Value>(&rows[0].2).unwrap(), json!({ "event_id": ext, "response": "accepted" }));
+        assert_eq!(
+            serde_json::from_str::<Value>(&rows[0].2).unwrap(),
+            json!({ "event_id": ext, "response": "accepted" })
+        );
         assert_eq!(rows[0].3, Some(invite));
 
         let after = signal(&conn, &clock, invite);
-        assert_eq!((after.update, after.rev), (before.update, before.rev), "still the same untriaged signal");
+        assert_eq!(
+            (after.update, after.rev),
+            (before.update, before.rev),
+            "still the same untriaged signal"
+        );
         let answer = after.rsvp.unwrap().answer.unwrap();
-        assert_eq!((answer.state.as_str(), answer.response.as_deref()), ("pending", Some("accepted")));
+        assert_eq!(
+            (answer.state.as_str(), answer.response.as_deref()),
+            ("pending", Some("accepted"))
+        );
 
         // One answer at a time.
-        assert!(rsvp(&uow(&conn), invite, "declined", None).unwrap_err().to_string().contains("still sending"));
+        assert!(rsvp(&uow(&conn), invite, "declined", None)
+            .unwrap_err()
+            .to_string()
+            .contains("still sending"));
 
         set_state(&conn, rows[0].0, "confirmed");
         let answer = signal(&conn, &clock, invite).rsvp.unwrap().answer.unwrap();
@@ -271,7 +343,10 @@ mod tests {
         let (conn, _clock, _d) = setup();
         let invite = item(&conn, "Acme postmortem review");
         assert!(rsvp(&uow(&conn), invite, "accepted", Some("see you")).is_err());
-        assert!(rsvp(&uow(&conn), invite, "tentative", None).is_err(), "only accept and decline are offered");
+        assert!(
+            rsvp(&uow(&conn), invite, "tentative", None).is_err(),
+            "only accept and decline are offered"
+        );
         rsvp(&uow(&conn), invite, "declined", Some("  Kim has signing authority ")).unwrap();
         let p: Value = serde_json::from_str(&outbox(&conn, "gcal.rsvp")[0].2).unwrap();
         assert_eq!(p["comment"], "Kim has signing authority");
@@ -287,7 +362,10 @@ mod tests {
         let id = outbox(&conn, "gcal.rsvp")[0].0;
         set_state(&conn, id, "failed");
         let answer = signal(&conn, &clock, invite).rsvp.unwrap().answer.unwrap();
-        assert_eq!((answer.state.as_str(), answer.error.as_deref()), ("failed", Some("boom")));
+        assert_eq!(
+            (answer.state.as_str(), answer.error.as_deref()),
+            ("failed", Some("boom"))
+        );
 
         assert_eq!(rsvp(&uow(&conn), invite, "declined", None).unwrap(), id);
         let rows = outbox(&conn, "gcal.rsvp");
@@ -303,13 +381,20 @@ mod tests {
         let invite = item(&conn, "Acme postmortem review");
         let terms = item(&conn, "Final terms call");
         for id in [invite, terms] {
-            conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.recurringEventId', 'series1') WHERE id = ?1", [id]).unwrap();
+            conn.execute(
+                "UPDATE items SET raw_json = json_set(raw_json, '$.recurringEventId', 'series1') WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
         }
         rsvp(&uow(&conn), invite, "declined", None).unwrap();
         let p: Value = serde_json::from_str(&outbox(&conn, "gcal.rsvp")[0].2).unwrap();
         assert_eq!(p["event_id"], "series1");
         let both = rsvps(&uow(&conn), &[invite, terms], &clock).unwrap();
-        assert_eq!(both[&terms].answer.as_ref().unwrap().response.as_deref(), Some("declined"));
+        assert_eq!(
+            both[&terms].answer.as_ref().unwrap().response.as_deref(),
+            Some("declined")
+        );
         assert_eq!(both[&invite].answer, both[&terms].answer);
     }
 
@@ -319,7 +404,13 @@ mod tests {
     fn which_invites_offer_an_answer() {
         let (conn, clock, _d) = setup();
         let terms = item(&conn, "Final terms call");
-        let status = |s: &str| conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.attendees[0].responseStatus', ?2) WHERE id = ?1", rusqlite::params![terms, s]).unwrap();
+        let status = |s: &str| {
+            conn.execute(
+                "UPDATE items SET raw_json = json_set(raw_json, '$.attendees[0].responseStatus', ?2) WHERE id = ?1",
+                rusqlite::params![terms, s],
+            )
+            .unwrap()
+        };
         let shown = || rsvps(&uow(&conn), &[terms], &clock).unwrap().remove(&terms);
 
         assert_eq!(shown().unwrap().overlaps, ["Staff sync 14:00–14:30"]);
@@ -329,7 +420,10 @@ mod tests {
         assert!(shown().is_none());
         status("needsAction");
         let ended = crate::sync::test_clock("2026-10-01T10:00:00Z");
-        assert!(rsvps(&uow(&conn), &[terms], &ended).unwrap().is_empty(), "nothing to answer once it's over");
+        assert!(
+            rsvps(&uow(&conn), &[terms], &ended).unwrap().is_empty(),
+            "nothing to answer once it's over"
+        );
 
         rsvp(&uow(&conn), terms, "accepted", None).unwrap();
         status("accepted");
@@ -350,7 +444,10 @@ mod tests {
             slack_reply(&uow(&conn), inc, "on it", thread, key)?;
             Ok(serde_json::from_str(&outbox(&conn, "slack.reply").last().unwrap().2).unwrap())
         };
-        assert_eq!(sent(false, None).unwrap(), json!({ "channel": "C2291", "text": "on it" }));
+        assert_eq!(
+            sent(false, None).unwrap(),
+            json!({ "channel": "C2291", "text": "on it" })
+        );
         // Several replies queue up behind each other.
         assert_eq!(sent(true, None).unwrap()["thread_ts"], "C2291.3", "the newest message");
         assert_eq!(sent(true, Some("C2291.1")).unwrap()["thread_ts"], "C2291.1");
@@ -358,11 +455,18 @@ mod tests {
         assert!(slack_reply(&uow(&conn), inc, "  ", false, None).is_err());
 
         // A thread item replies in its thread, whatever message is picked.
-        conn.execute("UPDATE items SET raw_json = json_set(raw_json, '$.thread_ts', '1.0') WHERE id = ?1", [inc]).unwrap();
+        conn.execute(
+            "UPDATE items SET raw_json = json_set(raw_json, '$.thread_ts', '1.0') WHERE id = ?1",
+            [inc],
+        )
+        .unwrap();
         assert_eq!(sent(true, Some("C2291.1")).unwrap()["thread_ts"], "1.0");
 
         let reply = signal(&conn, &clock, inc).reply.unwrap();
-        assert_eq!((reply.state.as_str(), reply.text.as_deref()), ("pending", Some("on it")));
+        assert_eq!(
+            (reply.state.as_str(), reply.text.as_deref()),
+            ("pending", Some("on it"))
+        );
 
         let mail = item(&conn, "Dana · \"We need someone senior on a call today\"");
         assert!(slack_reply(&uow(&conn), mail, "hi", false, None).is_err());

@@ -43,8 +43,16 @@ pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Re
     let settings = app.settings().people.clone();
     let (people, titles) = app.store().read(|r| {
         let resolver = crate::queries::people::Resolver::load(r, &settings)?;
-        let people: Vec<String> = crate::queries::people::for_topic(r, &resolver, t, &app.clock, 4)?.into_iter().map(|p| p.name).collect();
-        let titles: Vec<String> = r.glean().recent_signals(t, 10)?.into_iter().map(|(_, title)| title).collect();
+        let people: Vec<String> = crate::queries::people::for_topic(r, &resolver, t, &app.clock, 4)?
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        let titles: Vec<String> = r
+            .glean()
+            .recent_signals(t, 10)?
+            .into_iter()
+            .map(|(_, title)| title)
+            .collect();
         Ok((people, titles))
     })?;
     let ents = entities_with_note(app, t, &name, &note)?;
@@ -52,21 +60,51 @@ pub fn chips(app: &App, topic: Option<i64>, off: &[String], on: &[String]) -> Re
     keys.sort();
     let mut channels: Vec<String> = ents.channels.into_iter().map(|c| format!("#{c}")).collect();
     channels.sort();
-    let mut out = vec![Chip { id: "title".into(), label: "Topic title".into(), on: true, text: format!("Topic: {name}") }];
+    let mut out = vec![Chip {
+        id: "title".into(),
+        label: "Topic title".into(),
+        on: true,
+        text: format!("Topic: {name}"),
+    }];
     if !people.is_empty() {
-        out.push(Chip { id: "people".into(), label: people.join(" · "), on: true, text: format!("People: {}", people.join(", ")) });
+        out.push(Chip {
+            id: "people".into(),
+            label: people.join(" · "),
+            on: true,
+            text: format!("People: {}", people.join(", ")),
+        });
     }
     if !keys.is_empty() {
-        out.push(Chip { id: "keys".into(), label: keys.iter().take(3).cloned().collect::<Vec<_>>().join(" · "), on: true, text: format!("Jira keys: {}", keys.join(", ")) });
+        out.push(Chip {
+            id: "keys".into(),
+            label: keys.iter().take(3).cloned().collect::<Vec<_>>().join(" · "),
+            on: true,
+            text: format!("Jira keys: {}", keys.join(", ")),
+        });
     }
     if !channels.is_empty() {
-        out.push(Chip { id: "channels".into(), label: channels.join(" · "), on: true, text: format!("Slack channels: {}", channels.join(", ")) });
+        out.push(Chip {
+            id: "channels".into(),
+            label: channels.join(" · "),
+            on: true,
+            text: format!("Slack channels: {}", channels.join(", ")),
+        });
     }
     if !titles.is_empty() {
-        out.push(Chip { id: "titles".into(), label: format!("{} signal titles", titles.len()), on: true, text: format!("Recent signals:\n- {}", titles.join("\n- ")) });
+        out.push(Chip {
+            id: "titles".into(),
+            label: format!("{} signal titles", titles.len()),
+            on: true,
+            text: format!("Recent signals:\n- {}", titles.join("\n- ")),
+        });
     }
     if !note.trim().is_empty() {
-        out.push(Chip { id: "note".into(), label: "Notes".into(), on: false, text: format!("Topic note:\n{}", clip(&note, 3000)) });
+        out.push(Chip {
+            id: "note".into(),
+            label: "Notes".into(),
+            on: false,
+            text: format!("Topic note:\n{}", clip(&note, 3000)),
+        });
     }
     for c in &mut out {
         if off.contains(&c.id) {
@@ -173,7 +211,15 @@ fn short_model(model: &str) -> String {
 }
 
 /// Ask with Glean. `off`/`on` adjust the chips (see `chips`).
-pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, question: &str, topic: Option<i64>, off: &[String], on: &[String]) -> Result<Reply> {
+pub fn ask(
+    app: &App,
+    deps: &Deps,
+    glean_http: &dyn crate::sync::http::Http,
+    question: &str,
+    topic: Option<i64>,
+    off: &[String],
+    on: &[String],
+) -> Result<Reply> {
     // Fail closed before reading any work data.
     let large = ai::check(&app.settings().ai, Tier::Large)?.model.clone();
     let question = clip(question.trim(), 2000);
@@ -181,7 +227,12 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
         return Err(msg("Ask a question first"));
     }
     let chips = chips(app, topic, off, on)?;
-    let ctx: String = chips.iter().filter(|c| c.on).map(|c| c.text.as_str()).collect::<Vec<_>>().join("\n");
+    let ctx: String = chips
+        .iter()
+        .filter(|c| c.on)
+        .map(|c| c.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     let cfg = super::config(app).unwrap_or_default();
 
     // 2. Queries (small model). Without a small tier, the question itself is the query.
@@ -193,7 +244,13 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
             let reply = ai::complete(app, deps, Tier::Small, &sys, &user, 2_000)?;
             crate::ai::suggest::reply_json(&reply)
                 .and_then(|v| v.get("queries").and_then(Value::as_array).cloned())
-                .map(|a| a.iter().filter_map(Value::as_str).map(|s| clip(s, 200)).filter(|s| !s.is_empty()).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(|s| clip(s, 200))
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default()
         }
         Err(_) => vec![],
@@ -208,7 +265,14 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     let mut glean_state = json!({ "state": "ok" });
     let mut hits: Vec<(Hit, Vec<usize>)> = vec![];
     for (qi, q) in texts.iter().enumerate() {
-        let mut run = QueryRun { mark: MARKS[qi % MARKS.len()].into(), local: false, text: q.clone(), returned: 0, kept: 0, error: None };
+        let mut run = QueryRun {
+            mark: MARKS[qi % MARKS.len()].into(),
+            local: false,
+            text: q.clone(),
+            returned: 0,
+            kept: 0,
+            error: None,
+        };
         match super::search(app, glean_http, q) {
             Ok(found) => {
                 run.returned = found.len();
@@ -229,7 +293,18 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     // Local route.
     let local_qi = queries.len();
     let local_items = local_evidence(app, &question, topic)?;
-    queries.push(QueryRun { mark: "◇".into(), local: true, text: if app.embed.get().is_some() { "local index · topic embedding".into() } else { "local index · full text".into() }, returned: local_items.len(), kept: 0, error: None });
+    queries.push(QueryRun {
+        mark: "◇".into(),
+        local: true,
+        text: if app.embed.get().is_some() {
+            "local index · topic embedding".into()
+        } else {
+            "local index · full text".into()
+        },
+        returned: local_items.len(),
+        kept: 0,
+        error: None,
+    });
 
     // Local check.
     let now = app.clock.now();
@@ -249,16 +324,37 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
             seen_urls.insert(u.trim_end_matches('/').to_lowercase());
         }
         let label = super::hydrate::source_label(&kind);
-        sources.push(Source { n: None, key: format!("item:{item_id}"), title, url, icon: kind, system: label.into(), container: String::new(), queries: vec![local_qi], reason: why, kept: true, item_id: Some(item_id), topic: topic_val, text, people: vec![] });
+        sources.push(Source {
+            n: None,
+            key: format!("item:{item_id}"),
+            title,
+            url,
+            icon: kind,
+            system: label.into(),
+            container: String::new(),
+            queries: vec![local_qi],
+            reason: why,
+            kept: true,
+            item_id: Some(item_id),
+            topic: topic_val,
+            text,
+            people: vec![],
+        });
     }
-    let glean_texts: Vec<String> = hits.iter().map(|(h, _)| format!("{}\n{}\n{}", h.title, h.container, h.snippet)).collect();
+    let glean_texts: Vec<String> = hits
+        .iter()
+        .map(|(h, _)| format!("{}\n{}\n{}", h.title, h.container, h.snippet))
+        .collect();
     let glean_vecs = match (&anchor_vec, glean_texts.is_empty()) {
         (Some(_), false) => crate::embed::embed_now(app, &glean_texts),
         _ => None,
     };
     for (i, (h, qs)) in hits.iter().enumerate() {
         let norm = h.url.trim_end_matches('/').to_lowercase();
-        if let Some(s) = sources.iter_mut().find(|s| s.url.as_deref().map(|u| u.trim_end_matches('/').to_lowercase()) == Some(norm.clone())) {
+        if let Some(s) = sources
+            .iter_mut()
+            .find(|s| s.url.as_deref().map(|u| u.trim_end_matches('/').to_lowercase()) == Some(norm.clone()))
+        {
             s.queries.extend(qs.iter().copied());
             s.reason = format!("{} · also local", s.reason);
             continue;
@@ -267,17 +363,30 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
             (Some(a), Some(v)) => v.get(i).map(|v| crate::embed::cosine(a, v)),
             _ => None,
         };
-        let old = h.updated.as_deref().and_then(crate::queries::parse_ts).is_some_and(|t| (now - t).as_hours() / 24 > cfg.window_days);
+        let old = h
+            .updated
+            .as_deref()
+            .and_then(crate::queries::parse_ts)
+            .is_some_and(|t| (now - t).as_hours() / 24 > cfg.window_days);
         let fb = feedback.get(&h.url).map(|(v, _)| v.as_str());
         let shared = ents.as_ref().and_then(|e| shared_entity(e, h));
-        let sim_label = sim.map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)).unwrap_or_default();
+        let sim_label = sim
+            .map(|s| format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32))
+            .unwrap_or_default();
         let (kept, reason) = match (fb, old, &ents, shared, sim) {
             (Some("reject"), ..) => (false, "rejected for this topic".to_string()),
             (Some("pin"), ..) => (true, "pinned".to_string()),
             (_, true, ..) => (false, format!("outside {}d", cfg.window_days)),
             (_, _, Some(_), None, _) => (false, "shared words only".to_string()),
             (_, _, Some(_), Some(e), Some(s)) if s < threshold => (false, format!("{e} · low similarity {sim_label}")),
-            (_, _, Some(_), Some(e), _) => (true, if sim_label.is_empty() { e } else { format!("{e} · {sim_label}") }),
+            (_, _, Some(_), Some(e), _) => (
+                true,
+                if sim_label.is_empty() {
+                    e
+                } else {
+                    format!("{e} · {sim_label}")
+                },
+            ),
             (_, _, None, _, Some(s)) if s < threshold => (false, format!("low similarity {sim_label}")),
             (_, _, None, _, _) => (true, sim_label.clone()),
         };
@@ -297,12 +406,33 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
             kept,
             item_id: None,
             topic: None,
-            text: format!("{} ({system}{}){}\n{}", h.title, if h.container.is_empty() { String::new() } else { format!(" › {}", h.container) }, if who.is_empty() { String::new() } else { format!("\nPeople: {who}") }, h.snippet),
+            text: format!(
+                "{} ({system}{}){}\n{}",
+                h.title,
+                if h.container.is_empty() {
+                    String::new()
+                } else {
+                    format!(" › {}", h.container)
+                },
+                if who.is_empty() {
+                    String::new()
+                } else {
+                    format!("\nPeople: {who}")
+                },
+                h.snippet
+            ),
             people,
         });
     }
     // Pins first, then local, then by how many queries found it.
-    sources.sort_by_key(|s| (!s.kept, s.reason != "pinned", s.item_id.is_none(), std::cmp::Reverse(s.queries.len())));
+    sources.sort_by_key(|s| {
+        (
+            !s.kept,
+            s.reason != "pinned",
+            s.item_id.is_none(),
+            std::cmp::Reverse(s.queries.len()),
+        )
+    });
     let mut n = 0;
     for s in sources.iter_mut().filter(|s| s.kept) {
         if n >= MAX_EVIDENCE {
@@ -320,7 +450,10 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     }
 
     // 4. Answer (large model).
-    let evidence: String = sources.iter().filter_map(|s| s.n.map(|n| format!("[{n}] {}\n", clip(&s.text, 900)))).collect();
+    let evidence: String = sources
+        .iter()
+        .filter_map(|s| s.n.map(|n| format!("[{n}] {}\n", clip(&s.text, 900))))
+        .collect();
     let mut user = format!("<context>\n{ctx}\n</context>\n\n<evidence>\n{evidence}</evidence>\n\nQuestion: {question}");
     if glean_state["state"] != "ok" {
         user.push_str("\n\n(Enterprise search was unavailable; only local evidence is listed.)");
@@ -328,7 +461,11 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
     let reply = ai::complete(app, deps, Tier::Large, ANSWER_SYSTEM, &user, ANSWER_MAX_TOKENS)?;
     let parsed = crate::ai::suggest::reply_json(&reply);
     let max_n = n;
-    let mut answer = parsed.as_ref().and_then(|v| v.get("answer").and_then(Value::as_str)).map(str::to_owned).unwrap_or(reply.clone());
+    let mut answer = parsed
+        .as_ref()
+        .and_then(|v| v.get("answer").and_then(Value::as_str))
+        .map(str::to_owned)
+        .unwrap_or(reply.clone());
     // Drop citations to numbers that aren't evidence.
     answer = strip_bad_citations(&answer, max_n);
     let people = parsed
@@ -344,7 +481,16 @@ pub fn ask(app: &App, deps: &Deps, glean_http: &dyn crate::sync::http::Http, que
         }
     }
     let results = hits.len() + queries.last().map(|q| q.returned).unwrap_or(0);
-    Ok(Reply { answer, queries, sources, people, chips, glean: glean_state, route: format!("search → {}", short_model(&large)), results })
+    Ok(Reply {
+        answer,
+        queries,
+        sources,
+        people,
+        chips,
+        glean: glean_state,
+        route: format!("search → {}", short_model(&large)),
+        results,
+    })
 }
 
 fn strip_bad_citations(answer: &str, max: usize) -> String {
@@ -366,13 +512,21 @@ fn person(app: &App, p: &Value, sources: &[Source]) -> Option<Person> {
     if name.is_empty() {
         return None;
     }
-    let ns: Vec<usize> = p.get("evidence").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as usize)).collect()).unwrap_or_default();
+    let ns: Vec<usize> = p
+        .get("evidence")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as usize)).collect())
+        .unwrap_or_default();
     let evidence = ns
         .iter()
         .filter_map(|n| sources.iter().find(|s| s.n == Some(*n)))
         .map(|s| json!({ "n": s.n, "icon": s.icon, "text": if s.container.is_empty() { s.title.clone() } else { format!("{} · {}", s.title, s.container) } }))
         .collect();
-    let email = sources.iter().flat_map(|s| s.people.iter()).find(|w| w.name.eq_ignore_ascii_case(&name)).and_then(|w| w.email.clone());
+    let email = sources
+        .iter()
+        .flat_map(|s| s.people.iter())
+        .find(|w| w.name.eq_ignore_ascii_case(&name))
+        .and_then(|w| w.email.clone());
     let known = app.store().read(|r| r.glean().has_person_named(&name)).unwrap_or(false);
     Some(Person {
         role: p.get("role").and_then(Value::as_str).unwrap_or("").to_string(),
@@ -390,16 +544,36 @@ type LocalEvidence = (i64, String, Option<String>, String, String, Option<Value>
 /// near the question (embeddings) or matching it (full text).
 fn local_evidence(app: &App, question: &str, topic: Option<i64>) -> Result<Vec<LocalEvidence>> {
     let mut ids: Vec<(i64, String)> = match topic {
-        Some(t) => app.store().read(|r| r.glean().recent_signals(t, 6))?.into_iter().map(|(id, _)| (id, "in topic".into())).collect(),
+        Some(t) => app
+            .store()
+            .read(|r| r.glean().recent_signals(t, 6))?
+            .into_iter()
+            .map(|(id, _)| (id, "in topic".into()))
+            .collect(),
         None => vec![],
     };
-    let near: Vec<(i64, String)> = match crate::embed::embed_now(app, &[question.to_string()]).and_then(|mut v| v.pop()) {
-        Some(v) => app.store().read(|r| r.vectors().nearest_items(&v, 12))?.into_iter().map(|(id, s)| (id, format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32))).collect(),
+    let near: Vec<(i64, String)> = match crate::embed::embed_now(app, &[question.to_string()]).and_then(|mut v| v.pop())
+    {
+        Some(v) => app
+            .store()
+            .read(|r| r.vectors().nearest_items(&v, 12))?
+            .into_iter()
+            .map(|(id, s)| (id, format!(".{:02}", (s.clamp(0.0, 0.99) * 100.0) as i32)))
+            .collect(),
         None => match crate::queries::search::fts_query(question) {
             Some(fq) => {
                 // OR the words: a question rarely matches as a whole.
-                let any = fq.trim_end_matches('*').split("\" \"").map(|w| format!("\"{}\"", w.trim_matches('"'))).collect::<Vec<_>>().join(" OR ");
-                app.store().read(|r| r.glean().fts_items(&any, 8))?.into_iter().map(|id| (id, "matches".into())).collect()
+                let any = fq
+                    .trim_end_matches('*')
+                    .split("\" \"")
+                    .map(|w| format!("\"{}\"", w.trim_matches('"')))
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                app.store()
+                    .read(|r| r.glean().fts_items(&any, 8))?
+                    .into_iter()
+                    .map(|id| (id, "matches".into()))
+                    .collect()
             }
             None => vec![],
         },
@@ -412,14 +586,28 @@ fn local_evidence(app: &App, question: &str, topic: Option<i64>) -> Result<Vec<L
     app.store().read(|r| {
         let mut out = vec![];
         for (id, why) in ids {
-            let Some(i) = r.glean().evidence_item(id)? else { continue };
+            let Some(i) = r.glean().evidence_item(id)? else {
+                continue;
+            };
             if i.tag != "work" {
                 continue; // boundary rule 4, checked again here
             }
-            let topic_val = r.glean().confirmed_topic(id)?.map(|t| json!({ "id": t.id, "name": t.name, "category": t.category }));
+            let topic_val = r
+                .glean()
+                .confirmed_topic(id)?
+                .map(|t| json!({ "id": t.id, "name": t.name, "category": t.category }));
             let day = app.clock.local(i.at).date();
-            let summary = if i.summary.is_empty() { String::new() } else { format!(" · {}", i.summary) };
-            let text = format!("{} ({}, {day}){summary}\n{}", i.title, i.source_kind, clip(&i.body, 500));
+            let summary = if i.summary.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", i.summary)
+            };
+            let text = format!(
+                "{} ({}, {day}){summary}\n{}",
+                i.title,
+                i.source_kind,
+                clip(&i.body, 500)
+            );
             out.push((id, i.title, i.url, i.source_kind, text, topic_val, why));
         }
         Ok(out)
@@ -428,13 +616,25 @@ fn local_evidence(app: &App, question: &str, topic: Option<i64>) -> Result<Vec<L
 
 /// `ai.ask_glean {question, topic_id?, off?, on?}` and `ai.chips {topic_id?, off?, on?}`.
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
-    let list = |k: &str| args.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()).unwrap_or_default();
+    let list = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
     let topic = crate::queries::opt_i64(args, "topic_id");
     match name {
         "chips" => Ok(json!(chips(app, topic, &list("off"), &list("on"))?)),
         "ask_glean" => {
             let q = crate::queries::arg_str(args, "question")?;
-            let timeout = super::config(app).map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2).unwrap_or(10);
+            let timeout = super::config(app)
+                .map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2)
+                .unwrap_or(10);
             let glean_http = crate::sync::http::UreqHttp::with_timeout(timeout);
             let r = ai::with_live(app, |d| ask(app, d, &glean_http, &q, topic, &list("off"), &list("on")))?;
             Ok(json!(r))
@@ -470,7 +670,12 @@ mod tests {
         with_glean(&app);
         app.update_settings(|s| s.sources.last_mut().unwrap().config["calls_per_day"] = json!(50));
         let ai = FakeHttp::default();
-        ai.on("POST", "claude-haiku", 200, converse(r#"{"queries": ["datadog renewal from:\"Kim Lee\"", "datadog sso app:gdrive"]}"#));
+        ai.on(
+            "POST",
+            "claude-haiku",
+            200,
+            converse(r#"{"queries": ["datadog renewal from:\"Kim Lee\"", "datadog sso app:gdrive"]}"#),
+        );
         ai.on(
             "POST",
             "claude-opus",
@@ -485,10 +690,15 @@ mod tests {
     #[test]
     fn local_evidence_is_dated_where_you_are() {
         let (mut app, _dir) = app();
-        app.clock = crate::clock::Clock::fixed(crate::time::Ts::parse("2026-10-03T12:00:00Z").unwrap(), jiff::tz::TimeZone::get("America/Los_Angeles").unwrap());
+        app.clock = crate::clock::Clock::fixed(
+            crate::time::Ts::parse("2026-10-03T12:00:00Z").unwrap(),
+            jiff::tz::TimeZone::get("America/Los_Angeles").unwrap(),
+        );
         {
             let conn = app.db();
-            let src: i64 = conn.query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0)).unwrap();
+            let src: i64 = conn
+                .query_row("SELECT id FROM sources WHERE tag = 'work' LIMIT 1", [], |r| r.get(0))
+                .unwrap();
             conn.execute(
                 "INSERT INTO items (source_id, external_id, kind, title, occurred_at) VALUES (?1, 'zebra', 'message', 'Zebracorn rollout', '2026-10-03T02:00:00.000Z')",
                 [src],
@@ -505,7 +715,11 @@ mod tests {
     fn small_model_writes_queries_glean_runs_them_large_model_cites() {
         let (app, _dir, ai, glean) = setup();
         let dd = topic_id(&app, "Datadog renewal");
-        let deps = Deps { http: &ai, creds: &fake_creds, time: SystemTime::now() };
+        let deps = Deps {
+            http: &ai,
+            creds: &fake_creds,
+            time: SystemTime::now(),
+        };
         // Few local items match these words, so local evidence leaves room under the cap for Glean's.
         let r = ask(&app, &deps, &glean, "What is left before signing?", Some(dd), &[], &[]).unwrap();
         assert_eq!(glean.requests().len(), 2, "one Glean call per query");
@@ -514,17 +728,30 @@ mod tests {
         assert_eq!(r.queries.len(), 3, "two Glean queries and the local route");
         assert_eq!(r.queries[2].mark, "◇");
         // The UI finds the local run by this flag, not by its mark.
-        assert_eq!(r.queries.iter().map(|q| q.local).collect::<Vec<_>>(), [false, false, true]);
+        assert_eq!(
+            r.queries.iter().map(|q| q.local).collect::<Vec<_>>(),
+            [false, false, true]
+        );
         assert_eq!(serde_json::to_value(&r.queries[2]).unwrap()["local"], true);
         assert!(r.sources.iter().any(|s| s.kept && s.title == "Datadog order form v2"));
         assert!(r.sources.iter().any(|s| !s.kept && s.reason == "shared words only"));
-        assert!(!r.answer.contains("[99]"), "made-up citations are dropped: {}", r.answer);
+        assert!(
+            !r.answer.contains("[99]"),
+            "made-up citations are dropped: {}",
+            r.answer
+        );
         assert!(r.answer.contains("[1]"));
         assert_eq!(r.people[0].name, "Kim Lee");
         assert_eq!(r.people[0].role, "Owner");
         assert!(r.route.starts_with("search → opus"), "{}", r.route);
         // The large model saw the evidence, numbered, and the chips' context.
-        let large_body = ai.requests().into_iter().find(|(_, u, _)| u.contains("claude-opus")).unwrap().2.unwrap();
+        let large_body = ai
+            .requests()
+            .into_iter()
+            .find(|(_, u, _)| u.contains("claude-opus"))
+            .unwrap()
+            .2
+            .unwrap();
         assert!(large_body.contains("[1] "), "{large_body}");
         assert!(large_body.contains("Topic: Datadog renewal"));
         assert!(!large_body.contains("Topic note"), "the note is off unless added");
@@ -534,10 +761,29 @@ mod tests {
     fn removing_a_chip_leaves_it_out() {
         let (app, _dir, ai, glean) = setup();
         let dd = topic_id(&app, "Datadog renewal");
-        let deps = Deps { http: &ai, creds: &fake_creds, time: SystemTime::now() };
-        let r = ask(&app, &deps, &glean, "What's open?", Some(dd), &["title".into()], &["note".into()]).unwrap();
+        let deps = Deps {
+            http: &ai,
+            creds: &fake_creds,
+            time: SystemTime::now(),
+        };
+        let r = ask(
+            &app,
+            &deps,
+            &glean,
+            "What's open?",
+            Some(dd),
+            &["title".into()],
+            &["note".into()],
+        )
+        .unwrap();
         assert!(!r.chips.iter().find(|c| c.id == "title").unwrap().on);
-        let small_body = ai.requests().into_iter().find(|(_, u, _)| u.contains("claude-haiku")).unwrap().2.unwrap();
+        let small_body = ai
+            .requests()
+            .into_iter()
+            .find(|(_, u, _)| u.contains("claude-haiku"))
+            .unwrap()
+            .2
+            .unwrap();
         assert!(!small_body.contains("Topic: Datadog renewal"));
         assert!(small_body.contains("Topic note"));
     }
@@ -548,7 +794,11 @@ mod tests {
         let down = FakeHttp::default();
         down.on("POST", "/rest/api/v1/search", 500, "boom");
         let dd = topic_id(&app, "Datadog renewal");
-        let deps = Deps { http: &ai, creds: &fake_creds, time: SystemTime::now() };
+        let deps = Deps {
+            http: &ai,
+            creds: &fake_creds,
+            time: SystemTime::now(),
+        };
         let r = ask(&app, &deps, &down, "What's open?", Some(dd), &[], &[]).unwrap();
         assert_eq!(r.glean["state"], "failed");
         assert!(r.sources.iter().all(|s| s.item_id.is_some()));
@@ -559,7 +809,11 @@ mod tests {
     fn large_tier_off_fails_closed_before_any_call() {
         let (app, _dir, ai, glean) = setup();
         app.update_settings(|s| s.ai.large.model.clear());
-        let deps = Deps { http: &ai, creds: &fake_creds, time: SystemTime::now() };
+        let deps = Deps {
+            http: &ai,
+            creds: &fake_creds,
+            time: SystemTime::now(),
+        };
         assert!(ask(&app, &deps, &glean, "q", None, &[], &[]).is_err());
         assert!(ai.requests().is_empty() && glean.requests().is_empty());
     }

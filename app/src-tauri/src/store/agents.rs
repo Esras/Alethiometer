@@ -2,9 +2,11 @@
 
 use super::Sql;
 use crate::agents::model::{Group, Row, Session};
-use crate::domain::agents::{AgentSignal, AgentState, AgentViews, Archived, ArchivedMatch, HostState, PrRow, SavedAgents, TaskRow, TicketRow};
-use crate::time::Ts;
+use crate::domain::agents::{
+    AgentSignal, AgentState, AgentViews, Archived, ArchivedMatch, HostState, PrRow, SavedAgents, TaskRow, TicketRow,
+};
 use crate::error::Result;
+use crate::time::Ts;
 use rusqlite::{params, OptionalExtension};
 use serde::de::DeserializeOwned;
 
@@ -23,7 +25,16 @@ impl Sql<'_> {
 const ARCHIVED: &str = "SELECT id, kind, source, project, group_name, group_id, archived_at, data FROM agent_archive";
 
 fn archived_from(r: &rusqlite::Row) -> rusqlite::Result<Archived> {
-    Ok(Archived { id: r.get(0)?, kind: r.get(1)?, source: r.get(2)?, project: r.get(3)?, group_name: r.get(4)?, group_id: r.get(5)?, at: r.get(6)?, data: r.get(7)? })
+    Ok(Archived {
+        id: r.get(0)?,
+        kind: r.get(1)?,
+        source: r.get(2)?,
+        project: r.get(3)?,
+        group_name: r.get(4)?,
+        group_id: r.get(5)?,
+        at: r.get(6)?,
+        data: r.get(7)?,
+    })
 }
 
 impl AgentViews for Sql<'_> {
@@ -31,9 +42,19 @@ impl AgentViews for Sql<'_> {
         let hosts = self
             .conn()
             .prepare_cached("SELECT id, seq, turn FROM agent_hosts")?
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+            })?
             .filter_map(|r| r.ok())
-            .map(|(id, seq, turn)| (id, HostState { seq: seq as u64, turn: serde_json::from_str(&turn).unwrap_or_default() }))
+            .map(|(id, seq, turn)| {
+                (
+                    id,
+                    HostState {
+                        seq: seq as u64,
+                        turn: serde_json::from_str(&turn).unwrap_or_default(),
+                    },
+                )
+            })
             .collect();
         let last_row_ids = self
             .conn()
@@ -89,25 +110,37 @@ impl AgentViews for Sql<'_> {
             .prepare_cached(&sql)?
             .query_map(params![q.to_ascii_lowercase(), limit as i64], |r| {
                 let row: Option<String> = r.get(8)?;
-                Ok(ArchivedMatch { item: archived_from(r)?, row: row.and_then(|j| serde_json::from_str::<(String, String)>(&j).ok()) })
+                Ok(ArchivedMatch {
+                    item: archived_from(r)?,
+                    row: row.and_then(|j| serde_json::from_str::<(String, String)>(&j).ok()),
+                })
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn archived(&self, id: &str) -> Result<Option<Archived>> {
-        Ok(self.conn().query_row(&format!("{ARCHIVED} WHERE id = ?1"), [id], archived_from).optional()?)
+        Ok(self
+            .conn()
+            .query_row(&format!("{ARCHIVED} WHERE id = ?1"), [id], archived_from)
+            .optional()?)
     }
 
     fn archived_members(&self, group_id: &str) -> Result<Vec<Archived>> {
         Ok(self
             .conn()
-            .prepare_cached(&format!("{ARCHIVED} WHERE kind = 'session' AND group_id = ?1 ORDER BY archived_at"))?
+            .prepare_cached(&format!(
+                "{ARCHIVED} WHERE kind = 'session' AND group_id = ?1 ORDER BY archived_at"
+            ))?
             .query_map([group_id], archived_from)?
             .collect::<rusqlite::Result<_>>()?)
     }
 
     fn archived_sessions(&self) -> Result<usize> {
-        Ok(self.conn().query_row("SELECT count(*) FROM agent_archive WHERE kind = 'session'", [], |r| r.get::<_, i64>(0))? as usize)
+        Ok(self
+            .conn()
+            .query_row("SELECT count(*) FROM agent_archive WHERE kind = 'session'", [], |r| {
+                r.get::<_, i64>(0)
+            })? as usize)
     }
 
     fn pr(&self, branch: Option<&str>, key: Option<&str>) -> Result<Option<PrRow>> {
@@ -215,7 +248,8 @@ impl AgentState for Sql<'_> {
 
     fn remove_session(&self, id: &str) -> Result<()> {
         self.conn().execute("DELETE FROM agent_sessions WHERE id = ?1", [id])?;
-        self.conn().execute("DELETE FROM agent_rows WHERE thread = ?1", [format!("s:{id}")])?;
+        self.conn()
+            .execute("DELETE FROM agent_rows WHERE thread = ?1", [format!("s:{id}")])?;
         Ok(())
     }
 
@@ -249,13 +283,26 @@ impl AgentState for Sql<'_> {
 
     fn color(&self, group: &str, name: &str, palette_len: usize) -> Result<usize> {
         let c = self.conn();
-        if let Some(i) = c.query_row("SELECT idx FROM agent_colors WHERE grp = ?1 AND name = ?2", params![group, name], |r| r.get::<_, i64>(0)).optional()? {
+        if let Some(i) = c
+            .query_row(
+                "SELECT idx FROM agent_colors WHERE grp = ?1 AND name = ?2",
+                params![group, name],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        {
             return Ok(i as usize);
         }
-        let used: Vec<i64> = c.prepare_cached("SELECT idx FROM agent_colors WHERE grp = ?1 ORDER BY rowid")?.query_map([group], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let used: Vec<i64> = c
+            .prepare_cached("SELECT idx FROM agent_colors WHERE grp = ?1 ORDER BY rowid")?
+            .query_map([group], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         let n = palette_len.max(1);
         let idx = (0..n).find(|i| !used.contains(&(*i as i64))).unwrap_or(used.len() % n);
-        c.execute("INSERT INTO agent_colors (grp, name, idx) VALUES (?1, ?2, ?3)", params![group, name, idx as i64])?;
+        c.execute(
+            "INSERT INTO agent_colors (grp, name, idx) VALUES (?1, ?2, ?3)",
+            params![group, name, idx as i64],
+        )?;
         Ok(idx)
     }
 

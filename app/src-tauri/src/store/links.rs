@@ -9,7 +9,11 @@ impl Links for Sql<'_> {
     fn state(&self, item_id: i64, topic_id: i64) -> Result<Option<String>> {
         Ok(self
             .conn()
-            .query_row("SELECT state FROM topic_links WHERE item_id = ?1 AND topic_id = ?2", params![item_id, topic_id], |r| r.get(0))
+            .query_row(
+                "SELECT state FROM topic_links WHERE item_id = ?1 AND topic_id = ?2",
+                params![item_id, topic_id],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
@@ -61,7 +65,10 @@ impl Links for Sql<'_> {
     }
 
     fn wrong_all(&self, item_id: i64) -> Result<()> {
-        self.conn().execute("UPDATE topic_links SET state = 'wrong' WHERE item_id = ?1 AND state != 'wrong'", [item_id])?;
+        self.conn().execute(
+            "UPDATE topic_links SET state = 'wrong' WHERE item_id = ?1 AND state != 'wrong'",
+            [item_id],
+        )?;
         Ok(())
     }
 

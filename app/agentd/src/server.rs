@@ -79,7 +79,14 @@ impl Daemon {
     fn emit(&self, h: &Host, kind: Kind, line: Option<String>, code: Option<i32>) {
         let mut log = lock(&h.log);
         log.seq += 1;
-        let ev = Reply::Ev(Event { id: h.id.clone(), seq: log.seq, at_ms: proto::now_ms(), kind, line, code });
+        let ev = Reply::Ev(Event {
+            id: h.id.clone(),
+            seq: log.seq,
+            at_ms: proto::now_ms(),
+            kind,
+            line,
+            code,
+        });
         let Ok(s) = serde_json::to_string(&ev) else { return };
         if log.file.is_none() {
             log.file = OpenOptions::new().create(true).append(true).open(&log.path).ok();
@@ -119,15 +126,30 @@ impl Daemon {
             .collect()
     }
 
-    fn spawn(self: &Arc<Self>, id: &str, cmd: &str, args: &[String], env: &BTreeMap<String, String>, cwd: &str, after: u64) -> Result<u32, String> {
+    fn spawn(
+        self: &Arc<Self>,
+        id: &str,
+        cmd: &str,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &str,
+        after: u64,
+    ) -> Result<u32, String> {
         if !proto::valid_id(id) {
             return Err(format!("bad id '{id}'"));
         }
-        if lock(&self.hosts).get(id).is_some_and(|h| h.alive.load(Ordering::SeqCst)) {
+        if lock(&self.hosts)
+            .get(id)
+            .is_some_and(|h| h.alive.load(Ordering::SeqCst))
+        {
             return Err(format!("{id} is already running"));
         }
         let mut c = Command::new(cmd);
-        c.args(args).envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        c.args(args)
+            .envs(env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         if !cwd.is_empty() {
             c.current_dir(cwd);
         }
@@ -142,7 +164,10 @@ impl Daemon {
             id: id.to_owned(),
             pid,
             started_ms: proto::now_ms(),
-            cmd: std::iter::once(cmd).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" "),
+            cmd: std::iter::once(cmd)
+                .chain(args.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" "),
             stdin: Mutex::new(child.stdin.take()),
             log: Mutex::new(Log { seq, path, file: None }),
             alive: AtomicBool::new(true),
@@ -183,14 +208,22 @@ impl Daemon {
     }
 
     fn write(&self, id: &str, line: &str) -> Result<(), String> {
-        let h = lock(&self.hosts).get(id).cloned().ok_or_else(|| format!("no agent {id}"))?;
+        let h = lock(&self.hosts)
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("no agent {id}"))?;
         let mut g = lock(&h.stdin);
         let w = g.as_mut().ok_or_else(|| format!("{id} has exited"))?;
-        w.write_all(format!("{line}\n").as_bytes()).and_then(|_| w.flush()).map_err(|e| format!("couldn't write to {id}: {e}"))
+        w.write_all(format!("{line}\n").as_bytes())
+            .and_then(|_| w.flush())
+            .map_err(|e| format!("couldn't write to {id}: {e}"))
     }
 
     fn kill(&self, id: &str) -> Result<(), String> {
-        let h = lock(&self.hosts).get(id).cloned().ok_or_else(|| format!("no agent {id}"))?;
+        let h = lock(&self.hosts)
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("no agent {id}"))?;
         if !h.alive.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -220,7 +253,11 @@ impl Daemon {
 
     fn subscribe(&self, conn: u64, tx: &mpsc::Sender<String>, from: &BTreeMap<String, u64>) {
         let hosts: Vec<Arc<Host>> = lock(&self.hosts).values().cloned().collect();
-        let sub = Arc::new(Sub { conn, tx: tx.clone(), sent: Mutex::new(hosts.iter().map(|h| (h.id.clone(), u64::MAX)).collect()) });
+        let sub = Arc::new(Sub {
+            conn,
+            tx: tx.clone(),
+            sent: Mutex::new(hosts.iter().map(|h| (h.id.clone(), u64::MAX)).collect()),
+        });
         lock(&self.subs).push(sub.clone());
         let _ = tx.send(serde_json::to_string(&Reply::Ok).unwrap_or_default());
         for h in hosts {
@@ -244,14 +281,32 @@ impl Daemon {
     fn handle(self: &Arc<Self>, conn: u64, req: Request, tx: &mpsc::Sender<String>) -> Option<Reply> {
         self.busy();
         Some(match req {
-            Request::Hello { .. } => Reply::Hello { protocol: proto::PROTOCOL, version: proto::VERSION.into(), pid: std::process::id(), started_ms: self.started_ms },
-            Request::Spawn { id, cmd, args, env, cwd, after } => match self.spawn(&id, &cmd, &args, &env, &cwd, after) {
+            Request::Hello { .. } => Reply::Hello {
+                protocol: proto::PROTOCOL,
+                version: proto::VERSION.into(),
+                pid: std::process::id(),
+                started_ms: self.started_ms,
+            },
+            Request::Spawn {
+                id,
+                cmd,
+                args,
+                env,
+                cwd,
+                after,
+            } => match self.spawn(&id, &cmd, &args, &env, &cwd, after) {
                 Ok(pid) => Reply::Spawned { id, pid },
                 Err(error) => Reply::Error { error },
             },
-            Request::Write { id, line } => self.write(&id, &line).map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
-            Request::Kill { id } => self.kill(&id).map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
-            Request::Forget { id } => self.forget(&id).map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
+            Request::Write { id, line } => self
+                .write(&id, &line)
+                .map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
+            Request::Kill { id } => self
+                .kill(&id)
+                .map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
+            Request::Forget { id } => self
+                .forget(&id)
+                .map_or_else(|error| Reply::Error { error }, |_| Reply::Ok),
             Request::List => Reply::Hosts { hosts: self.info() },
             Request::Subscribe { from } => {
                 self.subscribe(conn, tx, &from);
@@ -260,7 +315,9 @@ impl Daemon {
             Request::Shutdown { force } => {
                 let running: Vec<String> = self.info().into_iter().filter(|h| h.alive).map(|h| h.id).collect();
                 if !running.is_empty() && !force {
-                    return Some(Reply::Error { error: format!("{} agent(s) still running", running.len()) });
+                    return Some(Reply::Error {
+                        error: format!("{} agent(s) still running", running.len()),
+                    });
                 }
                 for id in running {
                     let _ = self.kill(&id);
@@ -296,7 +353,9 @@ impl Daemon {
         for l in BufReader::new(stream).lines().map_while(Result::ok) {
             let reply = match serde_json::from_str::<Request>(&l) {
                 Ok(req) => self.handle(conn, req, &tx),
-                Err(e) => Some(Reply::Error { error: format!("bad request: {e}") }),
+                Err(e) => Some(Reply::Error {
+                    error: format!("bad request: {e}"),
+                }),
             };
             if let Some(r) = reply {
                 let _ = tx.send(serde_json::to_string(&r).unwrap_or_default());
@@ -325,10 +384,18 @@ fn signal_group(pid: u32, sig: libc::c_int) -> bool {
 /// Agents from an earlier run of the daemon are gone; their logs stay so the
 /// app can read what it missed, ending in an exit it may never have seen.
 fn recover(d: &Arc<Daemon>) {
-    let Ok(dir) = std::fs::read_dir(d.state.join("logs")) else { return };
+    let Ok(dir) = std::fs::read_dir(d.state.join("logs")) else {
+        return;
+    };
     for e in dir.filter_map(Result::ok) {
         let p = e.path();
-        let Some(id) = p.file_stem().and_then(|s| s.to_str()).filter(|s| p.extension().is_some_and(|x| x == "jsonl") && proto::valid_id(s)) else { continue };
+        let Some(id) = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| p.extension().is_some_and(|x| x == "jsonl") && proto::valid_id(s))
+        else {
+            continue;
+        };
         let (seq, exited) = tail(&p);
         let h = Arc::new(Host {
             id: id.to_owned(),
@@ -336,12 +403,21 @@ fn recover(d: &Arc<Daemon>) {
             started_ms: 0,
             cmd: String::new(),
             stdin: Mutex::new(None),
-            log: Mutex::new(Log { seq, path: p.clone(), file: None }),
+            log: Mutex::new(Log {
+                seq,
+                path: p.clone(),
+                file: None,
+            }),
             alive: AtomicBool::new(false),
             exit: Mutex::new(None),
         });
         if !exited {
-            d.emit(&h, Kind::Exit, Some("the agent host stopped while this agent ran".into()), None);
+            d.emit(
+                &h,
+                Kind::Exit,
+                Some("the agent host stopped while this agent ran".into()),
+                None,
+            );
         }
         lock(&d.hosts).insert(id.to_owned(), h);
     }
@@ -355,7 +431,10 @@ pub fn run(opts: Options) -> io::Result<()> {
     let socket = proto::socket_path(&opts.dir);
     if socket.exists() {
         if UnixStream::connect(&socket).is_ok() {
-            return Err(io::Error::new(io::ErrorKind::AddrInUse, format!("an agent host already serves {}", opts.dir.display())));
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("an agent host already serves {}", opts.dir.display()),
+            ));
         }
         let _ = std::fs::remove_file(&socket);
     }
@@ -395,7 +474,12 @@ pub fn run(opts: Options) -> io::Result<()> {
             }
         });
     }
-    eprintln!("agentd {} (protocol {}) on {}", proto::VERSION, proto::PROTOCOL, socket.display());
+    eprintln!(
+        "agentd {} (protocol {}) on {}",
+        proto::VERSION,
+        proto::PROTOCOL,
+        socket.display()
+    );
     for s in listener.incoming() {
         if d.stop.load(Ordering::SeqCst) {
             break;
@@ -416,7 +500,10 @@ mod tests {
     use crate::client::{subscribe, Control};
 
     fn start(dir: &Path) -> std::thread::JoinHandle<io::Result<()>> {
-        let o = Options { dir: dir.to_owned(), idle: Duration::from_secs(600) };
+        let o = Options {
+            dir: dir.to_owned(),
+            idle: Duration::from_secs(600),
+        };
         let h = std::thread::spawn(move || run(o));
         let sock = proto::socket_path(dir);
         for _ in 0..100 {
@@ -444,21 +531,50 @@ mod tests {
         let dir = t.path();
         let srv = start(dir);
         let c = Control::connect(&proto::socket_path(dir)).unwrap();
-        assert!(matches!(c.call(&Request::Hello { protocol: 1 }).unwrap(), Reply::Hello { protocol: 1, .. }));
-        let r = c.ok(&Request::Spawn { id: "acp-1".into(), cmd: "cat".into(), args: vec![], env: BTreeMap::new(), cwd: String::new(), after: 0 }).unwrap();
+        assert!(matches!(
+            c.call(&Request::Hello { protocol: 1 }).unwrap(),
+            Reply::Hello { protocol: 1, .. }
+        ));
+        let r = c
+            .ok(&Request::Spawn {
+                id: "acp-1".into(),
+                cmd: "cat".into(),
+                args: vec![],
+                env: BTreeMap::new(),
+                cwd: String::new(),
+                after: 0,
+            })
+            .unwrap();
         assert!(matches!(r, Reply::Spawned { .. }));
-        c.ok(&Request::Write { id: "acp-1".into(), line: "one".into() }).unwrap();
-        c.ok(&Request::Write { id: "acp-1".into(), line: "two".into() }).unwrap();
+        c.ok(&Request::Write {
+            id: "acp-1".into(),
+            line: "one".into(),
+        })
+        .unwrap();
+        c.ok(&Request::Write {
+            id: "acp-1".into(),
+            line: "two".into(),
+        })
+        .unwrap();
         let got = events(dir, BTreeMap::new(), 2);
-        assert_eq!(got.iter().map(|e| (e.seq, e.line.clone().unwrap())).collect::<Vec<_>>(), vec![(1, "one".into()), (2, "two".into())]);
+        assert_eq!(
+            got.iter().map(|e| (e.seq, e.line.clone().unwrap())).collect::<Vec<_>>(),
+            vec![(1, "one".into()), (2, "two".into())]
+        );
         // A reconnect asks only for what it hasn't seen.
-        c.ok(&Request::Write { id: "acp-1".into(), line: "three".into() }).unwrap();
+        c.ok(&Request::Write {
+            id: "acp-1".into(),
+            line: "three".into(),
+        })
+        .unwrap();
         let got = events(dir, BTreeMap::from([("acp-1".to_string(), 2)]), 1);
         assert_eq!((got[0].seq, got[0].line.as_deref()), (3, Some("three")));
         c.ok(&Request::Kill { id: "acp-1".into() }).unwrap();
         let got = events(dir, BTreeMap::from([("acp-1".to_string(), 3)]), 1);
         assert_eq!(got[0].kind, Kind::Exit);
-        let Reply::Hosts { hosts } = c.call(&Request::List).unwrap() else { panic!() };
+        let Reply::Hosts { hosts } = c.call(&Request::List).unwrap() else {
+            panic!()
+        };
         assert!(!hosts[0].alive);
         assert!(c.ok(&Request::Shutdown { force: false }).is_ok());
         srv.join().unwrap().unwrap();
@@ -470,15 +586,38 @@ mod tests {
         let dir = t.path();
         let logs = proto::state_dir(dir).join("logs");
         std::fs::create_dir_all(&logs).unwrap();
-        let ev = Reply::Ev(Event { id: "acp-9".into(), seq: 4, at_ms: 1, kind: Kind::Out, line: Some("x".into()), code: None });
-        std::fs::write(logs.join("acp-9.jsonl"), format!("{}\n", serde_json::to_string(&ev).unwrap())).unwrap();
+        let ev = Reply::Ev(Event {
+            id: "acp-9".into(),
+            seq: 4,
+            at_ms: 1,
+            kind: Kind::Out,
+            line: Some("x".into()),
+            code: None,
+        });
+        std::fs::write(
+            logs.join("acp-9.jsonl"),
+            format!("{}\n", serde_json::to_string(&ev).unwrap()),
+        )
+        .unwrap();
         let srv = start(dir);
         let got = events(dir, BTreeMap::from([("acp-9".to_string(), 4)]), 1);
         assert_eq!((got[0].seq, got[0].kind), (5, Kind::Exit));
         // Spawning the same id again keeps counting.
         let c = Control::connect(&proto::socket_path(dir)).unwrap();
-        c.ok(&Request::Spawn { id: "acp-9".into(), cmd: "cat".into(), args: vec![], env: BTreeMap::new(), cwd: String::new(), after: 0 }).unwrap();
-        c.ok(&Request::Write { id: "acp-9".into(), line: "again".into() }).unwrap();
+        c.ok(&Request::Spawn {
+            id: "acp-9".into(),
+            cmd: "cat".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+            cwd: String::new(),
+            after: 0,
+        })
+        .unwrap();
+        c.ok(&Request::Write {
+            id: "acp-9".into(),
+            line: "again".into(),
+        })
+        .unwrap();
         let got = events(dir, BTreeMap::from([("acp-9".to_string(), 5)]), 1);
         assert_eq!((got[0].seq, got[0].line.as_deref()), (6, Some("again")));
         c.ok(&Request::Shutdown { force: true }).unwrap();
@@ -495,13 +634,27 @@ mod tests {
         let c = Control::connect(&proto::socket_path(dir)).unwrap();
         // Ignores TERM and stdin closing, with a child: only the group KILL ends it.
         let script = "trap '' TERM; sleep 30 & wait";
-        c.ok(&Request::Spawn { id: "acp-1".into(), cmd: "sh".into(), args: vec!["-c".into(), script.into()], env: BTreeMap::new(), cwd: String::new(), after: 0 }).unwrap();
+        c.ok(&Request::Spawn {
+            id: "acp-1".into(),
+            cmd: "sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env: BTreeMap::new(),
+            cwd: String::new(),
+            after: 0,
+        })
+        .unwrap();
         std::thread::sleep(Duration::from_millis(200));
         c.ok(&Request::Kill { id: "acp-1".into() }).unwrap();
         let got = events(dir, BTreeMap::new(), 1);
         assert_eq!(got[0].kind, Kind::Exit);
-        assert!(bystander.try_wait().unwrap().is_none(), "a process outside the agent's group was signalled");
-        assert!(!signal_group(0, 0) && !signal_group(1, 0), "never the daemon's own group or every process");
+        assert!(
+            bystander.try_wait().unwrap().is_none(),
+            "a process outside the agent's group was signalled"
+        );
+        assert!(
+            !signal_group(0, 0) && !signal_group(1, 0),
+            "never the daemon's own group or every process"
+        );
         bystander.kill().unwrap();
         let _ = bystander.wait();
         c.ok(&Request::Shutdown { force: true }).unwrap();
@@ -512,9 +665,15 @@ mod tests {
     fn one_daemon_per_directory() {
         let t = tempfile::tempdir().unwrap();
         let srv = start(t.path());
-        let again = run(Options { dir: t.path().to_owned(), idle: Duration::from_secs(1) });
+        let again = run(Options {
+            dir: t.path().to_owned(),
+            idle: Duration::from_secs(1),
+        });
         assert_eq!(again.unwrap_err().kind(), io::ErrorKind::AddrInUse);
-        Control::connect(&proto::socket_path(t.path())).unwrap().ok(&Request::Shutdown { force: true }).unwrap();
+        Control::connect(&proto::socket_path(t.path()))
+            .unwrap()
+            .ok(&Request::Shutdown { force: true })
+            .unwrap();
         srv.join().unwrap().unwrap();
     }
 }

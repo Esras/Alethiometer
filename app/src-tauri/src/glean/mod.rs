@@ -14,11 +14,11 @@
 pub mod ask;
 pub mod hydrate;
 
+use crate::domain::ports::UnitOfWork;
 use crate::error::{msg, Result};
 use crate::settings::sources::GleanConfig;
 use crate::state::App;
 use crate::sync::http::Http;
-use crate::domain::ports::UnitOfWork;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -55,7 +55,12 @@ pub struct Hit {
 impl Hit {
     /// Everyone the result names, for entity matching and "who owns this".
     pub fn people(&self) -> impl Iterator<Item = &Who> {
-        self.author.iter().chain(&self.owner).chain(&self.assignee).chain(&self.updated_by).chain(&self.mentioned)
+        self.author
+            .iter()
+            .chain(&self.owner)
+            .chain(&self.assignee)
+            .chain(&self.updated_by)
+            .chain(&self.mentioned)
     }
 }
 
@@ -66,9 +71,15 @@ pub enum Unavailable {
     /// No enabled glean source.
     Off,
     NoServer,
-    NoToken { secret: String },
-    Limit { per_day: i64 },
-    Failed { error: String },
+    NoToken {
+        secret: String,
+    },
+    Limit {
+        per_day: i64,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 impl std::fmt::Display for Unavailable {
@@ -86,7 +97,10 @@ impl std::fmt::Display for Unavailable {
 /// The enabled glean source's config, if any.
 pub fn config(app: &App) -> Option<GleanConfig> {
     let s = app.settings();
-    let src = s.sources.iter().find(|s| s.kind == "glean" && s.enabled && s.tag == "work")?;
+    let src = s
+        .sources
+        .iter()
+        .find(|s| s.kind == "glean" && s.enabled && s.tag == "work")?;
     GleanConfig::from_json(&src.config).ok()
 }
 
@@ -104,8 +118,16 @@ pub fn search(app: &App, http: &dyn Http, query: &str) -> std::result::Result<Ve
     if cfg.server_url.trim().is_empty() {
         return Err(Unavailable::NoServer);
     }
-    let token = app.platform.secret_get(&cfg.token_secret).ok_or(Unavailable::NoToken { secret: cfg.token_secret.clone() })?;
-    let key = format!("{}\u{1}{}\u{1}{}\u{1}{}", app.data_dir.display(), query.trim(), cfg.datasources.join(","), cfg.exclude_datasources.join(","));
+    let token = app.platform.secret_get(&cfg.token_secret).ok_or(Unavailable::NoToken {
+        secret: cfg.token_secret.clone(),
+    })?;
+    let key = format!(
+        "{}\u{1}{}\u{1}{}\u{1}{}",
+        app.data_dir.display(),
+        query.trim(),
+        cfg.datasources.join(","),
+        cfg.exclude_datasources.join(",")
+    );
     if cfg.cache_minutes > 0 {
         let cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((at, hits)) = cache.as_ref().and_then(|c| c.get(&key)) {
@@ -117,9 +139,14 @@ pub fn search(app: &App, http: &dyn Http, query: &str) -> std::result::Result<Ve
     // Checked and counted in one unit of work (BEGIN IMMEDIATE), so two searches can't both pass the
     // limit, even from two processes on one data dir (the app and the devserver).
     let day = app.clock.real_today();
-    let took = app.store().write(|uow| uow.usage().take_glean_call(day, cfg.calls_per_day)).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
+    let took = app
+        .store()
+        .write(|uow| uow.usage().take_glean_call(day, cfg.calls_per_day))
+        .map_err(|e| Unavailable::Failed { error: e.to_string() })?;
     if !took {
-        return Err(Unavailable::Limit { per_day: cfg.calls_per_day });
+        return Err(Unavailable::Limit {
+            per_day: cfg.calls_per_day,
+        });
     }
     let body = request_body(&cfg, query);
     let url = format!("{}/rest/api/v1/search", cfg.server_url.trim_end_matches('/'));
@@ -128,16 +155,33 @@ pub fn search(app: &App, http: &dyn Http, query: &str) -> std::result::Result<Ve
     if !cfg.act_as.is_empty() {
         headers.push(("x-glean-actas", cfg.act_as.as_str()));
     }
-    let resp = http.post_json(&url, &headers, &body).map_err(|e| Unavailable::Failed { error: e.to_string() })?;
+    let resp = http
+        .post_json(&url, &headers, &body)
+        .map_err(|e| Unavailable::Failed { error: e.to_string() })?;
     let resp = match resp.status {
-        401 | 403 => return Err(Unavailable::Failed { error: format!("Glean refused the token (HTTP {}); replace {} in Settings", resp.status, cfg.token_secret) }),
-        429 => return Err(Unavailable::Failed { error: "Glean is rate limiting; try again in a minute".into() }),
+        401 | 403 => {
+            return Err(Unavailable::Failed {
+                error: format!(
+                    "Glean refused the token (HTTP {}); replace {} in Settings",
+                    resp.status, cfg.token_secret
+                ),
+            })
+        }
+        429 => {
+            return Err(Unavailable::Failed {
+                error: "Glean is rate limiting; try again in a minute".into(),
+            })
+        }
         _ => resp.ok().map_err(|e| Unavailable::Failed { error: e.to_string() })?,
     };
-    let v = resp.json().map_err(|e| Unavailable::Failed { error: format!("unreadable reply: {e}") })?;
+    let v = resp.json().map_err(|e| Unavailable::Failed {
+        error: format!("unreadable reply: {e}"),
+    })?;
     let hits = parse(&v);
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    cache.get_or_insert_with(HashMap::new).insert(key, (Instant::now(), hits.clone()));
+    cache
+        .get_or_insert_with(HashMap::new)
+        .insert(key, (Instant::now(), hits.clone()));
     Ok(hits)
 }
 
@@ -170,7 +214,11 @@ fn who(v: Option<&Value>) -> Option<Who> {
     if name.is_empty() {
         return None;
     }
-    let email = v.get("metadata").and_then(|m| m.get("email")).and_then(Value::as_str).map(str::to_lowercase);
+    let email = v
+        .get("metadata")
+        .and_then(|m| m.get("email"))
+        .and_then(Value::as_str)
+        .map(str::to_lowercase);
     Some(Who { name, email })
 }
 
@@ -183,21 +231,38 @@ pub fn parse(v: &Value) -> Vec<Hit> {
             let doc = r.get("document").unwrap_or(&Value::Null);
             let meta = doc.get("metadata").unwrap_or(&Value::Null);
             let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-            let url = Some(s(r, "url")).filter(|u| !u.is_empty()).unwrap_or_else(|| s(doc, "url"));
+            let url = Some(s(r, "url"))
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| s(doc, "url"));
             if url.is_empty() {
                 return None;
             }
-            let title = Some(s(r, "title")).filter(|t| !t.is_empty()).unwrap_or_else(|| s(doc, "title"));
+            let title = Some(s(r, "title"))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| s(doc, "title"));
             let snippet = r
                 .get("snippets")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|x| x.get("snippet").or_else(|| x.get("text")).and_then(Value::as_str)).collect::<Vec<_>>().join(" … "))
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.get("snippet").or_else(|| x.get("text")).and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join(" … ")
+                })
                 .unwrap_or_default();
-            let updated = meta.get("updateTime").or_else(|| meta.get("createTime")).and_then(Value::as_str).and_then(crate::time::Ts::parse).map(crate::time::Ts::to_db);
+            let updated = meta
+                .get("updateTime")
+                .or_else(|| meta.get("createTime"))
+                .and_then(Value::as_str)
+                .and_then(crate::time::Ts::parse)
+                .map(crate::time::Ts::to_db);
             Some(Hit {
                 title: if title.is_empty() { url.clone() } else { title },
                 url,
-                datasource: Some(s(doc, "datasource")).filter(|d| !d.is_empty()).unwrap_or_else(|| s(meta, "datasource")).to_lowercase(),
+                datasource: Some(s(doc, "datasource"))
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or_else(|| s(meta, "datasource"))
+                    .to_lowercase(),
                 doc_type: s(doc, "docType"),
                 mime: s(meta, "mimeType"),
                 container: s(meta, "container"),
@@ -205,7 +270,11 @@ pub fn parse(v: &Value) -> Vec<Hit> {
                 owner: who(meta.get("owner")),
                 assignee: who(meta.get("assignedTo")),
                 updated_by: who(meta.get("updatedBy")),
-                mentioned: meta.get("mentionedPeople").and_then(Value::as_array).map(|a| a.iter().filter_map(|p| who(Some(p))).collect()).unwrap_or_default(),
+                mentioned: meta
+                    .get("mentionedPeople")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(|p| who(Some(p))).collect())
+                    .unwrap_or_default(),
                 updated,
                 snippet: snippet.chars().take(400).collect(),
             })
@@ -238,13 +307,23 @@ pub fn system(datasource: &str, mime: &str, doc_type: &str) -> (&'static str, &'
         "gdrive" | "googledrive" => ("gdrive", "Drive"),
         "microsoftteams" | "teams" => ("teams", "Teams"),
         "outlook" | "o365mail" | "exchange" => ("outlook", "Outlook"),
-        "o365sharepoint" | "sharepoint" | "onedrive" | "o365onedrive" => office(mime, doc_type).unwrap_or(("onedrive", "OneDrive")),
+        "o365sharepoint" | "sharepoint" | "onedrive" | "o365onedrive" => {
+            office(mime, doc_type).unwrap_or(("onedrive", "OneDrive"))
+        }
         _ => office(mime, doc_type).unwrap_or(("glean", "Glean")),
     }
 }
 
 /// Save a pin or reject for a result in a topic (or clear it).
-pub fn feedback(uow: &dyn UnitOfWork, topic_id: i64, key: &str, verdict: &str, title: &str, url: &str, source: &str) -> Result<()> {
+pub fn feedback(
+    uow: &dyn UnitOfWork,
+    topic_id: i64,
+    key: &str,
+    verdict: &str,
+    title: &str,
+    url: &str,
+    source: &str,
+) -> Result<()> {
     match verdict {
         "pin" | "reject" => uow.search_feedback().set(topic_id, key, verdict, title, url, source),
         "clear" => uow.search_feedback().clear(topic_id, key),
@@ -284,7 +363,14 @@ pub mod tests {
         assert_eq!(form.owner.as_ref().unwrap().email.as_deref(), Some("kim.lee@acme.com"));
         assert!(form.snippet.contains("SSO"));
         assert!(form.updated.is_some());
-        assert_eq!(system("o365sharepoint", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ""), ("excel", "Excel"));
+        assert_eq!(
+            system(
+                "o365sharepoint",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ""
+            ),
+            ("excel", "Excel")
+        );
         assert_eq!(system("confluence", "", ""), ("confluence", "Confluence"));
     }
 
@@ -299,14 +385,19 @@ pub mod tests {
         assert_eq!(a, b);
         assert_eq!(http.requests().len(), 1, "second call from the cache");
         let headers = http.header_log.lock().unwrap()[0].clone();
-        assert!(headers.iter().any(|(k, v)| k == "authorization" && v == "Bearer glean-tok"));
+        assert!(headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer glean-tok"));
         let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
         assert_eq!(body["query"], "datadog renewal");
         assert_eq!(body["pageSize"], 30);
         assert_eq!(used_today(&app).unwrap(), 1);
         search(&app, &http, "q2").unwrap();
         search(&app, &http, "q3").unwrap();
-        assert_eq!(search(&app, &http, "q4").unwrap_err(), Unavailable::Limit { per_day: 3 });
+        assert_eq!(
+            search(&app, &http, "q4").unwrap_err(),
+            Unavailable::Limit { per_day: 3 }
+        );
     }
 
     #[test]
@@ -316,9 +407,19 @@ pub mod tests {
         assert_eq!(search(&app, &http, "x").unwrap_err(), Unavailable::Off);
         with_glean(&app);
         http.on("POST", "/search", 401, "{}");
-        assert!(matches!(search(&app, &http, "x").unwrap_err(), Unavailable::Failed { .. }));
-        let cfg = GleanConfig { exclude_datasources: vec!["slack".into(), "hr".into()], ..Default::default() };
+        assert!(matches!(
+            search(&app, &http, "x").unwrap_err(),
+            Unavailable::Failed { .. }
+        ));
+        let cfg = GleanConfig {
+            exclude_datasources: vec!["slack".into(), "hr".into()],
+            ..Default::default()
+        };
         let body = request_body(&cfg, "x");
-        assert_eq!(body["requestOptions"]["facetFilters"].as_array().unwrap().len(), 2, "one negated filter each, so they AND");
+        assert_eq!(
+            body["requestOptions"]["facetFilters"].as_array().unwrap().len(),
+            2,
+            "one negated filter each, so they AND"
+        );
     }
 }

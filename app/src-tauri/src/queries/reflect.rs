@@ -20,19 +20,19 @@
 //! - decisions: items of kind `decision` that day (sample: two Obsidian lines).
 //! - jotted: Notes lines for that day.
 
-use crate::domain::sample::{ItemPatch, SampleData};
 use super::{arg_i64, arg_str, dur_label, minute_of_day, parse_date, parse_ts};
 use crate::api::{unknown, Route};
+use crate::clock::Clock;
+use crate::domain::ports::{Reads, UnitOfWork};
+use crate::domain::sample::{ItemPatch, SampleData};
 use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
+use crate::settings::Settings;
 use crate::state::App;
 use crate::sync::connectors::obsidian::save;
-use crate::clock::Clock;
 use crate::time::{Date, Ts};
 use jiff::civil::DateTime;
 use jiff::ToSpan;
-use crate::domain::ports::{Reads, UnitOfWork};
-use crate::settings::Settings;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -52,7 +52,15 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
         "carry" => {
             let today = app.clock.today();
-            app.store().write(|uow| carry(uow, today, arg_i64(args, "item_id")?, &arg_str(args, "period")?, &arg_str(args, "action")?))
+            app.store().write(|uow| {
+                carry(
+                    uow,
+                    today,
+                    arg_i64(args, "item_id")?,
+                    &arg_str(args, "period")?,
+                    &arg_str(args, "action")?,
+                )
+            })
         }
         "nudge" => nudge(app),
         "nudge_answer" => nudge_answer(app, &arg_str(args, "answer")?),
@@ -185,14 +193,22 @@ fn titles(scope: Scope, s: Date) -> (String, String) {
         Scope::Week => {
             let fri = s + (4).days();
             (
-                format!("Week {} · {} – {}", s.iso_week_date().week(), s.strftime("%-d %b"), fri.strftime("%-d %b")),
+                format!(
+                    "Week {} · {} – {}",
+                    s.iso_week_date().week(),
+                    s.strftime("%-d %b"),
+                    fri.strftime("%-d %b")
+                ),
                 format!("in {} · Q{q}", s.strftime("%B")),
             )
         }
         Scope::Month => (s.strftime("%B %Y").to_string(), format!("in Q{q} · {}", s.year())),
         Scope::Quarter => {
             let last = add_months(s, 2);
-            (format!("Q{q} {} · {} – {}", s.year(), s.strftime("%b"), last.strftime("%b")), format!("in {}", s.year()))
+            (
+                format!("Q{q} {} · {} – {}", s.year(), s.strftime("%b"), last.strftime("%b")),
+                format!("in {}", s.year()),
+            )
         }
     }
 }
@@ -225,8 +241,7 @@ pub fn summarize(text: &str) -> Option<String> {
 
 fn is_blank_list(l: &str) -> bool {
     let rest = l.trim_start_matches(|c: char| c.is_ascii_digit());
-    rest.len() < l.len() && matches!(rest.trim(), "." | ")")
-        || matches!(l, "-" | "*" | "- [ ]")
+    rest.len() < l.len() && matches!(rest.trim(), "." | ")") || matches!(l, "-" | "*" | "- [ ]")
 }
 
 // ---------------------------------------------------------------- events
@@ -267,7 +282,10 @@ fn events(r: &dyn Reads, clock: &Clock, from: Date, to: Date) -> Result<Vec<Ev>>
         .map(|e| {
             let actual = e.raw_json.as_deref().and_then(|raw| {
                 let v: Value = serde_json::from_str(raw).ok()?;
-                Some((clock.local(parse_ts(v.get("actual_start")?.as_str()?)?), clock.local(parse_ts(v.get("actual_end")?.as_str()?)?)))
+                Some((
+                    clock.local(parse_ts(v.get("actual_start")?.as_str()?)?),
+                    clock.local(parse_ts(v.get("actual_end")?.as_str()?)?),
+                ))
             });
             Ev {
                 start: clock.local(e.start),
@@ -285,7 +303,10 @@ fn events(r: &dyn Reads, clock: &Clock, from: Date, to: Date) -> Result<Vec<Ev>>
 
 /// Merged busy intervals (minutes of day) for a single day's events.
 fn busy(evs: &[Ev]) -> Vec<(i64, i64)> {
-    let mut iv: Vec<(i64, i64)> = evs.iter().map(|e| (minute_of_day(e.start), minute_of_day(e.end))).collect();
+    let mut iv: Vec<(i64, i64)> = evs
+        .iter()
+        .map(|e| (minute_of_day(e.start), minute_of_day(e.end)))
+        .collect();
     iv.sort();
     let mut out: Vec<(i64, i64)> = vec![];
     for (s, e) in iv {
@@ -330,7 +351,10 @@ fn cat_totals(evs: &[&Ev]) -> Vec<CatMin> {
     for e in evs {
         match out.iter_mut().find(|c| c.category == e.category) {
             Some(c) => c.minutes += e.minutes(),
-            None => out.push(CatMin { category: e.category.clone(), minutes: e.minutes() }),
+            None => out.push(CatMin {
+                category: e.category.clone(),
+                minutes: e.minutes(),
+            }),
         }
     }
     // Stable order: work first, then the rest as they appear.
@@ -412,16 +436,28 @@ fn get(app: &App, args: &Value) -> Result<Value> {
     let settings = app.settings();
 
     let (brief, children, carry) = app.store().read(|r| {
-        let brief = if scope == Scope::Day { Some(day_brief(r, &app.clock, &settings, s, &lens)?) } else { None };
+        let brief = if scope == Scope::Day {
+            Some(day_brief(r, &app.clock, &settings, s, &lens)?)
+        } else {
+            None
+        };
         let children = match scope.child() {
             Some(child) => Some(rollup(r, &app.clock, child, s, e, &lens)?),
             None => None,
         };
-        let carry = if lens == "life" { vec![] } else { carry_rows(r, scope, s, e)? };
+        let carry = if lens == "life" {
+            vec![]
+        } else {
+            carry_rows(r, scope, s, e)?
+        };
         Ok((brief, children, carry))
     })?;
     // The vault after the snapshot: the notes, and each child period's own note.
-    let children = children.map(|cs| cs.into_iter().filter_map(|c| c.with_note(&app.vault, &lens)).collect::<Vec<_>>());
+    let children = children.map(|cs| {
+        cs.into_iter()
+            .filter_map(|c| c.with_note(&app.vault, &lens))
+            .collect::<Vec<_>>()
+    });
     let path = note_path(scope, s, &lens);
     let abs = app.vault.join(&path);
     let disk = std::fs::read_to_string(&abs).ok();
@@ -462,22 +498,42 @@ fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens:
     let decided: Vec<Decision> = if lens == "life" {
         vec![]
     } else {
-        r.reflect().decisions(day_from, day_to)?.into_iter().map(|(title, topic)| Decision { title, topic }).collect()
+        r.reflect()
+            .decisions(day_from, day_to)?
+            .into_iter()
+            .map(|(title, topic)| Decision { title, topic })
+            .collect()
     };
 
     let finished: Vec<Decision> = if lens == "life" {
         vec![]
     } else {
-        r.reflect().finished(day_from, day_to)?.into_iter().map(|(title, topic)| Decision { title, topic }).collect()
+        r.reflect()
+            .finished(day_from, day_to)?
+            .into_iter()
+            .map(|(title, topic)| Decision { title, topic })
+            .collect()
     };
 
     let tiles = if lens == "life" {
         let life: Vec<&&Ev> = evs.iter().filter(|e| e.life).collect();
         vec![
-            Tile { value: dur_label(life.iter().map(|e| e.minutes()).sum()), label: "Life · busy".into() },
-            Tile { value: life.len().to_string(), label: "Life blocks".into() },
-            Tile { value: dur_label(longest), label: format!("longest of {} free", dur_label(free_total)) },
-            Tile { value: dur_label(free_total), label: format!("free {:02}–{:02}", h0 / 60, h1 / 60) },
+            Tile {
+                value: dur_label(life.iter().map(|e| e.minutes()).sum()),
+                label: "Life · busy".into(),
+            },
+            Tile {
+                value: life.len().to_string(),
+                label: "Life blocks".into(),
+            },
+            Tile {
+                value: dur_label(longest),
+                label: format!("longest of {} free", dur_label(free_total)),
+            },
+            Tile {
+                value: dur_label(free_total),
+                label: format!("free {:02}–{:02}", h0 / 60, h1 / 60),
+            },
         ]
     } else {
         let meetings: Vec<&&Ev> = evs.iter().filter(|e| e.is_meeting()).collect();
@@ -488,34 +544,73 @@ fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens:
                 value: meetings.len().to_string(),
                 label: format!("meetings · {}", dur_label(meetings.iter().map(|e| e.minutes()).sum())),
             },
-            Tile { value: decisions.to_string(), label: if decisions == 1 { "decision" } else { "decisions" }.into() },
-            Tile { value: dur_label(longest), label: format!("longest of {} free", dur_label(free_total)) },
+            Tile {
+                value: decisions.to_string(),
+                label: if decisions == 1 { "decision" } else { "decisions" }.into(),
+            },
+            Tile {
+                value: dur_label(longest),
+                label: format!("longest of {} free", dur_label(free_total)),
+            },
             Tile {
                 value: jotted.to_string(),
-                label: if held > 0 { format!("jotted, {held} held") } else { "jotted in Notes".into() },
+                label: if held > 0 {
+                    format!("jotted, {held} held")
+                } else {
+                    "jotted in Notes".into()
+                },
             },
         ]
     };
 
     let plan: Vec<Bar> = evs
         .iter()
-        .map(|e| Bar { start_min: minute_of_day(e.start), end_min: minute_of_day(e.end), category: e.category.clone(), over: false })
+        .map(|e| Bar {
+            start_min: minute_of_day(e.start),
+            end_min: minute_of_day(e.end),
+            category: e.category.clone(),
+            over: false,
+        })
         .collect();
 
     let mut did = vec![];
-    let now_min = if day == now.date() { minute_of_day(now) } else if day < now.date() { 24 * 60 } else { 0 };
+    let now_min = if day == now.date() {
+        minute_of_day(now)
+    } else if day < now.date() {
+        24 * 60
+    } else {
+        0
+    };
     for e in &evs {
-        let (a, b) = e.actual.map(|(a, b)| (minute_of_day(a), minute_of_day(b))).unwrap_or((minute_of_day(e.start), minute_of_day(e.end)));
+        let (a, b) = e
+            .actual
+            .map(|(a, b)| (minute_of_day(a), minute_of_day(b)))
+            .unwrap_or((minute_of_day(e.start), minute_of_day(e.end)));
         if a >= now_min {
             continue;
         }
         let b = b.min(now_min);
         let sched_end = minute_of_day(e.end);
         if b > sched_end {
-            did.push(Bar { start_min: a, end_min: sched_end, category: e.category.clone(), over: false });
-            did.push(Bar { start_min: sched_end, end_min: b, category: e.category.clone(), over: true });
+            did.push(Bar {
+                start_min: a,
+                end_min: sched_end,
+                category: e.category.clone(),
+                over: false,
+            });
+            did.push(Bar {
+                start_min: sched_end,
+                end_min: b,
+                category: e.category.clone(),
+                over: true,
+            });
         } else {
-            did.push(Bar { start_min: a, end_min: b, category: e.category.clone(), over: false });
+            did.push(Bar {
+                start_min: a,
+                end_min: b,
+                category: e.category.clone(),
+                over: false,
+            });
         }
     }
 
@@ -526,11 +621,19 @@ fn day_brief(r: &dyn Reads, clock: &Clock, settings: &Settings, day: Date, lens:
         } else if e.category == "self" {
             ("Self-holds".to_string(), "self".to_string())
         } else {
-            (e.topic.clone().unwrap_or_else(|| "Other meetings".into()), e.category.clone())
+            (
+                e.topic.clone().unwrap_or_else(|| "Other meetings".into()),
+                e.category.clone(),
+            )
         };
         match where_.iter_mut().find(|w| w.label == label) {
             Some(w) => w.minutes += e.minutes(),
-            None => where_.push(Where { label, category: cat, minutes: e.minutes(), dur: String::new() }),
+            None => where_.push(Where {
+                label,
+                category: cat,
+                minutes: e.minutes(),
+                dur: String::new(),
+            }),
         }
     }
     where_.sort_by(|a, b| b.minutes.cmp(&a.minutes));
@@ -585,12 +688,20 @@ impl ChildRow {
 }
 
 fn rollup(r: &dyn Reads, clock: &Clock, child: Scope, s: Date, e: Date, lens: &str) -> Result<Vec<ChildRow>> {
-    let all = events(r, clock, period_start(child, s), period_end(child, period_start(child, e - (1).days())))?;
+    let all = events(
+        r,
+        clock,
+        period_start(child, s),
+        period_end(child, period_start(child, e - (1).days())),
+    )?;
     let mut out = vec![];
     let mut c = period_start(child, s);
     while c < e {
         let ce = period_end(child, c);
-        let evs: Vec<&Ev> = all.iter().filter(|x| keep(x, lens) && x.start.date() >= c && x.start.date() < ce).collect();
+        let evs: Vec<&Ev> = all
+            .iter()
+            .filter(|x| keep(x, lens) && x.start.date() >= c && x.start.date() < ce)
+            .collect();
         let label = match child {
             Scope::Day => c.strftime("%a").to_string(),
             Scope::Week => format!("W{:02}", c.iso_week_date().week()),
@@ -619,7 +730,11 @@ fn carry_rows(r: &dyn Reads, scope: Scope, s: Date, e: Date) -> Result<Vec<Carry
             .ok()
             .and_then(|v| v.get("glyph").and_then(Value::as_str).map(str::to_owned))
             .unwrap_or_else(|| "do".into());
-        let outbox = if c.action.as_deref() == Some("schedule") { r.reflect().hold_state(c.item_id, c.period)? } else { None };
+        let outbox = if c.action.as_deref() == Some("schedule") {
+            r.reflect().hold_state(c.item_id, c.period)?
+        } else {
+            None
+        };
         rows.push(CarryRow {
             item_id: c.item_id,
             period: c.period.to_string(),
@@ -653,7 +768,10 @@ fn save(app: &App, args: &Value) -> Result<Value> {
         save::Saved::Written => {}
     }
     let summary = summarize(&text);
-    app.store().write(|uow| uow.reflections().save_summary(scope.key(), s, &lens, &path, summary.as_deref()))?;
+    app.store().write(|uow| {
+        uow.reflections()
+            .save_summary(scope.key(), s, &lens, &path, summary.as_deref())
+    })?;
     Ok(json!({ "ok": true, "base": text, "summary": summary }))
 }
 
@@ -677,7 +795,13 @@ fn carry(uow: &dyn UnitOfWork, today: Date, item_id: i64, period: &str, action: 
                 "schedule" => {
                     // A calendar hold goes through the outbox; the item itself stays open.
                     let title = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?.title;
-                    let gcal = uow.reads().sources().of_kind("gcal")?.into_iter().next().ok_or_else(|| msg("no Google Calendar source for the hold"))?;
+                    let gcal = uow
+                        .reads()
+                        .sources()
+                        .of_kind("gcal")?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| msg("no Google Calendar source for the hold"))?;
                     let payload = json!({ "item_id": item_id, "title": title, "carried_from": p.to_string() });
                     uow.outbox().enqueue(gcal.id, "gcal.hold", &payload.to_string(), None)?;
                 }
@@ -727,7 +851,10 @@ fn load_nudge(app: &App, today: &str) -> NudgeState {
         .ok()
         .and_then(|t| serde_json::from_str::<NudgeState>(&t).ok())
         .filter(|s| s.date == today)
-        .unwrap_or_else(|| NudgeState { date: today.into(), ..Default::default() })
+        .unwrap_or_else(|| NudgeState {
+            date: today.into(),
+            ..Default::default()
+        })
 }
 
 fn store_nudge(app: &App, st: &NudgeState) -> Result<()> {
@@ -753,7 +880,12 @@ fn nudge(app: &App) -> Result<Value> {
     let ds = today.strftime("%Y-%m-%d").to_string();
     let now_min = minute_of_day(now);
     let mut st = load_nudge(app, &ds);
-    let (evs, open) = app.store().read(|r| Ok((events(r, &app.clock, today, today + (1).days())?, r.reflect().open_carry(today)?)))?;
+    let (evs, open) = app.store().read(|r| {
+        Ok((
+            events(r, &app.clock, today, today + (1).days())?,
+            r.reflect().open_carry(today)?,
+        ))
+    })?;
 
     let gap = nudge_gap(&busy(&evs), now_min);
     // A snooze is an instant (it can run past midnight).
@@ -766,7 +898,11 @@ fn nudge(app: &App) -> Result<Value> {
 
     let until = gap.and_then(|(_, e)| e).and_then(|e| {
         let ev = evs.iter().find(|x| minute_of_day(x.start) == e)?;
-        let what = if ev.life { "Life".to_string() } else { ev.title.clone().unwrap_or_else(|| "a meeting".into()) };
+        let what = if ev.life {
+            "Life".to_string()
+        } else {
+            ev.title.clone().unwrap_or_else(|| "a meeting".into())
+        };
         Some(format!("No meetings until {what} at {}", ev.start.strftime("%H:%M")))
     });
     let things = match open {
@@ -827,9 +963,19 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
     let monday = period_start(Scope::Week, today);
 
     // "did" sample: actual join/leave times on two of today's meetings.
-    for (title, a, b) in [("Eng leads", "09:00", "10:10"), ("1:1 Marco", "10:30", "10:45"), ("Acme call", "16:15", "16:55")] {
+    for (title, a, b) in [
+        ("Eng leads", "09:00", "10:10"),
+        ("1:1 Marco", "10:30", "10:45"),
+        ("Acme call", "16:15", "16:55"),
+    ] {
         let raw = json!({ "actual_start": ctx.at(0, a), "actual_end": ctx.at(0, b) }).to_string();
-        sample.patch_item(ctx.meeting_id(0, title), &ItemPatch { raw_json: Some(&raw), ..Default::default() })?;
+        sample.patch_item(
+            ctx.meeting_id(0, title),
+            &ItemPatch {
+                raw_json: Some(&raw),
+                ..Default::default()
+            },
+        )?;
     }
 
     // Decisions recorded today (Obsidian meeting notes).
@@ -837,17 +983,47 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
         ("Headcount: 1 Platform + 1 Data", "Q4 headcount", "11:40"),
         ("Acme: backoff fix ships behind a flag", "Acme outage", "15:05"),
     ] {
-        let id = ctx.item(ItemSeed { source: "obsidian", kind: "decision", title: title.into(), occurred_at: ctx.at(0, at), ..Default::default() });
+        let id = ctx.item(ItemSeed {
+            source: "obsidian",
+            kind: "decision",
+            title: title.into(),
+            occurred_at: ctx.at(0, at),
+            ..Default::default()
+        });
         ctx.link(id, topic, "confirmed");
     }
 
     // Earlier this week: a few meetings per day, for the category bars.
     let week: [&[(&str, &str, &str, &str)]; 5] = [
-        &[("09:00", "10:00", "Eng leads", "work"), ("10:30", "12:30", "Acme incident review", "work"), ("12:30", "13:00", "Lunch", "self"), ("14:00", "16:00", "Planning", "work")],
-        &[("09:30", "11:00", "Datadog prep", "work"), ("12:00", "12:45", "Lunch", "self"), ("13:00", "14:00", "1:1 Priya", "work")],
-        &[("09:00", "10:30", "Staff loop", "work"), ("11:00", "12:30", "Vendor sync", "work"), ("12:30", "13:15", "Lunch", "self"), ("15:00", "15:45", "1:1 Jordan", "work")],
-        &[("10:30", "11:30", "Standup + triage", "work"), ("12:00", "13:00", "Lunch", "self"), ("13:00", "14:00", "Walk", "self"), ("14:30", "16:00", "Hiring loop", "work"), ("16:00", "16:30", "Career chat", "jobs")],
-        &[("09:00", "11:00", "Eng leads", "work"), ("12:00", "13:00", "Lunch", "self"), ("14:00", "16:00", "Offsite prep", "work")],
+        &[
+            ("09:00", "10:00", "Eng leads", "work"),
+            ("10:30", "12:30", "Acme incident review", "work"),
+            ("12:30", "13:00", "Lunch", "self"),
+            ("14:00", "16:00", "Planning", "work"),
+        ],
+        &[
+            ("09:30", "11:00", "Datadog prep", "work"),
+            ("12:00", "12:45", "Lunch", "self"),
+            ("13:00", "14:00", "1:1 Priya", "work"),
+        ],
+        &[
+            ("09:00", "10:30", "Staff loop", "work"),
+            ("11:00", "12:30", "Vendor sync", "work"),
+            ("12:30", "13:15", "Lunch", "self"),
+            ("15:00", "15:45", "1:1 Jordan", "work"),
+        ],
+        &[
+            ("10:30", "11:30", "Standup + triage", "work"),
+            ("12:00", "13:00", "Lunch", "self"),
+            ("13:00", "14:00", "Walk", "self"),
+            ("14:30", "16:00", "Hiring loop", "work"),
+            ("16:00", "16:30", "Career chat", "jobs"),
+        ],
+        &[
+            ("09:00", "11:00", "Eng leads", "work"),
+            ("12:00", "13:00", "Lunch", "self"),
+            ("14:00", "16:00", "Offsite prep", "work"),
+        ],
     ];
     let life: [&[(&str, &str)]; 5] = [
         &[("17:00", "18:00")],
@@ -857,10 +1033,16 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
         &[],
     ];
     let one_liners = [
-        ("Headcount decided; Acme call took the open hour", "Mostly reacting. The incident review was useful though."),
+        (
+            "Headcount decided; Acme call took the open hour",
+            "Mostly reacting. The incident review was useful though.",
+        ),
         ("Datadog prep; short day", "Left early. Numbers are in the sheet."),
         ("Counter-offer sent", "Kim agreed on the walk-away number."),
-        ("Protected morning worked", "No meetings before 10:30 and the doc moved."),
+        (
+            "Protected morning worked",
+            "No meetings before 10:30 and the doc moved.",
+        ),
     ];
     let mut earlier = vec![];
     for i in 0..5 {
@@ -914,13 +1096,27 @@ pub fn seed(ctx: &Ctx, vault: &Path) -> anyhow::Result<()> {
             ..Default::default()
         })
     };
-    let set_glyph = |id: i64, glyph: &str| sample.patch_item(id, &ItemPatch { raw_json: Some(&json!({ "glyph": glyph }).to_string()), ..Default::default() });
+    let set_glyph = |id: i64, glyph: &str| {
+        sample.patch_item(
+            id,
+            &ItemPatch {
+                raw_json: Some(&json!({ "glyph": glyph }).to_string()),
+                ..Default::default()
+            },
+        )
+    };
     let first = earlier.first().copied().unwrap_or(today);
     let items = [
         (task("Send Marco feedback on the backoff PR", None, 0), "do"),
         (task("attrition numbers", Some("Lee"), 0), "delegated"),
-        (task("Platform on-call models", None, (first - today).get_days() as i64), "research"),
-        (task("Q4 strategy doc, first draft", None, (first - today).get_days() as i64), "do"),
+        (
+            task("Platform on-call models", None, (first - today).get_days() as i64),
+            "research",
+        ),
+        (
+            task("Q4 strategy doc, first draft", None, (first - today).get_days() as i64),
+            "do",
+        ),
     ];
     for (id, glyph) in items {
         set_glyph(id, glyph)?;
@@ -951,15 +1147,20 @@ fn write_seed_note(sample: &dyn SampleData, vault: &Path, scope: Scope, s: Date,
         }
         std::fs::write(&abs, text)?;
     }
-    sample.reflection(scope.key(), &s.strftime("%Y-%m-%d").to_string(), &path, summarize(text).as_deref())?;
+    sample.reflection(
+        scope.key(),
+        &s.strftime("%Y-%m-%d").to_string(),
+        &path,
+        summarize(text).as_deref(),
+    )?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
     use super::*;
     use crate::settings::Settings;
+    use rusqlite::params;
 
     fn app() -> (App, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -979,7 +1180,10 @@ mod tests {
         // 09:00 in Sydney is the previous day in UTC: the meeting is still today's.
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open_in_memory().unwrap();
-        let clock = crate::clock::Clock::fixed(crate::time::Ts::parse("2026-10-02T23:52:00Z").unwrap(), jiff::tz::TimeZone::get("Australia/Sydney").unwrap());
+        let clock = crate::clock::Clock::fixed(
+            crate::time::Ts::parse("2026-10-02T23:52:00Z").unwrap(),
+            jiff::tz::TimeZone::get("Australia/Sydney").unwrap(),
+        );
         crate::seed::seed(&crate::store::over(&conn), &clock, dir.path()).unwrap();
         let raw: String = conn
             .query_row("SELECT i.raw_json FROM events e JOIN items i ON i.id = e.item_id WHERE e.title = 'Eng leads' AND e.start = ?1", [clock.from_local(clock.today().at(9, 0, 0, 0))], |r| r.get(0))
@@ -989,7 +1193,10 @@ mod tests {
 
     #[test]
     fn summary_is_first_line_of_writing() {
-        assert_eq!(summarize("## Themes\nAcme ate the week.\n"), Some("Acme ate the week.".into()));
+        assert_eq!(
+            summarize("## Themes\nAcme ate the week.\n"),
+            Some("Acme ate the week.".into())
+        );
         assert_eq!(summarize("## Next\n1. \n2. \n"), None);
         let long = "Headcount call went 1 Platform + 1 Data. Felt right once Lee's numbers were in the room.";
         assert_eq!(summarize(long), Some("Headcount call went 1 Platform + 1 Data.".into()));
@@ -1015,15 +1222,27 @@ mod tests {
         let t = today(&app);
         let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "both" })).unwrap();
         assert!(got["note"]["base"].is_null());
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "Good day.\n", "base": null })).unwrap();
+        let r = save(
+            &app,
+            &json!({ "scope": "day", "period": t, "lens": "both", "text": "Good day.\n", "base": null }),
+        )
+        .unwrap();
         assert_eq!(r["ok"], true);
         // Saving again from a stale "absent" base is refused.
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "x", "base": null })).unwrap();
+        let r = save(
+            &app,
+            &json!({ "scope": "day", "period": t, "lens": "both", "text": "x", "base": null }),
+        )
+        .unwrap();
         assert_eq!(r["conflict"], true);
         // Someone edits the file in Obsidian: our save with the old base is refused.
         let abs = app.vault.join(note_path(Scope::Day, parse_date(&t).unwrap(), "both"));
         std::fs::write(&abs, "Edited in Obsidian\n").unwrap();
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "both", "text": "mine", "base": "Good day.\n" })).unwrap();
+        let r = save(
+            &app,
+            &json!({ "scope": "day", "period": t, "lens": "both", "text": "mine", "base": "Good day.\n" }),
+        )
+        .unwrap();
         assert_eq!(r["conflict"], true);
         assert_eq!(std::fs::read_to_string(&abs).unwrap(), "Edited in Obsidian\n");
         // With the current base it lands and the summary rolls up.
@@ -1038,32 +1257,59 @@ mod tests {
         let t = today(&app);
         let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "work" })).unwrap();
         let base = got["note"]["base"].clone();
-        let r = save(&app, &json!({ "scope": "day", "period": t, "lens": "work", "text": "Calm day.\n", "base": base })).unwrap();
+        let r = save(
+            &app,
+            &json!({ "scope": "day", "period": t, "lens": "work", "text": "Calm day.\n", "base": base }),
+        )
+        .unwrap();
         let id = r["queued"].as_i64().unwrap();
         assert_eq!(r["base"], "Calm day.\n");
         // Nothing on disk yet: that's Obsidian's job.
         let path = note_path(Scope::Day, parse_date(&t).unwrap(), "work");
-        assert_ne!(std::fs::read_to_string(app.vault.join(&path)).ok().as_deref(), Some("Calm day.\n"));
+        assert_ne!(
+            std::fs::read_to_string(app.vault.join(&path)).ok().as_deref(),
+            Some("Calm day.\n")
+        );
 
         let http = FakeHttp::default();
         match base.as_str() {
-            Some(b) => http.on("GET", "/vault/Reflections/", 200, json!({ "content": b, "stat": { "mtime": 1 } }).to_string()),
+            Some(b) => http.on(
+                "GET",
+                "/vault/Reflections/",
+                200,
+                json!({ "content": b, "stat": { "mtime": 1 } }).to_string(),
+            ),
             None => http.on("GET", "/vault/Reflections/", 404, "{}"),
         };
         http.on("PUT", "/vault/Reflections/", 204, "");
         crate::outbox::process_one(&app, &http).unwrap();
-        assert_eq!(call(&app, "save_status", &json!({ "outbox_id": id })).unwrap()["state"], "saved");
+        assert_eq!(
+            call(&app, "save_status", &json!({ "outbox_id": id })).unwrap()["state"],
+            "saved"
+        );
         // Obsidian writes the file; the rollup summary then comes from it.
         std::fs::write(app.vault.join(&path), "Calm day.\n").unwrap();
         let week = get(&app, &json!({ "scope": "week", "lens": "work", "period": t })).unwrap();
-        let day = week["children"].as_array().unwrap().iter().find(|c| c["period"] == t.as_str()).unwrap().clone();
-        assert_eq!((day["summary"].as_str(), day["has_entry"].as_bool()), (Some("Calm day."), Some(true)));
+        let day = week["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["period"] == t.as_str())
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (day["summary"].as_str(), day["has_entry"].as_bool()),
+            (Some("Calm day."), Some(true))
+        );
     }
 
     #[test]
     fn a_todo_finished_today_is_listed_and_reopening_it_takes_it_off() {
         let (app, _d) = app();
-        let before = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap()["brief"]["finished"].as_array().unwrap().len();
+        let before = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap()["brief"]["finished"]
+            .as_array()
+            .unwrap()
+            .len();
         let (id, title): (i64, String) = app
             .db()
             .query_row(
@@ -1073,13 +1319,17 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        app.db().execute("UPDATE items SET status = 'done' WHERE id = ?1", [id]).unwrap();
+        app.db()
+            .execute("UPDATE items SET status = 'done' WHERE id = ?1", [id])
+            .unwrap();
         let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         let finished = got["brief"]["finished"].as_array().unwrap();
         assert_eq!(finished.len(), before + 1);
         assert!(finished.iter().any(|f| f["title"] == title.as_str()));
 
-        app.db().execute("UPDATE items SET status = 'open' WHERE id = ?1", [id]).unwrap();
+        app.db()
+            .execute("UPDATE items SET status = 'open' WHERE id = ?1", [id])
+            .unwrap();
         let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         assert_eq!(got["brief"]["finished"].as_array().unwrap().len(), before);
     }
@@ -1093,27 +1343,79 @@ mod tests {
         assert_eq!(rows.len(), 4);
         let id = |i: usize| rows[i]["item_id"].as_i64().unwrap();
 
-        call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "tomorrow" })).unwrap();
+        call(
+            &app,
+            "carry",
+            &json!({ "item_id": id(0), "period": t, "action": "tomorrow" }),
+        )
+        .unwrap();
         let tomorrow = (app.clock.today() + (1).days()).to_string();
-        let n: i64 = app.db().query_row("SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2", params![id(0), tomorrow], |r| r.get(0)).unwrap();
+        let n: i64 = app
+            .db()
+            .query_row(
+                "SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2",
+                params![id(0), tomorrow],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(n, 1);
-        assert!(call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "let_go" })).is_err(), "must undo first");
-        call(&app, "carry", &json!({ "item_id": id(0), "period": t, "action": "undo" })).unwrap();
-        let n: i64 = app.db().query_row("SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2", params![id(0), tomorrow], |r| r.get(0)).unwrap();
+        assert!(
+            call(
+                &app,
+                "carry",
+                &json!({ "item_id": id(0), "period": t, "action": "let_go" })
+            )
+            .is_err(),
+            "must undo first"
+        );
+        call(
+            &app,
+            "carry",
+            &json!({ "item_id": id(0), "period": t, "action": "undo" }),
+        )
+        .unwrap();
+        let n: i64 = app
+            .db()
+            .query_row(
+                "SELECT count(*) FROM carry WHERE item_id = ?1 AND period = ?2",
+                params![id(0), tomorrow],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(n, 0);
 
-        call(&app, "carry", &json!({ "item_id": id(1), "period": t, "action": "schedule" })).unwrap();
-        let state: String = app.db().query_row("SELECT state FROM outbox WHERE op = 'gcal.hold'", [], |r| r.get(0)).unwrap();
+        call(
+            &app,
+            "carry",
+            &json!({ "item_id": id(1), "period": t, "action": "schedule" }),
+        )
+        .unwrap();
+        let state: String = app
+            .db()
+            .query_row("SELECT state FROM outbox WHERE op = 'gcal.hold'", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(state, "pending");
         let got = get(&app, &json!({ "scope": "day", "lens": "work" })).unwrap();
         assert_eq!(got["carry"][1]["outbox"], "pending");
 
         // Let go never deletes the item.
-        call(&app, "carry", &json!({ "item_id": id(2), "period": t, "action": "let_go" })).unwrap();
-        let n: i64 = app.db().query_row("SELECT count(*) FROM items WHERE id = ?1", [id(2)], |r| r.get(0)).unwrap();
+        call(
+            &app,
+            "carry",
+            &json!({ "item_id": id(2), "period": t, "action": "let_go" }),
+        )
+        .unwrap();
+        let n: i64 = app
+            .db()
+            .query_row("SELECT count(*) FROM items WHERE id = ?1", [id(2)], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
         let week = get(&app, &json!({ "scope": "week", "lens": "work" })).unwrap();
-        assert!(week["carry"].as_array().unwrap().iter().all(|r| r["item_id"].as_i64() != Some(id(2))));
+        assert!(week["carry"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["item_id"].as_i64() != Some(id(2))));
     }
 
     #[test]
@@ -1122,7 +1424,11 @@ mod tests {
         let got = get(&app, &json!({ "scope": "day", "lens": "life" })).unwrap();
         let b = &got["brief"];
         assert!(b["plan"].as_array().unwrap().iter().all(|x| x["category"] == "life"));
-        assert!(b["where"].as_array().unwrap().iter().all(|x| x["label"] == "Life · busy"));
+        assert!(b["where"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["label"] == "Life · busy"));
         assert!(b["decided"].as_array().unwrap().is_empty());
         assert!(got["carry"].as_array().unwrap().is_empty());
         let s = got.to_string();
@@ -1136,10 +1442,16 @@ mod tests {
         let kids = got["children"].as_array().unwrap();
         assert!(kids.len() >= 5);
         // The seed fills today and the weekdays around it, so the week has a quiet weekend day.
-        assert!(kids.iter().all(Value::is_object), "a quiet weekend day is left out, not sent as null: {kids:?}");
+        assert!(
+            kids.iter().all(Value::is_object),
+            "a quiet weekend day is left out, not sent as null: {kids:?}"
+        );
         let today_row = kids.iter().find(|k| k["period"] == today(&app)).unwrap();
         assert_eq!(today_row["summary"], "Headcount call went 1 Platform + 1 Data.");
-        assert_eq!(got["note"]["path"].as_str().unwrap().starts_with("Reflections/Weekly/"), true);
+        assert_eq!(
+            got["note"]["path"].as_str().unwrap().starts_with("Reflections/Weekly/"),
+            true
+        );
     }
 
     #[test]

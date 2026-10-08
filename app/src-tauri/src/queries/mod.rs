@@ -14,8 +14,8 @@ pub mod split;
 pub mod todos;
 pub mod topics;
 
-use crate::error::{msg, Result};
 use crate::clock::Clock;
+use crate::error::{msg, Result};
 use crate::time::{Date, Due, Ts};
 use jiff::civil::DateTime;
 use serde::Serialize;
@@ -29,7 +29,9 @@ pub fn arg_str(args: &Value, key: &str) -> Result<String> {
 }
 
 pub fn arg_i64(args: &Value, key: &str) -> Result<i64> {
-    args.get(key).and_then(Value::as_i64).ok_or_else(|| msg(format!("missing int arg '{key}'")))
+    args.get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| msg(format!("missing int arg '{key}'")))
 }
 
 pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
@@ -76,7 +78,11 @@ pub fn due_label(due: Due, clock: &Clock) -> String {
         Due::Day(d) => when_label(d.at(12, 0, 0, 0), now, false).replace("Today", "today"),
         Due::At(t) => {
             let t = clock.local(t);
-            format!("{} {}", when_label(t, now, false).replace("Today", "today"), t.strftime("%H:%M"))
+            format!(
+                "{} {}",
+                when_label(t, now, false).replace("Today", "today"),
+                t.strftime("%H:%M")
+            )
         }
     }
 }
@@ -119,7 +125,10 @@ mod tests {
         assert_eq!(due_label(at("2026-10-01T00:30:00Z"), &clock), "Wed 17:30");
         assert_eq!(due_label(day("2026-10-09"), &clock), "Oct 9");
         // Moving to Zurich (19:52 there): a calendar day stays that day; an instant moves with the wall clock.
-        let zurich = Clock::fixed(Ts::parse("2026-09-28T17:52:00Z").unwrap(), jiff::tz::TimeZone::get("Europe/Zurich").unwrap());
+        let zurich = Clock::fixed(
+            Ts::parse("2026-09-28T17:52:00Z").unwrap(),
+            jiff::tz::TimeZone::get("Europe/Zurich").unwrap(),
+        );
         assert_eq!(due_label(day("2026-09-28"), &zurich), "today");
         assert_eq!(due_label(at("2026-09-28T22:00:00Z"), &zurich), "Tue 00:00");
         // A day-only due is due by the end of that day where you are.

@@ -2,8 +2,8 @@
 
 use super::Sql;
 use crate::domain::topics::{LinkedItem, TopicHead, TopicSummary, TopicViews, Topics};
-use crate::time::SQL_NOW;
 use crate::error::Result;
+use crate::time::SQL_NOW;
 use crate::time::{Date, Due, Ts};
 use rusqlite::{params, OptionalExtension};
 
@@ -71,7 +71,11 @@ impl TopicViews for Sql<'_> {
         Ok(self
             .conn()
             .query_row("SELECT id, name, category FROM topics WHERE id = ?1", [id], |r| {
-                Ok(crate::domain::topics::TopicRef { id: r.get(0)?, name: r.get(1)?, category: r.get(2)? })
+                Ok(crate::domain::topics::TopicRef {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    category: r.get(2)?,
+                })
             })
             .optional()?)
     }
@@ -79,7 +83,9 @@ impl TopicViews for Sql<'_> {
     fn note_paths(&self) -> Result<Vec<(String, i64)>> {
         Ok(self
             .conn()
-            .prepare_cached("SELECT obsidian_path, id FROM topics WHERE archived_at IS NULL AND obsidian_path IS NOT NULL")?
+            .prepare_cached(
+                "SELECT obsidian_path, id FROM topics WHERE archived_at IS NULL AND obsidian_path IS NOT NULL",
+            )?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?)
     }
@@ -125,36 +131,55 @@ impl Topics for Sql<'_> {
     fn find_by_name(&self, name: &str) -> Result<Option<i64>> {
         Ok(self
             .conn()
-            .query_row("SELECT id FROM topics WHERE archived_at IS NULL AND name = ?1 COLLATE NOCASE", [name], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM topics WHERE archived_at IS NULL AND name = ?1 COLLATE NOCASE",
+                [name],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
     fn create(&self, name: &str, category: &str) -> Result<i64> {
-        self.conn().execute("INSERT INTO topics (name, category) VALUES (?1, ?2)", params![name, category])?;
+        self.conn().execute(
+            "INSERT INTO topics (name, category) VALUES (?1, ?2)",
+            params![name, category],
+        )?;
         Ok(self.conn().last_insert_rowid())
     }
 
     fn rename(&self, id: i64, name: &str) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE topics SET name = ?2 WHERE id = ?1", params![id, name])? == 1)
-    }
-
-    fn set_category(&self, id: i64, category: &str) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE topics SET category = ?2 WHERE id = ?1", params![id, category])? == 1)
-    }
-
-    fn set_priority(&self, id: i64, priority: Option<&str>) -> Result<bool> {
-        Ok(self.conn().execute("UPDATE topics SET priority = ?2 WHERE id = ?1", params![id, priority])? == 1)
-    }
-
-    fn set_archived(&self, id: i64, archived: bool) -> Result<bool> {
         Ok(self
             .conn()
-            .execute(&format!("UPDATE topics SET archived_at = CASE WHEN ?2 THEN {SQL_NOW} END WHERE id = ?1"), params![id, archived])?
+            .execute("UPDATE topics SET name = ?2 WHERE id = ?1", params![id, name])?
             == 1)
     }
 
+    fn set_category(&self, id: i64, category: &str) -> Result<bool> {
+        Ok(self
+            .conn()
+            .execute("UPDATE topics SET category = ?2 WHERE id = ?1", params![id, category])?
+            == 1)
+    }
+
+    fn set_priority(&self, id: i64, priority: Option<&str>) -> Result<bool> {
+        Ok(self
+            .conn()
+            .execute("UPDATE topics SET priority = ?2 WHERE id = ?1", params![id, priority])?
+            == 1)
+    }
+
+    fn set_archived(&self, id: i64, archived: bool) -> Result<bool> {
+        Ok(self.conn().execute(
+            &format!("UPDATE topics SET archived_at = CASE WHEN ?2 THEN {SQL_NOW} END WHERE id = ?1"),
+            params![id, archived],
+        )? == 1)
+    }
+
     fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()> {
-        self.conn().execute("UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL", params![id, path])?;
+        self.conn().execute(
+            "UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL",
+            params![id, path],
+        )?;
         Ok(())
     }
 
@@ -179,7 +204,10 @@ impl Topics for Sql<'_> {
         )?;
         c.execute("DELETE FROM topic_links WHERE topic_id = ?1", [from])?;
         for table in ["topic_people", "topic_repos", "search_feedback", "topic_tags"] {
-            c.execute(&format!("UPDATE OR IGNORE {table} SET topic_id = ?2 WHERE topic_id = ?1"), params![from, into])?;
+            c.execute(
+                &format!("UPDATE OR IGNORE {table} SET topic_id = ?2 WHERE topic_id = ?1"),
+                params![from, into],
+            )?;
             c.execute(&format!("DELETE FROM {table} WHERE topic_id = ?1"), [from])?;
         }
         c.execute(
@@ -189,7 +217,10 @@ impl Topics for Sql<'_> {
         )?;
         // Ids aren't AUTOINCREMENT: a later topic can get `from`'s id and must not inherit its vector.
         c.execute("DELETE FROM vec_topics WHERE rowid = ?1", [from])?;
-        c.execute("DELETE FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)", params![from, into])?;
+        c.execute(
+            "DELETE FROM embed_meta WHERE kind = 'topic' AND id IN (?1, ?2)",
+            params![from, into],
+        )?;
         c.execute("DELETE FROM topics WHERE id = ?1", [from])?;
         Ok(())
     }

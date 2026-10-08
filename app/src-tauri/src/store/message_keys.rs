@@ -12,7 +12,10 @@ pub fn run(conn: &Connection) -> anyhow::Result<()> {
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
     for (id, at, author, text) in &unkeyed {
-        conn.execute("UPDATE item_messages SET ext_key = ?1 WHERE id = ?2", params![crate::domain::splits::content_key(at, author, text), id])?;
+        conn.execute(
+            "UPDATE item_messages SET ext_key = ?1 WHERE id = ?2",
+            params![crate::domain::splits::content_key(at, author, text), id],
+        )?;
     }
     // One row per key in an item: the read one if any, else the first stored.
     let dropped = conn.execute(
@@ -23,7 +26,10 @@ pub fn run(conn: &Connection) -> anyhow::Result<()> {
         [],
     )?;
     if !unkeyed.is_empty() || dropped > 0 {
-        eprintln!("migration 23: keyed {} messages, dropped {dropped} duplicates", unkeyed.len());
+        eprintln!(
+            "migration 23: keyed {} messages, dropped {dropped} duplicates",
+            unkeyed.len()
+        );
     }
     conn.execute_batch("CREATE UNIQUE INDEX item_messages_item_key ON item_messages (item_id, ext_key);")?;
     Ok(())
@@ -54,7 +60,18 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         let hi = crate::domain::splits::content_key("2026-10-03T09:00:00.000Z", "Kim", "hi");
-        assert_eq!(rows, vec![(1, 1, hi, false), (3, 1, "17.1".into(), true), (4, 2, "17.1".into(), false)]);
-        assert!(conn.execute("INSERT INTO item_messages (item_id, ext_key) VALUES (1, '17.1')", []).is_err(), "one row per key");
+        assert_eq!(
+            rows,
+            vec![
+                (1, 1, hi, false),
+                (3, 1, "17.1".into(), true),
+                (4, 2, "17.1".into(), false)
+            ]
+        );
+        assert!(
+            conn.execute("INSERT INTO item_messages (item_id, ext_key) VALUES (1, '17.1')", [])
+                .is_err(),
+            "one row per key"
+        );
     }
 }

@@ -64,12 +64,19 @@ pub fn sources() -> Vec<PathBuf> {
     if let Some(p) = std::env::var_os("ALETHIOMETER_AGENTD") {
         out.push(PathBuf::from(p));
     }
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
         out.push(dir.join(BIN));
     }
     {
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../agentd/target");
-        let mut dev: Vec<PathBuf> = ["debug", "release"].iter().map(|p| base.join(p).join(BIN)).filter(|p| p.is_file()).collect();
+        let mut dev: Vec<PathBuf> = ["debug", "release"]
+            .iter()
+            .map(|p| base.join(p).join(BIN))
+            .filter(|p| p.is_file())
+            .collect();
         dev.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
         out.extend(dev.into_iter().rev());
     }
@@ -116,7 +123,9 @@ fn install(app: &App, running_agents: bool) -> Result<(PathBuf, Installed)> {
         if dest.is_file() {
             return Ok((dest, Installed::Same));
         }
-        return Err(msg("The agent host isn't built: run `npm run agentd` in app/ (see docs/agents.md)"));
+        return Err(msg(
+            "The agent host isn't built: run `npm run agentd` in app/ (see docs/agents.md)",
+        ));
     };
     if dest.is_file() && same_file(&src, &dest) {
         return Ok((dest, Installed::Same));
@@ -146,16 +155,25 @@ fn socket(app: &App) -> PathBuf {
 fn launch(app: &App, bin: &Path) -> Result<()> {
     let state = proto::state_dir(&app.data_dir);
     std::fs::create_dir_all(&state)?;
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(state.join("agentd.log"))?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state.join("agentd.log"))?;
     let mut c = std::process::Command::new(bin);
-    c.arg("--dir").arg(&app.data_dir).stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    c.arg("--dir")
+        .arg(&app.data_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         // Out of the app's group, so a dev rebuild or a terminal closing doesn't take it down.
         c.process_group(0);
     }
-    let mut child = c.spawn().map_err(|e| msg(format!("couldn't start the agent host ({}): {e}", bin.display())))?;
+    let mut child = c
+        .spawn()
+        .map_err(|e| msg(format!("couldn't start the agent host ({}): {e}", bin.display())))?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });
@@ -165,7 +183,10 @@ fn launch(app: &App, bin: &Path) -> Result<()> {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    Err(msg(format!("the agent host didn't come up; see {}", state.join("agentd.log").display())))
+    Err(msg(format!(
+        "the agent host didn't come up; see {}",
+        state.join("agentd.log").display()
+    )))
 }
 
 /// A control connection, starting the daemon if nothing answers.
@@ -186,7 +207,11 @@ fn control(app: &App) -> Result<Arc<Control>> {
     }
     let c = match Control::connect(&socket(app)) {
         Ok(c) => c,
-        Err(e) if keep() => return Err(msg(format!("no agent host on the socket (ALETHIOMETER_AGENTD_KEEP): {e}"))),
+        Err(e) if keep() => {
+            return Err(msg(format!(
+                "no agent host on the socket (ALETHIOMETER_AGENTD_KEEP): {e}"
+            )))
+        }
         Err(_) => {
             app.agents.daemon.set(|s| s.state = "starting".into());
             let (bin, _) = install(app, false).inspect_err(|e| {
@@ -209,7 +234,11 @@ fn control(app: &App) -> Result<Arc<Control>> {
     let mut c = Arc::new(c);
     // A newer build and nothing running on the old one: swap it in now.
     let running = list_with(&c).map(|h| h.iter().any(|h| h.alive)).unwrap_or(true);
-    if !running && install(app, false).map(|(_, i)| i == Installed::Updated).unwrap_or(false) {
+    if !running
+        && install(app, false)
+            .map(|(_, i)| i == Installed::Updated)
+            .unwrap_or(false)
+    {
         let _ = c.call(&Request::Shutdown { force: false });
         for _ in 0..60 {
             if Control::connect(&socket(app)).is_err() {
@@ -220,17 +249,31 @@ fn control(app: &App) -> Result<Arc<Control>> {
         launch(app, &installed(app))?;
         c = Arc::new(Control::connect(&socket(app)).map_err(|e| msg(format!("couldn't reach the agent host: {e}")))?);
     }
-    match c.call(&Request::Hello { protocol: proto::PROTOCOL })? {
-        Reply::Hello { protocol, version, pid, .. } => {
+    match c.call(&Request::Hello {
+        protocol: proto::PROTOCOL,
+    })? {
+        Reply::Hello {
+            protocol, version, pid, ..
+        } => {
             let ok = protocol == proto::PROTOCOL;
-            let stale = install(app, running).map(|(_, i)| i == Installed::Waiting).unwrap_or(false) || !ok;
+            let stale = install(app, running)
+                .map(|(_, i)| i == Installed::Waiting)
+                .unwrap_or(false)
+                || !ok;
             app.agents.daemon.set(|s| {
                 s.state = if ok { "running" } else { "error" }.into();
                 s.version = version.clone();
                 s.pid = pid;
                 s.stale = stale;
                 s.binary = installed(app).display().to_string();
-                s.error = if ok { String::new() } else { format!("The agent host speaks protocol {protocol}; this build needs {}. Restart it.", proto::PROTOCOL) };
+                s.error = if ok {
+                    String::new()
+                } else {
+                    format!(
+                        "The agent host speaks protocol {protocol}; this build needs {}. Restart it.",
+                        proto::PROTOCOL
+                    )
+                };
             });
         }
         r => return Err(msg(format!("unexpected answer from the agent host: {r:?}"))),
@@ -277,7 +320,10 @@ pub fn kick(app: &App) {
 
 fn pause(app: &App, d: Duration) {
     let until = std::time::Instant::now() + d;
-    while std::time::Instant::now() < until && !app.agents.daemon.kick.swap(false, Ordering::SeqCst) && !app.agents.daemon.stop.load(Ordering::SeqCst) {
+    while std::time::Instant::now() < until
+        && !app.agents.daemon.kick.swap(false, Ordering::SeqCst)
+        && !app.agents.daemon.stop.load(Ordering::SeqCst)
+    {
         std::thread::sleep(Duration::from_millis(100));
     }
 }
