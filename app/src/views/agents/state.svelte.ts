@@ -89,6 +89,8 @@ export function stopPolling() {
   timer = null;
 }
 
+let pollError: string | null = null;
+
 export async function poll() {
   if (busy) return;
   busy = true;
@@ -107,9 +109,10 @@ export async function poll() {
     }
     ag.rev = r.rev;
     if (r.thread && r.thread.key === ag.open && r.thread.tab === ag.tab) merge(r.thread);
-    ag.error = null;
+    if (ag.error === pollError) ag.error = null;
+    pollError = null;
   } catch (e) {
-    ag.error = String((e as Error).message ?? e);
+    ag.error = pollError = String((e as Error).message ?? e);
   } finally {
     busy = false;
   }

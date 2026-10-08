@@ -218,7 +218,9 @@
   {:else if session}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open in Zed</button>
   {/if}
-  <button class="btn icon" title="Terminal attached to this session" onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+  {#if !room && session?.source === 'scion'}
+    <button class="btn icon" title="Terminal attached to this session" onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+  {/if}
 </div>
 
 <style>
