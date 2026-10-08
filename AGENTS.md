@@ -16,4 +16,5 @@ Priorities: **accuracy over performance, maintainability over speed of developme
   - The target is SQL only in `store/`, with repositories that take and return models. New code goes there, not into new SQL elsewhere.
 - **Never hold the database across a network call or a file read.**
 - **Tests:** a fix comes with a test that fails without it. Races get a test that runs the competing paths at once. Fixtures replace live accounts.
+- **Rust is formatted with rustfmt** (`rustfmt.toml`, max_width 120): run `cargo fmt` in `app/src-tauri` and `app/agentd` before committing, and `cargo fmt --check` must pass. Don't hand-format or match an older wide style.
 - **Keep each change minimal and say what it doesn't do.** Record decisions in `HANDOFF.md` and open problems in `ISSUES.md`.
