@@ -57,7 +57,12 @@
                   includes = libs;
                   libraries = libs;
                 };
+                devshell.packages = [ pkgs.mold ];
                 env = [
+                  {
+                    name = "CARGO_TARGET_${pkgs.stdenv.hostPlatform.rust.cargoEnvVarTarget}_RUSTFLAGS";
+                    value = "-C link-arg=-fuse-ld=mold";
+                  }
                   {
                     name = "PKG_CONFIG_PATH";
                     prefix = "$DEVSHELL_DIR/share/pkgconfig";

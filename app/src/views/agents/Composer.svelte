@@ -220,7 +220,9 @@
   {:else if session?.sandbox?.upload && !session.parent_id}
     <button class="btn" title="Copy what the agent changed in its sandbox into {session.sandbox.upload}" onclick={() => (ag.bringBack = session.id)}><i class="ph ph-download-simple"></i>Bring back</button>
   {/if}
-  <button class="btn icon" title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'} onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+  {#if !room && (session?.source === 'scion' || session?.sandbox)}
+    <button class="btn icon" title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'} onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
+  {/if}
 </div>
 
 <style>

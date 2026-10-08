@@ -26,6 +26,10 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 
 `views/agents/Tree.svelte` starts `now` at `Date.now()` without `ui.info.clock_offset_ms`; the 1 s interval adds it. So with a fake or offset clock, ages read one value (e.g. "5d") until the first tick and another ("6d") after. Found by the ui-diff sharding work (2026-10-06), where a shot racing that tick split the two sides; the scenes now wait past it. Not fixed: the fix is one line, but it needs a test.
 
+### Agents: the attach terminal needs `x-terminal-emulator` on Linux (2026-10-08)
+
+`Platform::open_terminal` (`app/src-tauri/src/platform.rs`) runs `x-terminal-emulator`, which only Debian-family distros have; on Fedora the Scion attach button fails with "No such file or directory". Fix when Scion is used from Linux: try `$TERMINAL`, `xdg-terminal-exec`, then known terminals. The button is now hidden for local sessions and rooms, which have nothing to attach to; the backend's `("acp", "terminal")` arm in `agents/mod.rs` is unreachable from the UI.
+
 ### Agents: archiving, what's left (2026-10-05)
 
 - **No "done" for local sessions** (user: allowed to archive half-done work, but there aren't enough signals yet). A local session goes idle after every turn and never reaches completed, so local groups get no done nudge and their confirm never shows Not done. Candidates: a merged PR or Done ticket on every member, a clean tree with nothing unpushed, the agent saying it finished.
