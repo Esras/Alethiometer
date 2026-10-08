@@ -32,14 +32,14 @@
       <div class="msg faded">
         <span class="t tnum">{d.context.time}</span>
         <PersonName who={d.context.who} name={d.context.author} />
-        <div class="txt">(earlier) <Markdown text={d.context.text} /></div>
+        <div class="txt">(earlier) <Markdown text={d.context.text} tags={d.source !== 'slack'} /></div>
       </div>
     {/if}
     {#each d.messages as m (m.id)}
       <div class="msg">
         <span class="t tnum">{m.time}</span>
         <PersonName who={m.who} name={m.author} />
-        <div class="txt"><Markdown text={m.text} /></div>
+        <div class="txt"><Markdown text={m.text} tags={d.source !== 'slack'} /></div>
       </div>
       {#if m.replies?.length}
         <div class="replies">
@@ -47,7 +47,7 @@
             <div class="msg">
               <span class="t tnum">{r.time}</span>
               <PersonName who={r.who} name={r.author} />
-              <div class="txt"><Markdown text={r.text} /></div>
+              <div class="txt"><Markdown text={r.text} tags={d.source !== 'slack'} /></div>
             </div>
           {/each}
         </div>

@@ -2,7 +2,8 @@
   // Small markdown renderer for untrusted text (AI answers, GitHub/Jira bodies). Builds elements, never HTML strings.
   import { openExternal } from '../api';
 
-  let { text }: { text: string } = $props();
+  /** `tags`: text after an opening fence may be a language tag. Slack has none, so it's content there. */
+  let { text, tags = true }: { text: string; tags?: boolean } = $props();
 
   type Block =
     | { kind: 'code'; text: string }
@@ -24,6 +25,13 @@
       gap = false;
       if (/^\s*```/.test(line)) {
         const body: string[] = [];
+        const rest = line.replace(/^\s*```/, '');
+        const close = rest.lastIndexOf('```');
+        if (close >= 0) {
+          out.push({ kind: 'code', text: rest.slice(0, close).trim() });
+          continue;
+        }
+        if (rest.trim() && !(tags && /^[\w+#.-]+$/.test(rest.trim()))) body.push(rest);
         while (++i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i]);
         out.push({ kind: 'code', text: body.join('\n') });
         continue;

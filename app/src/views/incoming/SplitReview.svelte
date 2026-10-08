@@ -326,7 +326,7 @@
                 {#if chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                 <span class="t tnum">{m.time}</span>
                 <PersonName who={m.who} name={m.author} dim={gone} />
-                <div class="txt"><Markdown text={m.text} /></div>
+                <div class="txt"><Markdown text={m.text} tags={false} /></div>
                 <span class="side">
                   {#if gone}
                     <i class="ph ph-eye-slash"></i>dismissed{#if k}&nbsp;· <kbd>u</kbd>&nbsp;undo{/if}
@@ -343,7 +343,7 @@
                     <div class="msg reply">
                       <span class="t tnum">{rep.time}</span>
                       <PersonName who={rep.who} name={rep.author} />
-                      <div class="txt"><Markdown text={rep.text} /></div>
+                      <div class="txt"><Markdown text={rep.text} tags={false} /></div>
                       <span></span>
                     </div>
                   {/each}

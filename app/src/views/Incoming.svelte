@@ -820,7 +820,7 @@
                       <div class="msg context">
                         <span class="t tnum">{m.time}</span>
                         <PersonName who={m.who} name={m.author} />
-                        <div class="txt"><Markdown text={m.text} /></div>
+                        <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
                       </div>
                     {/if}
                   {/each}
@@ -843,7 +843,7 @@
                         {#if sel && chosen.has(m.id)}<i class="ph ph-check tick"></i>{/if}
                         <span class="t tnum">{m.time}</span>
                         <PersonName who={m.who} name={m.author} onlink={() => linkFrom(s, m)} />
-                        <div class="txt"><Markdown text={m.text} /></div>
+                        <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
                       </div>
                       {@const replies = m.replies ?? []}
                       {@const readReplies = replies.filter((r) => r.read).length}
@@ -857,7 +857,7 @@
                         <div class="msg reply" class:context={r.read} class:chosen={sel && chosen.has(m.id)}>
                           <span class="t tnum">{r.time}</span>
                           <PersonName who={r.who} name={r.author} onlink={() => linkFrom(s, r)} />
-                          <div class="txt"><Markdown text={r.text} /></div>
+                          <div class="txt"><Markdown text={r.text} tags={s.source !== 'slack'} /></div>
                         </div>
                       {/each}
                     {/each}
