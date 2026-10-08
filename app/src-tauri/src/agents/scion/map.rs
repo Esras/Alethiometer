@@ -658,6 +658,13 @@ pub fn build(cx: &Cx, st: &State, color: &mut dyn FnMut(&str, &str) -> usize) ->
             unsorted.entry(s(a, "projectId")).or_default().push(a);
         }
     }
+    // A project with no room and no agent still gets its group, or nothing could start an agent in it.
+    for p in &st.projects {
+        let pid = s(p, "id");
+        if !rooms.iter().any(|c| s(&c.meta, "projectId") == pid) {
+            unsorted.entry(pid).or_default();
+        }
+    }
     for (pid, agents) in &unsorted {
         let p = projects[pid];
         snap.groups.push(Group {
@@ -793,6 +800,18 @@ pub(crate) mod tests {
 
     fn by_ext<'a>(rows: &'a [Row], ext: &str) -> &'a Row {
         rows.iter().find(|r| r.ext == ext).unwrap_or_else(|| panic!("no row {ext}"))
+    }
+
+    #[test]
+    fn a_project_with_no_room_or_agent_still_has_a_group() {
+        let mut st = state();
+        let mut p = st.projects[0].clone();
+        p["id"] = "7d9a0c2e-0000-4c3a-8e7d-000000000099".into();
+        p["name"] = "fresh".into();
+        st.projects.push(p);
+        let snap = snapshot(&st);
+        let g = snap.groups.iter().find(|g| g.id.ends_with("000000000099:agents")).expect("an empty project is listed");
+        assert_eq!((g.source.as_str(), g.room.is_none()), ("scion", true));
     }
 
     #[test]

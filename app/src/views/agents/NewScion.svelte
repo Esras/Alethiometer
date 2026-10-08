@@ -34,6 +34,7 @@
   let harness = $state('');
   let broker = $state('');
   let branch = $state('');
+  let thinking = $state('');
   let addToRoom = $state(true);
   let task = $state('');
   let nameEl = $state<HTMLInputElement>();
@@ -56,7 +57,7 @@
   const members = $derived((ag.tree?.sessions ?? []).filter((s) => s.group_id === group && !s.parent_id));
   const taken = $derived(!!name && (ag.tree?.sessions ?? []).some((s) => s.group_id && groupById(s.group_id)?.project === g?.project && s.name === name));
   const short = (s: string) => (s.length > 28 ? `${s.slice(0, 26)}…` : s);
-  const command = $derived(`scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''} "${short(task || '<task>')}"`);
+  const command = $derived(`scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''}${thinking ? ` --thinking-level ${thinking}` : ''} "${short(task || '<task>')}"`);
 
   async function start() {
     if (busy || !name.trim() || taken) {
@@ -73,6 +74,7 @@
         harness_config: harness,
         broker,
         branch,
+        thinking,
         task,
         room: room && addToRoom ? room : '',
       })) as { id: string };
@@ -131,6 +133,14 @@
       <select bind:value={broker}>
         {#each cat?.brokers ?? [] as b (b.name)}<option value={b.name}>{b.name}{b.kind ? ` · ${b.kind}` : ''}{b.note ? ` · ${b.note}` : ''}</option>{/each}
       </select>
+    </span>
+    <span class="lab label">Thinking</span>
+    <span class="input">
+      <select bind:value={thinking}>
+        <option value="">default</option>
+        {#each [['low', 25], ['medium', 50], ['high', 75], ['max', 100]] as [n, v] (n)}<option value={n}>{n} · {v}</option>{/each}
+      </select>
+      <span class="note">mapped by the harness config</span>
     </span>
     <span class="lab label">Branch</span>
     <span class="input"><input bind:value={branch} placeholder="feat/…" /><span class="note">own clone</span></span>

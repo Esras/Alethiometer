@@ -705,6 +705,16 @@ pub fn start_agent(app: &App, args: &Value) -> Result<String> {
             body[k] = json!(v);
         }
     }
+    if let Some(level) = arg("thinking") {
+        let level = match level {
+            "low" => 25,
+            "medium" => 50,
+            "high" => 75,
+            "max" => 100,
+            n => n.parse::<u8>().ok().filter(|n| *n <= 100).ok_or_else(|| msg(format!("Thinking level '{n}' isn't low, medium, high, max or 0 to 100")))?,
+        };
+        body["config"] = json!({ "thinking_level": level });
+    }
     let c = hub.client(app).map_err(err)?;
     let v = c.create_agent(&body).map_err(err)?;
     if let Some(need) = v["envGather"]["needs"].as_array().filter(|n| !n.is_empty()) {
@@ -1128,12 +1138,12 @@ mod tests {
         http.on("POST", "/participants", 201, text("participant.json"));
         let (app, _d, _h) = connected(&http);
         let group = format!("scion:work-hub:{PID}:{ROOM}");
-        let args = json!({ "group": group, "name": "migrator", "template": "coder", "harness_config": "claude-web", "broker": "gcp-1", "branch": "migrator-users", "task": "Write the migration for the users table" });
+        let args = json!({ "group": group, "name": "migrator", "template": "coder", "harness_config": "claude-web", "broker": "gcp-1", "branch": "migrator-users", "task": "Write the migration for the users table", "thinking": "high" });
         assert!(start_agent(&app, &json!({ "group": group, "name": "planner", "template": "coder" })).is_err(), "names are unique in a project");
         let id = start_agent(&app, &args).unwrap();
         assert_eq!(id, "scion:work-hub:a1000000-0000-4000-8000-000000000005");
         let body = posted(&http, "/api/v1/agents");
-        assert_eq!(body, json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table" }));
+        assert_eq!(body, json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table", "config": { "thinking_level": 75 } }));
         let p = posted(&http, "/participants");
         assert_eq!(p, json!({ "principalKind": "agent", "principalId": "a1000000-0000-4000-8000-000000000005" }));
         assert!(app.agents.store.lock().sessions.contains_key(&id));
