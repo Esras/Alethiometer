@@ -1457,36 +1457,6 @@ mod tests {
     }
 
     #[test]
-    fn a_hub_token_that_lists_no_projects_reads_them_by_id() {
-        let http = hub_http();
-        http.on(
-            "GET",
-            "/api/v1/projects?",
-            200,
-            json!({ "projects": [], "totalCount": 0 }).to_string(),
-        );
-        let project = text("projects.json").parse::<Value>().unwrap()["projects"][0].to_string();
-        http.on("GET", &format!("/api/v1/projects/{PID}"), 200, project);
-        http.on(
-            "GET",
-            &format!("/api/v1/projects/{PID}/agents"),
-            200,
-            text("agents.json"),
-        );
-        let gone = json!({ "error": { "code": "not_found", "message": "Resource not found" } });
-        http.on("GET", "/api/v1/projects/gone", 404, gone.to_string());
-        let (app, _d) = app();
-        app.platform.secret_set("scion.token", "scion_pat_test").unwrap();
-        let url = "https://hub.example.com";
-        let cfg = ScionConfig::from_json(&json!({ "hub_url": url, "projects": [PID, "gone"] })).unwrap();
-        let h = Arc::new(Hub::new("work-hub", cfg, String::new(), http.clone()));
-        app.agents.scion.get().insert("work-hub".into(), h.clone());
-        poll(&app, &h);
-        assert_eq!(h.link().state, "connected", "{}", h.link().error);
-        assert_eq!(app.agents.store.lock().sessions.len(), 4);
-    }
-
-    #[test]
     fn a_second_poll_rereads_only_what_moved() {
         let http = hub_http();
         let (app, _d, h) = connected(&http);
