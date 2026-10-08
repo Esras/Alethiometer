@@ -99,8 +99,10 @@ enum Installed {
 
 /// `ALETHIOMETER_AGENTD_KEEP=1`: use whatever agent host answers on the
 /// socket and never install, swap or start one (tests that run their own).
+/// The crate's own unit tests always keep: a stray write or kill there would
+/// otherwise start a host in the test's temp dir that nothing stops.
 fn keep() -> bool {
-    std::env::var_os("ALETHIOMETER_AGENTD_KEEP").is_some_and(|v| v == "1")
+    cfg!(test) || std::env::var_os("ALETHIOMETER_AGENTD_KEEP").is_some_and(|v| v == "1")
 }
 
 /// Copy the best build into place unless a daemon with agents running is
