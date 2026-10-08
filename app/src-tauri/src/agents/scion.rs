@@ -955,7 +955,15 @@ pub fn start_agent(app: &App, args: &Value) -> Result<String> {
                 .filter(|n| *n <= 100)
                 .ok_or_else(|| msg(format!("Thinking level '{n}' isn't low, medium, high, max or 0 to 100")))?,
         };
-        body["config"] = json!({ "thinking_level": level });
+        body["config"]["thinking_level"] = json!(level);
+    }
+    if let Some(size) = arg("model_size") {
+        if !["small", "medium", "large", "extra-large"].contains(&size) {
+            return Err(msg(format!(
+                "Model size '{size}' isn't small, medium, large or extra-large"
+            )));
+        }
+        body["config"]["model"] = json!(size);
     }
     let c = hub.client(app).map_err(err)?;
     let v = c.create_agent(&body).map_err(err)?;
@@ -1554,7 +1562,7 @@ mod tests {
         http.on("POST", "/participants", 201, text("participant.json"));
         let (app, _d, _h) = connected(&http);
         let group = format!("scion:work-hub:{PID}:{ROOM}");
-        let args = json!({ "group": group, "name": "migrator", "template": "coder", "harness_config": "claude-web", "broker": "gcp-1", "branch": "migrator-users", "task": "Write the migration for the users table", "thinking": "high" });
+        let args = json!({ "group": group, "name": "migrator", "template": "coder", "harness_config": "claude-web", "broker": "gcp-1", "branch": "migrator-users", "task": "Write the migration for the users table", "thinking": "high", "model_size": "large" });
         assert!(
             start_agent(&app, &json!({ "group": group, "name": "planner", "template": "coder" })).is_err(),
             "names are unique in a project"
@@ -1564,7 +1572,7 @@ mod tests {
         let body = posted(&http, "/api/v1/agents");
         assert_eq!(
             body,
-            json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table", "config": { "thinking_level": 75 } })
+            json!({ "name": "migrator", "projectId": PID, "template": "coder", "harnessConfig": "claude-web", "runtimeBrokerId": "e1000000-0000-4000-8000-000000000001", "branch": "migrator-users", "task": "Write the migration for the users table", "config": { "thinking_level": 75, "model": "large" } })
         );
         let p = posted(&http, "/participants");
         assert_eq!(

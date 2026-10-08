@@ -34,6 +34,7 @@
   let harness = $state('');
   let broker = $state('');
   let branch = $state('');
+  let size = $state('');
   let thinking = $state('');
   let addToRoom = $state(true);
   let task = $state('');
@@ -63,7 +64,7 @@
   );
   const short = (s: string) => (s.length > 28 ? `${s.slice(0, 26)}…` : s);
   const command = $derived(
-    `scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''}${thinking ? ` --thinking-level ${thinking}` : ''} "${short(task || '<task>')}"`,
+    `scion start ${name || '<name>'} -t ${template || '<template>'}${branch ? ` -b ${branch}` : ''}${size ? ` --model ${size}` : ''}${thinking ? ` --thinking-level ${thinking}` : ''} "${short(task || '<task>')}"`,
   );
 
   async function start() {
@@ -81,6 +82,7 @@
         harness_config: harness,
         broker,
         branch,
+        model_size: size,
         thinking,
         task,
         room: room && addToRoom ? room : '',
@@ -158,6 +160,14 @@
             >{b.name}{b.kind ? ` · ${b.kind}` : ''}{b.note ? ` · ${b.note}` : ''}</option
           >{/each}
       </select>
+    </span>
+    <span class="lab label">Model size</span>
+    <span class="input">
+      <select bind:value={size}>
+        <option value="">default</option>
+        {#each ['small', 'medium', 'large', 'extra-large'] as n (n)}<option value={n}>{n}</option>{/each}
+      </select>
+      <span class="note">the harness config picks the model</span>
     </span>
     <span class="lab label">Thinking</span>
     <span class="input">
