@@ -22,6 +22,11 @@ Not built: bringing changes back from a sandbox that was already there (no recor
 
 Running a harness somewhere other than the host, e.g. the user's podman `claude-sandbox` (`~/.config/home-manager/claude-sandbox`), which Zed reaches over ACP today. Proposed shape, mirroring Scion's harness × broker: an `agents.runtimes` list in settings.json (`instances`, `start`, `exec` prefix, `cwd` template, `editor` URL, `mode`), harnesses gain an optional `runtime`, and everything that touches the session's files (the adapter, git for the branch fact, Explained's script reads) goes through one `exec` + `env -C {cwd}` helper. Today all of those assume the session directory is on the host; Explained reading the host copy of a sandboxed project would be wrong, not just missing. Sandboxed sessions would use Claude's `auto` mode.
 
+### UI checks: two flaky or failing scenes (found 2026-10-08)
+
+- **`todos-done` (ui-diff) races focus.** After the first todo is confirmed (`c`), the next `n` opens the todo form on the next signal but its field sometimes isn't focused, so "Reply to Dana" is typed into nothing and no second todo is made. Which side of the race a run lands on depends on timing (it flipped when the front end was reformatted, and reproduces on the unformatted UI with 400 ms between keys), and the later "Done and dismissed" scenes then start from different data and differ too. Either the form should take focus reliably after a confirm (an app bug, if a person typing fast hits it too), or the scene should wait for the field.
+- **ui-keys `picker · font picker: ↓ ↵ picks, and the setting follows`** fails on fresh servers (the setting doesn't change), with or without the Prettier reformat. Not looked into.
+
 ### Agents tree: ages ignore the clock offset for their first second
 
 `views/agents/Tree.svelte` starts `now` at `Date.now()` without `ui.info.clock_offset_ms`; the 1 s interval adds it. So with a fake or offset clock, ages read one value (e.g. "5d") until the first tick and another ("6d") after. Found by the ui-diff sharding work (2026-10-06), where a shot racing that tick split the two sides; the scenes now wait past it. Not fixed: the fix is one line, but it needs a test.

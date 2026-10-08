@@ -3,3 +3,6 @@
 
 # rustfmt across app/src-tauri and app/agentd (max_width 120)
 054ae0745009dec7864042f77dfefc869b204b1c
+
+# Prettier across app/src and app/scripts (printWidth 120)
+445247e97d9889ba7945d15ca43defaf1157e34e
