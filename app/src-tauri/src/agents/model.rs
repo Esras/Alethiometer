@@ -132,6 +132,8 @@ pub struct Sandbox {
     pub upload: String,
     /// Its permission requests are answered with the agent's own allow option (any agent but Claude Code, which runs in auto mode).
     pub allow_all: bool,
+    /// `stats.turns` when its changes were last brought back (or found to be none): archiving deletes the sandbox, so turns past it are work that would go with it.
+    pub synced_turns: u64,
 }
 
 /// One of direnv's watched files (`.envrc`, `flake.lock`…) as it was.

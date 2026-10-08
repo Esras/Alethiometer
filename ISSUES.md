@@ -12,9 +12,11 @@ Built (`app/docs/agents.md` › OpenShell sandboxes) from OpenShell's source and
 - `sandbox exec --no-tty` with stdin held open for hours: ACP lines both ways without buffering, the login shell's profile printing nothing to stdout (it would be a non-JSON line), and what a laptop sleep or a gateway restart does to it (the agent should show as exited and resume on the next message).
 - Stop kills the `openshell` CLI process; whether the gateway then ends the adapter inside the sandbox is unchecked. If it doesn't, a second exec would start a second adapter on the same session.
 - claude-agent-acp in auto mode under OpenShell's network policy (auto needs a model that supports it; the claude-code provider profile allows only api.anthropic.com and telemetry).
-- pi permission extensions' choice names against `openshell::allow_option` (allow by name: yes/allow/approve/ok/proceed/continue/run, not if it has no/deny/reject/block/cancel/don't).
+- pi permission extensions against `openshell::auto_allow`: that the gated call is shown pending when the extension asks (pi-acp 0.0.34 does, from the streamed tool call), and their choice names (allow by name: yes/allow/approve/ok/proceed/continue/run, not if it has no/deny/reject/block/cancel/don't).
+- `rule get --status pending` has no JSON output: `openshell::parse_rules` reads the labelled text of openshell-cli's `sandbox_draft_get` at `67adcf1`. A relabel upstream breaks it quietly (no approvals show). Worth asking OpenShell for `-o json` there.
+- `sandbox download` of a directory with a big `node_modules` the agent installed: it's all downloaded before the git-ignore filter drops it. Fine for a project, slow for a heavy one.
 
-Not built: getting changes out (`sandbox download`, or the agent pushing with a GitHub provider); deleting the sandbox on archive (it's kept; `openshell sandbox delete aleth-…`); the policy advisor's pending rules (`openshell rule get --status pending`) as Needs you items, since a denied connection is the one thing still waiting on a person; the model list from inside the sandbox; the facts box (git runs here, where the sandbox path doesn't exist), and Explained's script reads, which find nothing for the same reason.
+Not built: bringing changes back from a sandbox that was already there (no record of what went in, no local directory); the model list from inside the sandbox; the facts box (git runs here, where the sandbox path doesn't exist), and Explained's script reads, which find nothing for the same reason. Bring back writes files only; it never commits, and a binary file in conflict is listed like any other (no merge).
 
 ### Agents: local runtimes (podman sandbox, ssh) (user, 2026-10-03: deferred; OpenShell built 2026-10-08)
 

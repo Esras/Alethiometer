@@ -55,6 +55,8 @@ export const ag = $state({
   archivedQ: '',
   /** The archive confirm (02). */
   plan: null as Plan | null,
+  /** A sandboxed session whose changes are being brought back (BringBack). */
+  bringBack: null as string | null,
   /** Archived but still in the undo window (03), newest last. */
   pending: [] as Pending[],
   /** The right-click menu (05). */
@@ -351,7 +353,7 @@ export function confirmArchive(force: boolean) {
   const p = ag.plan;
   if (!p || p.state === 'blocked' || (p.state === 'not_done') !== force) return;
   ag.plan = null;
-  const label = p.hub ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}` : 'archiving';
+  const label = p.hub ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}` : p.sandboxes ? `deleting ${p.sandboxes} sandbox${p.sandboxes === 1 ? '' : 'es'}` : 'archiving';
   ag.pending = [...ag.pending, { target: p.target, until: Date.now() + UNDO_MS, force, label }];
   setTimeout(() => commitArchive(p.target), UNDO_MS);
 }

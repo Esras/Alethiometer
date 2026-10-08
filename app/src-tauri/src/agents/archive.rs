@@ -1,6 +1,6 @@
 //! Archiving agents (design "Agents Archive" 01–05; rules in app/docs/agents.md › Archive).
 
-use super::model::{Group, Row, Session, Status};
+use super::model::{Group, Row, Sandbox, Session, Status};
 use super::store::Inner;
 use crate::domain::agents::Archived;
 use crate::error::{msg, Result};
@@ -27,9 +27,12 @@ pub struct Plan {
     pub reasons: Vec<Reason>,
     /// Blocked: how many members are still going.
     pub going: usize,
-    /// Hub agents deleted, local sessions stopped.
+    /// Hub agents deleted, local sessions stopped, OpenShell sandboxes deleted.
     pub hub: usize,
     pub local: usize,
+    pub sandboxes: usize,
+    #[serde(skip)]
+    pub doomed: Vec<Sandbox>,
     #[serde(skip)]
     pub sessions: Vec<String>,
     #[serde(skip)]
@@ -90,6 +93,7 @@ pub fn plan(i: &Inner, target: &str) -> Result<Plan> {
     let busy = |s: &Session| s.status == Status::Running || asking(s);
     let going = archived.iter().filter(|s| busy(s)).count();
     let reasons = if going == 0 { not_done(&archived) } else { vec![] };
+    let doomed = doomed(i, &archived);
     let state = if going > 0 {
         "blocked"
     } else if reasons.is_empty() {
@@ -137,6 +141,8 @@ pub fn plan(i: &Inner, target: &str) -> Result<Plan> {
         going,
         hub: archived.iter().filter(|s| s.source == "scion").count(),
         local: archived.iter().filter(|s| s.source == "acp").count(),
+        sandboxes: doomed.len(),
+        doomed,
         sessions: ids.iter().map(|s| s.to_string()).collect(),
         group: if whole { group.map(|g| g.id.clone()) } else { None },
     })
@@ -157,10 +163,34 @@ fn descendants<'a>(i: &'a Inner, id: &str, depth: usize, out: &mut Vec<(&'a Sess
     }
 }
 
-/// Why stopped Scion agents aren't done; local sessions lose nothing and have no reliable "done" yet (ISSUES.md).
+/// The OpenShell sandboxes archiving these deletes: ones Alethiometer made
+/// (from a directory here), that no session staying in the tree runs in.
+/// A sandbox that was already there is never deleted.
+fn doomed(i: &Inner, archived: &[&Session]) -> Vec<Sandbox> {
+    let ids: Vec<&str> = archived.iter().map(|s| s.id.as_str()).collect();
+    let mut out: Vec<Sandbox> = vec![];
+    for sb in archived.iter().filter_map(|s| s.sandbox.as_ref()).filter(|b| !b.upload.is_empty()) {
+        let same = |b: &Sandbox| b.gateway == sb.gateway && b.name == sb.name;
+        let kept = i.sessions.values().any(|s| !ids.contains(&s.id.as_str()) && s.sandbox.as_ref().is_some_and(same));
+        if !kept && !out.iter().any(same) {
+            out.push(Sandbox { allow_all: false, synced_turns: 0, ..sb.clone() });
+        }
+    }
+    out
+}
+
+/// Why stopped Scion agents aren't done, and sandboxed work that hasn't been
+/// brought back (its sandbox goes); other local sessions lose nothing and
+/// have no reliable "done" yet (ISSUES.md).
 fn not_done(sessions: &[&Session]) -> Vec<Reason> {
     let scion: Vec<&&Session> = sessions.iter().filter(|s| s.source == "scion").collect();
     let mut out = vec![];
+    for s in sessions.iter().filter(|s| s.parent_id.is_none()) {
+        if let Some(sb) = s.sandbox.as_ref().filter(|b| !b.upload.is_empty() && s.stats.turns > b.synced_turns) {
+            let n = s.stats.turns - sb.synced_turns;
+            out.push(Reason { text: format!("{}'s changes in sandbox {} haven't been brought back ({n} turn{} since)", s.name, sb.name, if n == 1 { "" } else { "s" }), note: "lost with the sandbox".into() });
+        }
+    }
     for s in &scion {
         if let Some(n) = s.facts.branch.as_ref().and_then(|b| b.detail.strip_suffix(" ahead")).and_then(|n| n.parse::<u64>().ok()).filter(|n| *n > 0) {
             out.push(Reason { text: format!("{} has {n} unpushed commit{}", s.name, if n == 1 { "" } else { "s" }), note: "lost with its clone".into() });
@@ -200,7 +230,14 @@ pub fn archive(app: &App, target: &str, force: bool) -> Result<Value> {
         super::acp::stop(app, id);
     }
     let groups: Vec<String> = p.group.iter().cloned().collect();
+    let cli = app.settings().agents.openshell.command.clone();
     app.agents.store.archive(app.store(), &groups, &p.sessions, app.clock.now(), |uow, items| {
+        if !p.doomed.is_empty() {
+            let source = super::incoming::source_id(uow)?;
+            for sb in &p.doomed {
+                crate::outbox::request(uow, source, super::openshell::DELETE_OP, &json!({ "command": cli, "gateway": sb.gateway, "name": sb.name }), None)?;
+            }
+        }
         for a in items.iter().filter(|a| a.kind == "session" && a.source == "scion") {
             let s: Session = serde_json::from_str(&a.data).map_err(|e| msg(e.to_string()))?;
             let hub = a.id.strip_prefix("scion:").and_then(|r| r.split_once(':')).map(|(h, _)| h).unwrap_or_default();
@@ -209,10 +246,10 @@ pub fn archive(app: &App, target: &str, force: bool) -> Result<Value> {
         }
         Ok(())
     })?;
-    if p.hub > 0 {
+    if p.hub > 0 || p.sandboxes > 0 {
         crate::outbox::wake();
     }
-    Ok(json!({ "ok": true, "hub": p.hub, "local": p.local }))
+    Ok(json!({ "ok": true, "hub": p.hub, "local": p.local, "sandboxes": p.sandboxes }))
 }
 
 fn agents(n: usize) -> String {
@@ -243,9 +280,9 @@ pub fn snooze(app: &App, group: &str) -> Result<()> {
     Ok(())
 }
 
-/// Count the failed Hub deletes again (after a send, and at startup).
+/// Count the failed deletes (Hub agents, sandboxes) again (after a send, and at startup).
 pub fn refresh_failed(app: &App) {
-    let Ok(n) = app.store().read(|r| r.outbox().failed(DELETE_OP)) else { return };
+    let Ok(n) = app.store().read(|r| Ok(r.outbox().failed(DELETE_OP)? + r.outbox().failed(super::openshell::DELETE_OP)?)) else { return };
     let mut i = app.agents.store.lock();
     if i.hub_failed != n {
         i.hub_failed = n;

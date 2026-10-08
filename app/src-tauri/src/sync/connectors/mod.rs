@@ -1,6 +1,7 @@
 //! One module per source kind.
 
 pub mod github;
+pub mod agents;
 pub mod gcal;
 pub mod gmail;
 pub mod jira;
@@ -21,6 +22,7 @@ pub fn for_kind(kind: &str) -> Option<Box<dyn Connector>> {
         "obsidian" => Box::new(obsidian::Obsidian),
         "protoncal" => Box::new(protoncal::ProtonCalendar),
         "scion" => Box::new(scion::Scion),
+        "agents" => Box::new(agents::Agents),
         _ => return None,
     })
 }

@@ -17,7 +17,12 @@
 // only the call's id and title, with the gate's text as content. FAKE_ACP_MODE=pigate
 // is that with pi's own prompt: a field list restating a long multi-line command.
 // FAKE_ACP_NAME is its agentInfo name (e.g. claude-agent-acp's); FAKE_ACP_SAY_MODE=1
-// adds the permission mode it's in to the gate's output.
+// adds the permission mode it's in to the gate's output. FAKE_ACP_MODE=piui is
+// pi-acp with a permission extension: a bash call shown pending, then the
+// extension's select (its own pi-ui id, every choice allow_once).
+// FAKE_ACP_MODE=piquestion is an extension asking a yes/no question the same
+// way with no call waiting. FAKE_ACP_MODE=write edits files in its directory
+// (adds NOTES.md, rewrites README.md and KEEP.txt, deletes OLD.txt).
 
 import readline from 'node:readline';
 
@@ -173,9 +178,48 @@ const PI_COMMAND = [
 ].join('\n');
 const piGate = () => gate(PI_COMMAND, `tool         : bash\nrule         : *\ncommand      : python3\nfull command : ${PI_COMMAND}`);
 
+async function piSelect(id, title) {
+  const r = await request('session/request_permission', {
+    sessionId: session,
+    toolCall: { toolCallId: id, title, kind: 'other', status: 'pending', rawInput: { method: 'select', title, options: ['Yes', 'No'] } },
+    options: [
+      { optionId: 'choice-0', name: 'Yes', kind: 'allow_once' },
+      { optionId: 'choice-1', name: 'No', kind: 'allow_once' },
+    ],
+  });
+  return r?.outcome?.optionId ?? 'none';
+}
+
+async function piUi() {
+  update({ sessionUpdate: 'tool_call', toolCallId: 'call_1', kind: 'execute', title: 'bash', status: 'pending', rawInput: { command: 'rm -rf build' } });
+  const picked = await piSelect('pi-ui-1', '⚠️ Dangerous command:\n\n  rm -rf build\n\nAllow?');
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'call_1', status: 'completed', content: [] });
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `piui: ${picked}` } });
+  return 'end_turn';
+}
+
+async function piQuestion() {
+  const picked = await piSelect('pi-ui-2', 'Also update the docs?');
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `piquestion: ${picked}` } });
+  return 'end_turn';
+}
+
+async function write() {
+  const fs = await import('node:fs');
+  fs.writeFileSync('NOTES.md', 'notes from the agent\n');
+  fs.writeFileSync('README.md', '# demo, by the agent\n');
+  fs.writeFileSync('KEEP.txt', 'the agent\'s version\n');
+  fs.rmSync('OLD.txt', { force: true });
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'wrote' } });
+  return 'end_turn';
+}
+
 async function play(text) {
   turn++;
   cancelled = false;
+  if (process.env.FAKE_ACP_MODE === 'piui') return piUi();
+  if (process.env.FAKE_ACP_MODE === 'piquestion') return piQuestion();
+  if (process.env.FAKE_ACP_MODE === 'write') return write();
   if (process.env.FAKE_ACP_MODE === 'stream') return stream();
   if (process.env.FAKE_ACP_MODE === 'ask') return ask();
   if (process.env.FAKE_ACP_MODE === 'gate') return gate();

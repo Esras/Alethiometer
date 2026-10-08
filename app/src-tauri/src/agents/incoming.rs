@@ -91,7 +91,9 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
     for r in i.requests.values() {
         let Some(s) = top(&r.session_id) else { continue };
         let ask = r.kind == "ask";
-        let mut x = sig(s, format!("req:{}", r.id), if ask { "ask" } else { "approval" }, if ask { "has a question".into() } else { "needs approval".into() }, true, r.at.clone());
+        // A prompt an extension raised (`tag: question`) is answered with the agent's options like an approval, but it's a question.
+        let reason = if ask || r.tag == "question" { "has a question" } else { "needs approval" };
+        let mut x = sig(s, format!("req:{}", r.id), if ask { "ask" } else { "approval" }, reason.into(), true, r.at.clone());
         x.info["request"] = json!(r.id);
         if let Some(t) = i.threads.get(&r.thread) {
             let at = t.rows.iter().position(|row| row.request.as_deref() == Some(r.id.as_str())).unwrap_or(t.rows.len());
@@ -102,6 +104,10 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         if ask {
             x.messages.push((r.at.clone(), s.name.clone(), r.question.clone(), false));
             x.why = if r.thread.starts_with("r:") { format!("Asked in {}", room_name(i, &r.thread)) } else { "Asked in its session".into() };
+        } else if r.tag == "question" {
+            x.why = "Asked in its session".into();
+        } else if r.id.starts_with("osr:") {
+            x.why = format!("Its sandbox blocked a connection; OpenShell drafted this rule ({})", r.tool);
         } else {
             x.why = format!("Wants to run this in {}", super::acp::tilde(&r.cwd));
         }

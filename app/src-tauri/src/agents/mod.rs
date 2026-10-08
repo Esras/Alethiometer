@@ -78,6 +78,7 @@ pub fn start(app: Arc<App>) {
     archive::refresh_failed(&app);
     daemon::start(app.clone());
     incoming::start(app.clone());
+    openshell::start(app.clone());
     scion::start(app);
 }
 
@@ -256,7 +257,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "respond" => {
             let req = arg_str(args, "request")?;
             let option = arg_str(args, "option")?;
-            acp::respond(app, &req, &option, opt(args, "reason"))?;
+            if req.starts_with("osr:") {
+                openshell::respond_rule(app, &req, &option, opt(args, "reason"))?;
+            } else {
+                acp::respond(app, &req, &option, opt(args, "reason"))?;
+            }
             Ok(json!({ "ok": true }))
         }
         // Ask: a choice (1–3) or a written reply.
@@ -430,6 +435,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         // Where an OpenShell agent can run: the CLI's gateways, and a gateway's sandboxes.
         "openshell_gateways" => openshell::gateways(&app.settings().agents.openshell.command),
+        // Bring an agent's changes back out of its sandbox: look (downloads), then copy (or drop the look).
+        "sandbox_changes" => openshell::preview(app, &arg_str(args, "session")?),
+        "sandbox_copy_back" => openshell::copy_back(app, &arg_str(args, "session")?, args.get("force").and_then(Value::as_bool).unwrap_or(false)),
+        "sandbox_discard" => {
+            openshell::sync::discard(&arg_str(args, "session")?);
+            Ok(json!({ "ok": true }))
+        }
         "openshell_sandboxes" => openshell::sandboxes(&app.settings().agents.openshell.command, opt(args, "gateway").unwrap_or("")),
         "models" => acp::models(app, &arg_str(args, "harness")?, opt(args, "cwd").unwrap_or("")),
         "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),

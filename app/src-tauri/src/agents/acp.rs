@@ -42,6 +42,10 @@ fn now_ms() -> u64 {
     dproto::now_ms()
 }
 
+pub(super) fn now_ms_pub() -> u64 {
+    now_ms()
+}
+
 #[derive(Default)]
 pub struct Host {
     conns: Mutex<HashMap<String, Arc<Conn>>>,
@@ -412,6 +416,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         name: existing.clone().unwrap_or_else(|| super::openshell::sandbox_name(&id)),
         upload: if existing.is_some() { String::new() } else { cwd.clone() },
         allow_all: false,
+        synced_turns: 0,
     });
     let cwd = match (&existing, a.sandbox.as_ref()) {
         (Some(_), Some(b)) => b.workdir.trim().to_owned(),
@@ -506,6 +511,11 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
     let ts = now(app);
     app.agents.store.lock().push_row(&session_thread(id), state_row(&ts, &format!("Creating sandbox {} from {from} · uploading {}", n.name, tilde(&n.upload))));
     let workdir = super::openshell::create(&app.settings().agents.openshell.command, n)?;
+    // What went in, for bringing changes back (`openshell::sync`).
+    let sb = super::model::Sandbox { gateway: n.gateway.clone(), name: n.name.clone(), upload: n.upload.clone(), ..Default::default() };
+    if let Err(e) = super::openshell::record_upload(app, &sb) {
+        eprintln!("agents: couldn't record what went into sandbox {}: {e}", n.name);
+    }
     let ts = now(app);
     let mut i = app.agents.store.lock();
     i.update_session(id, |s| s.cwd = workdir.clone());
@@ -1265,7 +1275,8 @@ pub fn tool_label(u: &Value, cwd: &str) -> (String, String) {
 /// content: that can be large, and a permission request's own content is its message.
 fn remember(turn: &mut Turn, call: &str, u: &Value) {
     let e = turn.calls.entry(call.to_owned()).or_insert_with(|| json!({}));
-    for k in ["kind", "title", "name"] {
+    // The status tells a call waiting to run (where pi's permission gates ask) from one running.
+    for k in ["kind", "title", "name", "status"] {
         if let Some(v) = u.get(k).filter(|v| !v.is_null()) {
             e[k] = v.clone();
         }
@@ -1608,7 +1619,20 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
                 .collect()
         })
         .unwrap_or_default();
-    let parsed = (kind == "execute" || name == "bash").then(|| super::shell::parse(&command, &s.cwd, &local_bins(&s.cwd)));
+    // A request about no call the agent announced, while none waits to run, is
+    // a prompt of its own (pi-acp sends an extension's select or confirm this
+    // way): a question, shown with its own words, never answered for you.
+    let (known_call, call_pending) = {
+        let turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        (!call.is_empty() && (turn.tools.contains_key(&call) || turn.calls.contains_key(&call)), turn.calls.iter().any(|(id, c)| *id != call && c.get("status").and_then(Value::as_str) == Some("pending")))
+    };
+    let question = !known_call && !call_pending;
+    let asked_text = asked.get("title").and_then(Value::as_str).map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    let command = match (&asked_text, question) {
+        (Some(t), true) => t.clone(),
+        _ => command,
+    };
+    let parsed = (!question && (kind == "execute" || name == "bash")).then(|| super::shell::parse(&command, &s.cwd, &local_bins(&s.cwd)));
     let outside = |p: &str| p.starts_with('/') && !p.starts_with(&s.cwd) || p.starts_with('~');
     let tag = match &parsed {
         Some(p) => match p.verdict.as_str() {
@@ -1620,6 +1644,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         .to_owned(),
         None if outside(&detail) => "outside repo".into(),
         None if matches!(kind, "edit" | "delete" | "move") => "writes".into(),
+        None if question => "question".into(),
         None if kind == "read" || kind == "search" => "low".into(),
         None => kind.to_owned(),
     };
@@ -1631,6 +1656,7 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         "delete" => format!("Delete {detail}"),
         "fetch" => format!("Fetch {detail}"),
         "switch_mode" => title.clone().unwrap_or_else(|| "Switch mode".into()),
+        _ if question => asked_text.as_deref().and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty())).map(|l| crate::ai::context::clip(l, 120)).unwrap_or_else(|| "The agent asks".into()),
         _ => title.clone().unwrap_or_else(|| format!("Use {name}")),
     };
     let req = Request {
@@ -1655,8 +1681,8 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         target(&turn, &session, p.get("toolCall").unwrap_or(&Value::Null)).0
     };
     let _ = target;
-    // An agent whose checks are off in its sandbox gets its own allow option at once (`openshell::allow_option`).
-    let auto = s.sandbox.as_ref().filter(|b| b.allow_all).and_then(|_| super::openshell::allow_option(&req.options)).map(|o| o.id.clone());
+    // An agent whose checks are off in its sandbox gets its own allow option at once, for a gate (`openshell::auto_allow`).
+    let auto = s.sandbox.as_ref().filter(|b| b.allow_all).and_then(|_| super::openshell::auto_allow(&req.options, known_call, call_pending)).map(|o| o.id.clone());
     {
         let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         if auto.is_none() {
@@ -1683,9 +1709,9 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         } else {
             i.update_row(&key, row_id, |r| {
                 r.kind = Kind::Approval;
-                r.label = "needs approval".into();
+                r.label = if question { "asks you".into() } else { "needs approval".into() };
                 r.request = Some(req_id.clone());
-                r.text = if kind == "execute" || name == "bash" { command.clone() } else { detail.clone() };
+                r.text = if question || kind == "execute" || name == "bash" { command.clone() } else { detail.clone() };
             });
             i.put_request(req);
             i.update_session(&session, |s| s.status = Status::Waiting);
@@ -1697,7 +1723,9 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         }
         return;
     }
-    super::explain::request(app, &req_id);
+    if !question {
+        super::explain::request(app, &req_id);
+    }
 }
 
 /// `elicitation/create`: the agent asks you something (Claude Code's

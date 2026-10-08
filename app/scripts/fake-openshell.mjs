@@ -7,9 +7,12 @@
 //
 // Answers the subcommands Alethiometer runs, with the JSON shapes of
 // openshell-cli's gateway_to_json and sandbox_to_json: `gateway list`,
-// `sandbox list|create|start|exec`. `create --upload <dir>` copies the
+// `sandbox list|create|start|exec|download|delete`, and `rule get|approve|reject`
+// in the text sandbox_draft_get prints. `create --upload <dir>` copies the
 // directory in, as the real one does (into the working directory, under its
-// own name). FAKE_OPENSHELL_LOG appends each call's arguments as a JSON line;
+// own name). A sandbox's drafted rules are `<root>/.rules/<gateway>--<name>.json`
+// ([{ chunk, status, rule, rationale, endpoints, security? }]), written by a test.
+// FAKE_OPENSHELL_LOG appends each call's arguments as a JSON line;
 // FAKE_OPENSHELL_CREATE_MS makes `create` take that long (an image pull).
 
 import { spawn } from 'node:child_process';
@@ -38,6 +41,8 @@ const fail = (msg) => {
   process.exit(1);
 };
 const json = (v) => process.stdout.write(JSON.stringify(v, null, 2) + '\n');
+const rulesFile = (name) => path.join(root, '.rules', `${gateway}--${name}.json`);
+const readRules = (name) => (fs.existsSync(rulesFile(name)) ? JSON.parse(fs.readFileSync(rulesFile(name), 'utf8')) : []);
 
 const [group, cmd] = args;
 if (group === 'gateway' && cmd === 'list') {
@@ -59,6 +64,38 @@ if (group === 'gateway' && cmd === 'list') {
     fs.cpSync(local, into, { recursive: true });
   }
   json({ id: name, name, phase: 'Ready', from: flag('--from') ?? '', providers: all('--provider') });
+} else if (group === 'sandbox' && cmd === 'download') {
+  const [, , name, from, to = '.'] = args;
+  if (!fs.existsSync(box(name))) fail(`sandbox '${name}' not found`);
+  fs.mkdirSync(to, { recursive: true });
+  fs.cpSync(path.resolve(box(name), from), to, { recursive: true });
+} else if (group === 'sandbox' && cmd === 'delete') {
+  for (const name of args.slice(2)) {
+    fs.rmSync(box(name), { recursive: true, force: true });
+    process.stdout.write(`Deleted sandbox ${name}\n`);
+  }
+} else if (group === 'rule' && cmd === 'get') {
+  const name = args[2];
+  const status = flag('--status');
+  const rules = readRules(name).filter((r) => !status || r.status === status);
+  if (!rules.length) process.stdout.write(`No network rules for sandbox '${name}'\n`);
+  else {
+    let out = `Network Rules:  (version 1, ${rules.length} chunk${rules.length === 1 ? '' : 's'})\n\n`;
+    for (const r of rules) {
+      out += `  Chunk: ${r.chunk}\n  Status: ${r.status}\n  Rule: ${r.rule}\n  Confidence: 90%\n  Rationale: ${r.rationale}\n`;
+      if (r.security) out += `  Security: ${r.security}\n`;
+      out += `  Endpoints: ${r.endpoints}\n\n`;
+    }
+    process.stdout.write(out);
+  }
+} else if (group === 'rule' && (cmd === 'approve' || cmd === 'reject')) {
+  const name = args[2];
+  const chunk = flag('--chunk-id');
+  const rules = readRules(name);
+  const r = rules.find((x) => x.chunk === chunk) ?? fail(`chunk '${chunk}' not found`);
+  r.status = cmd === 'approve' ? 'approved' : 'rejected';
+  if (cmd === 'reject') r.reason = flag('--reason') ?? '';
+  fs.writeFileSync(rulesFile(name), JSON.stringify(rules));
 } else if (group === 'sandbox' && cmd === 'start') {
   if (!fs.existsSync(box(args[2] ?? ''))) fail(`sandbox '${args[2]}' not found`);
 } else if (group === 'sandbox' && cmd === 'exec') {

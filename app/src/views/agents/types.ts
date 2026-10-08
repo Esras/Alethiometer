@@ -74,7 +74,7 @@ export interface Session {
   /** Held back while mid-turn, oldest first; not real rows until sent. */
   queued: { text: string; images?: { data: string; mime: string }[] }[];
   /** Local only: the OpenShell sandbox it runs in (`cwd` is a path inside it). */
-  sandbox?: { gateway: string; name: string; upload: string; allow_all: boolean } | null;
+  sandbox?: { gateway: string; name: string; upload: string; allow_all: boolean; synced_turns: number } | null;
 }
 
 export interface Who {
@@ -212,6 +212,8 @@ export interface Plan {
   reasons: { text: string; note: string }[];
   going: number;
   hub: number;
+  /** OpenShell sandboxes it deletes (ones Alethiometer made that nothing else runs in). */
+  sandboxes: number;
   local: number;
 }
 

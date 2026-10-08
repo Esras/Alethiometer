@@ -293,7 +293,7 @@
   {/if}
 
   {#if (ag.tree?.hub_failed ?? 0) > 0}
-    <div class="hostline bad"><i class="ph ph-warning-circle"></i><span class="err broken">{ag.tree?.hub_failed} Hub delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord('⌘R', 'Ctrl+R')} in the sync status</span></div>
+    <div class="hostline bad"><i class="ph ph-warning-circle"></i><span class="err broken">{ag.tree?.hub_failed} Hub or sandbox delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord('⌘R', 'Ctrl+R')} in the sync status</span></div>
   {/if}
 
   {#if host && (anyLocal || (host.state !== 'idle' && host.state !== ''))}

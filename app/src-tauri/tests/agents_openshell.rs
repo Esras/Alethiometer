@@ -242,3 +242,192 @@ fn an_existing_sandbox_is_used_as_it_is() {
     assert!(calls.iter().any(|c| c.windows(2).any(|w| w == ["start", "old-one"])), "started in case it was stopped: {calls:?}");
     stop_host(dir, host);
 }
+
+fn start(app: &App, project: &Path, task: &str) -> String {
+    alethiometer_lib::agents::call(app, "start_local", &json!({ "harness": "fake", "cwd": project, "task": task, "sandbox": {} })).unwrap()["id"].as_str().unwrap().to_owned()
+}
+
+fn idle(app: &App, id: &str) {
+    wait("the turn to finish", 30, || app.agents.store.lock().sessions.get(id).filter(|s| s.status == Status::Idle).map(|_| ()));
+}
+
+#[test]
+fn a_pi_permission_gate_is_allowed_but_its_question_comes_to_you() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "piui")]);
+    let app = open(dir);
+    let project = tempfile::tempdir().unwrap();
+    let gate = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Clean", "sandbox": {} })).unwrap()["id"].as_str().unwrap().to_owned();
+    idle(&app, &gate);
+    assert_eq!(output(&app, &gate), "piui: choice-0", "the extension's gate on a pending call, allowed");
+    stop_host(dir, host);
+
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "piquestion")]);
+    let app = open(dir);
+    let q = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Clean", "sandbox": {} })).unwrap()["id"].as_str().unwrap().to_owned();
+    let req = wait("the question to come to you", 30, || app.agents.store.lock().requests.values().find(|r| r.session_id == q).cloned());
+    assert_eq!(req.title, "Also update the docs?");
+    alethiometer_lib::agents::call(&app, "respond", &json!({ "request": req.id, "option": "2" })).unwrap();
+    idle(&app, &q);
+    assert_eq!(output(&app, &q), "piquestion: choice-1", "your answer, not an automatic yes");
+    stop_host(dir, host);
+}
+
+#[test]
+fn an_agents_questions_in_a_sandbox_come_to_you() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "ask")]);
+    let app = open(dir);
+    let project = tempfile::tempdir().unwrap();
+    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": project.path(), "task": "Add a cache", "sandbox": {} })).unwrap()["id"].as_str().unwrap().to_owned();
+    let ask = |app: &App| app.agents.store.lock().requests.values().find(|r| r.session_id == id && r.kind == "ask").cloned();
+    let q = wait("the first question", 30, || ask(&app));
+    alethiometer_lib::agents::call(&app, "answer", &json!({ "request": q.id, "choice": "2" })).unwrap();
+    let next = wait("the text question", 20, || ask(&app).filter(|r| r.id != q.id));
+    alethiometer_lib::agents::call(&app, "answer", &json!({ "request": next.id, "text": "cache_entries" })).unwrap();
+    idle(&app, &id);
+    assert_eq!(output(&app, &id), r#"Got {"question_0":"SQLite"} then {"value":"cache_entries"}"#);
+    stop_host(dir, host);
+}
+
+#[test]
+fn the_sandboxs_drafted_network_rules_are_approvals() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "gate")]);
+    let app = open(dir);
+    let project = tempfile::tempdir().unwrap();
+    let id = start(&app, project.path(), "Fetch deps");
+    idle(&app, &id);
+    let sb = app.agents.store.lock().sessions[&id].sandbox.clone().unwrap();
+    let rules_file = dir.join("sandboxes/.rules").join(format!("local--{}.json", sb.name));
+    std::fs::create_dir_all(rules_file.parent().unwrap()).unwrap();
+    let rules = json!([
+        { "chunk": "c1", "status": "pending", "rule": "allow-github", "rationale": "git fetch was denied", "endpoints": "github.com:443 [L4]" },
+        { "chunk": "c2", "status": "pending", "rule": "allow-pypi", "rationale": "pip install", "endpoints": "pypi.org:443 [L7 rest]", "security": "new host with credentials" },
+        { "chunk": "c3", "status": "pending", "rule": "allow-npm", "rationale": "npm install", "endpoints": "registry.npmjs.org:443 [L4]" }
+    ]);
+    std::fs::write(&rules_file, rules.to_string()).unwrap();
+    // What the poller does every 10 s, once.
+    let cli = app.settings().agents.openshell.command.clone();
+    let poll = || alethiometer_lib::agents::openshell::reconcile_rules(&app, &id, &alethiometer_lib::agents::openshell::pending_rules(&cli, &sb).unwrap());
+    poll();
+    poll();
+    let reqs: Vec<String> = { let mut v: Vec<String> = app.agents.store.lock().requests.keys().cloned().collect(); v.sort(); v };
+    assert_eq!(reqs, [format!("osr:{id}:c1"), format!("osr:{id}:c2"), format!("osr:{id}:c3")]);
+    let rows = |app: &App| app.agents.store.lock().threads[&format!("s:{id}")].rows.iter().filter(|r| r.ext.starts_with("osr:")).cloned().collect::<Vec<_>>();
+    assert_eq!(rows(&app).len(), 3, "one row each, not one per poll");
+    assert_eq!(app.agents.store.lock().requests[&format!("osr:{id}:c2")].tag, "network · flagged");
+
+    alethiometer_lib::agents::call(&app, "respond", &json!({ "request": format!("osr:{id}:c1"), "option": "1" })).unwrap();
+    alethiometer_lib::agents::call(&app, "respond", &json!({ "request": format!("osr:{id}:c2"), "option": "2", "reason": "not needed" })).unwrap();
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&rules_file).unwrap()).unwrap();
+    assert_eq!((after[0]["status"].as_str(), after[1]["status"].as_str(), after[1]["reason"].as_str()), (Some("approved"), Some("rejected"), Some("not needed")));
+    // The app restarts (requests aren't stored, the rows are), and c3 is approved from a terminal meanwhile.
+    app.agents.store.lock().remove_request(&format!("osr:{id}:c3"));
+    let mut edited = after.clone();
+    edited[2]["status"] = json!("approved");
+    std::fs::write(&rules_file, edited.to_string()).unwrap();
+    poll();
+    assert!(app.agents.store.lock().requests.is_empty(), "answered here or elsewhere, none left");
+    let notes: Vec<String> = rows(&app).iter().map(|r| r.note.clone()).collect();
+    assert!(notes[0].starts_with("approved at"), "{notes:?}");
+    assert!(notes[1].starts_with("rejected at"), "{notes:?}");
+    assert_eq!(notes[2], "decided outside Alethiometer");
+    stop_host(dir, host);
+}
+
+#[test]
+fn changes_come_back_then_archiving_deletes_the_sandbox() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "write")]);
+    let app = open(dir);
+    let project = tempfile::tempdir().unwrap();
+    let p = project.path();
+    for (f, t) in [("README.md", "# demo\n"), ("OLD.txt", "old\n"), ("KEEP.txt", "mine\n")] {
+        std::fs::write(p.join(f), t).unwrap();
+    }
+    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": p, "task": "Write notes", "sandbox": {} })).unwrap()["id"].as_str().unwrap().to_owned();
+    idle(&app, &id);
+    std::fs::write(p.join("KEEP.txt"), "mine, edited here\n").unwrap();
+
+    let plan = alethiometer_lib::agents::call(&app, "archive_plan", &json!({ "target": format!("s:{id}") })).unwrap();
+    assert_eq!(plan["state"], "not_done", "its work is only in the sandbox: {plan}");
+    assert!(plan["reasons"][0]["text"].as_str().unwrap().contains("haven't been brought back"));
+    assert_eq!(plan["sandboxes"], 1);
+
+    let look = alethiometer_lib::agents::call(&app, "sandbox_changes", &json!({ "session": id })).unwrap();
+    let list = |v: &Value| v.as_array().unwrap().iter().map(|c| format!("{} {}", c["what"].as_str().unwrap(), c["path"].as_str().unwrap())).collect::<Vec<_>>();
+    assert_eq!(list(&look["changes"]), ["added NOTES.md", "deleted OLD.txt", "modified README.md"]);
+    assert_eq!(list(&look["conflicts"]), ["modified KEEP.txt"]);
+    assert!(p.join("OLD.txt").exists(), "a look touches nothing");
+    let done = alethiometer_lib::agents::call(&app, "sandbox_copy_back", &json!({ "session": id })).unwrap();
+    assert_eq!(done["applied"].as_array().unwrap().len(), 3);
+    assert_eq!(std::fs::read_to_string(p.join("NOTES.md")).unwrap(), "notes from the agent\n");
+    assert_eq!(std::fs::read_to_string(p.join("README.md")).unwrap(), "# demo, by the agent\n");
+    assert!(!p.join("OLD.txt").exists());
+    assert_eq!(std::fs::read_to_string(p.join("KEEP.txt")).unwrap(), "mine, edited here\n", "a conflict stays as it is here");
+    let note = app.agents.store.lock().threads[&format!("s:{id}")].rows.iter().rev().find(|r| r.kind == Kind::State).unwrap().text.clone();
+    assert!(note.starts_with("Brought back 3 files") && note.contains("KEEP.txt"), "{note}");
+    assert_eq!(alethiometer_lib::agents::call(&app, "archive_plan", &json!({ "target": format!("s:{id}") })).unwrap()["state"], "not_done", "the conflict is still only in the sandbox");
+
+    // The sandbox wins this time.
+    let again = alethiometer_lib::agents::call(&app, "sandbox_changes", &json!({ "session": id })).unwrap();
+    assert!(again["changes"].as_array().unwrap().is_empty() && again["ready"] == false, "nothing new: {again}");
+    assert!(alethiometer_lib::agents::call(&app, "sandbox_copy_back", &json!({ "session": id, "force": true })).is_err(), "nothing to copy without a preview");
+    std::fs::write(p.join("NOTES.md"), "notes from the agent\n").unwrap();
+    // Make the conflict copyable: a fresh change in the sandbox too, then force it.
+    let sb = app.agents.store.lock().sessions[&id].sandbox.clone().unwrap();
+    let inside = app.agents.store.lock().sessions[&id].cwd.clone();
+    std::fs::write(Path::new(&inside).join("EXTRA.md"), "more\n").unwrap();
+    alethiometer_lib::agents::call(&app, "sandbox_changes", &json!({ "session": id })).unwrap();
+    alethiometer_lib::agents::call(&app, "sandbox_copy_back", &json!({ "session": id, "force": true })).unwrap();
+    assert_eq!(std::fs::read_to_string(p.join("KEEP.txt")).unwrap(), "the agent's version\n");
+    assert!(p.join("EXTRA.md").exists());
+
+    let plan = alethiometer_lib::agents::call(&app, "archive_plan", &json!({ "target": format!("s:{id}") })).unwrap();
+    assert_eq!(plan["state"], "ok", "{plan}");
+    alethiometer_lib::agents::call(&app, "archive", &json!({ "target": format!("s:{id}") })).unwrap();
+    let http = alethiometer_lib::sync::http::FakeHttp::default();
+    while alethiometer_lib::outbox::process_one(&app, &http).unwrap() {}
+    let gone = dir.join("sandboxes/local").join(&sb.name);
+    assert!(!gone.exists(), "the sandbox was deleted");
+    assert!(calls(dir).iter().any(|c| c.windows(3).any(|w| w == ["sandbox", "delete", sb.name.as_str()])));
+    stop_host(dir, host);
+}
+
+#[test]
+fn a_sandbox_that_was_already_there_is_never_deleted() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(dir, &[("FAKE_ACP_MODE", "gate")]);
+    let work = dir.join("sandboxes/local/theirs/work");
+    std::fs::create_dir_all(&work).unwrap();
+    let app = open(dir);
+    let id = alethiometer_lib::agents::call(&app, "start_local", &json!({ "harness": "fake", "cwd": work, "task": "x", "sandbox": { "existing": "theirs", "workdir": work } })).unwrap()["id"].as_str().unwrap().to_owned();
+    idle(&app, &id);
+    let plan = alethiometer_lib::agents::call(&app, "archive_plan", &json!({ "target": format!("s:{id}") })).unwrap();
+    assert_eq!((plan["state"].as_str(), plan["sandboxes"].as_u64()), (Some("ok"), Some(0)));
+    assert!(alethiometer_lib::agents::call(&app, "sandbox_changes", &json!({ "session": id })).unwrap_err().to_string().contains("already there"));
+    stop_host(dir, host);
+}

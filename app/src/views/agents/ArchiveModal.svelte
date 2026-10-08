@@ -19,6 +19,7 @@
   const consequence = $derived.by(() => {
     const parts: string[] = [];
     if (plan.hub) parts.push(`${n(plan.hub, whole ? '1 agent and its clone' : 'Its agent and clone', '# agents and their clones')} will be deleted on the Hub${unpushed ? ', with the unpushed commits' : ''}.`);
+    if (plan.sandboxes) parts.push(`${n(plan.sandboxes, 'Its OpenShell sandbox', '# OpenShell sandboxes')} will be deleted, with ${plan.sandboxes === 1 ? 'its' : 'their'} files.`);
     if (plan.local) parts.push(`${n(plan.local, 'Its local session stops', '# local sessions stop')}. Transcripts stay searchable.`);
     return parts.join(' ');
   });

@@ -217,6 +217,8 @@
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
   {:else if session && !session.sandbox}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open in Zed</button>
+  {:else if session?.sandbox?.upload && !session.parent_id}
+    <button class="btn" title="Copy what the agent changed in its sandbox into {session.sandbox.upload}" onclick={() => (ag.bringBack = session.id)}><i class="ph ph-download-simple"></i>Bring back</button>
   {/if}
   <button class="btn icon" title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'} onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button>
 </div>

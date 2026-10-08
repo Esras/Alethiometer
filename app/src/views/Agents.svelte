@@ -12,6 +12,7 @@
   import { lookVars } from './agents/look';
   import Pane from './agents/Pane.svelte';
   import ArchiveModal from './agents/ArchiveModal.svelte';
+  import BringBack from './agents/BringBack.svelte';
   import ArchivedPane from './agents/ArchivedPane.svelte';
   import { act, ag, askArchive, closeArchived, look, nodes, openArchived, openForm, openThread, pinned, selectable, setTab, startPolling, stopPolling, threadOf, turnEnded, undoArchive } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
@@ -246,6 +247,7 @@
   {/if}
   {#if ag.keys}<Keys />{/if}
   {#if ag.plan}<ArchiveModal plan={ag.plan} />{/if}
+  {#if ag.bringBack}<BringBack session={ag.bringBack} />{/if}
   {#if ag.form?.kind === 'scion'}
     <NewScion group={ag.form.group} room={ag.form.room} onClose={closeForm} />
   {:else if ag.form?.kind === 'local'}
