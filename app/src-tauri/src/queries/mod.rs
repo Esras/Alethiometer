@@ -4,6 +4,8 @@
 pub mod categories;
 pub mod daystrip;
 pub mod incoming;
+pub mod note_save;
+pub mod note_text;
 pub mod notes;
 pub mod people;
 pub mod priorities;
@@ -19,24 +21,8 @@ use crate::error::{msg, Result};
 use crate::time::{Date, Due, Ts};
 use jiff::civil::DateTime;
 use serde::Serialize;
-use serde_json::Value;
 
-pub fn arg_str(args: &Value, key: &str) -> Result<String> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| msg(format!("missing string arg '{key}'")))
-}
-
-pub fn arg_i64(args: &Value, key: &str) -> Result<i64> {
-    args.get(key)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| msg(format!("missing int arg '{key}'")))
-}
-
-pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
-    args.get(key).and_then(Value::as_i64)
-}
+pub use crate::api::{arg_i64, arg_str, opt_i64};
 
 /// A stored instant (`crate::time`).
 pub fn parse_ts(s: &str) -> Option<Ts> {

@@ -45,3 +45,16 @@ fn concurrent_writers_never_leave_a_mix() {
         "one writer's whole file"
     );
 }
+
+#[test]
+fn write_checked_refuses_a_file_that_changed_and_cleans_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let abs = dir.path().join("t.md");
+    std::fs::write(&abs, "now").unwrap();
+    let e = write_checked(&abs, Some("stale"), "new").unwrap_err();
+    assert!(e.to_string().contains("changed"), "{e}");
+    assert_eq!(std::fs::read_to_string(&abs).unwrap(), "now");
+    assert!(!dir.path().join(".t.md.alethiometer-tmp").exists());
+    write_checked(&abs, Some("now"), "new").unwrap();
+    assert_eq!(std::fs::read_to_string(&abs).unwrap(), "new");
+}

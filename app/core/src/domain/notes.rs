@@ -127,3 +127,8 @@ pub trait NoteLines {
     fn set_state(&self, id: i64, state: &str, meta: &LineMeta) -> Result<()>;
     fn delete(&self, id: i64) -> Result<()>;
 }
+
+/// Why a note save was refused: what the Obsidian connector puts in the error and what the editor header reads back.
+pub const NOT_OPEN: &str = "Obsidian isn't open (or the Local REST API plugin is off). Open Obsidian and retry (⌘R).";
+/// Prefix of every conflict error, so the UI can tell a conflict from a failure.
+pub const CONFLICT: &str = "conflict:";

@@ -25,8 +25,8 @@ pub mod scion;
 pub mod shell;
 pub mod store;
 
+use crate::api::arg_str;
 use crate::error::{msg, Result};
-use crate::queries::arg_str;
 use crate::state::App;
 use model::{Group, Request, Row, RowImage, Session, Status};
 use serde_json::{json, Value};

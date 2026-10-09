@@ -18,10 +18,10 @@
 //! Reads (the poll) always scan the files.
 
 pub mod rest;
-pub mod save;
 
 use crate::domain::ports::UnitOfWork;
 use crate::error::Result;
+use crate::fsx::write_checked;
 use crate::sync::{Batch, Connector, Ctx, ItemUpsert, Source};
 use crate::time::{Date, Due, Ts};
 use regex::Regex;
@@ -616,7 +616,7 @@ pub fn people_touched(source: &Source, batch: &Batch) -> Option<PathBuf> {
         .items
         .iter()
         .filter_map(|it| it.raw_json.get("path").and_then(Value::as_str));
-    let prefix = format!("{}/", crate::queries::people::PEOPLE_DIR);
+    let prefix = format!("{}/", crate::domain::people::PEOPLE_DIR);
     let touched = source.cursor.is_none() || read.chain(gone).any(|p| p.starts_with(&prefix));
     touched.then_some(vault)
 }
@@ -731,39 +731,6 @@ fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(Path
 
 fn read_text(abs: &Path) -> anyhow::Result<String> {
     String::from_utf8(std::fs::read(abs)?).map_err(|_| anyhow::anyhow!("note isn't UTF-8; not editing it"))
-}
-
-/// Write `after` over `abs` via temp file + rename, but only if the file still
-/// holds `before` (None = must not exist yet). Returns the new mtime.
-fn write_checked(abs: &Path, before: Option<&str>, after: &str) -> anyhow::Result<SystemTime> {
-    use std::io::Write;
-    let name = abs
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    // Hidden name: the scanner and the watcher filter skip it.
-    let tmp = abs.with_file_name(format!(".{name}.alethiometer-tmp"));
-    {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(after.as_bytes())?;
-        f.sync_all()?;
-    }
-    let unchanged = match before {
-        Some(b) => std::fs::read(abs).ok().as_deref() == Some(b.as_bytes()),
-        None => !abs.exists(),
-    };
-    if !unchanged {
-        let _ = std::fs::remove_file(&tmp);
-        anyhow::bail!("the note changed while writing; retry");
-    }
-    if let Ok(meta) = std::fs::metadata(abs) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
-    }
-    if let Err(e) = std::fs::rename(&tmp, abs) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    Ok(std::fs::metadata(abs)?.modified()?)
 }
 
 /// Line ending the file already uses.

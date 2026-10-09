@@ -51,5 +51,38 @@ pub fn write_atomic(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Re
     result
 }
 
+/// Write `after` over `abs` via temp file + rename, but only if the file still
+/// holds `before` (None = must not exist yet). Returns the new mtime.
+pub fn write_checked(abs: &Path, before: Option<&str>, after: &str) -> anyhow::Result<std::time::SystemTime> {
+    use std::io::Write;
+    let name = abs
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // Hidden name: the scanner and the watcher filter skip it.
+    let tmp = abs.with_file_name(format!(".{name}.alethiometer-tmp"));
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(after.as_bytes())?;
+        f.sync_all()?;
+    }
+    let unchanged = match before {
+        Some(b) => std::fs::read(abs).ok().as_deref() == Some(b.as_bytes()),
+        None => !abs.exists(),
+    };
+    if !unchanged {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!("the note changed while writing; retry");
+    }
+    if let Ok(meta) = std::fs::metadata(abs) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    if let Err(e) = std::fs::rename(&tmp, abs) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    Ok(std::fs::metadata(abs)?.modified()?)
+}
+
 #[cfg(test)]
 mod tests;

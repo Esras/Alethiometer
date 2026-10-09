@@ -20,6 +20,7 @@
 //! - decisions: items of kind `decision` that day (sample: two Obsidian lines).
 //! - jotted: Notes lines for that day.
 
+use super::note_save;
 use super::{arg_i64, arg_str, dur_label, minute_of_day, parse_date, parse_ts};
 use crate::api::{unknown, Route};
 use crate::clock::Clock;
@@ -29,7 +30,6 @@ use crate::error::{msg, Result};
 use crate::seed::{Ctx, ItemSeed};
 use crate::settings::Settings;
 use crate::state::App;
-use crate::sync::connectors::obsidian::save;
 use crate::time::{Date, Ts};
 use jiff::civil::DateTime;
 use jiff::ToSpan;
@@ -48,8 +48,8 @@ pub fn route(name: &str) -> Option<Route> {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "save" => save(app, args),
-        "save_status" => save::status(app, arg_i64(args, "outbox_id")?),
-        "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
+        "save_status" => note_save::status(app, arg_i64(args, "outbox_id")?),
+        "keep_mine" => note_save::keep_mine(app, arg_i64(args, "outbox_id")?),
         "carry" => {
             let today = app.clock.today();
             app.store().write(|uow| {
@@ -762,10 +762,10 @@ fn save(app: &App, args: &Value) -> Result<Value> {
     // With an obsidian source this queues `obsidian.replace` (written through
     // Obsidian, checked there); the summary then comes from the file once it
     // lands (`reflection_summary`). Without one (sample data) it's a direct write.
-    match save::save_note(app, &path, base.as_deref(), &text)? {
-        save::Saved::Conflict(disk) => return Ok(json!({ "conflict": true, "disk": disk })),
-        save::Saved::Queued(id) => return Ok(json!({ "queued": id, "base": text })),
-        save::Saved::Written => {}
+    match note_save::save_note(app, &path, base.as_deref(), &text)? {
+        note_save::Saved::Conflict(disk) => return Ok(json!({ "conflict": true, "disk": disk })),
+        note_save::Saved::Queued(id) => return Ok(json!({ "queued": id, "base": text })),
+        note_save::Saved::Written => {}
     }
     let summary = summarize(&text);
     app.store().write(|uow| {
@@ -1253,7 +1253,7 @@ mod tests {
     #[test]
     fn save_goes_through_obsidian_when_a_source_is_configured() {
         use crate::sync::http::FakeHttp;
-        let (app, _d) = crate::sync::connectors::obsidian::save::tests::app_with_source("obsidian");
+        let (app, _d) = super::note_save::tests::app_with_source("obsidian");
         let t = today(&app);
         let got = get(&app, &json!({ "scope": "day", "period": t, "lens": "work" })).unwrap();
         let base = got["note"]["base"].clone();

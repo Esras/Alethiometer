@@ -24,10 +24,8 @@ use crate::sync::http::{Http, Response, UreqHttp};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+pub use crate::domain::notes::{CONFLICT, NOT_OPEN};
 pub use crate::settings::sources::{OBSIDIAN_API_KEY as API_KEY, OBSIDIAN_REST_URL as DEFAULT_URL};
-pub const NOT_OPEN: &str = "Obsidian isn't open (or the Local REST API plugin is off). Open Obsidian and retry (⌘R).";
-/// Prefix of every conflict error, so the UI can tell a conflict from a failure.
-pub const CONFLICT: &str = "conflict:";
 const NOTE_JSON: &str = "application/vnd.olrapi.note+json";
 const PLUGIN_ID: &str = "obsidian-local-rest-api";
 

@@ -22,8 +22,8 @@ pub mod estimate;
 pub mod responses;
 pub mod suggest;
 
+use crate::api::{arg_str, opt_i64};
 use crate::error::{msg, Result};
-use crate::queries::{arg_str, opt_i64};
 use crate::settings::{AiSettings, AiTier};
 use crate::state::App;
 use crate::sync::http::{Http, UreqHttp};

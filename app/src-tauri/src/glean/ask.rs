@@ -627,11 +627,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             })
             .unwrap_or_default()
     };
-    let topic = crate::queries::opt_i64(args, "topic_id");
+    let topic = crate::api::opt_i64(args, "topic_id");
     match name {
         "chips" => Ok(json!(chips(app, topic, &list("off"), &list("on"))?)),
         "ask_glean" => {
-            let q = crate::queries::arg_str(args, "question")?;
+            let q = crate::api::arg_str(args, "question")?;
             let timeout = super::config(app)
                 .map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2)
                 .unwrap_or(10);

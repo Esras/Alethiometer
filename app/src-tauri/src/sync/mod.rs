@@ -567,12 +567,12 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "now" => {
-            let id = crate::queries::arg_i64(args, "source_id")?;
+            let id = crate::api::arg_i64(args, "source_id")?;
             let n = poll_now(app, id)?;
             Ok(serde_json::json!({ "new_signals": n }))
         }
         "suggest" => {
-            suggest_after_sync(app, crate::queries::arg_i64(args, "source_id")?);
+            suggest_after_sync(app, crate::api::arg_i64(args, "source_id")?);
             Ok(Value::Null)
         }
         _ => Err(crate::api::unknown(name)),

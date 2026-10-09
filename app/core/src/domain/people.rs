@@ -120,3 +120,6 @@ pub trait People {
     /// Hide the new-person suggestion for an account until `until`.
     fn snooze(&self, kind: &str, account: &str, until: Ts) -> Result<()>;
 }
+
+/// Where People notes live in the vault.
+pub const PEOPLE_DIR: &str = "People";

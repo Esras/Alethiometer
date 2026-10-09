@@ -481,12 +481,12 @@ pub fn state_name(u: &Unavailable) -> &'static str {
 pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     match name {
         "hydrated" => {
-            let q = crate::queries::arg_str(args, "q")?;
+            let q = crate::api::arg_str(args, "q")?;
             let query = Query {
                 q: &q,
-                anchor: crate::queries::opt_i64(args, "anchor"),
+                anchor: crate::api::opt_i64(args, "anchor"),
                 glean: args.get("glean").and_then(Value::as_bool).unwrap_or(false),
-                limit: crate::queries::opt_i64(args, "limit").unwrap_or(40).clamp(5, 100) as usize,
+                limit: crate::api::opt_i64(args, "limit").unwrap_or(40).clamp(5, 100) as usize,
             };
             let timeout = super::config(app)
                 .map(|c| c.timeout_secs.clamp(1, 60) as u64 + 2)

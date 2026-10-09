@@ -261,9 +261,9 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
             Ok(json!(rows))
         }),
         // ⌘R: failed rows go back to pending. Without an id, retry every failed row.
-        "retry" => Route::Write(|uow, _, args| {
-            Ok(json!({ "retried": uow.outbox().retry(crate::queries::opt_i64(args, "id"))? }))
-        }),
+        "retry" => {
+            Route::Write(|uow, _, args| Ok(json!({ "retried": uow.outbox().retry(crate::api::opt_i64(args, "id"))? })))
+        }
         _ => return None,
     })
 }

@@ -27,15 +27,16 @@
 //!   hands out indices.
 
 use super::arg_str;
+use super::note_save::{disk_text, save_note, Saved};
 use crate::api::unknown;
 use crate::api::Route;
 use crate::clock::Clock;
 use crate::domain::people::PersonNote;
+use crate::domain::people::PEOPLE_DIR;
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::settings::PeopleSettings;
 use crate::state::App;
-use crate::sync::connectors::obsidian::save::{disk_text, save_note, Saved};
 use crate::time::Ts;
 #[cfg(test)]
 use rusqlite::Connection;
@@ -43,8 +44,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-
-pub const PEOPLE_DIR: &str = "People";
 
 /// Frontmatter field for each account kind.
 const KINDS: &[&str] = &["slack", "email", "jira", "github"];
@@ -898,7 +897,7 @@ pub fn agent_note_paths(reads: &dyn Reads, topic_id: i64, clock: &Clock) -> Resu
 
 pub fn agent_context(
     reads: &dyn Reads,
-    notes: &crate::ai::context::Notes,
+    notes: &super::note_text::Notes,
     topic_id: i64,
     clock: &Clock,
 ) -> Result<String> {
@@ -916,7 +915,7 @@ pub fn agent_context(
             out.push_str(&format!(" ({role})"));
         }
         out.push_str(&format!(", note {}\n", person.note_path));
-        let gist = crate::ai::context::note_gist(notes.get(&person.note_path));
+        let gist = super::note_text::note_gist(notes.get(&person.note_path));
         if !gist.is_empty() {
             out.push_str(&format!("  Note: {gist}\n"));
         }

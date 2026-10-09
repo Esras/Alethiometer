@@ -101,6 +101,24 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
     }
 }
 
+/// Command arguments: a required string, a required integer, an optional integer.
+pub fn arg_str(args: &Value, key: &str) -> Result<String> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| msg(format!("missing string arg '{key}'")))
+}
+
+pub fn arg_i64(args: &Value, key: &str) -> Result<i64> {
+    args.get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| msg(format!("missing int arg '{key}'")))
+}
+
+pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
+    args.get(key).and_then(Value::as_i64)
+}
+
 pub fn unknown(cmd: &str) -> crate::error::Error {
     msg(format!("unknown command '{cmd}'"))
 }

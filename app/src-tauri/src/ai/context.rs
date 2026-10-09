@@ -12,11 +12,10 @@ use crate::clock::Clock;
 use crate::domain::context::ContextItem;
 use crate::domain::ports::Reads;
 use crate::error::{msg, Result};
+pub use crate::queries::note_text::{clip, note_gist, Notes};
 use crate::state::App;
 use crate::time::{Date, Due, Ts};
-use std::collections::HashMap;
 use std::fmt::Write;
-use std::path::Path;
 
 /// Rough cap on context size (~6k tokens), plenty for a concise answer.
 pub const BUDGET: usize = 24_000;
@@ -48,38 +47,6 @@ impl Context {
             }
         }
         true
-    }
-}
-
-/// First `n` characters, on a char boundary, with an ellipsis if cut.
-pub fn clip(s: &str, n: usize) -> String {
-    let s = s.trim();
-    if s.chars().count() <= n {
-        return s.to_string();
-    }
-    let mut out: String = s.chars().take(n).collect();
-    out.push('…');
-    out
-}
-
-/// Vault notes a prompt quotes, read after the snapshot that named them has
-/// closed (the database is never held across a file read).
-#[derive(Debug, Default)]
-pub struct Notes(HashMap<String, String>);
-
-impl Notes {
-    pub fn read(vault: &Path, paths: impl IntoIterator<Item = String>) -> Notes {
-        Notes(
-            paths
-                .into_iter()
-                .map(|p| (p.clone(), std::fs::read_to_string(vault.join(&p)).unwrap_or_default()))
-                .collect(),
-        )
-    }
-
-    /// The note's text, or "" if it wasn't read or isn't there.
-    pub fn get(&self, path: &str) -> &str {
-        self.0.get(path).map_or("", String::as_str)
     }
 }
 
@@ -309,32 +276,6 @@ pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Contex
     Ok(ctx)
 }
 
-/// One-line description of a topic from the first lines of its note
-/// (frontmatter and blank lines skipped), for topic suggestions.
-pub fn note_gist(note: &str) -> String {
-    let mut lines = note.lines().map(str::trim).peekable();
-    if lines.peek() == Some(&"---") {
-        lines.next();
-        for l in lines.by_ref() {
-            if l == "---" {
-                break;
-            }
-        }
-    }
-    let parts: Vec<&str> = lines
-        .filter(|l| !l.is_empty())
-        .map(|l| {
-            l.trim_start_matches(['#', '-', '*', ' '])
-                .trim_start_matches("[ ]")
-                .trim_start_matches("[x]")
-                .trim()
-        })
-        .filter(|l| !l.is_empty())
-        .take(4)
-        .collect();
-    clip(&parts.join(" / "), 200)
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -499,11 +440,5 @@ pub mod tests {
         assert!(ctx.text.len() <= BUDGET);
         assert!(ctx.text.contains("Bulk 199"), "newest kept");
         assert!(!ctx.text.contains("Bulk 0\n"), "oldest dropped");
-    }
-
-    #[test]
-    fn gist_skips_frontmatter_and_markup() {
-        let g = note_gist("---\ntags: [x]\n---\n\n## Where we are\n- Offer: 12% off\n- [ ] True-down\n");
-        assert_eq!(g, "Where we are / Offer: 12% off / True-down");
     }
 }

@@ -307,7 +307,7 @@ fn seed_people_notes(
         ("Ravi", Some("ravi@datadoghq.com"), None, ""),
         ("Dana", Some("dana@acme.com"), None, ""),
     ];
-    let dir = vault.join(crate::queries::people::PEOPLE_DIR);
+    let dir = vault.join(crate::domain::people::PEOPLE_DIR);
     std::fs::create_dir_all(&dir)?;
     for (name, email, github, team) in notes {
         let (id, role) = people[name];
@@ -328,7 +328,7 @@ fn seed_people_notes(
         if !path.exists() {
             std::fs::write(&path, text)?;
         }
-        let rel = format!("{}/{name}.md", crate::queries::people::PEOPLE_DIR);
+        let rel = format!("{}/{name}.md", crate::domain::people::PEOPLE_DIR);
         let accounts: Vec<(&str, &str)> = [("slack", Some(slack.as_str())), ("email", email), ("github", github)]
             .into_iter()
             .filter_map(|(k, a)| a.map(|a| (k, a)))

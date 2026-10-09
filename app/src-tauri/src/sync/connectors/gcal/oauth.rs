@@ -442,7 +442,7 @@ fn flows() -> std::sync::MutexGuard<'static, BTreeMap<i64, Flow>> {
 
 /// `source_id`, else the first source of `kind` (default `gcal`).
 fn pick_source(app: &App, args: &Value) -> Result<crate::sync::Source> {
-    let id = match crate::queries::opt_i64(args, "source_id") {
+    let id = match crate::api::opt_i64(args, "source_id") {
         Some(id) => id,
         None => {
             let kind = args.get("kind").and_then(Value::as_str).unwrap_or("gcal");

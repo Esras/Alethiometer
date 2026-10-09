@@ -1,6 +1,7 @@
 //! Topics (7a): the root object. Upcoming, Open, Chronology, People, and the
 //! topic's Obsidian note.
 
+use super::note_save;
 use super::{arg_i64, arg_str, due_label, dur_label, ts_label, Pill};
 use crate::api::{unknown, Route};
 use crate::clock::Clock;
@@ -9,7 +10,6 @@ use crate::error::msg;
 use crate::error::Result;
 use crate::seed::{Ctx, ItemSeed};
 use crate::state::App;
-use crate::sync::connectors::obsidian::save;
 use crate::time::{Due, Ts};
 use jiff::{SignedDuration, ToSpan};
 use serde::Serialize;
@@ -127,8 +127,8 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             &arg_str(args, "text")?,
             args.get("base").and_then(Value::as_str),
         ),
-        "note_status" => save::status(app, arg_i64(args, "outbox_id")?),
-        "keep_mine" => save::keep_mine(app, arg_i64(args, "outbox_id")?),
+        "note_status" => note_save::status(app, arg_i64(args, "outbox_id")?),
+        "keep_mine" => note_save::keep_mine(app, arg_i64(args, "outbox_id")?),
         _ => Err(unknown(name)),
     }
 }
@@ -235,7 +235,7 @@ fn append_merged_note(
     into_path: Option<String>,
 ) -> Result<&'static str> {
     let Some(from_path) = from_path else { return Ok("none") };
-    let Some(text) = save::disk_text(app, from_path.trim_start_matches("./").trim_start_matches('/')) else {
+    let Some(text) = note_save::disk_text(app, from_path.trim_start_matches("./").trim_start_matches('/')) else {
         return Ok("none");
     };
     let body = strip_frontmatter(&text).trim();
@@ -245,21 +245,21 @@ fn append_merged_note(
     let linked = into_path.is_some();
     let path = into_path.unwrap_or_else(|| default_note_path(into_name));
     let rel = path.trim_start_matches("./").trim_start_matches('/').to_string();
-    let before = save::disk_text(app, &rel);
+    let before = note_save::disk_text(app, &rel);
     let mut after = before.clone().unwrap_or_default();
     if !after.is_empty() {
         after = format!("{}\n\n", after.trim_end());
     }
     after.push_str(&format!("## Merged from {from_name}\n\n{body}\n"));
-    let saved = save::save_note(app, &rel, before.as_deref(), &after)?;
+    let saved = note_save::save_note(app, &rel, before.as_deref(), &after)?;
     if !linked {
         app.store()
             .write(|uow| uow.topics().set_note_path_if_unset(into, &path))?;
     }
     Ok(match saved {
-        save::Saved::Written => "appended",
-        save::Saved::Queued(_) => "queued",
-        save::Saved::Conflict(_) => "conflict",
+        note_save::Saved::Written => "appended",
+        note_save::Saved::Queued(_) => "queued",
+        note_save::Saved::Conflict(_) => "conflict",
     })
 }
 
@@ -290,15 +290,15 @@ fn save_note(app: &App, id: i64, text: &str, base: Option<&str>) -> Result<Value
     let linked = head.obsidian_path.is_some();
     let path = head.obsidian_path.unwrap_or_else(|| default_note_path(&head.name));
     let rel = path.trim_start_matches("./").trim_start_matches('/');
-    let saved = save::save_note(app, rel, base, text)?;
+    let saved = note_save::save_note(app, rel, base, text)?;
     if !linked {
         app.store()
             .write(|uow| uow.topics().set_note_path_if_unset(id, &path))?;
     }
     Ok(match saved {
-        save::Saved::Written => json!({ "state": "saved" }),
-        save::Saved::Conflict(disk) => json!({ "state": "conflict", "disk": disk }),
-        save::Saved::Queued(outbox_id) => json!({ "state": "saving", "outbox_id": outbox_id }),
+        note_save::Saved::Written => json!({ "state": "saved" }),
+        note_save::Saved::Conflict(disk) => json!({ "state": "conflict", "disk": disk }),
+        note_save::Saved::Queued(outbox_id) => json!({ "state": "saving", "outbox_id": outbox_id }),
     })
 }
 
@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn edit_the_note_in_place_through_obsidian() {
         use crate::sync::http::FakeHttp;
-        let (app, _dir) = crate::sync::connectors::obsidian::save::tests::app_with_source("obsidian");
+        let (app, _dir) = super::note_save::tests::app_with_source("obsidian");
         let id = topic_id(&app, "Datadog renewal");
         let base = crate::api::call(&app, "topics.get", &json!({ "id": id })).unwrap()["note"]["base"]
             .as_str()

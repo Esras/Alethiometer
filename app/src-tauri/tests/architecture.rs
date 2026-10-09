@@ -190,6 +190,7 @@ fn services_do_not_take_app() {
             ("live.rs", 11),
             ("outbox.rs", 3),
             ("queries/categories.rs", 2),
+            ("queries/note_save.rs", 7),
             ("queries/notes.rs", 5),
             ("queries/people.rs", 7),
             ("queries/reflect.rs", 8),
@@ -200,7 +201,6 @@ fn services_do_not_take_app() {
             ("settings/live.rs", 9),
             ("sync/connectors/gcal/oauth.rs", 4),
             ("sync/connectors/obsidian.rs", 1),
-            ("sync/connectors/obsidian/save.rs", 7),
             ("sync/connectors/slack/socket.rs", 3),
             ("sync/mod.rs", 6),
             ("sync/worker.rs", 8),
@@ -225,9 +225,8 @@ fn connectors_do_not_reach_into_services() {
         found,
         &[
             ("sync/connectors/agents.rs", 2),
-            ("sync/connectors/gcal/oauth.rs", 2),
-            ("sync/connectors/obsidian.rs", 2),
-            ("sync/connectors/obsidian/save.rs", 1),
+            ("sync/connectors/gcal/oauth.rs", 1),
+            ("sync/connectors/obsidian.rs", 1),
             ("sync/connectors/scion.rs", 1),
             ("sync/connectors/slack/socket.rs", 1),
         ],
@@ -238,13 +237,5 @@ fn connectors_do_not_reach_into_services() {
 #[test]
 fn queries_do_not_call_sync_ai_or_agents() {
     let found = count_in(&["queries/"], &[], |code| imports(code, "sync|ai|agents"));
-    assert_allowlist(
-        "queries imports of sync, ai or agents",
-        found,
-        &[
-            ("queries/people.rs", 3),
-            ("queries/reflect.rs", 1),
-            ("queries/topics.rs", 1),
-        ],
-    );
+    assert_allowlist("queries imports of sync, ai or agents", found, &[]);
 }
