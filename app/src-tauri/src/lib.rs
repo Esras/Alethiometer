@@ -12,6 +12,7 @@ pub mod outbox;
 pub mod queries;
 pub mod seed;
 pub mod settings;
+pub mod standin;
 pub mod state;
 pub mod sync;
 

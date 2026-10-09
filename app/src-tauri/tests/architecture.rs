@@ -199,6 +199,7 @@ fn services_do_not_take_app() {
             ("seed.rs", 1),
             ("settings/api.rs", 4),
             ("settings/live.rs", 9),
+            ("standin.rs", 3),
             ("sync/connectors/gcal/oauth.rs", 4),
             ("sync/connectors/obsidian.rs", 1),
             ("sync/connectors/slack/socket.rs", 3),

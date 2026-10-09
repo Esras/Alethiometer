@@ -17,11 +17,19 @@
   import Agents from './views/Agents.svelte';
   import Topics from './views/Topics.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
+  import StandinNotes from './shell/StandinNotes.svelte';
 
   const inTauri = '__TAURI_INTERNALS__' in window;
   let ready = $state(false);
+  // Notes left in the stand-in vault after a real one was set (asked once per start).
+  let standin = $state<{ standin: string; vault: string; files: { path: string; state: 'missing' | 'differs'; modified: string | null; preview: string }[] } | null>(null);
   loadInfo()
-    .then(() => (ready = true))
+    .then(() => {
+      ready = true;
+      call<NonNullable<typeof standin>>('standin.list')
+        .then((l) => (standin = l.files.length ? l : null))
+        .catch((e) => console.warn('standin.list', e));
+    })
     .catch((e) => (ui.error = String(e.message ?? e)));
 
   function onKey(e: KeyboardEvent) {
@@ -104,6 +112,7 @@
   {#if ui.searchOpen}<SearchPalette />{/if}
   {#if ui.settingsOpen && ready}<Settings />{/if}
   {#if ready}<Nudge />{/if}
+  {#if ready && standin && !ui.settingsOpen}<StandinNotes listing={standin} onclose={() => (standin = null)} />{/if}
 </div>
 
 <style>

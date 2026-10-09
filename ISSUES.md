@@ -104,10 +104,6 @@ Unseen items with a `confirmed` link now show under their topic in Incoming as u
 
 `seed::seed_if_empty` writes the stand-in vault's People, Topics and Reflect notes while its unit of work is open. It runs once, on an empty database with no real vault, so nothing waits on it, but it breaks the rule of keeping file IO outside the database. Fix if the seed grows: write the files first, then the rows.
 
-### Changing `obsidian_vault` strands notes saved in the stand-in vault
-
-With `obsidian_vault` empty, Reflect (and Topics) write to `<data dir>/vault`. Setting `obsidian_vault` later switches every read to the real vault and nothing moves the stand-in's files, so earlier reflections silently disappear from Reflect. Hit when connecting Obsidian on the work Mac: `Reflections/Daily/2026-09-28.md` was copied over by hand (the original is still in the stand-in). Fix direction: on startup, if `obsidian_vault` is set and `<data dir>/vault` has files, offer to copy them over (never overwrite), or at least warn.
-
 ### Obsidian notes: live-preview editing with the vault's theme (user, 2026-10-05: deferred)
 
 Notes are shown by our own `NoteText.svelte` and edited in a plain textarea, so a note goes from formatted to raw text the moment you edit. Idea: a CodeMirror 6 editor (as Obsidian uses) with decorations that hide markdown syntax except on the line being edited, styled by the theme named in `<vault>/.obsidian/appearance.json` (`cssTheme`, CSS in `.obsidian/themes/<name>/`, plus snippets). Needs: Obsidian's class names (`.cm-header-1`, `.HyperMD-list-line`, `.markdown-rendered`) and baseline CSS variables the theme doesn't define; our own decorations (Obsidian's live preview is closed; check for an open-source package first); tables, callouts and embeds last. Saving (conflicts, outbox) stays as it is. Start with the Topics note pane, then Reflect. Fidelity to the theme would be close, not exact; plugin-added styling won't carry over. Embedding Obsidian's own rendering isn't possible.

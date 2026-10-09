@@ -10,6 +10,43 @@ fn replaces_whole_and_leaves_no_temp_files() {
     assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
 }
 
+#[test]
+fn write_new_never_replaces_and_keeps_the_mtime() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("n.md");
+    let then = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    write_new(&p, b"first", Some(then)).unwrap();
+    assert_eq!(std::fs::metadata(&p).unwrap().modified().unwrap(), then);
+    let e = write_new(&p, b"second", None).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "first");
+    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1, "no temp file left");
+}
+
+#[test]
+fn concurrent_write_new_has_one_winner() {
+    let d = tempfile::tempdir().unwrap();
+    let p = std::sync::Arc::new(d.path().join("r.md"));
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let threads: Vec<_> = (0..8)
+        .map(|i| {
+            let (p, barrier) = (p.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                barrier.wait();
+                write_new(&p, format!("{i}").repeat(10_000).as_bytes(), None).is_ok()
+            })
+        })
+        .collect();
+    let wins = threads.into_iter().map(|t| t.join().unwrap()).filter(|&w| w).count();
+    assert_eq!(wins, 1);
+    let s = std::fs::read_to_string(&*p).unwrap();
+    assert_eq!(s.len(), 10_000);
+    assert!(
+        s.chars().all(|c| c == s.chars().next().unwrap()),
+        "one writer's whole file"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn mode_applies_from_creation() {
