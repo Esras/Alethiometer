@@ -15,6 +15,7 @@ pub mod platform;
 pub mod queries;
 pub mod seed;
 pub mod settings;
+pub mod standin;
 pub mod state;
 pub mod store;
 pub mod sync;
