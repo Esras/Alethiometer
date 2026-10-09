@@ -8,7 +8,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 
 | Area | State |
 |---|---|
-| Schema, migrations, FTS5 search | done (`src-tauri/migrations`) |
+| Schema, migrations, FTS5 search | done (`core/migrations`) |
 | `settings.json` (categories, buffers, AI allow-list) | done |
 | Day strip, countdown, Life blocks, leave-by, buffer override | done |
 | Topics (7a/7b) | done |
