@@ -77,6 +77,10 @@ sqlite-vec = "0.1.6"
 alethiometer-agentd = { path = "../agentd" }
 # Time, errors, the domain model and ports, and the SQLite store.
 alethiometer-core = { path = "../core" }
+# settings.json: the typed settings, validation and the Settings page schema.
+alethiometer-settings = { path = "../settings" }
+# Atomic file writes, the secrets file, opening URLs.
+alethiometer-platform = { path = "../platform" }
 
 [dev-dependencies]
 tempfile = "3"

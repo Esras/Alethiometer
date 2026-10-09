@@ -27,13 +27,7 @@ use serde_json::{json, Value};
 
 pub struct Jira;
 
-/// Default secret name for the API token; `config.secret` overrides it.
-pub const DEFAULT_SECRET: &str = "jira_api_token";
-
-/// Mentions can't be searched reliably in JQL (`comment ~ currentUser()` is
-/// unsupported and inconsistent in Jira Cloud), so the default covers what JQL
-/// can express. Comments on these issues, mentions included, bump them (see `bump`).
-pub const DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()";
+pub use crate::settings::sources::{JIRA_DEFAULT_JQL as DEFAULT_JQL, JIRA_DEFAULT_SECRET as DEFAULT_SECRET};
 
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: usize = 20;

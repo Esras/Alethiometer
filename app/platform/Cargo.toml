@@ -1,0 +1,19 @@
+[package]
+name = "alethiometer-platform"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The machine around the app: atomic file writes, the secrets file and opening URLs"
+
+[lib]
+name = "alethiometer_platform"
+path = "src/lib.rs"
+
+[dependencies]
+alethiometer-core = { path = "../core" }
+anyhow = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+jiff = { version = "0.2", features = ["serde", "tzdb-bundle-always"] }
+
+[dev-dependencies]
+tempfile = "3"

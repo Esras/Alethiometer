@@ -24,9 +24,7 @@ use crate::sync::http::{Http, Response, UreqHttp};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_URL: &str = "https://127.0.0.1:27124";
-/// Secret holding the plugin's API key (Settings → Local REST API with MCP).
-pub const API_KEY: &str = "obsidian.api_key";
+pub use crate::settings::sources::{OBSIDIAN_API_KEY as API_KEY, OBSIDIAN_REST_URL as DEFAULT_URL};
 pub const NOT_OPEN: &str = "Obsidian isn't open (or the Local REST API plugin is off). Open Obsidian and retry (⌘R).";
 /// Prefix of every conflict error, so the UI can tell a conflict from a failure.
 pub const CONFLICT: &str = "conflict:";

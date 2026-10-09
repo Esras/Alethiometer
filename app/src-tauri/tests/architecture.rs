@@ -1,6 +1,15 @@
 //! Rules about where code lives.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The `src/` of every crate in the app.
+fn crate_sources() -> Vec<PathBuf> {
+    let app = Path::new(env!("CARGO_MANIFEST_DIR"));
+    ["src", "../core/src", "../settings/src", "../platform/src"]
+        .iter()
+        .map(|d| app.join(d))
+        .collect()
+}
 
 /// SQL lives in `core/src/store/` (tests' own fixtures aside).
 #[test]
@@ -8,10 +17,9 @@ fn no_sql_outside_store() {
     let re = regex::Regex::new(r#"(?i)"\s*(SELECT|INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE|DROP\s+TABLE|WITH\s+\w+\s+AS)\b"#).unwrap();
     let test_mod = regex::Regex::new(r"#\[cfg\(test\)\]\s*(pub(\(crate\))?\s+)?mod\s+\w+").unwrap();
     let app = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let core = app.join("../core/src");
-    let store = core.join("store");
+    let store = app.join("../core/src/store");
     let mut found = vec![];
-    for root in [app.join("src"), core] {
+    for root in crate_sources() {
         let mut dirs = vec![root.clone()];
         while let Some(dir) = dirs.pop() {
             for e in std::fs::read_dir(dir).unwrap().flatten() {
@@ -55,8 +63,7 @@ fn nothing_else_reads_local_time() {
     ];
     let allowed = ["clock.rs", "utc_migration.rs", "utc_migration/tests.rs", "protoncal.rs"];
     let mut bad = vec![];
-    let app = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut dirs = vec![app.join("src"), app.join("../core/src")];
+    let mut dirs = crate_sources();
     while let Some(dir) = dirs.pop() {
         for e in std::fs::read_dir(dir).unwrap().flatten() {
             let p = e.path();

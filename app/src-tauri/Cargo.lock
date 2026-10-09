@@ -37,6 +37,8 @@ version = "0.1.0"
 dependencies = [
  "alethiometer-agentd",
  "alethiometer-core",
+ "alethiometer-platform",
+ "alethiometer-settings",
  "anyhow",
  "aws-credential-types",
  "aws-sigv4",
@@ -98,6 +100,27 @@ dependencies = [
  "serde_json",
  "sqlite-vec",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "alethiometer-platform"
+version = "0.1.0"
+dependencies = [
+ "alethiometer-core",
+ "anyhow",
+ "jiff",
+ "serde_json",
+]
+
+[[package]]
+name = "alethiometer-settings"
+version = "0.1.0"
+dependencies = [
+ "alethiometer-core",
+ "anyhow",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

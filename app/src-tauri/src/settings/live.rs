@@ -8,6 +8,7 @@
 //! The Settings modal shows the outcome in its header (`State.message`):
 //! "Saved · live", "Saved · Slack reconnected", "Saved · restarting".
 
+use super::schema::path_label;
 use super::{sources, Settings, SourceConfig};
 use crate::error::{msg, Result};
 use crate::state::App;
@@ -59,25 +60,6 @@ impl Edit {
             Edit::Set(p, _) | Edit::Remove(p) | Edit::Push(p, _) => p,
         }
     }
-}
-
-/// `a.b[2].c`, for messages and the focused row's key path.
-pub fn path_label(path: &[Value]) -> String {
-    let mut out = String::new();
-    for seg in path {
-        match seg {
-            Value::Number(n) => out.push_str(&format!("[{n}]")),
-            Value::String(s) if s.contains('.') => out.push_str(&format!("[\"{s}\"]")),
-            Value::String(s) => {
-                if !out.is_empty() {
-                    out.push('.');
-                }
-                out.push_str(s);
-            }
-            other => out.push_str(&other.to_string()),
-        }
-    }
-    out
 }
 
 fn slot<'a>(root: &'a mut Value, path: &[Value], create: bool) -> Result<&'a mut Value> {
@@ -209,6 +191,23 @@ pub fn migrate_file(path: &Path) -> Result<()> {
     write_file(path, &v)
 }
 
+/// Load from `path`, writing defaults there first if the file doesn't exist.
+fn load_or_init(path: &Path) -> anyhow::Result<Settings> {
+    if !path.exists() {
+        let s = Settings::default();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&s)?)?;
+        return Ok(s);
+    }
+    migrate_file(path)?;
+    let text = std::fs::read_to_string(path)?;
+    // Not validated here: a bad hand edit mustn't stop the app opening.
+    // `startup` checks it and shows the problem in Settings.
+    Ok(serde_json::from_str(&text)?)
+}
+
 /// Startup: record a validation problem with the file the app opened with
 /// (it still runs on it; Settings shows the error).
 /// Where the last settings that parsed and validated are kept.
@@ -232,7 +231,7 @@ fn keep_last_good(path: &Path, s: &Settings) {
 /// data when there are none, and Settings shows the problem until the file
 /// is fixed (the watcher picks the fix up).
 pub fn load_at_startup(path: &Path) -> anyhow::Result<(Settings, Option<String>)> {
-    let read = Settings::load_or_init(path).and_then(|s| {
+    let read = load_or_init(path).and_then(|s| {
         s.validate()?;
         Ok(s)
     });

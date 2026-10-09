@@ -2,7 +2,7 @@
 //!
 //! These are the schema the Settings page renders a source's page from, and
 //! what hand edits are validated against. Connectors still read their config
-//! from the JSON themselves; `tests::defaults_match_connectors` keeps the
+//! from the JSON themselves; `tests/settings_match_connectors.rs` keeps the
 //! defaults here and there in step. Unknown keys are allowed (an older or newer
 //! build may know more), wrong types are not.
 //!
@@ -14,6 +14,22 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+/// Default secret names for Slack; override per source with `config.user_token_secret` and
+/// `config.app_token_secret` (e.g. for a second workspace).
+pub const SLACK_USER_TOKEN: &str = "slack.user_token";
+pub const SLACK_APP_TOKEN: &str = "slack.app_token";
+/// Default secret name for the Jira API token; `config.secret` overrides it.
+pub const JIRA_DEFAULT_SECRET: &str = "jira_api_token";
+/// Mentions can't be searched reliably in JQL (`comment ~ currentUser()` is
+/// unsupported and inconsistent in Jira Cloud), so the default covers what JQL
+/// can express. Comments on these issues, mentions included, bump them (see `bump`).
+pub const JIRA_DEFAULT_JQL: &str = "assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()";
+/// Default secret name for the GitHub token; `config.secret` overrides it.
+pub const GITHUB_DEFAULT_SECRET: &str = "github_token";
+pub const OBSIDIAN_REST_URL: &str = "https://127.0.0.1:27124";
+/// Secret holding the Obsidian plugin's API key (Settings → Local REST API with MCP).
+pub const OBSIDIAN_API_KEY: &str = "obsidian.api_key";
 
 /// Every connector kind, in the order "Add source" lists them.
 pub const KINDS: &[(&str, &str)] = &[
@@ -83,8 +99,8 @@ pub struct SlackConfig {
 impl Default for SlackConfig {
     fn default() -> Self {
         SlackConfig {
-            user_token_secret: crate::sync::connectors::slack::USER_TOKEN.into(),
-            app_token_secret: crate::sync::connectors::slack::APP_TOKEN.into(),
+            user_token_secret: SLACK_USER_TOKEN.into(),
+            app_token_secret: SLACK_APP_TOKEN.into(),
             channels: Channels::default(),
             muted: vec![],
             dms: true,
@@ -205,8 +221,8 @@ impl Default for JiraConfig {
         JiraConfig {
             base_url: String::new(),
             email: String::new(),
-            secret: crate::sync::connectors::jira::DEFAULT_SECRET.into(),
-            jql: crate::sync::connectors::jira::DEFAULT_JQL.into(),
+            secret: JIRA_DEFAULT_SECRET.into(),
+            jql: JIRA_DEFAULT_JQL.into(),
             due_field: String::new(),
             create_project: String::new(),
             create_issue_type: "Task".into(),
@@ -250,7 +266,7 @@ impl Default for GithubConfig {
             api_url: String::new(),
             gh_user: String::new(),
             gh_path: String::new(),
-            secret: crate::sync::connectors::github::DEFAULT_SECRET.into(),
+            secret: GITHUB_DEFAULT_SECRET.into(),
             repos: vec![],
             orgs: vec![],
             team_review_requests: true,
@@ -284,7 +300,7 @@ impl Default for ObsidianConfig {
             vault: String::new(),
             write_mode: "obsidian".into(),
             ignore: vec![],
-            rest_url: crate::sync::connectors::obsidian::rest::DEFAULT_URL.into(),
+            rest_url: OBSIDIAN_REST_URL.into(),
             cert_path: String::new(),
         }
     }
@@ -474,15 +490,9 @@ pub fn secrets(kind: &str, config: &Value) -> Vec<SecretSlot> {
                 ),
             ]
         }
-        "jira" => vec![slot(
-            get("secret", crate::sync::connectors::jira::DEFAULT_SECRET),
-            "API token",
-            "",
-            false,
-            false,
-        )],
+        "jira" => vec![slot(get("secret", JIRA_DEFAULT_SECRET), "API token", "", false, false)],
         "github" => vec![slot(
-            get("secret", crate::sync::connectors::github::DEFAULT_SECRET),
+            get("secret", GITHUB_DEFAULT_SECRET),
             "Token",
             "empty takes it from gh",
             true,
@@ -503,7 +513,7 @@ pub fn secrets(kind: &str, config: &Value) -> Vec<SecretSlot> {
             false,
         )],
         "obsidian" => vec![slot(
-            crate::sync::connectors::obsidian::rest::API_KEY.into(),
+            OBSIDIAN_API_KEY.into(),
             "REST API key",
             "Local REST API plugin",
             true,
@@ -644,104 +654,4 @@ pub fn schemas() -> serde_json::Map<String, Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn defaults_match_connectors() {
-        let slack = crate::sync::connectors::slack::Config::from_json(&json!({}));
-        let d = SlackConfig::default();
-        assert_eq!(
-            (
-                slack.lookback_hours,
-                slack.max_dms as i64,
-                slack.thread_days,
-                slack.max_threads as i64,
-                slack.catchup_hours,
-                slack.dms,
-                slack.mentions
-            ),
-            (
-                d.lookback_hours,
-                d.max_dms,
-                d.thread_days,
-                d.max_threads,
-                d.catchup_hours,
-                d.dms,
-                d.mentions
-            )
-        );
-        assert_eq!(
-            (slack.user_token_secret, slack.app_token_secret),
-            (d.user_token_secret, d.app_token_secret)
-        );
-        let g = crate::sync::connectors::gcal::Config::from(&json!({}));
-        let d = GcalConfig::default();
-        assert_eq!(
-            (
-                g.calendar_id,
-                g.days_back,
-                g.days_ahead,
-                g.hold_minutes,
-                g.hold_day_start,
-                g.hold_day_end,
-                g.hold_search_days as i64,
-                g.default_category
-            ),
-            (
-                d.calendar_id,
-                d.days_back,
-                d.days_ahead,
-                d.hold_minutes,
-                d.hold_hours[0],
-                d.hold_hours[1],
-                d.hold_search_days,
-                d.default_category
-            )
-        );
-    }
-
-    #[test]
-    fn the_real_configs_validate() {
-        // Shapes from docs/sources and the work Mac's settings.json.
-        validate(
-            "slack",
-            &json!({ "channels": "all", "lookback_hours": 12, "muted": ["#random"] }),
-        )
-        .unwrap();
-        validate("slack", &json!({ "channels": ["#inc-2291", "C0123"] })).unwrap();
-        validate(
-            "gmail",
-            &json!({ "account": "me@work.com", "category_labels": { "work": "Work" } }),
-        )
-        .unwrap();
-        validate(
-            "gcal",
-            &json!({ "category_by_color": { "3": "self" }, "hold_hours": [9, 17] }),
-        )
-        .unwrap();
-        validate(
-            "jira",
-            &json!({ "base_url": "https://x.atlassian.net", "email": "a@b", "jql": "project = X" }),
-        )
-        .unwrap();
-        validate("github", &json!({ "team_review_requests": false, "read_only": true })).unwrap();
-        validate("obsidian", &json!({ "vault": "/v", "write_mode": "file" })).unwrap();
-        validate("protoncal", &json!({ "urls": ["https://calendar.proton.me/x"] })).unwrap();
-        validate("glean", &json!({ "server_url": "https://acme-be.glean.com" })).unwrap();
-        validate(
-            "scion",
-            &json!({ "hub_url": "https://hub.example.com", "projects": ["ingest-svc"] }),
-        )
-        .unwrap();
-        assert!(validate("scion", &json!({ "hub_url": "http://hub" })).is_err());
-        validate("slack", &json!({ "someday_key": 1 })).expect("unknown keys are allowed");
-        let e = validate("slack", &json!({ "lookback_hours": "lots" }))
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("lookback_hours") || e.contains("invalid type"), "{e}");
-        assert!(validate("glean", &json!({ "server_url": "http://x" })).is_err());
-        assert!(validate("fax", &json!({})).is_err());
-    }
-}
+mod tests;

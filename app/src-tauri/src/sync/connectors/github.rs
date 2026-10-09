@@ -24,8 +24,7 @@ use serde_json::{json, Value};
 
 pub struct GitHub;
 
-/// Default secret name for the token; `config.secret` overrides it.
-pub const DEFAULT_SECRET: &str = "github_token";
+pub use crate::settings::sources::GITHUB_DEFAULT_SECRET as DEFAULT_SECRET;
 const API: &str = "https://api.github.com";
 /// Pinned so response shapes don't shift under us. 2026-03-10 is the newest
 /// version; none of its breaking changes touch the endpoints used here.

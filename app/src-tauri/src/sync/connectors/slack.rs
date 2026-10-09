@@ -110,10 +110,7 @@ pub fn member_channels(
     Ok(out)
 }
 
-/// Default secret names; override per source with `config.user_token_secret`
-/// and `config.app_token_secret` (e.g. for a second workspace).
-pub const USER_TOKEN: &str = "slack.user_token";
-pub const APP_TOKEN: &str = "slack.app_token";
+pub use crate::settings::sources::{SLACK_APP_TOKEN as APP_TOKEN, SLACK_USER_TOKEN as USER_TOKEN};
 
 /// `source.config` for kind "slack".
 #[derive(Debug, Clone)]
