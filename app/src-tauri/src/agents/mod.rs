@@ -19,7 +19,7 @@ pub mod explain;
 pub mod facts;
 pub mod guess;
 pub mod incoming;
-pub mod model;
+pub use crate::domain::agents::model;
 pub mod openshell;
 pub mod scion;
 pub mod shell;

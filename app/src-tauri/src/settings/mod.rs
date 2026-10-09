@@ -15,12 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct Category {
-    pub key: String,
-    pub label: String,
-    pub color: String,
-}
+pub use crate::domain::categories::Category;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LegacyCategory {

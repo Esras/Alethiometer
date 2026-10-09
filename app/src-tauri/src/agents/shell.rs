@@ -7,37 +7,9 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use tree_sitter::{Node, Parser};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Parsed {
-    /// "read-only", "writes", "network", "unknown" — the badge in the panel header.
-    pub verdict: String,
-    pub steps: Vec<Step>,
-    pub checks: Vec<Check>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Step {
-    /// "1", "2", "3a", "3b": nested commands get a suffix under their parent.
-    pub n: String,
-    /// As written, with its `&&` / `||` connector as a prefix; long `sh -c` scripts show as '…'.
-    pub text: String,
-    /// From `TAGS`, in that order.
-    pub tags: Vec<String>,
-    pub depth: u8,
-    /// What surrounds it (`loop: for f in *.log`, `conditional: if …`) and what its wildcards match in the directory right now.
-    #[serde(default)]
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Check {
-    /// true = ok (green check), false = warning (yellow).
-    pub ok: bool,
-    pub text: String,
-}
+pub use crate::domain::agents::model::{Check, Parsed, Step};
 
 const TAGS: [&str; 13] = [
     "reads files",

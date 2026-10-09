@@ -1,7 +1,7 @@
 //! Agents tab state (`agent_*` tables, rows as JSON) and the agents source's signals.
 
 use super::Sql;
-use crate::agents::model::{Group, Row, Session};
+use crate::domain::agents::model::{Group, Row, Session};
 use crate::domain::agents::{
     AgentSignal, AgentState, AgentViews, Archived, ArchivedMatch, HostState, PrRow, SavedAgents, TaskRow, TicketRow,
 };

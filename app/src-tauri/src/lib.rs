@@ -1,12 +1,10 @@
 pub mod agents;
 pub mod ai;
 pub mod api;
-pub mod clock;
+pub use alethiometer_core::{clock, domain, error, store, time};
 /// The schema and migrations (`store::schema`), under its old name.
 pub use store::schema as db;
-pub mod domain;
 pub mod embed;
-pub mod error;
 pub mod fsx;
 pub mod glean;
 pub mod live;
@@ -16,9 +14,7 @@ pub mod queries;
 pub mod seed;
 pub mod settings;
 pub mod state;
-pub mod store;
 pub mod sync;
-pub mod time;
 
 #[cfg(feature = "desktop")]
 mod desktop {

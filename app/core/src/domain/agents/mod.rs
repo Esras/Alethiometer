@@ -2,7 +2,9 @@
 //! agent host's log positions, colours), and what the facts box and Agents in
 //! Incoming read. The models are the tab's own (`agents::model`).
 
-use crate::agents::model::{Group, Row, Session};
+pub mod model;
+
+use self::model::{Group, Row, Session};
 use crate::error::Result;
 use crate::time::{Due, Ts};
 use std::collections::{HashMap, HashSet};

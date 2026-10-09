@@ -27,9 +27,9 @@ impl Clock {
     /// tests get UTC so they don't depend on the machine's zone; tests about
     /// zones build their clock with `in_zone` or `fixed`.
     pub fn new(fake_now: &str) -> Clock {
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         let tz = TimeZone::system();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let tz = TimeZone::UTC;
         Clock::in_zone(fake_now, tz)
     }
@@ -120,97 +120,4 @@ impl Clock {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use jiff::civil::date;
-
-    fn la() -> TimeZone {
-        TimeZone::get("America/Los_Angeles").unwrap()
-    }
-
-    #[test]
-    fn days_across_dst() {
-        let c = Clock::fixed(Ts::parse("2026-11-01T12:00:00Z").unwrap(), la());
-        // Fall back: Nov 1 2026 has 25 hours in Los Angeles.
-        let (a, b) = c.day_range(date(2026, 11, 1));
-        assert_eq!(
-            (a.to_db().as_str(), b.to_db().as_str()),
-            ("2026-11-01T07:00:00.000Z", "2026-11-02T08:00:00.000Z")
-        );
-        assert_eq!((b - a).as_hours(), 25);
-        // The repeated hour reads as the first one.
-        assert_eq!(
-            c.from_local(date(2026, 11, 1).at(1, 30, 0, 0)).to_db(),
-            "2026-11-01T08:30:00.000Z"
-        );
-        // Spring forward: 02:30 on Mar 8 doesn't exist; read past the gap.
-        assert_eq!(
-            c.local(c.from_local(date(2026, 3, 8).at(2, 30, 0, 0))).time(),
-            Time::constant(3, 30, 0, 0)
-        );
-    }
-
-    #[test]
-    fn the_same_instant_is_a_different_day_elsewhere() {
-        let t = Ts::parse("2026-10-03T05:30:00Z").unwrap();
-        assert_eq!(Clock::fixed(t, la()).day_of(t), date(2026, 10, 2));
-        assert_eq!(
-            Clock::fixed(t, TimeZone::get("Europe/Zurich").unwrap()).day_of(t),
-            date(2026, 10, 3)
-        );
-    }
-
-    #[test]
-    fn fake_now_is_that_time_today_in_the_zone() {
-        let c = Clock::in_zone("10:52", la());
-        assert_eq!(c.local_now().strftime("%H:%M").to_string(), "10:52");
-    }
-
-    /// Wall-clock time comes from `Clock` only. Protoncal hands its zone to
-    /// `rrule` as chrono values, converted from the clock's; this file and the
-    /// UTC migration name the old forms in prose.
-    #[test]
-    fn nothing_else_reads_local_time() {
-        let banned = [
-            "chrono::Local",
-            "Local::now",
-            "TimeZone::system",
-            "Zoned::now",
-            "localtime",
-            "datetime('now",
-            "date('now",
-            "CURRENT_TIMESTAMP",
-        ];
-        let allowed = ["clock.rs", "utc_migration.rs", "protoncal.rs"];
-        let mut bad = vec![];
-        let mut dirs = vec![std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))];
-        while let Some(dir) = dirs.pop() {
-            for e in std::fs::read_dir(dir).unwrap().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    dirs.push(p);
-                } else if p.extension().is_some_and(|x| x == "rs") && !allowed.iter().any(|a| p.ends_with(a)) {
-                    let text = std::fs::read_to_string(&p).unwrap();
-                    bad.extend(
-                        banned
-                            .iter()
-                            .filter(|b| text.contains(*b))
-                            .map(|b| format!("{}: {b}", p.display())),
-                    );
-                }
-            }
-        }
-        assert!(bad.is_empty(), "local time read outside Clock: {bad:#?}");
-        // Column defaults in the migrated schema.
-        let conn = crate::db::open_in_memory().unwrap();
-        let schema: Vec<String> = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
-        let bad: Vec<&String> = schema.iter().filter(|s| banned.iter().any(|b| s.contains(b))).collect();
-        assert!(bad.is_empty(), "defaults that aren't UTC instants: {bad:#?}");
-    }
-}
+mod tests;

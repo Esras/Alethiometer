@@ -75,6 +75,12 @@ tokenizers = { version = "0.22", default-features = false, features = ["fancy-re
 sqlite-vec = "0.1.6"
 # The agent host's protocol and client (app/agentd): local agents run there and outlive the app.
 alethiometer-agentd = { path = "../agentd" }
+# Time, errors, the domain model and ports, and the SQLite store.
+alethiometer-core = { path = "../core" }
 
 [dev-dependencies]
 tempfile = "3"
+alethiometer-core = { path = "../core", features = ["test-support"] }
+
+[profile.dev]
+debug = "line-tables-only"

@@ -1,0 +1,30 @@
+[package]
+name = "alethiometer-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Alethiometer's foundation: time, errors, the domain model and ports, and the SQLite store"
+
+[lib]
+name = "alethiometer_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+rusqlite = { version = "0.40", features = ["bundled", "chrono", "jiff", "hooks"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.35"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+schemars = { version = "1.2", features = ["preserve_order"] }
+sqlite-vec = "0.1.6"
+regex = "1"
+jiff = { version = "0.2", features = ["serde", "tzdb-bundle-always"] }
+
+[features]
+test-support = []
+
+[dev-dependencies]
+tempfile = "3"

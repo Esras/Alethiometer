@@ -1,7 +1,15 @@
 //! Topic categories, mirrored from settings.json.
 
 use crate::error::Result;
-pub use crate::settings::Category;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Category {
+    pub key: String,
+    pub label: String,
+    pub color: String,
+}
 
 pub trait CategoryViews {
     /// In the user's order.

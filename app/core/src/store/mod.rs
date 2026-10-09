@@ -69,7 +69,7 @@ pub struct Db {
 }
 
 /// Ports over a test's own connection (fixtures).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn over(conn: &Connection) -> Sql<'_> {
     Sql(conn)
 }
@@ -273,7 +273,7 @@ impl Db {
 
     /// The writer connection itself, for tests' fixtures and checks (no
     /// transaction; each statement commits alone). Not in the app.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn legacy(&self) -> LegacyGuard<'_> {
         LegacyGuard {
             _w: Writing::enter(),
@@ -288,14 +288,14 @@ impl Db {
 }
 
 /// `Db::legacy`: the writer, held until dropped.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub struct LegacyGuard<'a> {
     // Field order: the mutex guard drops first, then the thread is marked free.
     guard: MutexGuard<'a, Connection>,
     _w: Writing,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl std::ops::Deref for LegacyGuard<'_> {
     type Target = Connection;
     fn deref(&self) -> &Connection {
@@ -303,7 +303,7 @@ impl std::ops::Deref for LegacyGuard<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl std::ops::DerefMut for LegacyGuard<'_> {
     fn deref_mut(&mut self) -> &mut Connection {
         &mut self.guard
@@ -366,209 +366,4 @@ ports!(UnitOfWork {
 });
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::error::msg;
-
-    fn file_db() -> (Db, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let db = Db::new(schema::open(&dir.path().join("t.sqlite")).unwrap()).unwrap();
-        (db, dir)
-    }
-
-    /// A life block (id 1) with a 10-minute buffer.
-    fn life_block(db: &Db) {
-        db.legacy()
-            .execute_batch(
-                "INSERT INTO sources (id, kind, tag, name) VALUES (1, 'protoncal', 'personal', 'Life');
-                 INSERT INTO events (id, source_id, start, end, category, is_life_busy, buffer_min)
-                 VALUES (1, 1, '2026-10-03T17:00:00.000Z', '2026-10-03T18:00:00.000Z', 'life', 1, 10);",
-            )
-            .unwrap();
-    }
-
-    fn buffer(r: &dyn Reads) -> Option<i64> {
-        let day = (
-            crate::time::t("2026-10-03T00:00:00"),
-            crate::time::t("2026-10-04T00:00:00"),
-        );
-        r.day_strip().blocks(day.0, day.1).unwrap()[0].buffer_min
-    }
-
-    #[test]
-    fn an_error_or_a_panic_rolls_the_whole_unit_of_work_back() {
-        let (db, _dir) = file_db();
-        life_block(&db);
-        let r: Result<()> = db.write(|uow| {
-            uow.events().set_buffer(1, 20)?;
-            uow.events().set_buffer(1, 30)?;
-            Err(msg("failed after two writes"))
-        });
-        assert!(r.is_err());
-        assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(10));
-        let p = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = db.write(|uow| -> Result<()> {
-                uow.events().set_buffer(1, 20)?;
-                panic!("mid-action");
-            });
-        }));
-        assert!(p.is_err());
-        assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(10), "the panic rolled back");
-        db.write(|uow| uow.events().set_buffer(1, 25)).unwrap();
-        assert_eq!(
-            db.read(|r| Ok(buffer(r))).unwrap(),
-            Some(25),
-            "and the writer still works"
-        );
-    }
-
-    #[test]
-    fn a_long_read_runs_while_a_write_commits_and_keeps_its_snapshot() {
-        let (db, _dir) = file_db();
-        life_block(&db);
-        let db = std::sync::Arc::new(db);
-        let (started_tx, started) = std::sync::mpsc::channel();
-        let (go_tx, go) = std::sync::mpsc::channel::<()>();
-        let reader = {
-            let db = db.clone();
-            std::thread::spawn(move || {
-                db.read(|r| {
-                    let before = buffer(r);
-                    started_tx.send(()).unwrap();
-                    go.recv().unwrap(); // the write commits meanwhile
-                    Ok((before, buffer(r)))
-                })
-                .unwrap()
-            })
-        };
-        started.recv().unwrap();
-        let t = Instant::now();
-        db.write(|uow| uow.events().set_buffer(1, 45)).unwrap();
-        assert!(
-            t.elapsed() < Duration::from_secs(1),
-            "the write didn't wait for the read"
-        );
-        go_tx.send(()).unwrap();
-        assert_eq!(
-            reader.join().unwrap(),
-            (Some(10), Some(10)),
-            "one snapshot for the whole read"
-        );
-        assert_eq!(db.read(|r| Ok(buffer(r))).unwrap(), Some(45));
-    }
-
-    /// The Glean quota is checked and counted in one unit of work: many
-    /// searches at once take exactly the calls left.
-    #[test]
-    fn concurrent_glean_calls_never_pass_the_daily_limit() {
-        let (db, _dir) = file_db();
-        let db = std::sync::Arc::new(db);
-        let day = crate::time::Date::constant(2026, 10, 3);
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
-        let threads: Vec<_> = (0..12)
-            .map(|_| {
-                let (db, barrier) = (db.clone(), barrier.clone());
-                std::thread::spawn(move || {
-                    barrier.wait();
-                    db.write(|uow| uow.usage().take_glean_call(day, 5)).unwrap()
-                })
-            })
-            .collect();
-        let took = threads.into_iter().map(|t| t.join().unwrap()).filter(|t| *t).count();
-        assert_eq!(took, 5);
-        assert_eq!(db.read(|r| r.usage().glean_calls(day)).unwrap(), 5);
-    }
-
-    #[test]
-    #[should_panic(expected = "already held on this thread")]
-    fn the_writer_taken_twice_on_one_thread_is_a_bug_not_a_hang() {
-        let (db, _dir) = file_db();
-        let _ = db.write(|_| {
-            let _inner = db.legacy();
-            Ok(())
-        });
-    }
-
-    /// Values the database maintains (Phase 4) equal what their from-scratch
-    /// queries give, after the kinds of writes the app makes.
-    #[test]
-    fn maintained_values_match_their_from_scratch_queries() {
-        let conn = schema::open_in_memory().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let clock = crate::sync::test_clock("2026-09-27T10:52:00Z");
-        crate::seed::seed(&over(&conn), &clock, dir.path()).unwrap();
-        // Times move (a rescheduled meeting), links are made and moved, items come back.
-        conn.execute_batch(
-            "UPDATE items SET occurred_at = '2026-09-29T08:00:00.000Z', ended_at = '2026-09-29T09:00:00.000Z' WHERE id IN (SELECT id FROM items WHERE kind = 'event' LIMIT 3);
-             UPDATE items SET ended_at = NULL WHERE id IN (SELECT id FROM items WHERE ended_at IS NOT NULL LIMIT 2);
-             INSERT OR IGNORE INTO topic_links (item_id, topic_id, state) SELECT i.id, (SELECT min(id) FROM topics), 'confirmed' FROM items i LIMIT 5;
-             UPDATE topic_links SET item_id = (SELECT max(id) FROM items) WHERE rowid = (SELECT max(rowid) FROM topic_links);
-             UPDATE items SET seen = 0, status = 'open', owner = 'you', kind = 'task' WHERE id IN (SELECT id FROM items LIMIT 4);",
-        )
-        .unwrap();
-        let stale: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE tl.item_at IS NOT coalesce(i.ended_at, i.occurred_at)",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(stale, 0, "topic_links.item_at follows its item");
-        let counts = |sql: &str| -> Vec<(i64, i64)> {
-            conn.prepare(sql)
-                .unwrap()
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-                .unwrap()
-                .map(|r| r.unwrap())
-                .collect()
-        };
-        let links = "topic_links tl JOIN items i ON i.id = tl.item_id";
-        assert_eq!(
-            counts("SELECT topic_id, n FROM topic_new_counts ORDER BY topic_id"),
-            counts(&format!(
-                "SELECT t.id, (SELECT count(*) FROM {links} WHERE tl.topic_id = t.id AND tl.state IN ('suggested', 'confirmed') AND i.seen = 0) AS n
-                   FROM topics t WHERE n > 0 ORDER BY t.id"
-            ))
-        );
-        assert_eq!(
-            counts("SELECT topic_id, n FROM topic_open_counts ORDER BY topic_id"),
-            counts(&format!(
-                "SELECT t.id, (SELECT count(*) FROM {links} WHERE tl.topic_id = t.id AND tl.state = 'confirmed'
-                               AND i.kind IN ('task', 'issue', 'email') AND i.owner IS NOT NULL AND i.status = 'open') AS n
-                   FROM topics t WHERE n > 0 ORDER BY t.id"
-            ))
-        );
-    }
-
-    /// SQL lives in `store/` (tests' own fixtures aside).
-    #[test]
-    fn no_sql_outside_store() {
-        let re = regex::Regex::new(r#"(?i)"\s*(SELECT|INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE|DROP\s+TABLE|WITH\s+\w+\s+AS)\b"#).unwrap();
-        let test_mod = regex::Regex::new(r"#\[cfg\(test\)\]\s*(pub(\(crate\))?\s+)?mod\s+\w+").unwrap();
-        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
-        let mut found = vec![];
-        let mut dirs = vec![root.clone()];
-        while let Some(dir) = dirs.pop() {
-            for e in std::fs::read_dir(dir).unwrap().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    if p != root.join("store") {
-                        dirs.push(p);
-                    }
-                } else if p.extension().is_some_and(|x| x == "rs") && !p.ends_with("tests.rs") {
-                    let text = std::fs::read_to_string(&p).unwrap();
-                    // Test fixtures may write rows directly: a file's test modules are left out.
-                    let code = test_mod.split(&text).next().unwrap();
-                    let n = re.find_iter(code).count();
-                    if n > 0 {
-                        found.push(format!(
-                            "{}: {n} SQL statements (move them into a repository in store/)",
-                            p.strip_prefix(&root).unwrap().display()
-                        ));
-                    }
-                }
-            }
-        }
-        assert!(found.is_empty(), "{}", found.join("\n"));
-    }
-}
+mod tests;
