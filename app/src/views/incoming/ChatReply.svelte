@@ -1,6 +1,6 @@
 <script lang="ts">
-  // A Slack reply from Incoming. `r` opens the field under the signal; ⌘↵
-  // sends it as you (`respond.slack`, through the outbox), Esc closes it and
+  // A chat (Slack) reply from Incoming. `r` opens the field under the signal; ⌘↵
+  // sends it as you (`respond.reply`, through the outbox), Esc closes it and
   // keeps the draft. It goes in the thread for a thread signal, else in the
   // conversation; ⌥T switches (user, 2026-10-07). In a thread it answers the
   // message picked in the list, else the newest. Replying never triages: your
@@ -50,7 +50,7 @@
     if (!t || busy) return;
     busy = true;
     try {
-      await call('respond.slack', {
+      await call('respond.reply', {
         item_id: s.item_id,
         text: t,
         thread,

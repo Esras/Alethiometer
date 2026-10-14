@@ -44,6 +44,15 @@ pub const KINDS: &[(&str, &str)] = &[
     ("scion", "Scion Hub"),
 ];
 
+/// Chat sources: conversations of messages, read as runs that triage closes,
+/// split per message by the AI, answered with `r`, marked read on Confirm
+/// (`app/docs/chat.md`). The kinds' connectors share `sync::connectors::chat`.
+pub const CHAT_KINDS: &[&str] = &["slack"];
+
+pub fn is_chat(kind: &str) -> bool {
+    CHAT_KINDS.contains(&kind)
+}
+
 /// `channels` is a list, or "all".
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(untagged)]

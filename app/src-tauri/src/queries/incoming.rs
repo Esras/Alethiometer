@@ -31,6 +31,7 @@ use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::outbox::request;
 use crate::seed::{Ctx, ItemSeed};
+use crate::settings::sources::is_chat;
 use crate::settings::PeopleSettings;
 use crate::time::Ts;
 use serde::Serialize;
@@ -640,8 +641,8 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
     let events: Vec<i64> = sigs.iter().filter(|s| s.kind == "event").map(|s| s.item_id).collect();
     let mut rsvps = super::respond::rsvps(r, &events, &look.clock)?;
-    let slack: Vec<i64> = sigs.iter().filter(|s| s.source == "slack").map(|s| s.item_id).collect();
-    let mut replies = super::respond::replies(r, &slack, &look.clock)?;
+    let chat: Vec<i64> = sigs.iter().filter(|s| is_chat(&s.source)).map(|s| s.item_id).collect();
+    let mut replies = super::respond::replies(r, &chat, &look.clock)?;
     for s in sigs {
         let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
         s.keys = raw_rows.iter().filter_map(|m| m.ext_key.clone()).collect();
@@ -789,9 +790,9 @@ fn confirm_series(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64) -> Result<(
     Ok(())
 }
 
-/// Confirming a Slack or Gmail signal also marks it read there, through the outbox.
-/// Only items the Slack connector stored with a read marker qualify (threads
-/// have none; Slack has no API for a thread's read state).
+/// Confirming a chat (Slack) or Gmail signal also marks it read there, through the outbox.
+/// Only items the chat connector stored with a read marker qualify (Slack
+/// threads have none; Slack has no API for a thread's read state).
 ///
 /// Split families (`split.rs`): `conversations.mark` up to a ts also marks
 /// everything before it, and a run read in Slack closes the parent's item. So
@@ -803,7 +804,7 @@ fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64, saw: Opti
         return Ok(());
     };
     match kind.as_str() {
-        "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
+        k if is_chat(k) => mark_chat_read(uow, source_id, k, item_id, &raws, saw),
         "gmail" => file_gmail(uow, source_id, item_id, &raws, topic_id, saw),
         _ => Ok(()),
     }
@@ -824,9 +825,12 @@ fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, Str
     Ok(Some((source_id, kind, raws)))
 }
 
-fn mark_slack_read(
+/// `<kind>.mark_read` up to the family's newest `raw_json.mark_ts` (chat
+/// message keys sort as numbers, oldest first; `app/docs/chat.md`).
+fn mark_chat_read(
     uow: &dyn UnitOfWork,
     source_id: i64,
+    kind: &str,
     item_id: i64,
     raws: &[(i64, Value)],
     saw: Option<&Saw>,
@@ -873,7 +877,7 @@ fn mark_slack_read(
         request(
             uow,
             source_id,
-            "slack.mark_read",
+            &format!("{kind}.mark_read"),
             &json!({ "channel": channel, "ts": ts }),
             Some(item_id),
         )?;
@@ -1070,9 +1074,19 @@ pub struct Family {
     pub messages: Vec<Message>,
 }
 
+/// What a chat item's conversation is: `raw_json.conv` when its connector
+/// says (`app/docs/chat.md`), else read off Slack's titles.
 fn conv_kind(title: &str, raw: &Value) -> &'static str {
+    let said = match raw.get("conv").and_then(Value::as_str) {
+        Some("dm") => Some("dm"),
+        Some("group") => Some("group"),
+        Some("channel") => Some("channel"),
+        _ => None,
+    };
     if raw.get("thread_ts").is_some() {
         "thread"
+    } else if let Some(k) = said {
+        k
     } else if title.starts_with("DM ·") {
         "dm"
     } else if title.starts_with("Group DM") {
@@ -3051,6 +3065,23 @@ mod tests {
         )
         .unwrap();
         conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn a_chat_items_conversation_kind_is_its_conv_else_slacks_title() {
+        assert_eq!(conv_kind("Chat · Priya", &json!({"channel": "c", "conv": "dm"})), "dm");
+        assert_eq!(
+            conv_kind("Design review", &json!({"channel": "c", "conv": "group"})),
+            "group"
+        );
+        assert_eq!(
+            conv_kind("x", &json!({"channel": "c", "conv": "dm", "thread_ts": "1"})),
+            "thread"
+        );
+        // Slack's items say nothing: their titles do.
+        assert_eq!(conv_kind("DM · Priya", &json!({"channel": "D1"})), "dm");
+        assert_eq!(conv_kind("Group DM · a, b", &json!({"channel": "G1"})), "group");
+        assert_eq!(conv_kind("#inc-2291", &json!({"channel": "C1"})), "channel");
     }
 
     #[test]

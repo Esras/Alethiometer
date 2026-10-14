@@ -1,11 +1,12 @@
-//! Answering from Alethiometer: calendar invites (RSVP, 14a/14b) and Slack
-//! replies. Answering and triage are separate: an answer never confirms,
+//! Answering from Alethiometer: calendar invites (RSVP, 14a/14b) and chat
+//! (Slack) replies. Answering and triage are separate: an answer never confirms,
 //! moves or dismisses a signal, and triage never answers.
 //!
 //! - `respond.rsvp {item_id, response: accepted|declined, comment?}` queues
 //!   `gcal.rsvp` for the invite's event, or its whole series when it's
 //!   recurring (user, 2026-10-07). `comment` only goes with a decline.
-//! - `respond.slack {item_id, text, thread, message_key?}` queues `slack.reply`.
+//! - `respond.reply {item_id, text, thread, message_key?}` queues the chat
+//!   source's `<kind>.reply` (`slack.reply`).
 //!   With `thread` it goes in the item's thread (a thread item), else in the
 //!   thread of `message_key` (a top-level message of the item), else of its
 //!   newest top-level message; without, in the conversation itself.
@@ -67,10 +68,11 @@ pub fn route(name: &str) -> Option<Route> {
             let id = rsvp(uow, arg_i64(args, "item_id")?, &arg_str(args, "response")?, comment)?;
             Ok(json!({ "ok": true, "outbox_id": id }))
         }),
-        "slack" => Route::Write(|uow, _, args| {
+        // A reply to a chat signal (Slack).
+        "reply" => Route::Write(|uow, _, args| {
             let thread = args.get("thread").and_then(Value::as_bool).unwrap_or(false);
             let key = args.get("message_key").and_then(Value::as_str);
-            let id = slack_reply(uow, arg_i64(args, "item_id")?, &arg_str(args, "text")?, thread, key)?;
+            let id = chat_reply(uow, arg_i64(args, "item_id")?, &arg_str(args, "text")?, thread, key)?;
             Ok(json!({ "ok": true, "outbox_id": id }))
         }),
         _ => return None,
@@ -198,14 +200,16 @@ fn rsvp(uow: &dyn UnitOfWork, item_id: i64, response: &str, comment: Option<&str
     queue(uow, last.as_ref(), true, item.source_id, "gcal.rsvp", &payload, item_id)
 }
 
-fn slack_reply(uow: &dyn UnitOfWork, item_id: i64, text: &str, thread: bool, message_key: Option<&str>) -> Result<i64> {
+/// `<kind>.reply` `{channel, text, thread_ts?}`: in the item's thread, or with
+/// `thread` in the thread of `message_key` (else its newest top-level message).
+fn chat_reply(uow: &dyn UnitOfWork, item_id: i64, text: &str, thread: bool, message_key: Option<&str>) -> Result<i64> {
     if text.trim().is_empty() {
         return Err(msg("nothing to send"));
     }
     let r = uow.reads();
     let item = uow.items().get(item_id)?.ok_or_else(|| msg("no such item"))?;
-    if item.source_kind != "slack" {
-        return Err(msg("only Slack signals take a reply"));
+    if !crate::settings::sources::is_chat(&item.source_kind) {
+        return Err(msg("only chat signals take a reply"));
     }
     let raw: Value = serde_json::from_str(&item.raw_json).unwrap_or_default();
     let field = |k: &str| {
@@ -243,7 +247,7 @@ fn slack_reply(uow: &dyn UnitOfWork, item_id: i64, text: &str, thread: bool, mes
         last.as_ref(),
         false,
         item.source_id,
-        "slack.reply",
+        &format!("{}.reply", item.source_kind),
         &payload,
         item_id,
     )
@@ -441,7 +445,7 @@ mod tests {
         let (conn, clock, _d) = setup();
         let inc = item(&conn, "#inc-2291");
         let sent = |thread: bool, key: Option<&str>| -> Result<Value> {
-            slack_reply(&uow(&conn), inc, "on it", thread, key)?;
+            chat_reply(&uow(&conn), inc, "on it", thread, key)?;
             Ok(serde_json::from_str(&outbox(&conn, "slack.reply").last().unwrap().2).unwrap())
         };
         assert_eq!(
@@ -452,7 +456,7 @@ mod tests {
         assert_eq!(sent(true, None).unwrap()["thread_ts"], "C2291.3", "the newest message");
         assert_eq!(sent(true, Some("C2291.1")).unwrap()["thread_ts"], "C2291.1");
         assert!(sent(true, Some("C9.9")).is_err(), "a message of another signal");
-        assert!(slack_reply(&uow(&conn), inc, "  ", false, None).is_err());
+        assert!(chat_reply(&uow(&conn), inc, "  ", false, None).is_err());
 
         // A thread item replies in its thread, whatever message is picked.
         conn.execute(
@@ -469,6 +473,6 @@ mod tests {
         );
 
         let mail = item(&conn, "Dana · \"We need someone senior on a call today\"");
-        assert!(slack_reply(&uow(&conn), mail, "hi", false, None).is_err());
+        assert!(chat_reply(&uow(&conn), mail, "hi", false, None).is_err());
     }
 }

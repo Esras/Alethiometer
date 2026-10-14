@@ -1,6 +1,7 @@
 //! One module per source kind.
 
 pub mod agents;
+pub mod chat;
 pub mod gcal;
 pub mod github;
 pub mod gmail;
@@ -25,4 +26,13 @@ pub fn for_kind(kind: &str) -> Option<Box<dyn Connector>> {
         "agents" => Box::new(agents::Agents),
         _ => return None,
     })
+}
+
+/// A web link as a link into a chat source's desktop app, when one knows it
+/// (`Connector::deep_link`).
+pub fn deep_link(r: &dyn crate::domain::ports::Reads, url: &str) -> Option<String> {
+    chat::CHAT_KINDS
+        .iter()
+        .filter_map(|k| for_kind(k))
+        .find_map(|c| c.deep_link(r, url))
 }

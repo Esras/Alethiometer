@@ -20,36 +20,6 @@ use serde_json::{json, Value};
 
 pub use poll::State;
 
-/// Conversations whose open run you triaged in Alethiometer are closed in
-/// the cursor: the next message starts a new run.
-pub fn close_triaged(r: &dyn Reads, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
-    let Some(cursor) = source.cursor.as_deref() else {
-        return Ok(None);
-    };
-    let mut state = State::parse(Some(cursor));
-    let mut done = vec![];
-    for (key, o) in &state.open {
-        let mut triaged = r.items().seen_by_external(source.id, &o.id)?;
-        // A thread attached to its parent closes with the item holding the parent.
-        if let (None, Some((channel, parent))) = (triaged, key.split_once('/')) {
-            if let Some(h) = r.items().holder(source.id, Some(channel), parent)? {
-                triaged = r.items().seen(h)?;
-            }
-        }
-        if triaged == Some(true) {
-            done.push((key.clone(), o.last.clone()));
-        }
-    }
-    if done.is_empty() {
-        return Ok(Some(cursor.to_owned()));
-    }
-    for (key, last) in done {
-        state.open.remove(&key);
-        state.closed.insert(key, last);
-    }
-    Ok(Some(serde_json::to_string(&state)?))
-}
-
 /// A Slack web permalink as a slack:// link for the desktop app, when a Slack
 /// source knows that workspace's team id. `message` and `thread_ts` aren't in
 /// Slack's documented scheme; without them it still opens the channel.
@@ -195,6 +165,18 @@ impl Connector for Slack {
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         send(ctx, &Config::from_json(&ctx.source.config), op, payload)
+    }
+
+    fn before_poll(&self, r: &dyn Reads, source: &crate::sync::Source) -> crate::error::Result<Option<String>> {
+        super::chat::close_triaged::<State>(r, source)
+    }
+
+    fn live(&self, source_id: i64) -> Option<bool> {
+        socket::connected(source_id)
+    }
+
+    fn deep_link(&self, r: &dyn Reads, url: &str) -> Option<String> {
+        deep_link(r, url)
     }
 }
 

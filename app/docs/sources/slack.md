@@ -196,7 +196,7 @@ do not apply to internal, customer-built apps like this one.
 | Op | Payload | Slack method |
 |---|---|---|
 | `slack.mark_read` | `{channel, ts}`, from the item's `raw_json.channel` / `raw_json.mark_ts` | `conversations.info`, then `conversations.mark`: the conversation is read up to `ts` in Slack too. Queued when you confirm a top-level item or a mention. Never moves the read marker backwards (below). When confirmed, the item is marked seen locally. |
-| `slack.reply` | `{channel, thread_ts?, text}` | `chat.postMessage` as you, in the thread when `thread_ts` is given, else in the conversation. `text` is exactly what you typed. Queued by `respond.slack` (`r` in Incoming): a thread item replies in its thread, anything else in the conversation, ⌥T switches; in a thread it answers the message picked in the list, else the newest. Not resent on an unknown outcome (it could post twice): it fails for you to check. |
+| `slack.reply` | `{channel, thread_ts?, text}` | `chat.postMessage` as you, in the thread when `thread_ts` is given, else in the conversation. `text` is exactly what you typed. Queued by `respond.reply` (`r` in Incoming): a thread item replies in its thread, anything else in the conversation, ⌥T switches; in a thread it answers the message picked in the list, else the newest. Not resent on an unknown outcome (it could post twice): it fails for you to check. |
 | `slack.react` | `{channel, ts, name}` (`eyes` or `:eyes:`) | `reactions.add`. An existing identical reaction counts as done. |
 
 **Threads can't be marked read from Alethiometer.** Slack's public Web API has no

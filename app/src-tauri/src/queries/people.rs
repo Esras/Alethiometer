@@ -72,7 +72,8 @@ pub fn account_of(source_kind: &str, handle: &str) -> Option<(String, String)> {
         return None;
     }
     let (kind, account) = match source_kind {
-        "slack" => ("slack", h.to_string()),
+        // A chat source's user id, as the source gives it.
+        k if crate::settings::sources::is_chat(k) => (k, h.to_string()),
         "jira" => ("jira", h.to_string()),
         "github" => ("github", h.to_lowercase()),
         "gmail" | "gcal" => match h.strip_prefix("github:") {
@@ -426,8 +427,8 @@ pub struct Resolver {
     my_color: u8,
 }
 
-/// Your own accounts: settings `people.me`, each Slack source's own user id, and
-/// each Jira source's email (the API token's owner).
+/// Your own accounts: settings `people.me`, each chat (Slack) source's own
+/// user id (`me` in its cursor), and each Jira source's email (the API token's owner).
 fn my_accounts(r: &dyn Reads, settings: &PeopleSettings) -> Result<HashSet<(String, String)>> {
     let mut me: HashSet<(String, String)> = settings
         .me
@@ -436,13 +437,15 @@ fn my_accounts(r: &dyn Reads, settings: &PeopleSettings) -> Result<HashSet<(Stri
         .filter(|(k, v)| KINDS.contains(k) && !v.trim().is_empty())
         .map(|(k, v)| (k.to_string(), norm(k, v)))
         .collect();
-    for c in r.sources().of_kind("slack")?.into_iter().filter_map(|s| s.cursor) {
-        if let Some(u) = serde_json::from_str::<Value>(&c)
-            .ok()
-            .and_then(|v| v.get("me").and_then(Value::as_str).map(str::to_owned))
-        {
-            if !u.is_empty() {
-                me.insert(("slack".into(), u));
+    for kind in crate::settings::sources::CHAT_KINDS {
+        for c in r.sources().of_kind(kind)?.into_iter().filter_map(|s| s.cursor) {
+            if let Some(u) = serde_json::from_str::<Value>(&c)
+                .ok()
+                .and_then(|v| v.get("me").and_then(Value::as_str).map(str::to_owned))
+            {
+                if !u.is_empty() {
+                    me.insert((kind.to_string(), u));
+                }
             }
         }
     }

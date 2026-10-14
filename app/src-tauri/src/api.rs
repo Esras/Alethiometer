@@ -147,6 +147,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 "incoming_count": incoming,
                 "todo_count": todos,
                 "platform": std::env::consts::OS,
+                "chat_kinds": crate::settings::sources::CHAT_KINDS,
                 "ui_scale": settings.ui_scale,
                 "ui_font": settings.ui_font,
                 "mono_font": settings.mono_font,
@@ -167,7 +168,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 .ok_or_else(|| msg("open_url needs a 'url'"))?;
             let url = &app
                 .store()
-                .read(|r| Ok(crate::sync::connectors::slack::deep_link(r, url)))?
+                .read(|r| Ok(crate::sync::connectors::deep_link(r, url)))?
                 .unwrap_or_else(|| url.to_owned());
             app.platform
                 .open_url(url)

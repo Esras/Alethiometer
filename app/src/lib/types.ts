@@ -25,6 +25,8 @@ export interface AppInfo {
   incoming_count: number;
   todo_count: number;
   platform: string;
+  /** Source kinds that are chat (Slack): see `isChat`. */
+  chat_kinds: string[];
   ui_scale: number;
   ui_font: string;
   mono_font: string;

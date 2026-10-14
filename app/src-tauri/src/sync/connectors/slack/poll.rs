@@ -148,18 +148,17 @@ pub struct ThreadState {
     pub checked: f64,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Open {
-    /// The item's external id.
-    pub id: String,
-    /// First and last ts of the stored run.
-    pub first: String,
-    pub last: String,
-}
+pub use super::super::chat::Open;
 
 impl State {
     pub fn parse(cursor: Option<&str>) -> State {
         cursor.and_then(|c| serde_json::from_str(c).ok()).unwrap_or_default()
+    }
+}
+
+impl super::super::chat::Runs for State {
+    fn runs(&mut self) -> (&mut BTreeMap<String, Open>, &mut BTreeMap<String, String>) {
+        (&mut self.open, &mut self.closed)
     }
 }
 

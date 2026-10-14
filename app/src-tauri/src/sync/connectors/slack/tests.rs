@@ -448,7 +448,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     )
     .unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
-    src.cursor = close_triaged(&crate::store::over(&conn), &src).unwrap();
+    src.cursor = Slack.before_poll(&crate::store::over(&conn), &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
     assert!(!state.open.contains_key("C0INC") && !state.open.contains_key("C0INC/1789990000.000200"));
     assert_eq!(state.closed["C0INC"], "1789995600.000500");
