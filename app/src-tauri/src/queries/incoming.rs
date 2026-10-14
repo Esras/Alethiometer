@@ -2971,6 +2971,77 @@ mod tests {
         }
     }
 
+    /// The chat layer by kind: a Teams chat is marked read through `teams.mark_read`.
+    #[test]
+    fn confirming_a_teams_chat_marks_it_read_in_teams() {
+        use crate::sync::{apply_now, Batch, ItemUpsert, Message as M};
+        let (conn, now, _d) = setup();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name, config_json) VALUES ('teams', 'work', 'Teams', '{}')",
+            [],
+        )
+        .unwrap();
+        let src = crate::sync::load_source(&conn, conn.last_insert_rowid()).unwrap();
+        let keys = ["1790000000100", "1790000000200"];
+        let it = ItemUpsert {
+            external_id: "19:c@thread.v2/1790000000100".into(),
+            kind: "thread".into(),
+            title: "Chat · Ana".into(),
+            occurred_at: crate::time::t("2026-09-27T09:00:00"),
+            status: "open".into(),
+            raw_json: json!({ "channel": "19:c@thread.v2", "conv": "dm", "mark_ts": keys[1], "msgs": keys }),
+            messages: keys
+                .iter()
+                .map(|k| M {
+                    at: crate::time::Ts::from_unix_ms(k.parse().unwrap()).unwrap(),
+                    author: "Ana".into(),
+                    text: format!("m {k}"),
+                    ..Default::default()
+                })
+                .collect(),
+            bump: true,
+            ..Default::default()
+        };
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let item: i64 = conn
+            .query_row(
+                "SELECT id FROM items WHERE external_id = '19:c@thread.v2/1790000000100'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let topic = topic_named(&conn, "Q4 planning");
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![item, topic],
+        )
+        .unwrap();
+        let saw = listed(&conn, &now, item);
+        // Nothing arrived since the list was shown.
+        assert!(!confirm_seen(&crate::store::over(&conn), now.now(), item, topic, Some(&saw)).unwrap());
+        let ops: Vec<(String, String)> = conn
+            .prepare("SELECT op, payload_json FROM outbox WHERE item_id = ?1")
+            .unwrap()
+            .query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ops.len(), 1, "{ops:?}");
+        assert_eq!(ops[0].0, "teams.mark_read");
+        assert_eq!(
+            serde_json::from_str::<Value>(&ops[0].1).unwrap(),
+            json!({ "channel": "19:c@thread.v2", "ts": "1790000000200" })
+        );
+    }
+
     #[test]
     fn a_message_arriving_mid_render_stays_new() {
         let (conn, now, _d) = setup();

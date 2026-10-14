@@ -87,6 +87,7 @@ export interface TopicRow extends TopicRef {
 export type SourceKind =
   | 'gcal'
   | 'slack'
+  | 'teams'
   | 'jira'
   | 'github'
   | 'obsidian'

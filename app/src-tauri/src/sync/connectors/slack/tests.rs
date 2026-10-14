@@ -129,6 +129,7 @@ fn run_poll(http: &dyn Http, src: &Source) -> anyhow::Result<Batch> {
         source: src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -792,6 +793,7 @@ fn missing_token_is_reported_by_name() {
         source: &src,
         http: &http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -849,6 +851,7 @@ fn send_op(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
         source: &src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -1180,6 +1183,7 @@ fn run_streams(
         source: src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };

@@ -9,7 +9,7 @@
 // between green and aqua, and that's intended.
 
 export interface Account {
-  kind: 'slack' | 'email' | 'jira' | 'github';
+  kind: 'slack' | 'teams' | 'email' | 'jira' | 'github';
   id: string;
 }
 
@@ -93,7 +93,7 @@ export function personColor(index: number): string {
 
 /** "Slack", "Gmail"… for an account kind; email shows the address itself. */
 export function accountLabel(kind: string): string {
-  return { slack: 'Slack', email: 'Email', jira: 'Jira', github: 'GitHub' }[kind] ?? kind;
+  return { slack: 'Slack', teams: 'Teams', email: 'Email', jira: 'Jira', github: 'GitHub' }[kind] ?? kind;
 }
 
 /** First letter for an avatar dot (16c/17b). */

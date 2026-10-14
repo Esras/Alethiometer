@@ -1,4 +1,4 @@
-//! What chat connectors (Slack) share; the model is in
+//! What chat connectors (Slack, Teams) share; the model is in
 //! `app/docs/chat.md`. A stream (a conversation, or a thread in one) is read
 //! as runs: its messages since the last run you triaged form one item, which
 //! new messages join until you triage it. The cursor keeps the runs still

@@ -814,6 +814,7 @@ mod tests {
             source: src,
             http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: clock.now(),
             clock,
         };

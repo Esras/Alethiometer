@@ -1,8 +1,8 @@
 # Chat sources
 
-Slack is a *chat source* (`settings::sources::CHAT_KINDS`), the first of them. The rules the user set for Slack (HANDOFF.md, "User decisions") hold for every chat source: Incoming is for filing context to topics, not for "have I read this"; every message is captured, yours too; only triage here closes a signal; a thread is one topic and attaches to its parent message; DMs and channels mix topics, so the AI files top-level messages one by one.
+Slack and Microsoft Teams are *chat sources* (`settings::sources::CHAT_KINDS`). The rules the user set for Slack (HANDOFF.md, "User decisions") hold for every chat source: Incoming is for filing context to topics, not for "have I read this"; every message is captured, yours too; only triage here closes a signal; a thread is one topic and attaches to its parent message; DMs and channels mix topics, so the AI files top-level messages one by one.
 
-This page is the contract a chat connector keeps so the shared code works for it. Each source's own page (`sources/slack.md`) says how it meets it.
+This page is the contract a chat connector keeps so the shared code works for it. Each source's own page (`sources/slack.md`, `sources/teams.md`) says how it meets it.
 
 ## What is shared
 
@@ -27,7 +27,7 @@ This page is the contract a chat connector keeps so the shared code works for it
 
 The field names come from Slack, the first chat source; they stay so existing items need no migration.
 
-**Message keys** (`item_messages.ext_key`) are unique within a conversation and **sort as numbers in time order**: mark read takes the newest key you saw, comparing them as numbers. Slack's are its `ts` ("1789960000.000100").
+**Message keys** (`item_messages.ext_key`) are unique within a conversation and **sort as numbers in time order**: mark read takes the newest key you saw, comparing them as numbers. Slack's are its `ts` ("1789960000.000100"); Teams' are its message ids, which are creation times in milliseconds ("1791978000000").
 
 **Thread replies** carry `reply_to` (the parent's key) and are stored under the parent's item when one holds it (`ItemUpsert.attach_to` = the parent's key).
 
@@ -45,4 +45,4 @@ The field names come from Slack, the first chat source; they stay so existing it
 
 ## Not shared
 
-Each connector keeps its own API client, its poll engine (what a stream is, when to read it), how it renders message text, its settings and secrets, and its People-note field (`slack:`).
+Each connector keeps its own API client, its poll engine (what a stream is, when to read it), how it renders message text, its settings and secrets, and its People-note field (`slack:`, `teams:`).

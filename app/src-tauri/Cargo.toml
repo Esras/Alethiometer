@@ -49,6 +49,8 @@ tree-sitter-bash = "0.25"
 shlex = "2"
 # Finding an agent's command on the PATH (PATHEXT on Windows: npx is npx.cmd).
 which = "8"
+# Teams messages are HTML; shown as Markdown.
+htmd = "0.5"
 ureq = { version = "3", features = ["json"] }
 # Slack Socket Mode websocket; rustls + webpki roots, the same TLS stack ureq uses.
 tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }

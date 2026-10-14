@@ -1,0 +1,30 @@
+{
+ "@odata.context": "x",
+ "@odata.count": 2,
+ "value": [
+  {
+   "@odata.type": "#microsoft.graph.aadUserConversationMember",
+   "id": "m1",
+   "roles": [
+    "owner"
+   ],
+   "displayName": "Zach Example",
+   "visibleHistoryStartDateTime": "0001-01-01T00:00:00Z",
+   "userId": "11111111-0000-0000-0000-00000000000a",
+   "email": "zach@contoso.com",
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  },
+  {
+   "@odata.type": "#microsoft.graph.aadUserConversationMember",
+   "id": "m2",
+   "roles": [
+    "owner"
+   ],
+   "displayName": "Priya Shah",
+   "visibleHistoryStartDateTime": "0001-01-01T00:00:00Z",
+   "userId": "22222222-0000-0000-0000-00000000000b",
+   "email": "priya.shah@contoso.com",
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  }
+ ]
+}

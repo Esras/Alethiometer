@@ -1,0 +1,80 @@
+{
+ "@odata.context": "x",
+ "@odata.count": 2,
+ "value": [
+  {
+   "id": "1791978600000",
+   "replyToId": "1791882000000",
+   "etag": "1791978600000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T11:50:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:50:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": null,
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": "https://teams.microsoft.com/l/message/19:incidents0123@thread.tacv2/1791978600000",
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "11111111-0000-0000-0000-00000000000a",
+     "displayName": "Zach Example",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>Root cause is the retry loop</p>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791883800000",
+   "replyToId": "1791882000000",
+   "etag": "1791883800000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-13T09:30:00Z",
+   "lastModifiedDateTime": "2026-10-13T09:30:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": null,
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "22222222-0000-0000-0000-00000000000b",
+     "displayName": "Priya Shah",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>Paging Sam</p>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  }
+ ]
+}

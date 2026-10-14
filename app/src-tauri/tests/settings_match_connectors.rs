@@ -1,7 +1,7 @@
 //! The typed source configs in `alethiometer-settings` and the connectors' own config parsing agree on defaults.
 //! Connectors read their config from the JSON themselves, so nothing else keeps these in step.
 
-use alethiometer_settings::sources::{GcalConfig, SlackConfig};
+use alethiometer_settings::sources::{GcalConfig, SlackConfig, TeamsConfig};
 use serde_json::json;
 
 #[test]
@@ -31,6 +31,29 @@ fn defaults_match_connectors() {
     assert_eq!(
         (slack.user_token_secret, slack.app_token_secret),
         (d.user_token_secret, d.app_token_secret)
+    );
+    // Teams takes its defaults from TeamsConfig; this checks it keeps doing so.
+    let t = alethiometer_lib::sync::connectors::teams::Config::from_json(&json!({}));
+    let d = TeamsConfig::default();
+    assert_eq!(
+        (
+            t.tenant,
+            t.secret_prefix,
+            t.chats,
+            t.lookback_hours,
+            t.max_chats as i64,
+            t.thread_days,
+            t.max_threads as i64
+        ),
+        (
+            d.tenant,
+            d.secret_prefix,
+            d.chats,
+            d.lookback_hours,
+            d.max_chats,
+            d.thread_days,
+            d.max_threads
+        )
     );
     let g = alethiometer_lib::sync::connectors::gcal::Config::from(&json!({}));
     let d = GcalConfig::default();

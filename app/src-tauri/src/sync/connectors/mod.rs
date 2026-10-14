@@ -6,10 +6,12 @@ pub mod gcal;
 pub mod github;
 pub mod gmail;
 pub mod jira;
+pub mod oauth;
 pub mod obsidian;
 pub mod protoncal;
 pub mod scion;
 pub mod slack;
+pub mod teams;
 
 use super::Connector;
 
@@ -18,6 +20,7 @@ pub fn for_kind(kind: &str) -> Option<Box<dyn Connector>> {
         "gcal" => Box::new(gcal::GoogleCalendar),
         "gmail" => Box::new(gmail::Gmail),
         "slack" => Box::new(slack::Slack),
+        "teams" => Box::new(teams::Teams),
         "jira" => Box::new(jira::Jira),
         "github" => Box::new(github::GitHub),
         "obsidian" => Box::new(obsidian::Obsidian),

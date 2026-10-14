@@ -118,15 +118,18 @@
     refresh();
   }
 
-  // Google needs a one-time consent in the browser; Alethiometer saves the token itself.
+  // Google and Microsoft need a one-time consent in the browser; Alethiometer saves the token itself.
+  // Gmail signs in through the calendar's calls.
+  const SIGN_IN: Record<string, string> = { gcal: 'gcal', gmail: 'gcal', teams: 'teams' };
   let connectMsg = $state<string | null>(null);
-  async function connect(id: number) {
+  async function connect(id: number, kind: string) {
+    const via = SIGN_IN[kind];
     try {
-      const r = await call<{ url: string; opened: boolean }>('gcal.auth_start', { source_id: id });
+      const r = await call<{ url: string; opened: boolean }>(`${via}.auth_start`, { source_id: id });
       connectMsg = r.opened ? 'Approve in your browser…' : `Open this link to approve: ${r.url}`;
       for (;;) {
         await new Promise((ok) => setTimeout(ok, 1500));
-        const s = await call<{ state: string; error: string | null }>('gcal.auth_status', { source_id: id });
+        const s = await call<{ state: string; error: string | null }>(`${via}.auth_status`, { source_id: id });
         if (s.state === 'failed') throw new Error(s.error ?? 'consent failed');
         if (s.state !== 'waiting') break;
       }
@@ -186,8 +189,8 @@
               > ·
             {/if}{s.last_error ? 'error' : ago(s.last_sync_at)}</span
           >
-          {#if (s.kind === 'gcal' || s.kind === 'gmail') && s.last_error}
-            <button class="btn" onclick={() => connect(s.id)}>Connect</button>
+          {#if SIGN_IN[s.kind] && s.last_error}
+            <button class="btn" onclick={() => connect(s.id, s.kind)}>Connect</button>
           {:else}
             {@const busy = s.syncing || clicked.has(s.id)}
             <button class="btn" onclick={() => syncNow(s.id)} disabled={busy}>{busy ? 'Syncing…' : 'Sync'}</button>

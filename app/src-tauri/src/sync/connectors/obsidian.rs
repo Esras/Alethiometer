@@ -910,6 +910,7 @@ mod tests {
             source: s,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::Ts::new(jiff::Timestamp::now()),
             clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
         };
@@ -924,6 +925,7 @@ mod tests {
             source: &s,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::Ts::new(jiff::Timestamp::now()),
             clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
         };
@@ -939,6 +941,7 @@ mod tests {
             source: &s,
             http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::Ts::new(jiff::Timestamp::now()),
             clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
         };
@@ -1165,6 +1168,7 @@ mod tests {
             source: &s,
             http: &http,
             secret: &none,
+            save_secret: &crate::sync::no_save,
             now: crate::time::Ts::new(jiff::Timestamp::now()),
             clock: crate::clock::Clock::fixed(crate::time::Ts::new(jiff::Timestamp::now()), jiff::tz::TimeZone::UTC),
         };

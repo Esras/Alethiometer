@@ -5,6 +5,7 @@ import { ui } from './app.svelte';
 export const SOURCES: Record<string, { label: string; dot: string }> = {
   gcal: { label: 'Google Cal', dot: '#3f9a9a' },
   slack: { label: 'Slack', dot: '#b0567a' },
+  teams: { label: 'Teams', dot: '#6f72b8' },
   jira: { label: 'Jira', dot: '#4f7ec2' },
   github: { label: 'GitHub', dot: '#9a8f84' },
   obsidian: { label: 'Obsidian', dot: '#8a6fb8' },

@@ -53,7 +53,7 @@
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
   // Fixed app order so each app's group always sits in the same place.
-  const APP_ORDER = ['slack', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
+  const APP_ORDER = ['slack', 'teams', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
 
   let queue = $state<Queue | null>(null);
   let selKey = $state<QueueKey | null>(null);

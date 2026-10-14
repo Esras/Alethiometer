@@ -46,7 +46,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Frontmatter field for each account kind.
-const KINDS: &[&str] = &["slack", "email", "jira", "github"];
+const KINDS: &[&str] = &["slack", "teams", "email", "jira", "github"];
 
 /// FNV-1a, 32 bit.
 pub fn fnv1a(s: &str) -> u32 {
@@ -1386,6 +1386,41 @@ mod tests {
             "unknown, but keyed by the email the source gave"
         );
         assert!(r.who("slack", Some("U0ZACH"), "zach").me, "you, by your email");
+    }
+
+    #[test]
+    fn a_teams_author_is_matched_by_profile_email_and_your_teams_id_is_you() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db();
+        write(dir.path(), "Priya Shah", "---\nemail: [priya.shah@work.com]\n---\n");
+        write(dir.path(), "Sam Okafor", "---\nteams: 33333333-sam\n---\n");
+        scan(&conn, dir.path()).unwrap();
+        conn.execute(
+            "INSERT INTO account_profiles (kind, account, real_name, email) VALUES ('teams', '22222222-priya', 'Priya Shah', 'priya.shah@work.com')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name, config_json, cursor) VALUES ('teams', 'work', 'Teams', '{}', '{\"me\": \"11111111-me\"}')",
+            [],
+        )
+        .unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &PeopleSettings::default()).unwrap();
+        let priya = r.who("teams", Some("22222222-priya"), "Priya Shah");
+        assert!(priya.known, "matched through the profile email");
+        assert_eq!(priya, r.who("gmail", Some("priya.shah@work.com"), "Priya"));
+        assert!(
+            r.who("teams", Some("33333333-sam"), "Sam").known,
+            "a note's teams: field"
+        );
+        assert!(
+            r.who("teams", Some("11111111-me"), "Zach").me,
+            "the Teams source's own user id"
+        );
+        assert_eq!(
+            account_of("teams", "22222222-priya"),
+            Some(("teams".into(), "22222222-priya".into()))
+        );
     }
 
     #[test]

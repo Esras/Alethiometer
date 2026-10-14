@@ -645,6 +645,7 @@ mod tests {
             source: &src,
             http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::sync::connectors::gcal::tests::now(),
             clock: crate::sync::connectors::gcal::tests::clock(),
         };
@@ -786,6 +787,7 @@ mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::sync::connectors::gcal::tests::now(),
             clock: crate::sync::connectors::gcal::tests::clock(),
         };
@@ -967,6 +969,7 @@ mod tests {
             source: &src,
             http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::sync::connectors::gcal::tests::now(),
             clock: crate::sync::connectors::gcal::tests::clock(),
         };

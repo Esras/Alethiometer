@@ -91,6 +91,7 @@ pub fn call(app: &App, cmd: &str, args: &Value) -> Result<Value> {
         "standin" => crate::standin::call(app, name, args),
         "embed" => crate::embed::call(app, name, args),
         "gcal" => crate::sync::connectors::gcal::auth_call(app, name, args),
+        "teams" => crate::sync::connectors::teams::auth_call(app, name, args),
         "ai" => {
             let out = crate::ai::call(app, name, args);
             if let Err(e) = &out {

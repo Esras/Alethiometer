@@ -51,9 +51,11 @@
       ? 'email'
       : account.kind === 'slack'
         ? 'Slack ID'
-        : account.kind === 'jira'
-          ? 'Jira account'
-          : 'GitHub login',
+        : account.kind === 'teams'
+          ? 'Teams user ID'
+          : account.kind === 'jira'
+            ? 'Jira account'
+            : 'GitHub login',
   );
 
   async function run(cmd: string, args: Record<string, unknown>) {

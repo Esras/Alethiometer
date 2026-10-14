@@ -85,7 +85,7 @@ fn on_confirmed(
             }
             // Nothing local: Confirm already took the item out of Incoming, and a
             // reply that came in since (it set `seen = 0` again) must stay there.
-            "slack.mark_read" | "jira.transition" | "github.close" => {
+            "slack.mark_read" | "teams.mark_read" | "jira.transition" | "github.close" => {
                 // The next poll brings the real status; nothing to guess here.
             }
             _ => {}
@@ -112,6 +112,8 @@ pub const SAFE_TO_RESEND: &[&str] = &[
     "gmail.relabel",
     "slack.mark_read",
     "slack.react",
+    "teams.mark_read",
+    "teams.react",
     "jira.transition",
     "jira.assign",
     "jira.create_issue",
@@ -163,10 +165,12 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
         None => Err(anyhow::anyhow!("no connector for '{}'", source.kind)),
         Some(c) => {
             let secret = |k: &str| app.platform.secret_get(k);
+            let save_secret = |k: &str, v: &str| Ok(app.platform.secret_set(k, v)?);
             let ctx = Ctx {
                 source: &source,
                 http,
                 secret: &secret,
+                save_secret: &save_secret,
                 now: app.clock.now(),
                 clock: app.clock.clone(),
             };

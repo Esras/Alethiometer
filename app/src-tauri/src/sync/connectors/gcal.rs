@@ -684,6 +684,7 @@ pub(crate) mod tests {
             source: &src,
             http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: now(),
             clock: clock(),
         };
@@ -934,6 +935,7 @@ pub(crate) mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: now(),
             clock: clock(),
         };
@@ -973,6 +975,7 @@ pub(crate) mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: now(),
             clock: clock(),
         };
@@ -990,6 +993,7 @@ pub(crate) mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: now(),
             clock: clock(),
         };

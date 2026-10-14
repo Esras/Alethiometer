@@ -4,6 +4,20 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Microsoft Teams: built, never run against a tenant (2026-10-14)
+
+Built from Graph v1.0's documentation and recorded shapes (`app/docs/sources/teams.md`, `tests/fixtures/teams/`). To check on a real tenant, chats first:
+
+- Connect with the chat permissions only: does user consent work in this tenant, and does Entra accept the `http://localhost:<port>` redirect for a Public client/native registration (it should ignore the port for `localhost`; a browser that tries `::1` first must fall back to 127.0.0.1, where the listener is).
+- Message ids being creation times in milliseconds: everything that orders messages (runs, mark read) assumes it, as observed in Graph's examples; it isn't a documented guarantee.
+- `/me/chats?$orderby=lastMessagePreview/createdDateTime desc&$expand=lastMessagePreview` and chat messages filtered by `lastModifiedDateTime`: documented, but check that edits and new messages both show.
+- Channels (after admin approval): the order of `GET …/channels/{id}/messages` (newest first is assumed only to stop paging early) and whether a new reply changes its post's `lastModifiedDateTime` (assumed; tracked threads are also checked on a timer, so a reply is caught within an hour either way).
+- `markChatReadForUser` with your user and tenant ids; the "newest message" check before it.
+- Replies as HTML with `<br>` line breaks.
+
+Not built: push through Azure Event Hubs (Graph only pushes to a public HTTPS endpoint; a later stage, user 2026-10-14), a channel picker (channels are pasted as links), mention search in channels you don't list, the reaction UI (as for Slack). In a Teams chat ⌥T (reply in a thread) fails with a message instead of being hidden.
+
+
 ### Windows: not yet run on a Windows machine (2026-10-14)
 
 Windows builds and runs as far as reading the code goes; nothing has been compiled or run on Windows (the cloud sessions can't fetch the MSVC SDK). What to check, and what is known but not done:
