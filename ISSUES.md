@@ -20,7 +20,7 @@ Not built: push through Azure Event Hubs (Graph only pushes to a public HTTPS en
 
 ### Windows: not yet run on a Windows machine (2026-10-14)
 
-Windows builds and runs as far as reading the code goes; nothing has been compiled or run on Windows (the cloud sessions can't fetch the MSVC SDK). What to check, and what is known but not done:
+Windows type-checks (all targets, Tauri on) but nothing has been built or run on Windows (the cloud sessions can't fetch the MSVC SDK). The checklist for the first run is `app/docs/windows.md`. What to check, and what is known but not done:
 
 - `cargo test` in every crate and `npx tauri build` on Windows. `concurrent_writers_never_leave_a_mix` (`platform/src/fsx/tests.rs`) is the one most likely to fail: eight threads renaming over one file can hit a sharing violation on Windows. If it does, `fsx::write_atomic` needs a bounded retry on Windows; none was added without seeing the failure.
 - `fsx::write_new` hard-links into place: fine on NTFS, fails on FAT/exFAT and some network or cloud-synced folders (a vault there can't take stand-in copies).

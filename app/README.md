@@ -48,7 +48,7 @@ To check a UI refactor changes nothing: `scripts/ui-diff.sh <ref>`, then `node s
 
 Linux needs `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`.
 
-Windows needs Rust with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`), Visual Studio Build Tools with "Desktop development with C++" (the C compiler and Windows SDK for the bundled SQLite, sqlite-vec, tree-sitter and tract), Node 22+, and WebView2 (already on Windows 10 and 11). Run everything from a normal PowerShell or cmd; the Nix devshell and `scripts/ui-diff.sh` are Unix-only. `npx tauri build` makes an MSI and an NSIS installer, unsigned (SmartScreen will warn).
+Windows needs Rust with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`), Visual Studio Build Tools with "Desktop development with C++" (the C compiler and Windows SDK for the bundled SQLite, sqlite-vec, tree-sitter and tract), Node 22+, and WebView2 (already on Windows 10 and 11). Run everything from a normal PowerShell or cmd; the Nix devshell and `scripts/ui-diff.sh` are Unix-only. `npx tauri build` makes an MSI and an NSIS installer, unsigned (SmartScreen will warn). Not run on Windows yet: `docs/windows.md` is the checklist.
 
 ```sh
 npx tauri dev
