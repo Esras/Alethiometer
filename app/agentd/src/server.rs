@@ -1,17 +1,17 @@
-//! The daemon: a Unix socket, one thread per connection, three per agent
+//! The daemon: a Unix socket (`net`), one thread per connection, three per agent
 //! (stdout, stderr, wait). Every line an agent writes becomes a numbered
 //! event, appended to `<state>/logs/<id>.jsonl` and sent to subscribers.
 //! A subscriber first gets what it missed from the log, then live events;
 //! the per-agent log lock keeps the two in order.
 
+use crate::net::{UnixListener, UnixStream};
 use crate::proto::{self, Event, HostInfo, Kind, Reply, Request};
+use crate::tree::{self, Tree};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -36,6 +36,8 @@ struct Log {
 struct Host {
     id: String,
     pid: u32,
+    /// None for an agent from an earlier run of the daemon (`recover`).
+    tree: Option<Arc<Tree>>,
     started_ms: u64,
     cmd: String,
     stdin: Mutex<Option<ChildStdin>>,
@@ -153,29 +155,29 @@ impl Daemon {
         if !cwd.is_empty() {
             c.current_dir(cwd);
         }
-        // Its own process group, so Kill reaches what it starts (npx → node).
-        c.process_group(0);
-        let mut child: Child = c.spawn().map_err(|e| format!("couldn't start {cmd}: {e}"))?;
-        let pid = child.id();
+        // Its own process group (job object on Windows), so Kill reaches what it starts (npx → node).
+        let child = tree::spawn(c).map_err(|e| format!("couldn't start {cmd}: {e}"))?;
+        let t = Arc::new(child.tree);
+        let pid = t.pid();
         let path = self.state.join("logs").join(format!("{id}.jsonl"));
         // A restarted agent keeps its numbering, so the app's place in the log still holds.
         let seq = tail(&path).0.max(after);
         let h = Arc::new(Host {
             id: id.to_owned(),
             pid,
+            tree: Some(t.clone()),
             started_ms: proto::now_ms(),
             cmd: std::iter::once(cmd)
                 .chain(args.iter().map(String::as_str))
                 .collect::<Vec<_>>()
                 .join(" "),
-            stdin: Mutex::new(child.stdin.take()),
+            stdin: Mutex::new(child.stdin),
             log: Mutex::new(Log { seq, path, file: None }),
             alive: AtomicBool::new(true),
             exit: Mutex::new(None),
         });
         lock(&self.hosts).insert(id.to_owned(), h.clone());
-        let out = child.stdout.take();
-        let err = child.stderr.take();
+        let (out, err) = (child.stdout, child.stderr);
         let (d, hh) = (self.clone(), h.clone());
         let reader = std::thread::spawn(move || {
             if let Some(o) = out {
@@ -195,7 +197,7 @@ impl Daemon {
         let d = self.clone();
         std::thread::spawn(move || {
             let _ = reader.join();
-            let code = child.wait().ok().and_then(|s| s.code());
+            let code = t.wait();
             let _ = errs.join();
             h.alive.store(false, Ordering::SeqCst);
             lock(&h.stdin).take();
@@ -227,14 +229,15 @@ impl Daemon {
         if !h.alive.load(Ordering::SeqCst) {
             return Ok(());
         }
-        // Closing stdin ends both adapters; the signals catch one that hangs.
+        // Closing stdin ends both adapters; TERM (Unix) and, 3 s on, KILL
+        // (a job's termination on Windows) catch one that hangs.
         lock(&h.stdin).take();
-        let pid = h.pid;
-        signal_group(pid, libc::SIGTERM);
+        let Some(t) = h.tree.clone() else { return Ok(()) };
+        t.terminate();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(3));
             if h.alive.load(Ordering::SeqCst) {
-                signal_group(pid, libc::SIGKILL);
+                t.kill();
             }
         });
         Ok(())
@@ -370,17 +373,6 @@ impl Daemon {
     }
 }
 
-/// Signals the agent's process group (it leads one: `process_group(0)`).
-/// Not through `kill(1)`: procps-ng reads `kill -TERM -<pid>` as
-/// `kill(-1, SIGTERM)`, every process the user owns. Never 0 or 1 either:
-/// `killpg` would reach this daemon's group or every process.
-fn signal_group(pid: u32, sig: libc::c_int) -> bool {
-    match libc::pid_t::try_from(pid) {
-        Ok(p) if p > 1 => unsafe { libc::killpg(p, sig) == 0 },
-        _ => false,
-    }
-}
-
 /// Agents from an earlier run of the daemon are gone; their logs stay so the
 /// app can read what it missed, ending in an exit it may never have seen.
 fn recover(d: &Arc<Daemon>) {
@@ -400,6 +392,7 @@ fn recover(d: &Arc<Daemon>) {
         let h = Arc::new(Host {
             id: id.to_owned(),
             pid: 0,
+            tree: None,
             started_ms: 0,
             cmd: String::new(),
             stdin: Mutex::new(None),
@@ -439,6 +432,10 @@ pub fn run(opts: Options) -> io::Result<()> {
         let _ = std::fs::remove_file(&socket);
     }
     let listener = UnixListener::bind(&socket)?;
+    // Only this user. Windows has no file modes: the socket file inherits
+    // the data directory's ACL (in the user's profile: the user, SYSTEM and
+    // administrators).
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
@@ -525,6 +522,7 @@ mod tests {
         out
     }
 
+    #[cfg(unix)]
     #[test]
     fn echoes_numbers_and_replays() {
         let t = tempfile::tempdir().unwrap();
@@ -580,6 +578,7 @@ mod tests {
         srv.join().unwrap().unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_restarted_daemon_closes_out_what_ran() {
         let t = tempfile::tempdir().unwrap();
@@ -624,8 +623,11 @@ mod tests {
         srv.join().unwrap().unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn kill_ends_the_agents_group_and_nothing_else() {
+        use crate::tree::signal_group;
+        use std::os::unix::process::CommandExt;
         let t = tempfile::tempdir().unwrap();
         let dir = t.path();
         // In a group of its own, like an unrelated process of the user's.
@@ -654,6 +656,45 @@ mod tests {
         assert!(
             !signal_group(0, 0) && !signal_group(1, 0),
             "never the daemon's own group or every process"
+        );
+        bystander.kill().unwrap();
+        let _ = bystander.wait();
+        c.ok(&Request::Shutdown { force: true }).unwrap();
+        srv.join().unwrap().unwrap();
+    }
+
+    /// The Exit event comes only once the agent's stdout closes, so a
+    /// grandchild still holding it (the ping here) would keep it from coming.
+    #[cfg(windows)]
+    #[test]
+    fn kill_ends_the_agents_job_and_nothing_else() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path();
+        let mut bystander = Command::new("ping").args(["-n", "30", "127.0.0.1"]).spawn().unwrap();
+        let srv = start(dir);
+        let c = Control::connect(&proto::socket_path(dir)).unwrap();
+        // cmd starts ping and waits; neither cares that stdin closed.
+        c.ok(&Request::Spawn {
+            id: "acp-1".into(),
+            cmd: "cmd".into(),
+            args: vec!["/c".into(), "ping -n 30 127.0.0.1".into()],
+            env: BTreeMap::new(),
+            cwd: String::new(),
+            after: 0,
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        let asked = std::time::Instant::now();
+        c.ok(&Request::Kill { id: "acp-1".into() }).unwrap();
+        let got = events(dir, BTreeMap::new(), 1);
+        assert_eq!(got[0].kind, Kind::Exit);
+        assert!(
+            asked.elapsed() < Duration::from_secs(10),
+            "ended by the job, not by ping finishing"
+        );
+        assert!(
+            bystander.try_wait().unwrap().is_none(),
+            "a process outside the agent's job was ended"
         );
         bystander.kill().unwrap();
         let _ = bystander.wait();

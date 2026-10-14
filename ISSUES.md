@@ -13,6 +13,9 @@ Windows builds and runs as far as reading the code goes; nothing has been compil
 - WebView2's browser keys (Ctrl+R / F5 reload, Ctrl+F, Ctrl+P) reach the browser when no handler takes them. Tauri 2.12 has no setting for wry's `with_browser_accelerator_keys`; check what reloading mid-session does.
 - Data and models live in Roaming `%APPDATA%` (user, 2026-10-14: keep the default), so a roaming domain profile would copy the database and the embedding model.
 - "this Mac" in Settings › AI and the Notes margin.
+- **Local agents on Windows** (agent host on AF_UNIX + job objects, `docs/agents.md` › Agent host): run `cargo test` in `app/agentd` (`kill_ends_the_agents_job_and_nothing_else` is Windows-only) and `app/src-tauri` (`tests/agents_restart.rs` now runs there, with node), then a real Claude Code and Pi session. Things only a Windows run can show: whether `npx.cmd` starts the adapters with their arguments (Rust refuses batch-file arguments it can't quote safely); whether the host survives the app's job object (`spawn_detached` breaks away only when the job allows it; otherwise closing the terminal that ran `npx tauri dev` may end it); that `alethiometer-agentd.exe` lands next to the installed app; that swapping in a new build (moving the running `.exe` aside to `.old`) works. Claude Code on Windows wants Git Bash.
+- The approval card's Parsed panel reads commands as bash with POSIX paths: a `C:\…` working directory is one path segment, the "outside the repo" check only knows `/` and `~`, and `node_modules/.bin` lists `.cmd`/`.ps1` twins. It only explains; it gates nothing.
+- Open in a terminal gives a cmd window; OpenShell and Scion attach lines are POSIX-quoted (both out of scope on Windows, user 2026-10-14). Open in Zed needs `zed` on the PATH.
 
 ### Agents: OpenShell sandboxes, what's left (2026-10-08)
 

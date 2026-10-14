@@ -27,42 +27,50 @@ pub trait Platform: Send + Sync {
     }
     /// A terminal window in `cwd`, running `command` if given (attach to an agent).
     fn open_terminal(&self, cwd: &str, command: Option<&str>) -> std::io::Result<()> {
-        let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
-        let mut line = String::new();
-        if !cwd.is_empty() {
-            line.push_str(&format!("cd {}", quote(cwd)));
+        #[cfg(windows)]
+        {
+            windows_terminal(cwd, command)
         }
-        if let Some(c) = command {
-            if !line.is_empty() {
-                line.push_str(" && ");
+        #[cfg(not(windows))]
+        {
+            let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+            let mut line = String::new();
+            if !cwd.is_empty() {
+                line.push_str(&format!("cd {}", quote(cwd)));
             }
-            line.push_str(c);
-        }
-        if cfg!(target_os = "macos") {
-            let script = format!(
-                "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
-                line.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(script)
-                .spawn()
-                .map(|_| ())
-        } else {
-            let line = if line.is_empty() {
-                "exec $SHELL".to_string()
+            if let Some(c) = command {
+                if !line.is_empty() {
+                    line.push_str(" && ");
+                }
+                line.push_str(c);
+            }
+            if cfg!(target_os = "macos") {
+                let script = format!(
+                    "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
+                    line.replace('\\', "\\\\").replace('"', "\\\"")
+                );
+                std::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(script)
+                    .spawn()
+                    .map(|_| ())
             } else {
-                format!("{line}; exec $SHELL")
-            };
-            std::process::Command::new("x-terminal-emulator")
-                .arg("-e")
-                .arg("sh")
-                .arg("-c")
-                .arg(line)
-                .spawn()
-                .map(|_| ())
+                let line = if line.is_empty() {
+                    "exec $SHELL".to_string()
+                } else {
+                    format!("{line}; exec $SHELL")
+                };
+                std::process::Command::new("x-terminal-emulator")
+                    .arg("-e")
+                    .arg("sh")
+                    .arg("-c")
+                    .arg(line)
+                    .spawn()
+                    .map(|_| ())
+            }
         }
     }
+
     /// Open `path` in an app by name ("Zed"), falling back to its CLI.
     fn open_in_app(&self, app: &str, path: &str) -> std::io::Result<()> {
         if cfg!(target_os = "macos") {
@@ -79,6 +87,24 @@ pub trait Platform: Send + Sync {
                 .map(|_| ())
         }
     }
+}
+
+/// A console window of its own running cmd in `cwd`, `command` first if
+/// given (/K keeps the window open after it). Windows 11 opens it in Windows
+/// Terminal when that is the default terminal.
+#[cfg(windows)]
+fn windows_terminal(cwd: &str, command: Option<&str>) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    let mut c = std::process::Command::new("cmd.exe");
+    c.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_CONSOLE);
+    if !cwd.is_empty() {
+        c.current_dir(cwd);
+    }
+    if let Some(line) = command {
+        // As written: cmd.exe's quoting isn't Rust's. /S strips only the outer quotes.
+        c.raw_arg(format!("/S /K \"{line}\""));
+    }
+    c.spawn().map(|_| ())
 }
 
 /// Secrets in `<data dir>/secrets.json`, mode 0600. When each was set goes in

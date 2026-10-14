@@ -18,8 +18,8 @@ jiff = { version = "0.2", features = ["serde", "tzdb-bundle-always"] }
 open = { version = "5.4", features = ["shellexecute-on-windows"] }
 
 [target.'cfg(windows)'.dependencies]
-# CREATE_NO_WINDOW for child processes of the windowed (GUI-subsystem) app.
-windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+# Process creation flags: no console window for children of the windowed (GUI-subsystem) app, detached starts.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"

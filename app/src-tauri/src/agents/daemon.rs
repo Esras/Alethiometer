@@ -16,7 +16,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-const BIN: &str = "alethiometer-agentd";
+/// The daemon's file name (`.exe` on Windows).
+fn bin() -> String {
+    format!("alethiometer-agentd{}", std::env::consts::EXE_SUFFIX)
+}
 
 #[derive(Default)]
 pub struct Daemon {
@@ -68,13 +71,13 @@ pub fn sources() -> Vec<PathBuf> {
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
     {
-        out.push(dir.join(BIN));
+        out.push(dir.join(bin()));
     }
     {
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../agentd/target");
         let mut dev: Vec<PathBuf> = ["debug", "release"]
             .iter()
-            .map(|p| base.join(p).join(BIN))
+            .map(|p| base.join(p).join(bin()))
             .filter(|p| p.is_file())
             .collect();
         dev.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
@@ -85,7 +88,7 @@ pub fn sources() -> Vec<PathBuf> {
 
 /// The copy the app runs: `<data dir>/bin/alethiometer-agentd`.
 pub fn installed(app: &App) -> PathBuf {
-    app.data_dir.join("bin").join(BIN)
+    app.data_dir.join("bin").join(bin())
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -141,7 +144,17 @@ fn install(app: &App, running_agents: bool) -> Result<(PathBuf, Installed)> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     }
-    // A rename leaves a running daemon on its old file.
+    // A rename leaves a running daemon on its old file. Windows won't
+    // replace a running .exe but will move it aside; the old copy is
+    // deleted next time, once nothing runs from it.
+    #[cfg(windows)]
+    {
+        let old = dest.with_extension("old");
+        let _ = std::fs::remove_file(&old);
+        if dest.exists() {
+            std::fs::rename(&dest, &old)?;
+        }
+    }
     std::fs::rename(&tmp, &dest)?;
     Ok((dest, Installed::Updated))
 }
@@ -165,14 +178,8 @@ fn launch(app: &App, bin: &Path) -> Result<()> {
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Out of the app's group, so a dev rebuild or a terminal closing doesn't take it down.
-        c.process_group(0);
-    }
-    let mut child = c
-        .spawn()
+    // Out of the app's group, so a dev rebuild or a terminal closing doesn't take it down.
+    let mut child = crate::process::spawn_detached(&mut c)
         .map_err(|e| msg(format!("couldn't start the agent host ({}): {e}", bin.display())))?;
     std::thread::spawn(move || {
         let _ = child.wait();
@@ -197,13 +204,6 @@ fn control(app: &App) -> Result<Arc<Control>> {
     let _g = lock(&app.agents.daemon.starting);
     if let Some(c) = lock(&app.agents.daemon.ctl).clone() {
         return Ok(c);
-    }
-    if !cfg!(unix) {
-        app.agents.daemon.set(|s| {
-            s.state = "unsupported".into();
-            s.error = "Local agents need the agent host, which isn't available on this platform yet".into();
-        });
-        return Err(msg("Local agents aren't available on this platform yet"));
     }
     let c = match Control::connect(&socket(app)) {
         Ok(c) => c,
@@ -338,7 +338,7 @@ pub fn start(app: Arc<App>) {
             if app.agents.daemon.stop.load(Ordering::SeqCst) {
                 return;
             }
-            let up = cfg!(unix) && Control::connect(&socket(&app)).is_ok();
+            let up = Control::connect(&socket(&app)).is_ok();
             if !up && !super::acp::any_local(&app) {
                 app.agents.daemon.set(|s| {
                     if s.state != "missing" {

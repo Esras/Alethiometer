@@ -1,8 +1,6 @@
 //! The real binary as its own process: it answers Shutdown before it exits
 //! (it once exited first, and the app saw a dropped connection).
 
-#![cfg(unix)]
-
 use agentd::client::Control;
 use agentd::proto::{socket_path, Reply, Request};
 use std::time::{Duration, Instant};

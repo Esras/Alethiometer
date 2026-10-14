@@ -47,6 +47,8 @@ tree-sitter = "0.25"
 tree-sitter-bash = "0.25"
 # Quoting an OpenShell command line for a terminal.
 shlex = "2"
+# Finding an agent's command on the PATH (PATHEXT on Windows: npx is npx.cmd).
+which = "8"
 ureq = { version = "3", features = ["json"] }
 # Slack Socket Mode websocket; rustls + webpki roots, the same TLS stack ureq uses.
 tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }

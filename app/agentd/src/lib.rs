@@ -5,10 +5,11 @@
 //! child process and owns its stdio. It speaks no ACP itself: it passes lines
 //! through and numbers everything the agent writes, keeping it in an on-disk
 //! log per agent, so the app can reconnect and ask for whatever it missed.
-//! The app talks to it over a Unix socket in the data directory, one JSON
-//! message per line (`proto`).
+//! The app talks to it over a Unix socket in the data directory (`net`; on
+//! Windows too), one JSON message per line (`proto`).
 
 pub mod client;
+pub mod net;
 pub mod proto;
-#[cfg(unix)]
 pub mod server;
+mod tree;

@@ -8,7 +8,6 @@ use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::state::App;
 use std::path::Path;
-use std::process::Command;
 
 /// The repo a directory belongs to (its git top level's name), else the directory's name.
 pub fn project_of(cwd: &str) -> String {
@@ -23,7 +22,12 @@ fn git(cwd: &str, args: &[&str]) -> Option<String> {
     if cwd.is_empty() {
         return None;
     }
-    let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
+    let out = crate::process::command("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
