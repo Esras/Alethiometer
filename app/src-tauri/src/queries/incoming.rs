@@ -809,6 +809,14 @@ fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64, saw: Opti
     }
 }
 
+/// Dismissing a Slack signal marks it read like confirming does (Gmail has its own archive op).
+fn mark_slack_read_on_dismiss(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<()> {
+    match settled_family(uow, item_id)? {
+        Some((source_id, kind, raws)) if kind == "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
+        _ => Ok(()),
+    }
+}
+
 /// Source, kind and every family part's id and `raw_json`; `None` while another part of the family is still new.
 fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, String, Vec<(i64, Value)>)>> {
     let family = uow.items().family(item_id)?;
@@ -994,6 +1002,7 @@ pub fn dismiss_seen(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Re
     }
     uow.todos().set_discarded(item_id, true)?;
     gmail_op(uow, item_id, "gmail.archive", saw)?;
+    mark_slack_read_on_dismiss(uow, item_id, saw)?;
     settle_saw(uow, item_id, saw)
 }
 
@@ -3011,6 +3020,23 @@ mod tests {
             .query_row("SELECT seen FROM items WHERE id = ?1", [item], |r| r.get(0))
             .unwrap();
         assert!(seen);
+    }
+
+    #[test]
+    fn dismissing_a_slack_run_marks_it_read_up_to_what_you_saw() {
+        let (conn, now, _d) = setup();
+        let item = slack_run(&conn, &["100.1", "100.2"]);
+        let saw = listed(&conn, &now, item);
+        slack_run(&conn, &["100.1", "100.2", "100.3"]);
+        assert!(dismiss_seen(&crate::store::over(&conn), item, Some(&saw)).unwrap());
+        let mark: String = conn
+            .query_row(
+                "SELECT payload_json FROM outbox WHERE op = 'slack.mark_read'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&mark).unwrap()["ts"], "100.2");
     }
 
     #[test]

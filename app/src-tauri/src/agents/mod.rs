@@ -552,11 +552,25 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 }
 
 fn next_local_id(app: &App) -> u64 {
-    let i = app.agents.store.lock();
+    next_id(&app.agents.store.lock())
+}
+
+fn next_id(i: &store::Inner) -> u64 {
     i.groups
         .keys()
+        .chain(i.archived.iter())
         .filter_map(|k| k.strip_prefix("local:")?.parse::<u64>().ok())
         .max()
         .unwrap_or(0)
         + 1
+}
+
+#[cfg(test)]
+mod next_id_tests {
+    #[test]
+    fn archived_ids_are_not_reused() {
+        let mut i = super::store::Inner::default();
+        i.archived.insert("local:5".into());
+        assert_eq!(super::next_id(&i), 6);
+    }
 }

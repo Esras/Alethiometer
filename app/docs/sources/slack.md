@@ -1,6 +1,6 @@
 # Slack
 
-Reads your DMs, group DMs, the channels you follow, threads you're in and mentions of you. Every new message becomes part of a signal in Incoming, yours included: one per thread, and one per conversation for its top-level messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those messages. Incoming is where messages get filed to topics, so reading them in Slack changes nothing here; only triage does (confirm, move, dismiss or Seen). Confirming a top-level signal marks it read in Slack. Writes back (through the outbox) mark read, thread replies you type, and reactions.
+Reads your DMs, group DMs, the channels you follow, threads you're in and mentions of you. Every new message becomes part of a signal in Incoming, yours included: one per thread, and one per conversation for its top-level messages, e.g. `#inc-2291 · 42 new · 09:05–10:40`, which expands to those messages. Incoming is where messages get filed to topics, so reading them in Slack changes nothing here; only triage does (confirm, move, dismiss or Seen). Confirming or dismissing a top-level signal marks it read in Slack. Writes back (through the outbox) mark read, thread replies you type, and reactions.
 
 Alethiometer talks to Slack as **you**, through a small Slack app you create for
 yourself. Nothing is hosted; the app only exists to issue tokens.
@@ -195,7 +195,7 @@ do not apply to internal, customer-built apps like this one.
 
 | Op | Payload | Slack method |
 |---|---|---|
-| `slack.mark_read` | `{channel, ts}`, from the item's `raw_json.channel` / `raw_json.mark_ts` | `conversations.info`, then `conversations.mark`: the conversation is read up to `ts` in Slack too. Queued when you confirm a top-level item or a mention. Never moves the read marker backwards (below). When confirmed, the item is marked seen locally. |
+| `slack.mark_read` | `{channel, ts}`, from the item's `raw_json.channel` / `raw_json.mark_ts` | `conversations.info`, then `conversations.mark`: the conversation is read up to `ts` in Slack too. Queued when you confirm or dismiss a top-level item or a mention. Never moves the read marker backwards (below). When confirmed, the item is marked seen locally. |
 | `slack.reply` | `{channel, thread_ts?, text}` | `chat.postMessage` as you, in the thread when `thread_ts` is given, else in the conversation. `text` is exactly what you typed. Queued by `respond.slack` (`r` in Incoming): a thread item replies in its thread, anything else in the conversation, ⌥T switches; in a thread it answers the message picked in the list, else the newest. Not resent on an unknown outcome (it could post twice): it fails for you to check. |
 | `slack.react` | `{channel, ts, name}` (`eyes` or `:eyes:`) | `reactions.add`. An existing identical reaction counts as done. |
 

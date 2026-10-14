@@ -213,6 +213,7 @@
     setTab('agents');
     ag.sel = key;
     openThread(key);
+    if (a.kind === 'approval') dismiss(s);
     return true;
   }
 
