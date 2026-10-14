@@ -141,7 +141,10 @@ Still unchecked: `type: "reply"` from a user, the system sender, `include_projec
 
 ## Tree
 
-Projects (the repo of a local group, the Scion project), groups, and rows. Local groups are made in the New agent modal ("New group…", with a goal); a session with no group is under **Unsorted**, where the small tier guesses a group from its directory, title and first prompt ("Looks like alethiometer › Agents tab · Move · Not this", `agents/guess.rs`). Nothing moves until you press Move. A folded group shows its loudest status and count. Status marks: running dot, waiting half ring, idle ring, done check, failed x.
+Projects, groups, and rows. A local session's project is the main checkout of its directory's git repo (`git worktree list`, so worktrees and subfolders join the repo; a directory that's gone is looked up from the nearest folder above it), else the directory itself; a sandboxed session uses the folder it was uploaded from. Projects are keyed by that folder and labelled with its name; a Scion project is the Hub's. Local groups belong to one project (`project_dir`), made in the New agent modal ("New group…", with a goal; the Directory decides the project and the Group list shows only its groups) or in the move picker. A session with no group is under its project's **Unsorted**, last in the project and shown only while it holds sessions (or while you drag one of the project's sessions), where the small tier guesses a group of the same project from its directory, title and first prompt ("Looks like alethiometer › Agents tab · Move · Not this", `agents/guess.rs`). Nothing moves until you press Move. A folded group shows its loudest status and count. Status marks: running dot, waiting half ring, idle ring, done check, failed x.
+
+- **Moving a local session** (`agents.move`; a subagent moves with its parent): `m` or right-click › Move to group… opens a picker under the row (`GroupPicker.svelte`, the shape of Incoming's topic picker): the project's other groups, Unsorted first, and "Create “…”" when nothing matches, which asks for an optional goal (`↵` creates, `Esc` back) and files the session in the new group (`agents.group_create { session }`). Or drag the row (pointer events, like the assistant's Sources edge): the group under the pointer and its rows highlight, other projects and Scion groups don't take it, `Esc` cancels. The core refuses a group from another project. Scion agents stay in their Hub group.
+- **Older data:** at startup, sessions without a project get one (git runs outside the store's lock), a group takes the project most of its sessions are in, and a session whose project isn't its group's goes to its own project's Unsorted (`settle_projects`).
 
 ## Facts box
 
@@ -158,7 +161,7 @@ Rows follow the row grammar (icon column coloured by kind, mono header, body). A
 | Where | Keys |
 |---|---|
 | Everywhere | `⌘K` search, `/` filter sessions, `g i` / `g a`, `⌘.` interrupt, `?` keys |
-| Tree | `j`/`k`, `h`/`l` fold or open, `⏎` open, `n` new agent (Scion group) or session (local), `a` archive, `u` undo an archive (10 s) |
+| Tree | `j`/`k`, `h`/`l` fold or open, `⏎` open, `n` new agent (Scion group) or session (local), `m` move a local session to another group, `a` archive, `u` undo an archive (10 s) |
 | Thread | `j`/`k`, `e` fold/open, `⏎` reply (`@name` in a room) or open a tool call, `c` copy, `g` latest, `t`/`m` tabs |
 | Needs you | `o` `s` `a` `d`, `1`–`3` pick an answer, `r` write a reply, `Esc` later |
 | Composer | `⌘⏎` send, `@` address one member (rooms), `↑` bring back your last message, `Esc` back |
@@ -202,7 +205,7 @@ Design "Agents Archive" 01–05 (`project/Helm Agents Archive.dc.html`, spec in 
 
 ## Not built
 
-- Renaming or deleting a local group from the UI (`agents.group_update` / `group_delete` exist), and moving a session other than through the Unsorted guess (`agents.move`).
+- Renaming or deleting a local group from the UI (`agents.group_update` / `group_delete` exist).
 - Elicitation in URL mode (declined), and pushing an elicitation's `_meta` previews (Claude's option mockups) into the card.
 - Native ACP subagent sessions (`clientCapabilities.subagents`): the legacy Task shape is used.
 - The cache state is an estimate (ACP doesn't report it): `agents.harnesses[].cache_ttl_min` minutes after the last turn, 5 for Claude Code when unset, nothing for other harnesses.

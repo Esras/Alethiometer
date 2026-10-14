@@ -22,6 +22,8 @@ export interface Group {
   id: string;
   source: 'acp' | 'scion';
   project: string;
+  /** A local group's project folder; empty for Scion. */
+  project_dir: string;
   name: string;
   goal: string;
   host: string;
@@ -57,6 +59,9 @@ export interface Session {
   thinking?: ConfigChoice | null;
   host: string;
   cwd: string;
+  /** Local only: the project folder and its label. */
+  project_dir: string;
+  project: string;
   status: Status;
   title: string;
   subtitle: string;

@@ -42,7 +42,12 @@ pub fn suggest(app: &App, id: &str) {
         if s.group_id.is_some() || s.parent_id.is_some() || s.source != "acp" {
             return;
         }
-        let groups: Vec<_> = i.groups.values().filter(|g| g.source == "acp").cloned().collect();
+        let groups: Vec<_> = i
+            .groups
+            .values()
+            .filter(|g| g.source == "acp" && g.project_dir == s.project_dir)
+            .cloned()
+            .collect();
         let first = i
             .find_row(&super::session_thread(id), |r| r.kind == super::model::Kind::You)
             .map(|r| r.text.clone())
@@ -56,14 +61,14 @@ pub fn suggest(app: &App, id: &str) {
     std::thread::spawn(move || {
         let list = groups
             .iter()
-            .map(|g| format!("- {} · project {} · {} · goal: {}", g.id, g.project, g.name, g.goal))
+            .map(|g| format!("- {} · {} · goal: {}", g.id, g.name, g.goal))
             .collect::<Vec<_>>()
             .join("\n");
         let user = format!(
             "<data>\nsession: {} · directory {} · project {}\ntitle: {}\nfirst prompt: {}\n\ngroups:\n{list}\n</data>",
             session.name,
             session.cwd,
-            super::facts::project_of(&session.cwd),
+            session.project,
             session.title,
             ai::context::clip(&first, 1500)
         );

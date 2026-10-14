@@ -28,6 +28,9 @@ pub struct Group {
     pub source: String,
     /// The label above the group: the repo for local groups, the Scion project.
     pub project: String,
+    /// A local group's project folder (`facts::project_dir`); empty for Scion.
+    #[serde(default)]
+    pub project_dir: String,
     pub name: String,
     pub goal: String,
     /// Host tag: "laptop", "Scion · gcp-1".
@@ -72,6 +75,11 @@ pub struct Session {
     pub model: String,
     pub host: String,
     pub cwd: String,
+    /// Local only: the project folder (`facts::project_dir`) and its label.
+    #[serde(default)]
+    pub project_dir: String,
+    #[serde(default)]
+    pub project: String,
     pub status: Status,
     /// Pane header title and subtitle.
     pub title: String,

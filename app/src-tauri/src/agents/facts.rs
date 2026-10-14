@@ -10,13 +10,21 @@ use crate::state::App;
 use std::path::Path;
 use std::process::Command;
 
-/// The repo a directory belongs to (its git top level's name), else the directory's name.
-pub fn project_of(cwd: &str) -> String {
-    let top = git(cwd, &["rev-parse", "--show-toplevel"]).unwrap_or_else(|| cwd.to_owned());
-    Path::new(top.trim_end_matches('/'))
+/// The main checkout of a directory's git repo (worktrees and subfolders join it), else the directory.
+pub fn project_dir(cwd: &str) -> String {
+    let cwd = cwd.trim_end_matches('/');
+    let here = Path::new(cwd).ancestors().find(|p| p.is_dir()).and_then(Path::to_str);
+    here.and_then(|d| git(d, &["worktree", "list", "--porcelain"]))
+        .and_then(|out| out.lines().next()?.strip_prefix("worktree ").map(str::to_owned))
+        .unwrap_or_else(|| cwd.to_owned())
+}
+
+/// A project's label in the tree: its folder's name.
+pub fn project_name(dir: &str) -> String {
+    Path::new(dir)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .unwrap_or_else(|| dir.to_owned())
 }
 
 fn git(cwd: &str, args: &[&str]) -> Option<String> {
@@ -185,6 +193,51 @@ pub fn refresh(app: &App, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktrees_and_subfolders_belong_to_the_main_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let repo = root.join("alethiometer");
+        let run = |dir: &Path, args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        std::fs::create_dir_all(repo.join("app/src")).unwrap();
+        run(&repo, &["init", "-q"]);
+        run(
+            &repo,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "x",
+            ],
+        );
+        let wt = repo.join(".claude/worktrees/jolly");
+        run(&repo, &["worktree", "add", "-q", wt.to_str().unwrap()]);
+        let plain = root.join("scratch");
+        std::fs::create_dir_all(&plain).unwrap();
+        let s = |p: &Path| p.to_str().unwrap().to_owned();
+
+        assert_eq!(project_dir(&s(&repo)), s(&repo));
+        assert_eq!(project_dir(&s(&repo.join("app/src"))), s(&repo));
+        assert_eq!(project_dir(&s(&wt)), s(&repo));
+        assert_eq!(project_dir(&s(&repo.join(".claude/worktrees/gone"))), s(&repo));
+        assert_eq!(project_dir(&s(&plain)), s(&plain));
+        assert_eq!(project_name(&s(&repo)), "alethiometer");
+    }
 
     #[test]
     fn finds_ticket_keys_in_branches_and_text() {

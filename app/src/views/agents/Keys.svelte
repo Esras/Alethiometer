@@ -25,6 +25,7 @@
         [['H', 'L'], 'Fold or open a group'],
         [['⏎'], 'Open a session or room'],
         [['N'], 'New agent in this group'],
+        [['M'], 'Move a local session to another group of its project (or drag it)'],
         [['A'], 'Archive the selected row (right-click too)'],
         [['U'], 'Undo an archive, for 10 seconds'],
         [['Esc'], 'Back to the tree, from anywhere'],

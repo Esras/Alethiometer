@@ -19,6 +19,7 @@
     ag,
     askArchive,
     closeArchived,
+    homeKey,
     look,
     nodes,
     openArchived,
@@ -27,6 +28,7 @@
     pinned,
     selectable,
     setTab,
+    sessionById,
     startPolling,
     stopPolling,
     threadOf,
@@ -34,6 +36,7 @@
     undoArchive,
   } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
+  import type { Group, Session } from './agents/types';
 
   $effect(() => {
     startPolling();
@@ -56,7 +59,7 @@
     const i = list.findIndex((n) => n.key === ag.sel);
     const next = list[Math.max(0, Math.min(list.length - 1, i < 0 ? 0 : i + d))];
     ag.sel = next.key;
-    if (next.type !== 'group' && next.type !== 'archived') {
+    if (next.type !== 'group' && next.type !== 'unsorted' && next.type !== 'archived') {
       closeArchived();
       openThread(next.key);
     }
@@ -64,7 +67,7 @@
 
   function nextAttention(d: 1 | -1) {
     const asking = new Set((ag.tree?.requests ?? []).map((r) => r.thread));
-    const list = nodes().filter((n) => selectable(n) && n.type !== 'group');
+    const list = nodes().filter((n) => selectable(n) && n.type !== 'group' && n.type !== 'unsorted');
     const needs = (n: (typeof list)[number]) =>
       asking.has(n.key) || (n.type === 'session' && (n.s.status === 'failed' || turnEnded(n.s)));
     const at = list.findIndex((n) => n.key === ag.sel);
@@ -81,13 +84,13 @@
   function fold(open: boolean) {
     const n = nodes().find((x) => x.key === ag.sel);
     if (!n) return;
-    const gid =
-      n.type === 'group' ? n.group.id : n.type === 'session' ? n.s.group_id : n.type === 'room' ? n.group.id : null;
-    if (!gid) return;
-    if (open) ag.folded.delete(gid);
+    const home = n.type === 'session' ? homeKey(n.s) : n.type === 'room' ? `g:${n.group.id}` : n.key;
+    if (!home.startsWith('g:') && !home.startsWith('u:')) return;
+    const k = home.startsWith('g:') ? home.slice(2) : home;
+    if (open) ag.folded.delete(k);
     else {
-      ag.folded.add(gid);
-      ag.sel = `g:${gid}`;
+      ag.folded.add(k);
+      ag.sel = home;
     }
     ag.folded = new Set(ag.folded);
   }
@@ -98,11 +101,23 @@
   }
 
   function newAgent() {
-    const { group, session } = threadOf(ag.sel?.startsWith('g:') ? null : ag.sel);
-    const gid = ag.sel?.startsWith('g:') ? ag.sel.slice(2) : (group?.id ?? session?.group_id ?? null);
+    const sel = ag.sel ?? '';
+    const { group, session } = threadOf(sel.startsWith('g:') ? null : sel);
+    const gid = sel.startsWith('g:') ? sel.slice(2) : (group?.id ?? session?.group_id ?? null);
     const g = ag.tree?.groups.find((x) => x.id === gid);
-    openForm(g ?? null, gid);
+    openForm(g ?? null, gid, false, startDir(g, sel, session));
     ag.zone = 'thread';
+  }
+
+  /** Where a new agent in a local group (or a project's Unsorted) starts: its latest member's directory, else the project's. */
+  function startDir(g: Group | undefined, sel: string, s: Session | undefined): string | undefined {
+    if (g?.source === 'acp') {
+      const last = (ag.tree?.sessions ?? []).filter((x) => x.group_id === g.id && !x.parent_id && !x.sandbox).at(-1);
+      return last?.cwd || g.project_dir || undefined;
+    }
+    if (sel.startsWith('u:acp:')) return sel.slice(6) || undefined;
+    if (s?.source === 'acp' && !g) return s.project_dir || undefined;
+    return undefined;
   }
 
   function threadItems() {
@@ -227,6 +242,11 @@
       newAgent();
       return true;
     }
+    if (k === 'm' && ag.zone === 'tree') {
+      const s = ag.sel?.startsWith('s:') ? sessionById(ag.sel.slice(2)) : undefined;
+      if (s?.source === 'acp' && !s.parent_id) ag.moving = s.id;
+      return true;
+    }
     if (ag.zone === 'tree') {
       if (k === 'j' || k === 'ArrowDown') moveTree(1);
       else if (k === 'k' || k === 'ArrowUp') moveTree(-1);
@@ -238,6 +258,7 @@
       else if (k === 'Enter') {
         if (ag.sel?.startsWith('a:')) openArchived(ag.sel.slice(2));
         else if (ag.sel?.startsWith('g:')) fold(ag.folded.has(ag.sel.slice(2)));
+        else if (ag.sel?.startsWith('u:')) fold(ag.folded.has(ag.sel));
         else if (ag.sel) {
           openThread(ag.sel);
           ag.zone = 'thread';

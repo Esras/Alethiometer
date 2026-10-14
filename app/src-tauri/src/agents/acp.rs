@@ -523,6 +523,10 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         .map(|n| n.trim().to_owned())
         .unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
     let group_key = a.group_id.clone().unwrap_or_else(|| "unsorted".into());
+    let project_dir = super::facts::project_dir(&cwd);
+    if let Some(g) = &a.group_id {
+        super::claim_group(&mut app.agents.store.lock(), g, &project_dir)?;
+    }
     let color = super::store::color_for(app.store(), &group_key, &id, settings.agents.names.palette.len())?;
     let (title, subtitle) = title_from(&a.task);
     let ts = now(app);
@@ -544,6 +548,8 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
             })
             .unwrap_or_else(host_label),
         cwd: cwd.clone(),
+        project: super::facts::project_name(&project_dir),
+        project_dir,
         status: Status::Running,
         title,
         subtitle,

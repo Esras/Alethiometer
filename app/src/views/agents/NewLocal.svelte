@@ -20,7 +20,7 @@
   const groups = $derived((ag.tree?.groups ?? []).filter((g) => g.source === 'acp'));
   let harness = $state('');
   let name = $state('');
-  let cwd = $state('');
+  let cwd = $state(untrack(() => (ag.form?.kind === 'local' ? ag.form.cwd : '') ?? ''));
   let task = $state('');
   let groupId = $state<string>('');
   let newName = $state('');
@@ -111,6 +111,25 @@
 
   const h = $derived(harnesses.find((x) => x.key === harness));
   const g = $derived(groupId && groupId !== 'new' ? groupById(groupId) : undefined);
+  let proj = $state<{ project: string; project_dir: string } | null>(null);
+  $effect(() => {
+    const c = cwd.trim();
+    if (!c) return void (proj = null);
+    const t = setTimeout(() => {
+      call<{ project: string; project_dir: string }>('agents.project_of', { cwd: c })
+        .then((r) => {
+          if (c === cwd.trim()) proj = r;
+        })
+        .catch(() => (proj = null));
+    }, 150);
+    return () => clearTimeout(t);
+  });
+  const groupsIn = $derived(
+    groups.filter((x) => x.id === groupId || !x.project_dir || x.project_dir === proj?.project_dir),
+  );
+  $effect(() => {
+    if (g && proj && g.project_dir && g.project_dir !== proj.project_dir) groupId = '';
+  });
   const members = $derived(g ? (ag.tree?.sessions ?? []).filter((s) => s.group_id === g.id && !s.parent_id) : []);
   const modelName = (id: string) => models.find((m) => m.id === id)?.name || id;
 
@@ -153,7 +172,7 @@
 
 <NewModal sub={sandboxed ? 'OpenShell · ACP' : 'local · ACP'} onStart={start} {onClose}>
   <Joins
-    project={g?.project ?? ''}
+    project={proj?.project ?? g?.project ?? ''}
     name={groupId === 'new' ? newName || 'New group' : (g?.name ?? 'Unsorted')}
     goal={groupId === 'new' ? newGoal : (g?.goal ?? '')}
     host={g?.host ?? ''}
@@ -258,9 +277,10 @@
     <span class="input">
       <select bind:value={groupId}>
         <option value="">Unsorted</option>
-        {#each groups as x (x.id)}<option value={x.id}>{x.project ? `${x.project} › ` : ''}{x.name}</option>{/each}
+        {#each groupsIn as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
         <option value="new">New group…</option>
       </select>
+      <span class="note">{proj ? `in ${proj.project}, from the directory` : 'from the directory'}</span>
     </span>
     {#if groupId === 'new'}
       <span class="lab label">Group name</span>

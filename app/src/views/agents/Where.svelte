@@ -9,14 +9,15 @@
   const on = $derived(ag.form?.kind === 'scion' ? ag.form.group : null);
   const sandboxed = $derived(ag.form?.kind === 'local' && !!ag.form.openshell);
   const local = $derived(ag.form?.kind === 'local' ? ag.form.group : null);
+  const cwd = $derived(ag.form?.kind === 'local' ? ag.form.cwd : undefined);
 </script>
 
 {#if scion.length || openshell}
   <div class="fields">
     <span class="lab label">Where</span>
     <span class="chips" role="radiogroup" aria-label="Where the agent runs">
-      <button class="chip" class:on={!on && !sandboxed} onclick={() => openForm(null, local)}>Local</button>
-      {#if openshell}<button class="chip" class:on={sandboxed} onclick={() => openForm(null, local, true)}
+      <button class="chip" class:on={!on && !sandboxed} onclick={() => openForm(null, local, false, cwd)}>Local</button>
+      {#if openshell}<button class="chip" class:on={sandboxed} onclick={() => openForm(null, local, true, cwd)}
           >OpenShell</button
         >{/if}
       {#if scion.length}<button class="chip" class:on={!!on} onclick={() => !on && openForm(scion[0])}>Scion</button

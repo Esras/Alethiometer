@@ -13,13 +13,14 @@ export type Node =
   | { type: 'group'; key: string; group: Group; open: boolean; sessions: Session[] }
   | { type: 'room'; key: string; group: Group }
   | { type: 'session'; key: string; s: Session; depth: number; unsorted: boolean }
-  | { type: 'unsorted'; key: string }
+  | { type: 'unsorted'; key: string; project: string; open: boolean; sessions: Session[] }
   | { type: 'archived-head'; key: string; groups: number; sessions: number; total: number }
   | { type: 'archived-label'; key: string; label: string; project: boolean }
   | { type: 'archived'; key: string; item: ArchivedItem };
 
 export type Form =
-  { kind: 'scion'; group: string; room: string | null } | { kind: 'local'; group: string | null; openshell?: boolean };
+  | { kind: 'scion'; group: string; room: string | null }
+  | { kind: 'local'; group: string | null; openshell?: boolean; cwd?: string };
 
 export const ag = $state({
   tree: null as Tree | null,
@@ -62,6 +63,10 @@ export const ag = $state({
   pending: [] as Pending[],
   /** The right-click menu (05). */
   menu: null as { key: string; x: number; y: number } | null,
+  /** The session the move picker (m) is open for. */
+  moving: null as string | null,
+  /** A local session being dragged to another group, and its project's key. */
+  drag: null as { session: string; project: string } | null,
 });
 
 /** A local session that ended a turn since you looked (the core keeps the count, so the tab badge sees it too). */
@@ -156,7 +161,7 @@ export function openThread(key: string) {
 }
 
 /** Open the new-agent form for a Hub project's group, or a local one (`null`), on this machine or in an OpenShell sandbox. */
-export function openForm(g: Group | null, localGroup: string | null = null, openshell = false) {
+export function openForm(g: Group | null, localGroup: string | null = null, openshell = false, cwd?: string) {
   if (g?.source === 'scion') {
     if (g.room) {
       ag.sel = `r:${g.room.id}`;
@@ -164,7 +169,7 @@ export function openForm(g: Group | null, localGroup: string | null = null, open
     }
     ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null };
   } else {
-    ag.form = { kind: 'local', group: localGroup, openshell };
+    ag.form = { kind: 'local', group: localGroup, openshell, cwd };
   }
 }
 
@@ -225,7 +230,29 @@ function matches(s: Session, q: string): boolean {
   return [s.name, s.title, s.cwd, s.harness, s.model].some((x) => x?.toLowerCase().includes(q));
 }
 
-/** The tree as a flat list of rows, for drawing and for j/k. */
+/** Which project a group or session sits under: a local folder, or a Hub's project. */
+export function projectKey(x: Group | Session): string {
+  if (x.source === 'acp') return `acp:${x.project_dir || x.project}`;
+  const g = 'room' in x ? x : groupById(x.group_id);
+  return g ? `scion:${g.id.split(':').slice(1, 3).join(':')}` : `scion:${x.project}`;
+}
+
+const projectLabel = (x: Group | Session) => x.project || (x.source === 'acp' ? 'local' : 'scion');
+
+/** The tree key of the group a local session is in: its group, or its project's Unsorted. */
+export function homeKey(s: Session): string {
+  return groupById(s.group_id) ? `g:${s.group_id}` : `u:${projectKey(s)}`;
+}
+
+/** File a local session under a group of its project (`null`: Unsorted), opening the group it lands in. */
+export function moveTo(session: string, group: string | null) {
+  const s = sessionById(session);
+  if (!s || (groupById(s.group_id) ? s.group_id : null) === group) return;
+  if (ag.folded.delete(group ?? `u:${projectKey(s)}`)) ag.folded = new Set(ag.folded);
+  act('move', { session, group: group ?? '' }).catch(() => {});
+}
+
+/** The tree as a flat list of rows, for drawing and for j/k: project, then its groups, then its Unsorted. */
 export function nodes(): Node[] {
   const t = ag.tree;
   if (!t) return [];
@@ -237,9 +264,12 @@ export function nodes(): Node[] {
       if (depth < 3) kids(c, depth + 1, list);
     }
   };
-  const ordered = (group: string | null) => {
+  const known = (id: string | null) => (id && t.groups.some((g) => g.id === id) ? id : null);
+  const ordered = (group: string | null, project?: string) => {
     const list: Session[] = [];
-    for (const s of t.sessions.filter((s) => (s.group_id ?? null) === group && !s.parent_id)) {
+    for (const s of t.sessions.filter(
+      (s) => known(s.group_id) === group && !s.parent_id && (project === undefined || projectKey(s) === project),
+    )) {
       list.push(s);
       kids(s, 1, list);
     }
@@ -254,29 +284,41 @@ export function nodes(): Node[] {
     }
     return d;
   };
-  let project: string | null = null;
-  for (const g of t.groups) {
-    const sessions = ordered(g.id);
-    const hit =
-      !q || g.name.toLowerCase().includes(q) || g.goal.toLowerCase().includes(q) || sessions.some((s) => matches(s, q));
-    if (!hit) continue;
-    const label = g.project || (g.source === 'acp' ? 'local' : 'scion');
-    if (label !== project) {
-      out.push({ type: 'project', key: `p:${label}:${g.id}`, label });
-      project = label;
+  const projects = new Map<string, string>();
+  for (const x of [...t.groups, ...ordered(null)])
+    if (!projects.has(projectKey(x))) projects.set(projectKey(x), projectLabel(x));
+  for (const [pk, label] of projects) {
+    let headed = false;
+    const head = () => {
+      if (!headed) out.push({ type: 'project', key: `p:${pk}`, label });
+      headed = true;
+    };
+    for (const g of t.groups.filter((g) => projectKey(g) === pk)) {
+      const sessions = ordered(g.id);
+      const hit =
+        !q ||
+        g.name.toLowerCase().includes(q) ||
+        g.goal.toLowerCase().includes(q) ||
+        sessions.some((s) => matches(s, q));
+      if (!hit) continue;
+      head();
+      const open = !ag.folded.has(g.id) || !!q;
+      out.push({ type: 'group', key: `g:${g.id}`, group: g, open, sessions });
+      if (!open) continue;
+      if (g.room) out.push({ type: 'room', key: `r:${g.room.id}`, group: g });
+      for (const s of sessions)
+        if (!q || matches(s, q) || g.name.toLowerCase().includes(q))
+          out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: false });
     }
-    const open = !ag.folded.has(g.id) || !!q;
-    out.push({ type: 'group', key: `g:${g.id}`, group: g, open, sessions });
-    if (!open) continue;
-    if (g.room) out.push({ type: 'room', key: `r:${g.room.id}`, group: g });
-    for (const s of sessions)
-      if (!q || matches(s, q) || g.name.toLowerCase().includes(q))
-        out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: false });
-  }
-  const loose = ordered(null).filter((s) => !q || matches(s, q));
-  if (loose.length) {
-    out.push({ type: 'unsorted', key: 'unsorted' });
-    for (const s of loose) out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: true });
+    const loose = ordered(null, pk).filter((s) => !q || matches(s, q));
+    const dragTarget = ag.drag?.project === pk && !!known(sessionById(ag.drag.session)?.group_id ?? null);
+    if (!loose.length && !dragTarget) continue;
+    head();
+    const key = `u:${pk}`;
+    const open = !ag.folded.has(key) || !!q;
+    out.push({ type: 'unsorted', key, project: pk, open, sessions: loose });
+    if (open)
+      for (const s of loose) out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: true });
   }
   if (q && ag.hits.length) {
     const groups = ag.hits.filter((h) => h.kind === 'group').length;
@@ -308,7 +350,7 @@ export function nodes(): Node[] {
 
 /** Nodes j/k can land on. */
 export const selectable = (n: Node) =>
-  n.type === 'group' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
+  n.type === 'group' || n.type === 'unsorted' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 

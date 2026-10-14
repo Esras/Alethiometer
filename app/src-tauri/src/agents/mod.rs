@@ -49,6 +49,7 @@ pub fn start(app: Arc<App>) {
     if let Err(e) = app.agents.store.load(app.store()) {
         eprintln!("agents: couldn't load sessions: {e}");
     }
+    settle_projects(&app.agents.store);
     let a = app.clone();
     std::thread::Builder::new()
         .name("agents-flush".into())
@@ -225,6 +226,156 @@ fn session_of(app: &App, id: &str) -> Result<Session> {
         .ok_or_else(|| msg(format!("no agent session '{id}'")))
 }
 
+/// Where a local session's project is looked up: the folder uploaded into its sandbox, else its directory.
+fn local_folder(s: &Session) -> &str {
+    match &s.sandbox {
+        Some(b) if !b.upload.is_empty() => &b.upload,
+        _ => &s.cwd,
+    }
+}
+
+/// Check a local session of `project_dir` can go in `group`; a group with no project yet takes this one.
+pub(crate) fn claim_group(i: &mut store::Inner, group: &str, project_dir: &str) -> Result<()> {
+    let mut g = i.groups.get(group).cloned().ok_or_else(|| msg("no such group"))?;
+    if g.source != "acp" {
+        return Err(msg("Scion agents belong to their Hub group"));
+    }
+    if g.project_dir.is_empty() {
+        g.project = facts::project_name(project_dir);
+        g.project_dir = project_dir.to_owned();
+        i.put_group(g);
+    } else if g.project_dir != project_dir {
+        return Err(msg(format!(
+            "{} is in {}, not {}",
+            g.name,
+            g.project,
+            facts::project_name(project_dir)
+        )));
+    }
+    Ok(())
+}
+
+/// File a top-level local session (and its subagents) under a group of its project, or `None` for Unsorted.
+fn move_session(
+    agents: &store::Store,
+    db: &crate::store::Db,
+    palette: usize,
+    id: &str,
+    group: Option<String>,
+) -> Result<()> {
+    if !id.starts_with("acp-") {
+        return Err(msg("Scion agents belong to their Hub group"));
+    }
+    let s = agents
+        .lock()
+        .sessions
+        .get(id)
+        .cloned()
+        .ok_or_else(|| msg(format!("no agent session '{id}'")))?;
+    if s.parent_id.is_some() {
+        return Err(msg("A subagent moves with its parent"));
+    }
+    if let Some(g) = &group {
+        claim_group(&mut agents.lock(), g, &s.project_dir)?;
+    }
+    let color = store::color_for(db, group.as_deref().unwrap_or("unsorted"), id, palette)?;
+    let mut i = agents.lock();
+    let mut ids = vec![id.to_owned()];
+    let mut k = 0;
+    while k < ids.len() {
+        let parent = ids[k].clone();
+        ids.extend(
+            i.sessions
+                .values()
+                .filter(|c| c.parent_id.as_deref() == Some(&parent))
+                .map(|c| c.id.clone()),
+        );
+        k += 1;
+    }
+    for sid in &ids {
+        i.update_session(sid, |x| {
+            x.group_id = group.clone();
+            x.guess = None;
+            if x.id == id {
+                x.color = color;
+            }
+        });
+    }
+    Ok(())
+}
+
+/// Give sessions and groups stored before projects existed their project; git runs outside the store's lock.
+fn settle_projects(agents: &store::Store) {
+    let folders: std::collections::BTreeSet<String> = agents
+        .lock()
+        .sessions
+        .values()
+        .filter(|s| s.source == "acp" && s.project_dir.is_empty() && !s.cwd.is_empty())
+        .map(|s| local_folder(s).to_owned())
+        .collect();
+    let dirs = folders
+        .into_iter()
+        .map(|f| (f.clone(), facts::project_dir(&f)))
+        .collect();
+    assign_projects(&mut agents.lock(), &dirs);
+}
+
+/// Fill in projects (`dirs`: folder to project folder); groups follow their sessions, misfits go to Unsorted.
+fn assign_projects(i: &mut store::Inner, dirs: &std::collections::HashMap<String, String>) {
+    let ids: Vec<String> = i.sessions.keys().cloned().collect();
+    for id in &ids {
+        i.update_session(id, |s| {
+            if s.source != "acp" || !s.project_dir.is_empty() {
+                return;
+            }
+            if let Some(d) = dirs.get(local_folder(s)) {
+                s.project = facts::project_name(d);
+                s.project_dir = d.clone();
+            }
+        });
+    }
+    let empty: Vec<Group> = i
+        .groups
+        .values()
+        .filter(|g| g.source == "acp" && g.project_dir.is_empty())
+        .cloned()
+        .collect();
+    for mut g in empty {
+        let mut n = std::collections::BTreeMap::<&str, usize>::new();
+        for s in i.sessions.values() {
+            if s.parent_id.is_none() && s.group_id.as_deref() == Some(&g.id) && !s.project_dir.is_empty() {
+                *n.entry(&s.project_dir).or_default() += 1;
+            }
+        }
+        let Some(dir) = n
+            .iter()
+            .max_by_key(|(d, c)| (**c, std::cmp::Reverse(**d)))
+            .map(|(d, _)| d.to_string())
+        else {
+            continue;
+        };
+        g.project = facts::project_name(&dir);
+        g.project_dir = dir;
+        i.put_group(g);
+    }
+    let misfits: Vec<String> = i
+        .sessions
+        .values()
+        .filter(|s| s.source == "acp" && s.parent_id.is_none() && !s.project_dir.is_empty())
+        .filter(|s| {
+            let g = s.group_id.as_ref().and_then(|g| i.groups.get(g));
+            g.is_some_and(|g| g.source == "acp" && !g.project_dir.is_empty() && g.project_dir != s.project_dir)
+        })
+        .map(|s| s.id.clone())
+        .collect();
+    for id in &misfits {
+        i.update_session(id, |s| {
+            s.group_id = None;
+            s.guess = None;
+        });
+    }
+}
+
 /// What the Agents tab's badge counts: open requests, and local sessions that ended a turn you haven't looked at.
 pub fn attention(app: &App) -> usize {
     let st = app.agents.store.lock();
@@ -393,21 +544,32 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "archived_open" => archive::open(app, &arg_str(args, "id")?),
         "group_create" => {
             let name = arg_str(args, "name")?;
+            let session = opt(args, "session").map(|id| session_of(app, id)).transpose()?;
+            let project_dir = match &session {
+                Some(s) => s.project_dir.clone(),
+                None => facts::project_dir(&acp::expand_home(&arg_str(args, "cwd")?)),
+            };
             let id = format!("local:{}", next_local_id(app));
-            let project = opt(args, "project")
-                .map(str::to_owned)
-                .unwrap_or_else(|| opt(args, "cwd").map(facts::project_of).unwrap_or_default());
             app.agents.store.lock().put_group(Group {
                 id: id.clone(),
                 source: "acp".into(),
-                project,
+                project: facts::project_name(&project_dir),
+                project_dir,
                 name: name.trim().into(),
                 goal: opt(args, "goal").unwrap_or("").trim().into(),
                 host: acp::host_label(),
                 room: None,
                 created_at: now(app),
             });
+            if let Some(s) = session {
+                let palette = app.settings().agents.names.palette.len();
+                move_session(&app.agents.store, app.store(), palette, &s.id, Some(id.clone()))?;
+            }
             Ok(json!({ "id": id }))
+        }
+        "project_of" => {
+            let dir = facts::project_dir(&acp::expand_home(&arg_str(args, "cwd")?));
+            Ok(json!({ "project": facts::project_name(&dir), "project_dir": dir }))
         }
         "group_update" => {
             let id = arg_str(args, "group")?;
@@ -435,21 +597,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         // File a local session under a group (or back to Unsorted).
         "move" => {
-            let id = arg_str(args, "session")?;
-            let group = opt(args, "group").map(str::to_owned);
-            if !id.starts_with("acp-") {
-                return Err(msg("Scion agents belong to their Hub group"));
-            }
-            let color = {
-                let s = session_of(app, &id)?;
-                let palette = app.settings().agents.names.palette.len();
-                store::color_for(app.store(), group.as_deref().unwrap_or("unsorted"), &s.id, palette)?
-            };
-            app.agents.store.lock().update_session(&id, |s| {
-                s.group_id = group;
-                s.guess = None;
-                s.color = color;
-            });
+            let palette = app.settings().agents.names.palette.len();
+            let (id, group) = (arg_str(args, "session")?, opt(args, "group").map(str::to_owned));
+            move_session(&app.agents.store, app.store(), palette, &id, group)?;
             Ok(json!({ "ok": true }))
         }
         "guess_dismiss" => {
@@ -572,5 +722,42 @@ mod next_id_tests {
         let mut i = super::store::Inner::default();
         i.archived.insert("local:5".into());
         assert_eq!(super::next_id(&i), 6);
+    }
+
+    #[test]
+    fn old_groups_take_their_sessions_project_and_misfits_go_to_unsorted() {
+        use super::model::{Group, Session};
+        let mut i = super::store::Inner::default();
+        i.put_group(Group {
+            id: "local:1".into(),
+            source: "acp".into(),
+            project: "jolly".into(),
+            ..Default::default()
+        });
+        let s = |id: &str, cwd: &str| Session {
+            id: id.into(),
+            source: "acp".into(),
+            group_id: Some("local:1".into()),
+            cwd: cwd.into(),
+            ..Default::default()
+        };
+        i.put_session(s("acp-1", "/r/aleth/.claude/worktrees/jolly"));
+        i.put_session(s("acp-2", "/r/aleth/app"));
+        i.put_session(s("acp-3", "/r/k8s"));
+        let dirs = [
+            ("/r/aleth/.claude/worktrees/jolly", "/r/aleth"),
+            ("/r/aleth/app", "/r/aleth"),
+            ("/r/k8s", "/r/k8s"),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_owned(), b.to_owned()))
+        .collect();
+        super::assign_projects(&mut i, &dirs);
+        let g = &i.groups["local:1"];
+        assert_eq!((g.project.as_str(), g.project_dir.as_str()), ("aleth", "/r/aleth"));
+        assert_eq!(i.sessions["acp-1"].group_id.as_deref(), Some("local:1"));
+        assert_eq!(i.sessions["acp-2"].project, "aleth");
+        assert_eq!(i.sessions["acp-3"].group_id, None);
+        assert_eq!(i.sessions["acp-3"].project_dir, "/r/k8s");
     }
 }

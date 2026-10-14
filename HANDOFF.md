@@ -124,7 +124,7 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 
 **Also open:**
 
-- **Agents:** first real runs on the Mac (Claude Code via claude-agent-acp, Pi via pi-acp; Node 22+; `npm run agentd` builds the agent host, `npm run build:mac` bundles it), whether the work Mac's endpoint policy tolerates the long-lived agent host, and the Scion "To check against a live Hub" list in `app/docs/agents.md`. Not built: group rename/delete and moving sessions other than the Unsorted guess, native ACP subagent sessions.
+- **Agents:** first real runs on the Mac (Claude Code via claude-agent-acp, Pi via pi-acp; Node 22+; `npm run agentd` builds the agent host, `npm run build:mac` bundles it), whether the work Mac's endpoint policy tolerates the long-lived agent host, and the Scion "To check against a live Hub" list in `app/docs/agents.md`. Not built: group rename/delete, native ACP subagent sessions. Projects, per-project Unsorted, moving local sessions (`m`, drag) built 2026-10-09 (`app/docs/agents.md` › Tree); not yet tried in the real window.
 
 - **Settings/Glean follow-ups (ISSUES.md):** where AI prices come from; when ⌘K asks Glean; Glean decisions to confirm (⌘T pins Glean results; Glean not gated by `ai.allowed_providers`; local-only answers when Glean is down); first real run of the embedding model and of a Glean instance.
 
