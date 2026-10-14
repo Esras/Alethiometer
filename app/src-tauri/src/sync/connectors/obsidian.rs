@@ -250,7 +250,7 @@ fn vault_root(config: &Value) -> anyhow::Result<PathBuf> {
     if !p.is_dir() {
         anyhow::bail!("vault folder not found: {v}");
     }
-    Ok(p.canonicalize()?)
+    Ok(dunce::canonicalize(p)?)
 }
 
 // ---------------------------------------------------------------- scanning
@@ -710,7 +710,7 @@ fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(Path
     }
     let abs = vault.join(rel);
     let check = if abs.exists() {
-        abs.canonicalize()?
+        dunce::canonicalize(&abs)?
     } else if allow_missing {
         // The nearest folder that exists decides (a symlink there could lead out).
         let dir = abs
@@ -718,7 +718,7 @@ fn target(vault: &Path, path: &str, allow_missing: bool) -> anyhow::Result<(Path
             .skip(1)
             .find(|a| a.exists())
             .ok_or_else(|| anyhow::anyhow!("bad path: {path}"))?;
-        dir.canonicalize()?
+        dunce::canonicalize(dir)?
     } else {
         anyhow::bail!("note not found: {path}");
     };
@@ -875,8 +875,9 @@ mod tests {
                 dir: tempfile::tempdir().unwrap(),
             }
         }
+        /// As a user writes it: no `\\?\` prefix on Windows.
         fn root(&self) -> PathBuf {
-            self.dir.path().canonicalize().unwrap()
+            dunce::canonicalize(self.dir.path()).unwrap()
         }
         fn write(&self, rel: &str, text: &str) {
             let p = self.dir.path().join(rel);
@@ -1644,7 +1645,9 @@ mod tests {
             assert!(e.to_string().contains("outside"), "{e}");
         }
         assert_eq!(std::fs::read_to_string(&abs_out).unwrap(), "secret\n");
-        // Absolute paths inside the vault are fine.
+        // Absolute paths inside the vault are fine (on Windows too, where
+        // std's canonicalize would have put the vault under `\\?\`).
+        assert_eq!(vault_root(&v.config()).unwrap(), v.root());
         let abs_in = v.root().join("in.md");
         send(
             &v,

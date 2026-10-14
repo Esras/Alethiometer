@@ -3,7 +3,7 @@ name = "alethiometer-platform"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "The machine around the app: atomic file writes, the secrets file and opening URLs"
+description = "The machine around the app: atomic file writes, the secrets file, opening URLs and starting processes"
 
 [lib]
 name = "alethiometer_platform"
@@ -14,6 +14,12 @@ alethiometer-core = { path = "../core" }
 anyhow = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 jiff = { version = "0.2", features = ["serde", "tzdb-bundle-always"] }
+# Opening URLs with the system's handler: `open` (macOS), xdg-open and its fallbacks (Linux), ShellExecuteW (Windows).
+open = { version = "5.4", features = ["shellexecute-on-windows"] }
+
+[target.'cfg(windows)'.dependencies]
+# CREATE_NO_WINDOW for child processes of the windowed (GUI-subsystem) app.
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"

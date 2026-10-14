@@ -4,6 +4,16 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Windows: not yet run on a Windows machine (2026-10-14)
+
+Windows builds and runs as far as reading the code goes; nothing has been compiled or run on Windows (the cloud sessions can't fetch the MSVC SDK). What to check, and what is known but not done:
+
+- `cargo test` in every crate and `npx tauri build` on Windows. `concurrent_writers_never_leave_a_mix` (`platform/src/fsx/tests.rs`) is the one most likely to fail: eight threads renaming over one file can hit a sharing violation on Windows. If it does, `fsx::write_atomic` needs a bounded retry on Windows; none was added without seeing the failure.
+- `fsx::write_new` hard-links into place: fine on NTFS, fails on FAT/exFAT and some network or cloud-synced folders (a vault there can't take stand-in copies).
+- WebView2's browser keys (Ctrl+R / F5 reload, Ctrl+F, Ctrl+P) reach the browser when no handler takes them. Tauri 2.12 has no setting for wry's `with_browser_accelerator_keys`; check what reloading mid-session does.
+- Data and models live in Roaming `%APPDATA%` (user, 2026-10-14: keep the default), so a roaming domain profile would copy the database and the embedding model.
+- "this Mac" in Settings › AI and the Notes margin.
+
 ### Agents: OpenShell sandboxes, what's left (2026-10-08)
 
 Built (`app/docs/agents.md` › OpenShell sandboxes) from OpenShell's source and docs, tested only against `scripts/fake-openshell.mjs`. To check against a real gateway, local and remote:

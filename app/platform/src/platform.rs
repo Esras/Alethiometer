@@ -23,8 +23,7 @@ pub trait Platform: Send + Sync {
     fn set_tray_dot(&self, _on: bool) {}
     /// Open a URL in the default browser (consent screens, "open in app").
     fn open_url(&self, url: &str) -> std::io::Result<()> {
-        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-        std::process::Command::new(cmd).arg(url).spawn().map(|_| ())
+        open::that_detached(url)
     }
     /// A terminal window in `cwd`, running `command` if given (attach to an agent).
     fn open_terminal(&self, cwd: &str, command: Option<&str>) -> std::io::Result<()> {

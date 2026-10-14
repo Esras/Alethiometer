@@ -22,7 +22,11 @@
   const inTauri = '__TAURI_INTERNALS__' in window;
   let ready = $state(false);
   // Notes left in the stand-in vault after a real one was set (asked once per start).
-  let standin = $state<{ standin: string; vault: string; files: { path: string; state: 'missing' | 'differs'; modified: string | null; preview: string }[] } | null>(null);
+  let standin = $state<{
+    standin: string;
+    vault: string;
+    files: { path: string; state: 'missing' | 'differs'; modified: string | null; preview: string }[];
+  } | null>(null);
   loadInfo()
     .then(() => {
       ready = true;
@@ -92,7 +96,8 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="window">
-  {#if !(inTauri && ui.info?.platform === 'linux')}<TitleBar />{/if}
+  <!-- The drawn title bar stands in for macOS's overlaid one; Linux and Windows windows have their own. -->
+  {#if !inTauri || ui.info?.platform === 'macos'}<TitleBar />{/if}
   <TabBar />
   {#if ui.error}
     <div class="fatal">Couldn't reach the Alethiometer core: {ui.error}</div>

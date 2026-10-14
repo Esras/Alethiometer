@@ -1,0 +1,11 @@
+# LF in every checkout, Windows included: Prettier (endOfLine: lf) and rustfmt
+# check against LF, and the shell scripts need it.
+* text=auto eol=lf
+
+# CRLF on purpose: ICS (RFC 5545) lines end in CRLF and the parser is tested on that.
+*.ics -text
+
+*.png binary
+*.ico binary
+*.icns binary
+*.onnx binary

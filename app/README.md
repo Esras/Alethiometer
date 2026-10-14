@@ -48,6 +48,8 @@ To check a UI refactor changes nothing: `scripts/ui-diff.sh <ref>`, then `node s
 
 Linux needs `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`.
 
+Windows needs Rust with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`), Visual Studio Build Tools with "Desktop development with C++" (the C compiler and Windows SDK for the bundled SQLite, sqlite-vec, tree-sitter and tract), Node 22+, and WebView2 (already on Windows 10 and 11). Run everything from a normal PowerShell or cmd; the Nix devshell and `scripts/ui-diff.sh` are Unix-only. `npx tauri build` makes an MSI and an NSIS installer, unsigned (SmartScreen will warn).
+
 ```sh
 npx tauri dev
 ```
@@ -58,11 +60,11 @@ Build the `.app` on the Mac with `npx tauri build`. Set `bundle.macOS.signingIde
 
 ## Data and config
 
-Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux; override with `ALETHIOMETER_DATA_DIR`):
+Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux, `%APPDATA%\dev.alethiometer.app` on Windows; override with `ALETHIOMETER_DATA_DIR`):
 
 - `alethiometer.sqlite`: the database.
 - `settings.json`: written with defaults on first run. Edit it in Settings (⌘,) or by hand; either way changes apply live (`docs/settings.md`).
-- `secrets.json`: API tokens (mode 0600), for now on the Mac too. `secrets.meta.json` keeps when each was set (names and times only).
+- `secrets.json`: API tokens (mode 0600; Windows has no file modes, so there only the profile folder's permissions protect it), for now on the Mac too. `secrets.meta.json` keeps when each was set (names and times only).
 - `models/`: the local embedding model, downloaded on first run.
 - `vault/`: stand-in work Obsidian vault until `obsidian_vault` is set.
 

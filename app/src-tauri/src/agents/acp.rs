@@ -3372,6 +3372,8 @@ pub(crate) mod tests {
         );
     }
 
+    // The stand-in is a shell script.
+    #[cfg(unix)]
     #[test]
     fn a_projects_direnv_environment_is_read() {
         use std::os::unix::fs::PermissionsExt;

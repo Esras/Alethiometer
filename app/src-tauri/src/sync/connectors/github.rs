@@ -62,7 +62,7 @@ fn gh_candidates() -> Vec<String> {
     ];
     // Last resort: ask the login shell, which sees the user's full PATH.
     if let Ok(shell) = std::env::var("SHELL") {
-        if let Ok(o) = std::process::Command::new(shell)
+        if let Ok(o) = crate::process::command(shell)
             .args(["-lc", "command -v gh"])
             .stdin(std::process::Stdio::null())
             .output()
@@ -90,7 +90,7 @@ fn run_gh(path: Option<&str>) -> impl Fn(&[&str]) -> std::io::Result<GhOutput> +
         };
         let mut last = std::io::Error::from(std::io::ErrorKind::NotFound);
         for c in candidates {
-            match std::process::Command::new(&c)
+            match crate::process::command(&c)
                 .args(args)
                 .stdin(std::process::Stdio::null())
                 .output()
