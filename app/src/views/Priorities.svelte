@@ -6,10 +6,10 @@
   // columns (aqua for the cursor, dashed grey for the hovered todo) that pin to
   // a column's edge, hollow, when the todo is scrolled out of it.
   // j/k move in the focused column, [ ] move to the same todo in the next
-  // column, / filters, ↵ opens the topic, o opens the todo in its app, x completes it.
+  // column, / filters, ↵ opens the topic, o opens the todo in its app (local ones in Todos), x completes it.
   import { tick } from 'svelte';
   import { call, openExternal } from '../lib/api';
-  import { catColor, openTopic, ui } from '../lib/app.svelte';
+  import { catColor, openTodo, openTopic, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import { live } from '../lib/live';
   import AppIcon from '../lib/ui/AppIcon.svelte';
@@ -237,7 +237,7 @@
     if (plain(e, '[')) return (toCol(focus - 1), true);
     if (plain(e, '/')) return (filterEl?.focus(), true);
     if (plain(e, 'Enter')) return (selT?.topic && openTopic(selT.topic.id), true);
-    if (plain(e, 'o')) return (selT?.url && openExternal(selT.url), true);
+    if (plain(e, 'o')) return (selT && (selT.url ? openExternal(selT.url) : openTodo(selT.item_id)), true);
     if (plain(e, 'x')) return (complete(selT), true);
   });
 

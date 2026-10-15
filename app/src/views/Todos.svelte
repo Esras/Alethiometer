@@ -1,7 +1,7 @@
 <script lang="ts">
   import { call, openExternal } from '../lib/api';
   import { live } from '../lib/live';
-  import { catColor, openTopic, refresh } from '../lib/app.svelte';
+  import { catColor, openTopic, refresh, ui } from '../lib/app.svelte';
   import { plain, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import FilterField from '../lib/ui/FilterField.svelte';
@@ -122,6 +122,18 @@
   });
 
   $effect(() => {
+    const id = ui.openTodoId;
+    if (id === null || !todos.some((t) => t.item_id === id)) return;
+    if (!rows.some((t) => t.item_id === id)) {
+      source = 'all';
+      q = '';
+    }
+    sel = id;
+    open = id;
+    ui.openTodoId = null;
+  });
+
+  $effect(() => {
     if (!rows.some((t) => t.item_id === sel)) sel = rows[0]?.item_id ?? null;
   });
 
@@ -132,7 +144,7 @@
   const current = $derived(rows.find((t) => t.item_id === sel) ?? null);
 
   function expand(t: Todo | null) {
-    if (!t || signalOf(t) === null) return;
+    if (!t) return;
     sel = t.item_id;
     open = open === t.item_id ? null : t.item_id;
   }
@@ -264,6 +276,7 @@
           <div
             class="row todo"
             class:sel={t.item_id === sel}
+            class:open={t.item_id === open}
             class:done
             style:--topic={t.topic ? catColor(t.topic.category) : null}
             data-todo={t.item_id}
@@ -382,7 +395,10 @@
         {#if current?.ext.type === 'local'}<span><kbd>d</kbd> schedule</span>{/if}
         <span><kbd>s</kbd> sort</span>
         <span><kbd>o</kbd> open source</span>
-        {#if signalOf(current) !== null}<span><kbd>{open === sel ? 'Esc' : '↵'}</kbd> signal</span>{/if}
+        <span
+          ><kbd>{open === sel ? 'Esc' : '↵'}</kbd>
+          {open === sel ? 'collapse' : signalOf(current) !== null ? 'signal' : 'expand'}</span
+        >
         {#if current?.topic}<span><kbd>t</kbd> topic</span>{/if}
       </div>
     </div>
@@ -478,6 +494,9 @@
   }
   .title {
     color: var(--tx-body);
+  }
+  .todo.open .title {
+    white-space: normal;
   }
   /* Done: the cells fade (the row's fill and topic bar stay); no strikethrough. */
   .todo.done > * {

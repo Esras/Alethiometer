@@ -24,6 +24,8 @@ export const ui = $state({
   /** Topic opened in the Topics tab, and the tab it was opened from (breadcrumb). */
   openTopicId: null as number | null,
   openedFrom: null as Tab | null,
+  /** Todo to select when the Todos tab next shows it. */
+  openTodoId: null as number | null,
   assistantOpen: false,
   searchOpen: false,
   settingsOpen: false,
@@ -176,6 +178,11 @@ export function openTopic(id: number) {
   ui.openedFrom = ui.tab === 'topics' ? ui.openedFrom : ui.tab;
   ui.openTopicId = id;
   ui.tab = 'topics';
+}
+
+export function openTodo(id: number) {
+  ui.openTodoId = id;
+  setTab('todos');
 }
 
 /** Call after a write: views reload, and the Incoming count updates. */
