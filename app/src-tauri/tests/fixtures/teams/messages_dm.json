@@ -1,0 +1,227 @@
+{
+ "@odata.context": "x",
+ "@odata.count": 6,
+ "value": [
+  {
+   "id": "1791978000000",
+   "replyToId": null,
+   "etag": "1791978000000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T11:40:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:40:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "22222222-0000-0000-0000-00000000000b",
+     "displayName": "Priya Shah",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>Fine, ship it <emoji id=\"1f44d_thumbsup\" alt=\"👍\" title=\"Thumbs up\"></emoji></p>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791977700000",
+   "replyToId": null,
+   "etag": "1791977700000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T11:35:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:35:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "11111111-0000-0000-0000-00000000000a",
+     "displayName": "Zach Example",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "text",
+    "content": "Rollout plan is in the doc"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791977400000",
+   "replyToId": null,
+   "etag": "1791977400000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T11:30:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:30:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "22222222-0000-0000-0000-00000000000b",
+     "displayName": "Priya Shah",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>Hi <at id=\"0\">Zach Example</at>, can you check <a href=\"https://contoso.sharepoint.com/plan\">the rollout plan</a>?</p><attachment id=\"att-1\"></attachment>"
+   },
+   "attachments": [
+    {
+     "id": "att-1",
+     "contentType": "reference",
+     "contentUrl": "https://contoso.sharepoint.com/plan.docx",
+     "content": null,
+     "name": "plan.docx",
+     "thumbnailUrl": null
+    }
+   ],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791976800000",
+   "replyToId": null,
+   "etag": "1791976800000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T11:20:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:20:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": "2026-10-14T11:21:00Z",
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "22222222-0000-0000-0000-00000000000b",
+     "displayName": "Priya Shah",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "oops"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791976200000",
+   "replyToId": null,
+   "etag": "1791976200000",
+   "messageType": "systemEventMessage",
+   "createdDateTime": "2026-10-14T11:10:00Z",
+   "lastModifiedDateTime": "2026-10-14T11:10:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": null,
+   "body": {
+    "contentType": "html",
+    "content": "<systemEventMessage/>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791907200000",
+   "replyToId": null,
+   "etag": "1791907200000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-13T16:00:00Z",
+   "lastModifiedDateTime": "2026-10-13T16:00:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:me-priya_unq@unq.gbl.spaces",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "22222222-0000-0000-0000-00000000000b",
+     "displayName": "Priya Shah",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>See you tomorrow</p>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  }
+ ]
+}

@@ -1,0 +1,118 @@
+{
+ "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#chats(lastMessagePreview())",
+ "@odata.count": 4,
+ "value": [
+  {
+   "id": "19:me-priya_unq@unq.gbl.spaces",
+   "topic": null,
+   "createdDateTime": "2025-01-10T09:00:00Z",
+   "lastUpdatedDateTime": "2026-10-14T11:40:00Z",
+   "chatType": "oneOnOne",
+   "webUrl": "https://teams.microsoft.com/l/chat/19:me-priya_unq@unq.gbl.spaces/0?tenantId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "onlineMeetingInfo": null,
+   "viewpoint": {
+    "isHidden": false,
+    "lastMessageReadDateTime": "2026-10-14T08:00:00Z"
+   },
+   "lastMessagePreview@odata.context": "x",
+   "lastMessagePreview": {
+    "id": "1791978000000",
+    "createdDateTime": "2026-10-14T11:40:00Z",
+    "isDeleted": false,
+    "messageType": "message",
+    "eventDetail": null,
+    "body": {
+     "contentType": "text",
+     "content": "Fine, ship it"
+    },
+    "from": {
+     "application": null,
+     "device": null,
+     "user": {
+      "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+      "id": "22222222-0000-0000-0000-00000000000b",
+      "displayName": "Priya Shah",
+      "userIdentityType": "aadUser"
+     }
+    }
+   }
+  },
+  {
+   "id": "19:launchprep@thread.v2",
+   "topic": "Launch prep",
+   "createdDateTime": "2026-09-01T09:00:00Z",
+   "lastUpdatedDateTime": "2026-10-14T10:30:00Z",
+   "chatType": "group",
+   "webUrl": "https://teams.microsoft.com/l/chat/19:launchprep@thread.v2/0?tenantId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "onlineMeetingInfo": null,
+   "viewpoint": null,
+   "lastMessagePreview": {
+    "id": "1791973800000",
+    "createdDateTime": "2026-10-14T10:30:00Z",
+    "isDeleted": false,
+    "messageType": "message",
+    "eventDetail": null,
+    "body": {
+     "contentType": "text",
+     "content": "Deck is up"
+    },
+    "from": {
+     "application": null,
+     "device": null,
+     "user": {
+      "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+      "id": "33333333-0000-0000-0000-00000000000c",
+      "displayName": "Sam Okafor",
+      "userIdentityType": "aadUser"
+     }
+    }
+   }
+  },
+  {
+   "id": "19:meeting_old@thread.v2",
+   "topic": "Q3 review",
+   "createdDateTime": "2026-07-01T09:00:00Z",
+   "lastUpdatedDateTime": "2026-07-02T10:30:00Z",
+   "chatType": "meeting",
+   "webUrl": "https://teams.microsoft.com/l/chat/19:meeting_old@thread.v2/0",
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "onlineMeetingInfo": null,
+   "viewpoint": null,
+   "lastMessagePreview": {
+    "id": "1782988200000",
+    "createdDateTime": "2026-07-02T10:30:00Z",
+    "isDeleted": false,
+    "messageType": "message",
+    "eventDetail": null,
+    "body": {
+     "contentType": "text",
+     "content": "thanks all"
+    },
+    "from": {
+     "application": null,
+     "device": null,
+     "user": {
+      "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+      "id": "33333333-0000-0000-0000-00000000000c",
+      "displayName": "Sam Okafor",
+      "userIdentityType": "aadUser"
+     }
+    }
+   }
+  },
+  {
+   "id": "19:empty@thread.v2",
+   "topic": "Never used",
+   "createdDateTime": "2026-10-01T09:00:00Z",
+   "lastUpdatedDateTime": "2026-10-01T09:00:00Z",
+   "chatType": "group",
+   "webUrl": null,
+   "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+   "onlineMeetingInfo": null,
+   "viewpoint": null,
+   "lastMessagePreview": null
+  }
+ ]
+}

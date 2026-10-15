@@ -368,6 +368,7 @@ fn source_label(kind: &str) -> &'static str {
     match kind {
         "gcal" => "Google Cal",
         "slack" => "Slack",
+        "teams" => "Teams",
         "jira" => "Jira",
         "github" => "GitHub",
         "obsidian" => "Obsidian",

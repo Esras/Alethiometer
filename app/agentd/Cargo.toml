@@ -23,5 +23,12 @@ serde_json = "1"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+# AF_UNIX sockets on Windows (std has them on Unix only).
+uds_windows = "1.2"
+# Job objects, so Kill ends an agent's whole process tree.
+process-wrap = { version = "10", default-features = false, features = ["std", "job-object", "creation-flags"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
+
 [dev-dependencies]
 tempfile = "3"

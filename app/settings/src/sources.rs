@@ -19,6 +19,8 @@ use std::collections::BTreeMap;
 /// `config.app_token_secret` (e.g. for a second workspace).
 pub const SLACK_USER_TOKEN: &str = "slack.user_token";
 pub const SLACK_APP_TOKEN: &str = "slack.app_token";
+/// Default secret-name prefix for Microsoft Teams: Connect writes `teams.refresh_token`.
+pub const TEAMS_SECRET_PREFIX: &str = "teams";
 /// Default secret name for the Jira API token; `config.secret` overrides it.
 pub const JIRA_DEFAULT_SECRET: &str = "jira_api_token";
 /// Mentions can't be searched reliably in JQL (`comment ~ currentUser()` is
@@ -34,6 +36,7 @@ pub const OBSIDIAN_API_KEY: &str = "obsidian.api_key";
 /// Every connector kind, in the order "Add source" lists them.
 pub const KINDS: &[(&str, &str)] = &[
     ("slack", "Slack"),
+    ("teams", "Microsoft Teams"),
     ("gmail", "Gmail"),
     ("gcal", "Google Calendar"),
     ("jira", "Jira"),
@@ -43,6 +46,68 @@ pub const KINDS: &[(&str, &str)] = &[
     ("glean", "Glean"),
     ("scion", "Scion Hub"),
 ];
+
+/// Chat sources: conversations of messages, read as runs that triage closes,
+/// split per message by the AI, answered with `r`, marked read on Confirm
+/// (`app/docs/chat.md`). The kinds' connectors share `sync::connectors::chat`.
+pub const CHAT_KINDS: &[&str] = &["slack", "teams"];
+
+pub fn is_chat(kind: &str) -> bool {
+    CHAT_KINDS.contains(&kind)
+}
+
+/// Microsoft Teams through Microsoft Graph, signed in as you (`docs/sources/teams.md`).
+/// Chats need only permissions users can usually grant themselves; channels
+/// also need `ChannelMessage.Read.All`, which an admin has to approve, so they
+/// are read (and asked for at Connect) only when `channels` lists some.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct TeamsConfig {
+    /// The app registration's Application (client) ID.
+    #[schemars(extend("x-group" = "identity", "x-label" = "Client ID"))]
+    pub client_id: String,
+    /// Directory (tenant) ID or domain; "organizations" lets any work account sign in.
+    #[schemars(extend("x-group" = "identity", "x-label" = "Tenant"))]
+    pub tenant: String,
+    #[schemars(extend("x-group" = "identity", "x-label" = "Secret prefix"))]
+    pub secret_prefix: String,
+    /// 1:1, group and meeting chats.
+    #[schemars(extend("x-group" = "reads", "x-label" = "Chats"))]
+    pub chats: bool,
+    /// "Get link to channel" links, or "<team id>|<channel id>". Needs admin approval.
+    #[schemars(extend("x-group" = "reads", "x-label" = "Channels", "x-widget" = "list"))]
+    pub channels: Vec<String>,
+    /// Chat or channel ids: still read, never new in Incoming.
+    #[schemars(extend("x-group" = "reads", "x-label" = "Muted", "x-widget" = "list"))]
+    pub muted: Vec<String>,
+    #[schemars(extend("x-group" = "limits", "x-label" = "Look back", "x-unit" = "h", "x-step" = 12, "x-min" = 1))]
+    pub lookback_hours: i64,
+    /// Most recently active first.
+    #[schemars(extend("x-group" = "limits", "x-label" = "Chats per poll", "x-step" = 10, "x-min" = 1, "x-max" = 200))]
+    pub max_chats: i64,
+    /// After the last reply.
+    #[schemars(extend("x-group" = "limits", "x-label" = "Track threads for", "x-unit" = "days", "x-step" = 10, "x-min" = 1))]
+    pub thread_days: i64,
+    #[schemars(extend("x-group" = "limits", "x-label" = "Threads tracked", "x-step" = 50, "x-min" = 1))]
+    pub max_threads: i64,
+}
+
+impl Default for TeamsConfig {
+    fn default() -> Self {
+        TeamsConfig {
+            client_id: String::new(),
+            tenant: "organizations".into(),
+            secret_prefix: TEAMS_SECRET_PREFIX.into(),
+            chats: true,
+            channels: vec![],
+            muted: vec![],
+            lookback_hours: 72,
+            max_chats: 50,
+            thread_days: 90,
+            max_threads: 300,
+        }
+    }
+}
 
 /// `channels` is a list, or "all".
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -566,6 +631,13 @@ pub fn secrets(kind: &str, config: &Value) -> Vec<SecretSlot> {
                 ),
             ]
         }
+        "teams" => vec![slot(
+            format!("{}.refresh_token", get("secret_prefix", TEAMS_SECRET_PREFIX)),
+            "Sign-in",
+            "written by Connect",
+            false,
+            true,
+        )],
         _ => vec![],
     }
 }
@@ -585,6 +657,7 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
     }
     match kind {
         "slack" => check::<SlackConfig>(config),
+        "teams" => check::<TeamsConfig>(config),
         "gmail" => check::<GmailConfig>(config),
         "gcal" => check::<GcalConfig>(config),
         "jira" => check::<JiraConfig>(config),
@@ -621,6 +694,7 @@ pub fn defaults(kind: &str) -> Option<Value> {
     Some(
         match kind {
             "slack" => serde_json::to_value(SlackConfig::default()),
+            "teams" => serde_json::to_value(TeamsConfig::default()),
             "gmail" => serde_json::to_value(GmailConfig::default()),
             "gcal" => serde_json::to_value(GcalConfig::default()),
             "jira" => serde_json::to_value(JiraConfig::default()),
@@ -642,6 +716,7 @@ pub fn schemas() -> serde_json::Map<String, Value> {
     }
     let mut m = serde_json::Map::new();
     m.insert("slack".into(), s::<SlackConfig>());
+    m.insert("teams".into(), s::<TeamsConfig>());
     m.insert("gmail".into(), s::<GmailConfig>());
     m.insert("gcal".into(), s::<GcalConfig>());
     m.insert("jira".into(), s::<JiraConfig>());

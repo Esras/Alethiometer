@@ -1,0 +1,78 @@
+{
+ "@odata.context": "x",
+ "value": [
+  {
+   "id": "1791973800000",
+   "replyToId": null,
+   "etag": "1791973800000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T10:30:00Z",
+   "lastModifiedDateTime": "2026-10-14T10:30:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:launchprep@thread.v2",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "application": null,
+    "device": null,
+    "user": {
+     "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+     "id": "33333333-0000-0000-0000-00000000000c",
+     "displayName": "Sam Okafor",
+     "userIdentityType": "aadUser",
+     "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<div>Deck is up</div>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  },
+  {
+   "id": "1791973740000",
+   "replyToId": null,
+   "etag": "1791973740000",
+   "messageType": "message",
+   "createdDateTime": "2026-10-14T10:29:00Z",
+   "lastModifiedDateTime": "2026-10-14T10:29:00Z",
+   "lastEditedDateTime": null,
+   "deletedDateTime": null,
+   "subject": null,
+   "summary": null,
+   "chatId": "19:launchprep@thread.v2",
+   "importance": "normal",
+   "locale": "en-us",
+   "webUrl": null,
+   "channelIdentity": null,
+   "policyViolation": null,
+   "eventDetail": null,
+   "from": {
+    "user": null,
+    "application": {
+     "@odata.type": "#microsoft.graph.teamworkApplicationIdentity",
+     "id": "app-1",
+     "displayName": "Polly",
+     "applicationIdentityType": "bot"
+    },
+    "device": null
+   },
+   "body": {
+    "contentType": "html",
+    "content": "<p>Poll: launch on Tuesday?</p>"
+   },
+   "attachments": [],
+   "mentions": [],
+   "reactions": []
+  }
+ ]
+}

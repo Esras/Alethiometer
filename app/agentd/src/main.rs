@@ -27,25 +27,16 @@ fn main() {
         eprintln!("usage: alethiometer-agentd --dir <data dir> [--idle-secs N]");
         std::process::exit(2);
     };
-    #[cfg(unix)]
-    {
-        let opts = agentd::server::Options {
-            dir: dir.into(),
-            idle: std::time::Duration::from_secs(idle.max(10)),
-        };
-        if let Err(e) = agentd::server::run(opts) {
-            eprintln!("agentd: {e}");
-            std::process::exit(if e.kind() == std::io::ErrorKind::AddrInUse {
-                0
-            } else {
-                1
-            });
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (dir, idle);
-        eprintln!("agentd: not available on this platform yet");
-        std::process::exit(1);
+    let opts = agentd::server::Options {
+        dir: dir.into(),
+        idle: std::time::Duration::from_secs(idle.max(10)),
+    };
+    if let Err(e) = agentd::server::run(opts) {
+        eprintln!("agentd: {e}");
+        std::process::exit(if e.kind() == std::io::ErrorKind::AddrInUse {
+            0
+        } else {
+            1
+        });
     }
 }

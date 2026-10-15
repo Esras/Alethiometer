@@ -48,6 +48,6 @@ pub trait RespondViews {
     fn overlaps(&self, item_ids: &[i64]) -> Result<Vec<OverlapRow>>;
     /// The latest `gcal.rsvp` for each of these items' events (or series).
     fn latest_rsvps(&self, item_ids: &[i64]) -> Result<Vec<AnswerRow>>;
-    /// The latest `slack.reply` queued from each of these items.
+    /// The latest chat reply (`<source kind>.reply`) queued from each of these items.
     fn latest_replies(&self, item_ids: &[i64]) -> Result<Vec<AnswerRow>>;
 }

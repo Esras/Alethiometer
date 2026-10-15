@@ -50,9 +50,10 @@ export const isMac = typeof navigator !== 'undefined' && navigator.platform.toLo
 /** A key as the app reads it on this platform: chord('⌘K', 'Ctrl+K'). Display only; which key does what is `mod()`. */
 export const chord = (mac: string, other: string) => (isMac ? mac : other);
 
-/** ⌘ on macOS, Ctrl elsewhere. Only that one, so ⌃ stays free on the Mac. */
+/** ⌘ on macOS, Ctrl elsewhere. Only that one, so ⌃ stays free on the Mac. Not Ctrl+Alt: Windows reports
+ *  AltGr, which types `[ ] { } @ \` on many layouts, as Ctrl+Alt, and no shortcut here uses Ctrl+Alt. */
 export function mod(e: KeyboardEvent): boolean {
-  return isMac ? e.metaKey : e.ctrlKey;
+  return isMac ? e.metaKey : e.ctrlKey && !e.altKey;
 }
 
 /** ⌥ plus a letter (⇧ when `shift`), not while typing. By `e.code`: on a

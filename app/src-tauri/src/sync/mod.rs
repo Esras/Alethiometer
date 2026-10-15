@@ -47,10 +47,17 @@ pub struct Ctx<'a> {
     pub http: &'a dyn Http,
     /// Secrets by name (Keychain on the Mac, 0600 file on Linux).
     pub secret: &'a dyn Fn(&str) -> Option<String>,
+    /// Store a secret: a refresh token the provider rotated (Microsoft's).
+    pub save_secret: &'a dyn Fn(&str, &str) -> anyhow::Result<()>,
     /// Now (respects fake_now).
     pub now: Ts,
     /// For calendar days (all-day events, day-only dues) and local windows.
     pub clock: Clock,
+}
+
+/// `Ctx::save_secret` for tests and callers that can't store secrets.
+pub fn no_save(name: &str, _value: &str) -> anyhow::Result<()> {
+    anyhow::bail!("can't store secret '{name}' here")
 }
 
 impl Ctx<'_> {
@@ -115,6 +122,23 @@ pub trait Connector: Send + Sync {
     /// confirmed it; any error leaves the row failed and visible.
     fn send(&self, _ctx: &Ctx, op: &str, _payload: &Value) -> anyhow::Result<Value> {
         anyhow::bail!("this source doesn't support '{op}'")
+    }
+
+    /// The cursor to poll from, read just before each poll. Chat sources close
+    /// the runs you triaged since the last one (`connectors::chat`).
+    fn before_poll(&self, _r: &dyn Reads, source: &Source) -> Result<Option<String>> {
+        Ok(source.cursor.clone())
+    }
+
+    /// Whether the live feed (Slack's socket, started in `start_source`) is
+    /// connected, else the source only polls; None for a source without one.
+    fn live(&self, _source_id: i64) -> Option<bool> {
+        None
+    }
+
+    /// One of this source's web links as a link into its desktop app.
+    fn deep_link(&self, _r: &dyn Reads, _url: &str) -> Option<String> {
+        None
     }
 }
 
@@ -331,8 +355,8 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     let (mut source, failing) = app
         .store()
         .read(|r| Ok((source(r, source_id)?, r.sources().failing_streams(source_id)?)))?;
-    if source.kind == "slack" {
-        source.cursor = app.store().read(|r| connectors::slack::close_triaged(r, &source))?;
+    if let Some(c) = connectors::for_kind(&source.kind) {
+        source.cursor = app.store().read(|r| c.before_poll(r, &source))?;
     }
     let test = worker::test_connector(&source.kind);
     let boxed;
@@ -346,10 +370,12 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     };
     let http = http::UreqHttp::default();
     let secret = |k: &str| app.platform.secret_get(k);
+    let save_secret = |k: &str, v: &str| Ok(app.platform.secret_set(k, v)?);
     let ctx = Ctx {
         source: &source,
         http: &http,
         secret: &secret,
+        save_secret: &save_secret,
         now: app.clock.now(),
         clock: app.clock.clone(),
     };
@@ -530,7 +556,7 @@ pub struct SourceStatus {
     pub last_sync_at: Option<Ts>,
     pub last_error: Option<String>,
     pub syncing: bool,
-    /// Slack only: whether the live socket is connected (else it polls).
+    /// Sources with a live feed (Slack): whether it's connected (else it polls).
     pub live: Option<bool>,
     /// Streams (Slack conversations, threads, refetched items) whose last read failed.
     pub failing: Vec<crate::domain::sources::FailingStream>,
@@ -549,11 +575,7 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
                     Ok(SourceStatus {
                         failing: r.sources().failing_streams(s.id)?,
                         syncing: is_running(s.id),
-                        live: if s.kind == "slack" {
-                            connectors::slack::socket::connected(s.id)
-                        } else {
-                            None
-                        },
+                        live: connectors::for_kind(&s.kind).and_then(|c| c.live(s.id)),
                         id: s.id,
                         kind: s.kind,
                         tag: s.tag,

@@ -20,18 +20,18 @@ team: "[[Platform]]"
 Free notes…
 ```
 
-- `slack`, `email`, `jira`, `github` are the person's accounts; each can be one value or a list. Emails and GitHub logins match case-insensitively.
+- `slack`, `teams` (the Entra object id), `email`, `jira`, `github` are the person's accounts; each can be one value or a list. Emails and GitHub logins match case-insensitively.
 - `color` overrides the hash colour. `role` shows under the name in a topic's People panel. Other fields are free-form; nothing reads them yet.
 - The notes are the source of truth. `people::scan` mirrors them into `people` (`note_path` set) and `person_accounts`, at startup, after an Obsidian sync that touches `People/`, and after the app writes a People note. A deleted note's person keeps its row but stops matching anything.
 - People are read from `App.vault` (the `obsidian_vault` setting), with or without an Obsidian source configured.
 
 ## Matching authors
 
-Every message author (`item_messages.author_id`) and item author (`person_handles`) maps to an account: Slack user id (and, with the `users:read.email` scope, the email on that user's Slack profile, kept in `account_profiles` with their real name), Gmail/Calendar sender address (a Gmail relay like a GitHub notification maps to its GitHub login; other relays to nothing), Jira accountId, GitHub login. The account is looked up in `person_accounts` at read time (a Slack account also through its profile email, so a note that only lists an email still claims that person's Slack messages), so editing a note in Obsidian recolours past and future signals alike. Authors with no id at all (bots, the sample data) fall back to a note's name or aliases.
+Every message author (`item_messages.author_id`) and item author (`person_handles`) maps to an account: Slack user id (and, with the `users:read.email` scope, the email on that user's Slack profile, kept in `account_profiles` with their real name), Teams user id (with the email on their Microsoft profile, the same way), Gmail/Calendar sender address (a Gmail relay like a GitHub notification maps to its GitHub login; other relays to nothing), Jira accountId, GitHub login. The account is looked up in `person_accounts` at read time (a Slack account also through its profile email, so a note that only lists an email still claims that person's Slack messages), so editing a note in Obsidian recolours past and future signals alike. Authors with no id at all (bots, the sample data) fall back to a note's name or aliases.
 
 Gmail, Jira and GitHub messages now store `author_id` too (it was Slack only). Rows stored before this change have none and are matched by name only.
 
-**You** are your Slack source's own user id, each Jira source's `email` (the API token's owner; each poll also stores your Jira accountId with that email in `account_profiles`), plus `people.me` in settings (`["email:me@work.com", "jira:…"]`), shown in `people.my_color` (default 0, Gruvbox red).
+**You** are your Slack and Teams sources' own user ids, each Jira source's `email` (the API token's owner; each poll also stores your Jira accountId with that email in `account_profiles`), plus `people.me` in settings (`["email:me@work.com", "jira:…"]`), shown in `people.my_color` (default 0, Gruvbox red).
 
 ## Colours (16c)
 

@@ -2,7 +2,7 @@ pub mod agents;
 pub mod ai;
 pub mod api;
 pub use alethiometer_core::{clock, domain, error, store, time};
-pub use alethiometer_platform::{fsx, platform};
+pub use alethiometer_platform::{fsx, platform, process};
 /// The schema and migrations (`store::schema`), under its old name.
 pub use store::schema as db;
 pub mod embed;

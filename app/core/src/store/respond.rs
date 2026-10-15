@@ -78,9 +78,11 @@ impl RespondViews for Sql<'_> {
         Ok(self
             .conn()
             .prepare_cached(&format!(
-                "WITH k AS (SELECT value AS item_id FROM json_each(?1))
+                "WITH k AS (SELECT i.id AS item_id, s.kind || '.reply' AS op
+                              FROM items i JOIN sources s ON s.id = i.source_id
+                             WHERE i.id IN (SELECT value FROM json_each(?1)))
                  SELECT {ANSWER}
-                   FROM k JOIN outbox o ON o.id = (SELECT max(o2.id) FROM outbox o2 WHERE o2.op = 'slack.reply' AND o2.item_id = k.item_id)"
+                   FROM k JOIN outbox o ON o.id = (SELECT max(o2.id) FROM outbox o2 WHERE o2.op = k.op AND o2.item_id = k.item_id)"
             ))?
             .query_map(params![id_list(item_ids)], answer)?
             .collect::<rusqlite::Result<_>>()?)

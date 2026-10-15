@@ -1,0 +1,21 @@
+id: bedrock-api-key
+display_name: AWS Bedrock (API key)
+description: Bedrock runtime with a long-lived Bedrock API key
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: Bedrock API key
+    env_vars: [AWS_BEARER_TOKEN_BEDROCK]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+discovery:
+  credentials: [api_key]
+endpoints:
+  - host: bedrock-runtime.us-west-2.amazonaws.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries: [/usr/local/bin/node]

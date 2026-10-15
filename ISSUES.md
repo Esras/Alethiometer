@@ -4,6 +4,33 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Microsoft Teams: built, never run against a tenant (2026-10-14)
+
+Built from Graph v1.0's documentation and recorded shapes (`app/docs/sources/teams.md`, `tests/fixtures/teams/`). To check on a real tenant, chats first:
+
+- Connect with the chat permissions only: does user consent work in this tenant, and does Entra accept the `http://localhost:<port>` redirect for a Public client/native registration (it should ignore the port for `localhost`; a browser that tries `::1` first must fall back to 127.0.0.1, where the listener is).
+- Message ids being creation times in milliseconds: everything that orders messages (runs, mark read) assumes it, as observed in Graph's examples; it isn't a documented guarantee.
+- `/me/chats?$orderby=lastMessagePreview/createdDateTime desc&$expand=lastMessagePreview` and chat messages filtered by `lastModifiedDateTime`: documented, but check that edits and new messages both show.
+- Channels (after admin approval): the order of `GET …/channels/{id}/messages` (newest first is assumed only to stop paging early) and whether a new reply changes its post's `lastModifiedDateTime` (assumed; tracked threads are also checked on a timer, so a reply is caught within an hour either way).
+- `markChatReadForUser` with your user and tenant ids; the "newest message" check before it.
+- Replies as HTML with `<br>` line breaks.
+
+Not built: push through Azure Event Hubs (Graph only pushes to a public HTTPS endpoint; a later stage, user 2026-10-14), a channel picker (channels are pasted as links), mention search in channels you don't list, the reaction UI (as for Slack). In a Teams chat ⌥T (reply in a thread) fails with a message instead of being hidden.
+
+
+### Windows: not yet run on a Windows machine (2026-10-14)
+
+Windows type-checks (all targets, Tauri on) but nothing has been built or run on Windows (the cloud sessions can't fetch the MSVC SDK). The checklist for the first run is `app/docs/windows.md`. What to check, and what is known but not done:
+
+- `cargo test` in every crate and `npx tauri build` on Windows. `concurrent_writers_never_leave_a_mix` (`platform/src/fsx/tests.rs`) is the one most likely to fail: eight threads renaming over one file can hit a sharing violation on Windows. If it does, `fsx::write_atomic` needs a bounded retry on Windows; none was added without seeing the failure.
+- `fsx::write_new` hard-links into place: fine on NTFS, fails on FAT/exFAT and some network or cloud-synced folders (a vault there can't take stand-in copies).
+- WebView2's browser keys (Ctrl+R / F5 reload, Ctrl+F, Ctrl+P) reach the browser when no handler takes them. Tauri 2.12 has no setting for wry's `with_browser_accelerator_keys`; check what reloading mid-session does.
+- Data and models live in Roaming `%APPDATA%` (user, 2026-10-14: keep the default), so a roaming domain profile would copy the database and the embedding model.
+- "this Mac" in Settings › AI and the Notes margin.
+- **Local agents on Windows** (agent host on AF_UNIX + job objects, `docs/agents.md` › Agent host): run `cargo test` in `app/agentd` (`kill_ends_the_agents_job_and_nothing_else` is Windows-only) and `app/src-tauri` (`tests/agents_restart.rs` now runs there, with node), then a real Claude Code and Pi session. Things only a Windows run can show: whether `npx.cmd` starts the adapters with their arguments (Rust refuses batch-file arguments it can't quote safely); whether the host survives the app's job object (`spawn_detached` breaks away only when the job allows it; otherwise closing the terminal that ran `npx tauri dev` may end it); that `alethiometer-agentd.exe` lands next to the installed app; that swapping in a new build (moving the running `.exe` aside to `.old`) works. Claude Code on Windows wants Git Bash.
+- The approval card's Parsed panel reads commands as bash with POSIX paths: a `C:\…` working directory is one path segment, the "outside the repo" check only knows `/` and `~`, and `node_modules/.bin` lists `.cmd`/`.ps1` twins. It only explains; it gates nothing.
+- Open in a terminal gives a cmd window; OpenShell and Scion attach lines are POSIX-quoted (both out of scope on Windows, user 2026-10-14). Open in Zed needs `zed` on the PATH.
+
 ### Agents: OpenShell sandboxes, what's left (2026-10-08)
 
 Built (`app/docs/agents.md` › OpenShell sandboxes) from OpenShell's source and docs, tested only against `scripts/fake-openshell.mjs`. To check against a real gateway, local and remote:

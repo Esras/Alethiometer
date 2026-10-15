@@ -265,7 +265,7 @@ pub fn host_label() -> String {
     static H: OnceLock<String> = OnceLock::new();
     H.get_or_init(|| {
         let run = |cmd: &str, args: &[&str]| {
-            let out = Command::new(cmd)
+            let out = crate::process::command(cmd)
                 .args(args)
                 .output()
                 .ok()
@@ -277,7 +277,13 @@ pub fn host_label() -> String {
         } else {
             None
         };
-        mac.or_else(|| run("hostname", &["-s"]))
+        let windows = if cfg!(windows) {
+            std::env::var("COMPUTERNAME").ok().filter(|s| !s.is_empty())
+        } else {
+            None
+        };
+        mac.or(windows)
+            .or_else(|| run("hostname", &["-s"]))
             .or_else(|| std::env::var("HOSTNAME").ok())
             .unwrap_or_else(|| "local".into())
     })
@@ -286,10 +292,15 @@ pub fn host_label() -> String {
 
 /// The login shell's PATH: apps started from the Dock get a minimal one, and
 /// npx (or the adapter) usually lives somewhere the shell's profile adds.
+/// Windows has no login shell to ask, and an app started from the Start menu
+/// already gets the user's full PATH: the app's own.
 pub(super) fn login_path() -> String {
     static P: OnceLock<String> = OnceLock::new();
     P.get_or_init(|| {
         let current = std::env::var("PATH").unwrap_or_default();
+        if cfg!(windows) {
+            return current;
+        }
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -334,7 +345,7 @@ fn direnv_env(cwd: &str, path: &str) -> BTreeMap<String, String> {
     let Some(direnv) = which("direnv", path).filter(|_| !cwd.is_empty()) else {
         return BTreeMap::new();
     };
-    let mut c = Command::new(direnv);
+    let mut c = crate::process::command(direnv);
     c.args(["export", "json"])
         .current_dir(cwd)
         .env("PATH", path)
@@ -408,15 +419,11 @@ pub fn env_changed(watches: &[super::model::EnvWatch]) -> bool {
         })
 }
 
-/// Where `cmd` is on the login PATH, or None.
+/// Where `cmd` is on the login PATH, or None. A path is taken as it is. On
+/// Windows `npx` finds `npx.cmd` (PATHEXT), which std's Command wouldn't.
 pub(super) fn which(cmd: &str, path: &str) -> Option<std::path::PathBuf> {
-    if cmd.contains('/') {
-        let p = std::path::PathBuf::from(cmd);
-        return p.exists().then_some(p);
-    }
-    path.split(':')
-        .map(|d| std::path::Path::new(d).join(cmd))
-        .find(|p| p.is_file())
+    let cwd = std::env::current_dir().unwrap_or_default();
+    which::which_in(cmd, Some(path), cwd).ok()
 }
 
 pub struct StartArgs {
@@ -739,7 +746,7 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
             .map(|d| d.display().to_string())
             .unwrap_or_else(|| ".".into())
     };
-    let mut child = Command::new(exe)
+    let mut child = crate::process::command(exe)
         .args(&h.args)
         .envs(&h.env)
         .env("PATH", path)
@@ -3378,6 +3385,40 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn which_finds_an_executable_on_the_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // Not executable: skipped, as a shell would.
+        std::fs::write(a.path().join("npx"), "").unwrap();
+        let exe = b.path().join("npx");
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([a.path(), b.path()]).unwrap();
+        assert_eq!(which("npx", path.to_str().unwrap()), Some(exe.clone()));
+        assert_eq!(which(exe.to_str().unwrap(), ""), Some(exe));
+        assert_eq!(which("nope", path.to_str().unwrap()), None);
+    }
+
+    /// npm installs `npx.cmd`; the harness setting says `npx`.
+    #[cfg(windows)]
+    #[test]
+    fn which_finds_a_cmd_shim_on_the_path() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let shim = b.path().join("npx.cmd");
+        std::fs::write(&shim, "@echo off\r\n").unwrap();
+        let path = std::env::join_paths([a.path(), b.path()]).unwrap();
+        let found = which("npx", path.to_str().unwrap()).unwrap();
+        assert!(
+            found.to_string_lossy().eq_ignore_ascii_case(&shim.to_string_lossy()),
+            "{found:?}"
+        );
+        assert_eq!(which("nope", path.to_str().unwrap()), None);
+    }
+
+    // The stand-in is a shell script.
+    #[cfg(unix)]
     #[test]
     fn a_projects_direnv_environment_is_read() {
         use std::os::unix::fs::PermissionsExt;

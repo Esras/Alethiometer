@@ -129,6 +129,7 @@ fn run_poll(http: &dyn Http, src: &Source) -> anyhow::Result<Batch> {
         source: src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -448,7 +449,7 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     )
     .unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
-    src.cursor = close_triaged(&crate::store::over(&conn), &src).unwrap();
+    src.cursor = Slack.before_poll(&crate::store::over(&conn), &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
     assert!(!state.open.contains_key("C0INC") && !state.open.contains_key("C0INC/1789990000.000200"));
     assert_eq!(state.closed["C0INC"], "1789995600.000500");
@@ -792,6 +793,7 @@ fn missing_token_is_reported_by_name() {
         source: &src,
         http: &http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -849,6 +851,7 @@ fn send_op(http: &FakeHttp, op: &str, payload: Value) -> anyhow::Result<Value> {
         source: &src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };
@@ -1180,6 +1183,7 @@ fn run_streams(
         source: src,
         http,
         secret: &secret,
+        save_secret: &crate::sync::no_save,
         now: now(),
         clock: crate::sync::test_clock(&now().to_db()),
     };

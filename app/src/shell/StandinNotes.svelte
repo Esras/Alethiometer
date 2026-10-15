@@ -36,7 +36,9 @@
     busy = true;
     err = null;
     try {
-      const out = await call<{ copied: number; failed: { path: string; error: string }[] }>('standin.resolve', { copy: [...picked] });
+      const out = await call<{ copied: number; failed: { path: string; error: string }[] }>('standin.resolve', {
+        copy: [...picked],
+      });
       if (out.failed.length) err = out.failed.map((f) => `${f.path}: ${f.error}`).join(' · ');
       else onclose();
     } catch (e) {
@@ -64,8 +66,8 @@
       <button class="esc" onclick={onclose}><kbd>Esc</kbd> <i class="ph ph-x"></i></button>
     </header>
     <p class="why">
-      These were saved in the stand-in vault before an Obsidian vault was set, and nothing shows them now. Tick the ones to copy into your vault.
-      With sample data on, the stand-in also holds sample notes: leave those unticked.
+      These were saved in the stand-in vault before an Obsidian vault was set, and nothing shows them now. Tick the ones
+      to copy into your vault. With sample data on, the stand-in also holds sample notes: leave those unticked.
     </p>
     <div class="rows scroll" bind:this={rows}>
       {#each missing as f, i (f.path)}
@@ -90,7 +92,9 @@
     </div>
     {#if err}<div class="warn">{err}</div>{/if}
     <footer>
-      <span class="muted where" title={listing.standin}>Unticked notes stay in {listing.standin} and aren't offered again.</span>
+      <span class="muted where" title={listing.standin}
+        >Unticked notes stay in {listing.standin} and aren't offered again.</span
+      >
       <button class="btn md" onclick={onclose}>Later<kbd>Esc</kbd></button>
       <button class="btn md primary" disabled={busy} onclick={resolve}
         >{n ? `Copy ${n === 1 ? '1 note' : `${n} notes`}` : 'Copy none'}<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button

@@ -31,6 +31,7 @@ use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::outbox::request;
 use crate::seed::{Ctx, ItemSeed};
+use crate::settings::sources::is_chat;
 use crate::settings::PeopleSettings;
 use crate::time::Ts;
 use serde::Serialize;
@@ -673,8 +674,8 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
     let mut held: HashMap<i64, super::todos::Held> = r.todos().held(&ids)?.into_iter().collect();
     let events: Vec<i64> = sigs.iter().filter(|s| s.kind == "event").map(|s| s.item_id).collect();
     let mut rsvps = super::respond::rsvps(r, &events, &look.clock)?;
-    let slack: Vec<i64> = sigs.iter().filter(|s| s.source == "slack").map(|s| s.item_id).collect();
-    let mut replies = super::respond::replies(r, &slack, &look.clock)?;
+    let chat: Vec<i64> = sigs.iter().filter(|s| is_chat(&s.source)).map(|s| s.item_id).collect();
+    let mut replies = super::respond::replies(r, &chat, &look.clock)?;
     let mut changes: HashMap<i64, Vec<FieldChangeRow>> = HashMap::new();
     for c in r.incoming().field_changes(&ids)? {
         changes.entry(c.item_id).or_default().push(c);
@@ -843,9 +844,9 @@ fn confirm_series(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64) -> Result<(
     Ok(())
 }
 
-/// Confirming a Slack or Gmail signal also marks it read there, through the outbox.
-/// Only items the Slack connector stored with a read marker qualify (threads
-/// have none; Slack has no API for a thread's read state).
+/// Confirming a chat (Slack) or Gmail signal also marks it read there, through the outbox.
+/// Only items the chat connector stored with a read marker qualify (Slack
+/// threads have none; Slack has no API for a thread's read state).
 ///
 /// Split families (`split.rs`): `conversations.mark` up to a ts also marks
 /// everything before it, and a run read in Slack closes the parent's item. So
@@ -857,16 +858,16 @@ fn mark_read_remote(uow: &dyn UnitOfWork, item_id: i64, topic_id: i64, saw: Opti
         return Ok(());
     };
     match kind.as_str() {
-        "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
+        k if is_chat(k) => mark_chat_read(uow, source_id, k, item_id, &raws, saw),
         "gmail" => file_gmail(uow, source_id, item_id, &raws, topic_id, saw),
         _ => Ok(()),
     }
 }
 
-/// Dismissing a Slack signal marks it read like confirming does (Gmail has its own archive op).
-fn mark_slack_read_on_dismiss(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<()> {
+/// Dismissing a chat signal marks it read like confirming does (Gmail has its own archive op).
+fn mark_chat_read_on_dismiss(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Result<()> {
     match settled_family(uow, item_id)? {
-        Some((source_id, kind, raws)) if kind == "slack" => mark_slack_read(uow, source_id, item_id, &raws, saw),
+        Some((source_id, kind, raws)) if is_chat(&kind) => mark_chat_read(uow, source_id, &kind, item_id, &raws, saw),
         _ => Ok(()),
     }
 }
@@ -886,9 +887,12 @@ fn settled_family(uow: &dyn UnitOfWork, item_id: i64) -> Result<Option<(i64, Str
     Ok(Some((source_id, kind, raws)))
 }
 
-fn mark_slack_read(
+/// `<kind>.mark_read` up to the family's newest `raw_json.mark_ts` (chat
+/// message keys sort as numbers, oldest first; `app/docs/chat.md`).
+fn mark_chat_read(
     uow: &dyn UnitOfWork,
     source_id: i64,
+    kind: &str,
     item_id: i64,
     raws: &[(i64, Value)],
     saw: Option<&Saw>,
@@ -935,7 +939,7 @@ fn mark_slack_read(
         request(
             uow,
             source_id,
-            "slack.mark_read",
+            &format!("{kind}.mark_read"),
             &json!({ "channel": channel, "ts": ts }),
             Some(item_id),
         )?;
@@ -1056,7 +1060,7 @@ pub fn dismiss_seen(uow: &dyn UnitOfWork, item_id: i64, saw: Option<&Saw>) -> Re
     }
     uow.todos().set_discarded(item_id, true)?;
     gmail_op(uow, item_id, "gmail.archive", saw)?;
-    mark_slack_read_on_dismiss(uow, item_id, saw)?;
+    mark_chat_read_on_dismiss(uow, item_id, saw)?;
     settle_saw(uow, item_id, saw)
 }
 
@@ -1133,9 +1137,19 @@ pub struct Family {
     pub messages: Vec<Message>,
 }
 
+/// What a chat item's conversation is: `raw_json.conv` when its connector
+/// says (`app/docs/chat.md`), else read off Slack's titles.
 fn conv_kind(title: &str, raw: &Value) -> &'static str {
+    let said = match raw.get("conv").and_then(Value::as_str) {
+        Some("dm") => Some("dm"),
+        Some("group") => Some("group"),
+        Some("channel") => Some("channel"),
+        _ => None,
+    };
     if raw.get("thread_ts").is_some() {
         "thread"
+    } else if let Some(k) = said {
+        k
     } else if title.starts_with("DM ·") {
         "dm"
     } else if title.starts_with("Group DM") {
@@ -3161,6 +3175,77 @@ mod tests {
         }
     }
 
+    /// The chat layer by kind: a Teams chat is marked read through `teams.mark_read`.
+    #[test]
+    fn confirming_a_teams_chat_marks_it_read_in_teams() {
+        use crate::sync::{apply_now, Batch, ItemUpsert, Message as M};
+        let (conn, now, _d) = setup();
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name, config_json) VALUES ('teams', 'work', 'Teams', '{}')",
+            [],
+        )
+        .unwrap();
+        let src = crate::sync::load_source(&conn, conn.last_insert_rowid()).unwrap();
+        let keys = ["1790000000100", "1790000000200"];
+        let it = ItemUpsert {
+            external_id: "19:c@thread.v2/1790000000100".into(),
+            kind: "thread".into(),
+            title: "Chat · Ana".into(),
+            occurred_at: crate::time::t("2026-09-27T09:00:00"),
+            status: "open".into(),
+            raw_json: json!({ "channel": "19:c@thread.v2", "conv": "dm", "mark_ts": keys[1], "msgs": keys }),
+            messages: keys
+                .iter()
+                .map(|k| M {
+                    at: crate::time::Ts::from_unix_ms(k.parse().unwrap()).unwrap(),
+                    author: "Ana".into(),
+                    text: format!("m {k}"),
+                    ..Default::default()
+                })
+                .collect(),
+            bump: true,
+            ..Default::default()
+        };
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![it],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let item: i64 = conn
+            .query_row(
+                "SELECT id FROM items WHERE external_id = '19:c@thread.v2/1790000000100'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let topic = topic_named(&conn, "Q4 planning");
+        conn.execute(
+            "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![item, topic],
+        )
+        .unwrap();
+        let saw = listed(&conn, &now, item);
+        // Nothing arrived since the list was shown.
+        assert!(!confirm_seen(&crate::store::over(&conn), now.now(), item, topic, Some(&saw)).unwrap());
+        let ops: Vec<(String, String)> = conn
+            .prepare("SELECT op, payload_json FROM outbox WHERE item_id = ?1")
+            .unwrap()
+            .query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ops.len(), 1, "{ops:?}");
+        assert_eq!(ops[0].0, "teams.mark_read");
+        assert_eq!(
+            serde_json::from_str::<Value>(&ops[0].1).unwrap(),
+            json!({ "channel": "19:c@thread.v2", "ts": "1790000000200" })
+        );
+    }
+
     #[test]
     fn a_message_arriving_mid_render_stays_new() {
         let (conn, now, _d) = setup();
@@ -3272,6 +3357,23 @@ mod tests {
         )
         .unwrap();
         conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn a_chat_items_conversation_kind_is_its_conv_else_slacks_title() {
+        assert_eq!(conv_kind("Chat · Priya", &json!({"channel": "c", "conv": "dm"})), "dm");
+        assert_eq!(
+            conv_kind("Design review", &json!({"channel": "c", "conv": "group"})),
+            "group"
+        );
+        assert_eq!(
+            conv_kind("x", &json!({"channel": "c", "conv": "dm", "thread_ts": "1"})),
+            "thread"
+        );
+        // Slack's items say nothing: their titles do.
+        assert_eq!(conv_kind("DM · Priya", &json!({"channel": "D1"})), "dm");
+        assert_eq!(conv_kind("Group DM · a, b", &json!({"channel": "G1"})), "group");
+        assert_eq!(conv_kind("#inc-2291", &json!({"channel": "C1"})), "channel");
     }
 
     #[test]

@@ -8,7 +8,6 @@ use crate::domain::ports::Reads;
 use crate::error::Result;
 use crate::state::App;
 use std::path::Path;
-use std::process::Command;
 
 /// The main checkout of a directory's git repo (worktrees and subfolders join it), else the directory.
 pub fn project_dir(cwd: &str) -> String {
@@ -31,7 +30,12 @@ fn git(cwd: &str, args: &[&str]) -> Option<String> {
     if cwd.is_empty() {
         return None;
     }
-    let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
+    let out = crate::process::command("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
@@ -200,7 +204,7 @@ mod tests {
         let root = std::fs::canonicalize(tmp.path()).unwrap();
         let repo = root.join("alethiometer");
         let run = |dir: &Path, args: &[&str]| {
-            let ok = Command::new("git")
+            let ok = crate::process::command("git")
                 .arg("-C")
                 .arg(dir)
                 .args(args)

@@ -28,7 +28,7 @@
   import { catColor, category, refresh, setTab, ui } from '../lib/app.svelte';
   import { alt, chord, plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
-  import { sourceLabel } from '../lib/sources';
+  import { isChat, sourceLabel } from '../lib/sources';
   import { messageUrl } from '../lib/slackLink';
   import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
@@ -44,7 +44,7 @@
   import AgentPart from './incoming/AgentPart.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
   import RsvpLine, { answerable as canAnswer } from './incoming/RsvpLine.svelte';
-  import SlackReply from './incoming/SlackReply.svelte';
+  import ChatReply from './incoming/ChatReply.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import { nextKey, putBack } from './incoming/nextKey';
@@ -53,7 +53,7 @@
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
   // Fixed app order so each app's group always sits in the same place.
-  const APP_ORDER = ['slack', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
+  const APP_ORDER = ['slack', 'teams', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
 
   let queue = $state<Queue | null>(null);
   let selKey = $state<QueueKey | null>(null);
@@ -87,7 +87,7 @@
   let answered = $state<Map<number, string>>(new Map());
   let parts = $state<Record<number, AgentPart>>({});
   let rsvpLines = $state<Record<number, RsvpLine>>({});
-  let replies = $state<Record<number, SlackReply>>({});
+  let replies = $state<Record<number, ChatReply>>({});
   /** An invite that can still be answered here. */
   const answerable = (s: Signal | null) => !!s && !dismissed.has(s.item_id) && canAnswer(s.rsvp);
 
@@ -393,7 +393,7 @@
   });
 
   /** The split review applies: an AI-split signal, or any Slack signal with several messages. */
-  const reviewable = (s: Signal | null) => !!s && (s.split || (s.source === 'slack' && s.n_messages > 1));
+  const reviewable = (s: Signal | null) => !!s && (s.split || (isChat(s.source) && s.n_messages > 1));
 
   function review(s: Signal | null) {
     if (!s || !reviewable(s) || dismissed.has(s.item_id)) return;
@@ -659,7 +659,7 @@
     return [s.meta, ...extra].filter(Boolean).join(' · ');
   }
 
-  /** `r` on a Slack signal: its messages open, the reply field under them. */
+  /** `r` on a chat signal: its messages open, the reply field under them. */
   function replyTo(s: Signal) {
     selItem = s.item_id;
     if (!expanded.has(s.item_id)) toggle(s.item_id);
@@ -707,7 +707,7 @@
       if (alt(e, 'n')) return (line?.decline(), true);
       if (alt(e, 'n', true)) return (line?.declineWithNote(), true);
     }
-    if (current?.source === 'slack' && !dismissed.has(current.item_id) && plain(e, 'r'))
+    if (current && isChat(current.source) && !dismissed.has(current.item_id) && plain(e, 'r'))
       return (replyTo(current), true);
     if (plain(e, 'Escape') && current && expanded.has(current.item_id)) return (toggle(current.item_id), true);
     if (plain(e, 'c')) return (confirm(current), true);
@@ -885,7 +885,7 @@
                             ><i class="ph ph-git-pull-request"></i>{ag_.facts.pr.label}</button
                           >
                         {/if}
-                        {#if s.source === 'slack'}
+                        {#if isChat(s.source)}
                           <button class="btn" onclick={(e) => (e.stopPropagation(), replyTo(s))}
                             >Reply <kbd>r</kbd></button
                           >
@@ -1060,9 +1060,9 @@
                     {/if}
                   </div>
                 {/if}
-                {#if s.source === 'slack' && !gone}
+                {#if isChat(s.source) && !gone}
                   <div class="answer">
-                    <SlackReply
+                    <ChatReply
                       bind:this={replies[s.item_id]}
                       {s}
                       msg={sel && inMsgs ? s.messages[msgIdx] : undefined}
@@ -1138,7 +1138,7 @@
             ><kbd>o</kbd> open in Agents</span
           >
         {/if}
-        {#if reviewing === null && current?.source === 'slack' && !dismissed.has(current.item_id)}<span
+        {#if reviewing === null && current && isChat(current.source) && !dismissed.has(current.item_id)}<span
             ><kbd>r</kbd> reply</span
           >{/if}
         {#if reviewing === null && answerable(current)}

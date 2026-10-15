@@ -9,9 +9,8 @@
 //!   no app was there, once coming back mid-stream.
 //!
 //! Runs the agent host in-process and `scripts/fake-acp.mjs` as the agent;
-//! skipped when `node` isn't installed.
-
-#![cfg(unix)]
+//! skipped when `node` isn't installed. On Windows too: it is the check that
+//! the agent host's socket and job objects hold up there.
 
 use alethiometer_lib::agents::model::Status;
 use alethiometer_lib::settings::{Harness, Settings};

@@ -167,9 +167,16 @@ fn parse_section(text: &str, name: &str) -> Option<BTreeMap<String, String>> {
 
 fn credential_process(cmd: &str, profile: &str) -> anyhow::Result<AwsCreds> {
     #[cfg(unix)]
-    let out = std::process::Command::new("sh").arg("-c").arg(cmd).output();
-    #[cfg(not(unix))]
-    let out = std::process::Command::new("cmd").arg("/C").arg(cmd).output();
+    let out = crate::process::command("sh").arg("-c").arg(cmd).output();
+    #[cfg(windows)]
+    let out = {
+        use std::os::windows::process::CommandExt;
+        // Rust's argument quoting (`\"`) isn't cmd.exe's, so the line goes in raw. With /S, cmd strips
+        // only the outer pair of quotes, so quotes inside the line (a path with spaces) survive.
+        crate::process::command("cmd")
+            .raw_arg(format!("/S /C \"{cmd}\""))
+            .output()
+    };
     let out =
         out.map_err(|e| anyhow::anyhow!("credential_process for AWS profile '{profile}' could not start: {e}"))?;
     if !out.status.success() {

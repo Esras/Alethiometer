@@ -713,6 +713,7 @@ mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::t("2026-09-28T10:52:00"),
             clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
         };
@@ -770,6 +771,7 @@ mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::t("2026-09-28T10:52:00"),
             clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
         };
@@ -800,6 +802,7 @@ mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::t("2026-09-28T10:52:00"),
             clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
         };
@@ -812,6 +815,7 @@ mod tests {
             source: &src,
             http: &http,
             secret: &secret,
+            save_secret: &crate::sync::no_save,
             now: crate::time::t("2026-09-28T10:52:00"),
             clock: crate::sync::test_clock("2026-09-28T10:52:00Z"),
         };

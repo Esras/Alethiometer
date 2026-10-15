@@ -47,6 +47,10 @@ tree-sitter = "0.25"
 tree-sitter-bash = "0.25"
 # Quoting an OpenShell command line for a terminal.
 shlex = "2"
+# Finding an agent's command on the PATH (PATHEXT on Windows: npx is npx.cmd).
+which = "8"
+# Teams messages are HTML; shown as Markdown.
+htmd = "0.5"
 ureq = { version = "3", features = ["json"] }
 # Slack Socket Mode websocket; rustls + webpki roots, the same TLS stack ureq uses.
 tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
@@ -61,6 +65,8 @@ chrono-tz = "0.10"
 jiff = { version = "0.2", features = ["serde", "tzdb-bundle-always"] }
 # Obsidian: file watcher so vault edits sync right away (the poll still runs).
 notify = "8.2"
+# canonicalize() without Windows' `\\?\` prefix, which Obsidian URLs and vault-relative paths can't use.
+dunce = "1"
 # SigV4 signing for Bedrock (AWS-maintained; avoids the full AWS SDK + tokio).
 aws-sigv4 = { version = "1.6", default-features = false, features = ["sign-http", "http1"] }
 aws-credential-types = "1.3"

@@ -14,7 +14,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Topics (7a/7b) | done |
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
-| Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/` |
+| Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Microsoft Teams (polling; chats, channels with admin approval), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/`; what chat sources share in `docs/chat.md` |
 | People notes (`People/*.md`), person colours, new-person suggestions, link to person, Slack split review | done. See `docs/people.md` |
 | Reclassify a filed signal (chronology 18c, Search view 18d), merge topics | done. See `docs/reclassify-and-merge.md` |
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
@@ -48,6 +48,8 @@ To check a UI refactor changes nothing: `scripts/ui-diff.sh <ref>`, then `node s
 
 Linux needs `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev`.
 
+Windows needs Rust with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`), Visual Studio Build Tools with "Desktop development with C++" (the C compiler and Windows SDK for the bundled SQLite, sqlite-vec, tree-sitter and tract), Node 22+, and WebView2 (already on Windows 10 and 11). Run everything from a normal PowerShell or cmd; the Nix devshell and `scripts/ui-diff.sh` are Unix-only. `npx tauri build` makes an MSI and an NSIS installer, unsigned (SmartScreen will warn). Not run on Windows yet: `docs/windows.md` is the checklist.
+
 ```sh
 npx tauri dev
 ```
@@ -58,11 +60,11 @@ Build the `.app` on the Mac with `npx tauri build`. Set `bundle.macOS.signingIde
 
 ## Data and config
 
-Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux; override with `ALETHIOMETER_DATA_DIR`):
+Everything lives in the app data directory (`~/Library/Application Support/dev.alethiometer.app` on macOS, `~/.local/share/dev.alethiometer.app` on Linux, `%APPDATA%\dev.alethiometer.app` on Windows; override with `ALETHIOMETER_DATA_DIR`):
 
 - `alethiometer.sqlite`: the database.
 - `settings.json`: written with defaults on first run. Edit it in Settings (⌘,) or by hand; either way changes apply live (`docs/settings.md`).
-- `secrets.json`: API tokens (mode 0600), for now on the Mac too. `secrets.meta.json` keeps when each was set (names and times only).
+- `secrets.json`: API tokens (mode 0600; Windows has no file modes, so there only the profile folder's permissions protect it), for now on the Mac too. `secrets.meta.json` keeps when each was set (names and times only).
 - `models/`: the local embedding model, downloaded on first run.
 - `vault/`: stand-in work Obsidian vault until `obsidian_vault` is set.
 

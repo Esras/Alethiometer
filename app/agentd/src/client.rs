@@ -8,11 +8,9 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
+use crate::net::UnixStream;
 
 pub struct Control {
-    #[cfg(unix)]
     conn: Mutex<(BufReader<UnixStream>, UnixStream)>,
 }
 
@@ -20,7 +18,6 @@ fn bad(e: impl std::fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, e.to_string())
 }
 
-#[cfg(unix)]
 impl Control {
     pub fn connect(socket: &Path) -> io::Result<Control> {
         let s = UnixStream::connect(socket)?;
@@ -57,7 +54,6 @@ impl Control {
 
 /// Events after `from`, then live ones, handed to `f` until the connection
 /// closes (the daemon exited) or `f` returns false.
-#[cfg(unix)]
 pub fn subscribe(socket: &Path, from: BTreeMap<String, u64>, mut f: impl FnMut(Event) -> bool) -> io::Result<()> {
     let mut s = UnixStream::connect(socket)?;
     let mut line = serde_json::to_string(&Request::Subscribe { from }).map_err(bad)?;
@@ -79,28 +75,4 @@ pub fn subscribe(socket: &Path, from: BTreeMap<String, u64>, mut f: impl FnMut(E
         first = false;
     }
     Ok(())
-}
-
-#[cfg(not(unix))]
-impl Control {
-    pub fn connect(_socket: &Path) -> io::Result<Control> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "the agent host isn't available on this platform yet",
-        ))
-    }
-    pub fn call(&self, _req: &Request) -> io::Result<Reply> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported"))
-    }
-    pub fn ok(&self, _req: &Request) -> io::Result<Reply> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "unsupported"))
-    }
-}
-
-#[cfg(not(unix))]
-pub fn subscribe(_socket: &Path, _from: BTreeMap<String, u64>, _f: impl FnMut(Event) -> bool) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "the agent host isn't available on this platform yet",
-    ))
 }

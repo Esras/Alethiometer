@@ -49,7 +49,10 @@ const MAX_WRAP: u8 = 16;
 
 /// `cwd` is the session's working directory (the repo root, usually). `local_bins` is the set of names present in `<cwd>/node_modules/.bin` (the caller lists the dir; pass empty in tests unless testing it).
 pub fn parse(command: &str, cwd: &str, local_bins: &[String]) -> Parsed {
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
+    // Not $HOME, which Windows doesn't set.
+    let home = dirs::home_dir()
+        .map(|h| h.display().to_string())
+        .filter(|h| !h.is_empty());
     parse_with(command, cwd, home.as_deref(), local_bins)
 }
 

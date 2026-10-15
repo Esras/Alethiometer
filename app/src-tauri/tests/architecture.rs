@@ -203,6 +203,7 @@ fn services_do_not_take_app() {
             ("sync/connectors/gcal/oauth.rs", 4),
             ("sync/connectors/obsidian.rs", 1),
             ("sync/connectors/slack/socket.rs", 3),
+            ("sync/connectors/teams/oauth.rs", 4),
             ("sync/mod.rs", 6),
             ("sync/worker.rs", 8),
         ],
@@ -230,6 +231,7 @@ fn connectors_do_not_reach_into_services() {
             ("sync/connectors/obsidian.rs", 1),
             ("sync/connectors/scion.rs", 1),
             ("sync/connectors/slack/socket.rs", 1),
+            ("sync/connectors/teams/oauth.rs", 1),
         ],
     );
 }
