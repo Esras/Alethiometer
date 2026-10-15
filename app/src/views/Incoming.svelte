@@ -47,7 +47,7 @@
   import SlackReply from './incoming/SlackReply.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
-  import { nextKey } from './incoming/nextKey';
+  import { nextKey, putBack } from './incoming/nextKey';
   import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
@@ -298,8 +298,7 @@
     if (!queue || id === null || !dismissed.has(id)) return;
     if (selKey === 'agents') {
       if (!q.agents.some((s) => s.item_id === id) && queue.agents.some((s) => s.item_id === id)) {
-        const i = queue.agents.findIndex((s) => s.item_id === id);
-        q.agents.splice(Math.min(i, q.agents.length), 0, queue.agents[i]);
+        putBack(q.agents, queue.agents, id);
       }
       return;
     }
@@ -310,10 +309,7 @@
   function keepRow(q: Queue, id: number) {
     if (!queue) return;
     if ([...q.topics.flatMap((t) => t.signals), ...q.unsorted].some((s) => s.item_id === id)) return;
-    const put = (list: Signal[], from: Signal[]) => {
-      const i = from.findIndex((s) => s.item_id === id);
-      list.splice(Math.min(i, list.length), 0, from[i]);
-    };
+    const put = (list: Signal[], from: Signal[]) => putBack(list, from, id);
     if (queue.unsorted.some((s) => s.item_id === id)) return put(q.unsorted, queue.unsorted);
     const t = queue.topics.find((t) => t.signals.some((s) => s.item_id === id));
     if (!t) return;
