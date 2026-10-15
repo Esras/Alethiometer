@@ -143,14 +143,15 @@
   /** A signal as shown: with its messages once its row is expanded. */
   const shown = (s: Signal): Signal => {
     const b = bodies.get(s.item_id);
-    return b ? { ...s, messages: b.messages, context: b.context } : s;
+    return b ? { ...s, messages: b.messages, context: b.context, field_changes: b.field_changes } : s;
   };
   const groups = $derived(grouped(signalsFor(queue, selKey).map(shown)));
   const flat = $derived(groups.flatMap((g) => g.signals));
   const current = $derived(flat.find((s) => s.item_id === selItem) ?? null);
   const unsorted = $derived(selKey === 'unsorted');
   const topicName = $derived(entries.find((e) => e.key === selKey)?.name ?? '');
-  const splittable = (s: Signal | null) => unsorted && !!s && s.source !== 'gmail' && s.n_messages > 1;
+  const splittable = (s: Signal | null) =>
+    unsorted && !!s && s.source !== 'gmail' && s.source !== 'jira' && s.n_messages > 1;
 
   // Kept current by the core (lib/live.ts): syncs, agents and writes here
   // all show up on their own.
@@ -744,6 +745,16 @@
     >{rest}{:else}{text}{/if}
 {/snippet}
 
+{#snippet changesAt(s: Signal, at: number)}
+  {#each (s.field_changes ?? []).filter((c) => c.after === at) as c (c.key)}
+    <div class="msg change" class:context={c.read}>
+      <span class="t tnum">{c.time}</span>
+      <PersonName who={c.who} name={c.author} />
+      <div class="txt">{c.text}</div>
+    </div>
+  {/each}
+{/snippet}
+
 <div class="view">
   <div class="topics scroll">
     <div class="label head">Topics</div>
@@ -963,6 +974,7 @@
                     {#if s.messages.length}
                       {#each s.messages as m, mi (m.id)}
                         {@const canPick = splittable(s)}
+                        {@render changesAt(s, mi)}
                         {#if m.gap}
                           <button
                             class="gap"
@@ -1005,6 +1017,7 @@
                         {/each}
                       {/each}
                     {/if}
+                    {@render changesAt(s, s.messages.length)}
                     {#if ag_ && !answered.has(s.item_id)}
                       <AgentPart
                         bind:this={parts[s.item_id]}
@@ -1362,6 +1375,9 @@
   }
   .msg.context {
     opacity: 0.5;
+  }
+  .msg.change .txt {
+    color: var(--tx-muted-2);
   }
   .todo-form {
     padding: 0 16px 4px 38px;

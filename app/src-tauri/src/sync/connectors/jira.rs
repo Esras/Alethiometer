@@ -20,7 +20,7 @@
 
 use super::github::urlencode;
 use crate::sync::http::Response;
-use crate::sync::{Batch, Connector, Ctx, Handle, ItemUpsert, Message, Polling, Profile, StreamOutcome};
+use crate::sync::{Batch, Connector, Ctx, FieldChange, Handle, ItemUpsert, Message, Polling, Profile, StreamOutcome};
 use crate::time::{Date, Due, Ts};
 use jiff::SignedDuration;
 use serde_json::{json, Value};
@@ -380,6 +380,7 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
             ))
         })
         .unzip();
+    let field_changes = field_changes(issue);
     let mut raw = issue.clone();
     if let Some(o) = raw.as_object_mut() {
         o.remove("changelog");
@@ -414,11 +415,62 @@ fn map_issue(api: &Api, issue: &Value, me: &str, since: Option<Ts>, due_field: O
         kind: "issue".into(),
         raw_json: raw,
         messages,
+        field_changes,
         ended_at: None,
         drop_event: false,
         attach_to: None,
         event: None,
     })
+}
+
+fn field_changes(issue: &Value) -> Vec<FieldChange> {
+    let text = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    let mut out = vec![];
+    for h in issue
+        .pointer("/changelog/histories")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(id), Some(at)) = (
+            h.get("id").and_then(Value::as_str),
+            h.get("created").and_then(Value::as_str).and_then(Ts::parse),
+        ) else {
+            continue;
+        };
+        for (n, i) in h
+            .get("items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let Some(field) = text(i, "field") else { continue };
+            out.push(FieldChange {
+                key: format!("jira-history:{id}:{n}"),
+                at,
+                author: h
+                    .pointer("/author/displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_string(),
+                author_id: h
+                    .pointer("/author/accountId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                field,
+                from: text(i, "fromString"),
+                to: text(i, "toString"),
+            });
+        }
+    }
+    out
 }
 
 /// New signal on an issue we already had: someone else changed its status or
@@ -958,6 +1010,19 @@ mod tests {
         assert_eq!(it.messages.len(), 2);
         assert_eq!(it.messages[1].text, "@Sam can you look?");
         assert!(it.raw_json.get("changelog").is_none());
+        assert_eq!(
+            it.field_changes,
+            [FieldChange {
+                key: "jira-history:20001:0".into(),
+                at: Ts::parse("2026-09-25T09:00:00.000+0000").unwrap(),
+                author: "Jordan Park".into(),
+                author_id: Some("acc-jordan".into()),
+                field: "status".into(),
+                from: Some("In Progress".into()),
+                to: Some("In Review".into()),
+            }]
+        );
+        assert_eq!(b.items[2].field_changes[0].to, None, "unassigned");
         assert!(!it.bump, "first sync never bumps; new items are new signal anyway");
 
         let other = &b.items[1];

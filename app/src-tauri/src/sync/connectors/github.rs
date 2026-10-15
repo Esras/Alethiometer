@@ -690,6 +690,7 @@ fn map_item(
             raw
         },
         messages,
+        field_changes: vec![],
         event: None,
         bump,
         // Comments edited or added move `updated_at`; the count tells a deletion apart too.

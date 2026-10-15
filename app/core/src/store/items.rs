@@ -85,16 +85,23 @@ impl Items for Sql<'_> {
     }
 
     fn mark_read(&self, id: i64, keys: &[String]) -> Result<()> {
-        self.conn().execute(
+        let keys = serde_json::to_string(keys)?;
+        let c = self.conn();
+        c.execute(
             "UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
-            params![id, serde_json::to_string(keys)?],
+            params![id, keys],
+        )?;
+        c.execute(
+            "UPDATE item_field_changes SET read = 1 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
+            params![id, keys],
         )?;
         Ok(())
     }
 
     fn unread_keys(&self, id: i64) -> Result<Vec<String>> {
         let mut st = self.conn().prepare_cached(
-            "SELECT ext_key FROM item_messages WHERE item_id = ?1 AND read = 0 AND ext_key IS NOT NULL",
+            "SELECT ext_key FROM item_messages WHERE item_id = ?1 AND read = 0 AND ext_key IS NOT NULL
+             UNION ALL SELECT ext_key FROM item_field_changes WHERE item_id = ?1 AND read = 0",
         )?;
         let keys = st
             .query_map([id], |r| r.get(0))?
@@ -103,9 +110,15 @@ impl Items for Sql<'_> {
     }
 
     fn mark_unread(&self, id: i64, keys: &[String]) -> Result<()> {
-        self.conn().execute(
+        let keys = serde_json::to_string(keys)?;
+        let c = self.conn();
+        c.execute(
             "UPDATE item_messages SET read = 0 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
-            params![id, serde_json::to_string(keys)?],
+            params![id, keys],
+        )?;
+        c.execute(
+            "UPDATE item_field_changes SET read = 0 WHERE item_id = ?1 AND ext_key IN (SELECT value FROM json_each(?2))",
+            params![id, keys],
         )?;
         Ok(())
     }

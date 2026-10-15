@@ -74,6 +74,7 @@ pub struct ItemUpsert {
     /// key; stored ones the batch leaves out stay, and messages a split child
     /// owns are skipped (see `queries::split`).
     pub messages: Vec<Message>,
+    pub field_changes: Vec<FieldChange>,
     /// Set when this is a calendar event.
     pub event: Option<EventFields>,
     /// True when this update is new signal (new messages, reassigned, state change).
@@ -104,6 +105,17 @@ pub struct Message {
     pub text: String,
     pub author_id: Option<String>,
     pub context: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FieldChange {
+    pub key: String,
+    pub at: Ts,
+    pub author: String,
+    pub author_id: Option<String>,
+    pub field: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +152,7 @@ pub trait Ingest {
     /// leaves out stay, except earlier versions of a hashed key ("h:").
     /// A new message is unread; an updated one keeps its read state.
     fn upsert_messages(&self, item_id: i64, messages: &[(&Message, &str)]) -> Result<()>;
+    fn upsert_field_changes(&self, item_id: i64, changes: &[FieldChange]) -> Result<()>;
     /// A triaged item a sync brings back: what it held so far stays read.
     fn mark_read_if_triaged(&self, item_id: i64) -> Result<()>;
     fn put_event(&self, item_id: i64, source_id: i64, title: &str, e: &EventFields) -> Result<()>;

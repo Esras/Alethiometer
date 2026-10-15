@@ -1,7 +1,7 @@
 //! Writing a sync batch (`domain::ingest`).
 
 use super::Sql;
-use crate::domain::ingest::{Busy, EventFields, Handle, Ingest, ItemUpsert, Message, Profile};
+use crate::domain::ingest::{Busy, EventFields, FieldChange, Handle, Ingest, ItemUpsert, Message, Profile};
 use crate::error::Result;
 use crate::time::{Due, Ts, SQL_NOW};
 use rusqlite::{params, OptionalExtension};
@@ -140,9 +140,36 @@ impl Ingest for Sql<'_> {
         Ok(())
     }
 
+    fn upsert_field_changes(&self, item_id: i64, changes: &[FieldChange]) -> Result<()> {
+        let mut upsert = self.conn().prepare_cached(
+            "INSERT INTO item_field_changes (item_id, ext_key, at, author, author_id, field, from_text, to_text)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT (item_id, ext_key) DO UPDATE SET at = excluded.at, author = excluded.author,
+                author_id = excluded.author_id, field = excluded.field, from_text = excluded.from_text, to_text = excluded.to_text",
+        )?;
+        for f in changes {
+            upsert.execute(params![
+                item_id,
+                f.key,
+                f.at,
+                f.author,
+                f.author_id,
+                f.field,
+                f.from,
+                f.to
+            ])?;
+        }
+        Ok(())
+    }
+
     fn mark_read_if_triaged(&self, item_id: i64) -> Result<()> {
-        self.conn().execute(
+        let c = self.conn();
+        c.execute(
             "UPDATE item_messages SET read = 1 WHERE item_id = ?1 AND EXISTS (SELECT 1 FROM items WHERE id = ?1 AND seen = 1)",
+            [item_id],
+        )?;
+        c.execute(
+            "UPDATE item_field_changes SET read = 1 WHERE item_id = ?1 AND EXISTS (SELECT 1 FROM items WHERE id = ?1 AND seen = 1)",
             [item_id],
         )?;
         Ok(())

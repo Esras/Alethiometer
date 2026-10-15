@@ -193,7 +193,10 @@ fn prepare(app: &App, limit: usize) -> Result<Vec<Pending>> {
                 );
             }
         };
-        let splittable = item.parent_id.is_none() && item.kind != "email" && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
+        let splittable = item.parent_id.is_none()
+            && item.kind != "email"
+            && item.source_kind != "jira"
+            && (2..=MAX_SPLIT_MSGS).contains(&msgs.len());
         let mut p = format!(
             "Item\nSource: {} {}\nTitle: {}\n",
             item.source_kind,
@@ -1112,6 +1115,32 @@ mod tests {
             prompt.contains("1. 09:01 Priya: Can you send the numbers?\n2. "),
             "context isn't numbered: {prompt}"
         );
+    }
+
+    #[test]
+    fn jira_issues_are_never_split() {
+        let (app, _dir) = app();
+        configured(&app);
+        let item = plant_dm(&app, &["Globex cutover slips", "Lee wants hiring numbers"]);
+        app.db()
+            .execute(
+                "UPDATE items SET source_id = (SELECT id FROM sources WHERE kind = 'jira'), kind = 'issue' WHERE id = ?1",
+                [item],
+            )
+            .unwrap();
+        let http = FakeHttp::default();
+        http.on("POST", "/converse", 200, converse(r#"{"suggestions": []}"#));
+        let deps = Deps {
+            http: &http,
+            creds: &fake_creds,
+            time: SystemTime::now(),
+        };
+        let out = suggest_topics(&app, &deps, 1).unwrap();
+        assert!(out.split.is_empty());
+        let body: Value = serde_json::from_str(http.requests()[0].2.as_deref().unwrap()).unwrap();
+        let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+        assert!(prompt.contains("Globex cutover slips"), "{prompt}");
+        assert!(!body["system"][0]["text"].as_str().unwrap().contains("\"groups\""));
     }
 
     #[test]

@@ -20,6 +20,16 @@ export interface Message {
   read?: boolean;
 }
 
+export interface FieldChange {
+  key: string;
+  time: string;
+  author: string;
+  who: Who;
+  text: string;
+  after: number;
+  read?: boolean;
+}
+
 export interface Signal {
   item_id: number;
   source: SourceKind;
@@ -41,6 +51,7 @@ export interface Signal {
    *  `incoming.messages` (`Bodies`). */
   messages: Message[];
   context: Message[];
+  field_changes?: FieldChange[];
   /** How many top-level messages the signal has: a collapsed row's count. */
   n_messages: number;
   /** Already filed under this topic: new activity rather than a suggestion. */
@@ -170,4 +181,5 @@ export interface Bodies {
   keys: string[];
   messages: Message[];
   context: Message[];
+  field_changes?: FieldChange[];
 }

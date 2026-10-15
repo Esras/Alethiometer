@@ -71,6 +71,19 @@ pub struct MessageRow {
     pub read: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct FieldChangeRow {
+    pub item_id: i64,
+    pub ext_key: String,
+    pub at: Ts,
+    pub author: String,
+    pub author_id: Option<String>,
+    pub field: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub read: bool,
+}
+
 /// The item a split review or an expanded entry is about.
 #[derive(Debug, Clone)]
 pub struct ItemHeader {
@@ -115,6 +128,7 @@ pub trait IncomingViews {
     /// `messages` without their text (left empty), which a collapsed row
     /// doesn't show: Gmail threads carry kilobytes per message.
     fn message_heads(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>>;
+    fn field_changes(&self, item_ids: &[i64]) -> Result<Vec<FieldChangeRow>>;
     /// One work item as Incoming lists it, whether or not it's unseen.
     fn signal(&self, item_id: i64) -> Result<Option<SignalRow>>;
     /// Times of the top-level messages the other parts of an item's split family hold.

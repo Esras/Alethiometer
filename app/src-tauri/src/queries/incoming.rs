@@ -26,7 +26,7 @@ use super::people::{self, Resolver, Suggestion, Who};
 use super::{arg_i64, opt_i64, when_label};
 use crate::api::Route;
 use crate::clock::Clock;
-use crate::domain::incoming::{MessageRow, SignalRow};
+use crate::domain::incoming::{FieldChangeRow, MessageRow, SignalRow};
 use crate::domain::ports::{Reads, UnitOfWork};
 use crate::error::{msg, Result};
 use crate::outbox::request;
@@ -64,6 +64,36 @@ pub struct Message {
 }
 
 #[derive(Serialize, Debug)]
+pub struct FieldChange {
+    pub key: String,
+    pub time: String,
+    pub author: String,
+    pub who: Who,
+    pub text: String,
+    pub after: usize,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read: bool,
+}
+
+fn field_change_text(field: &str, from: Option<&str>, to: Option<&str>) -> String {
+    let mut chars = field.chars();
+    let field: String = chars
+        .next()
+        .into_iter()
+        .flat_map(char::to_uppercase)
+        .chain(chars)
+        .collect();
+    let long = |s: &str| s.contains('\n') || s.chars().count() > 120;
+    match (from, to) {
+        (f, t) if f.is_some_and(long) || t.is_some_and(long) => format!("{field} changed"),
+        (None, None) => format!("{field} changed"),
+        (None, Some(t)) => format!("{field}: {t}"),
+        (Some(f), None) => format!("{field}: {f} → none"),
+        (Some(f), Some(t)) => format!("{field}: {f} → {t}"),
+    }
+}
+
+#[derive(Serialize, Debug)]
 pub struct Signal {
     pub item_id: i64,
     pub source: String,
@@ -80,6 +110,8 @@ pub struct Signal {
     /// them to `messages` for the rows you expand (agent signals excepted).
     pub messages: Vec<Message>,
     pub context: Vec<Message>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub field_changes: Vec<FieldChange>,
     /// How many top-level messages `messages` holds (or would).
     pub n_messages: usize,
     /// Already filed under this topic: new activity, not a suggestion.
@@ -373,6 +405,7 @@ fn to_signal(row: SignalRow, clock: &Clock) -> Signal {
         messages: vec![],
         n_messages: 0,
         context: vec![],
+        field_changes: vec![],
         update: false,
         held: None,
         split: false,
@@ -642,9 +675,15 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
     let mut rsvps = super::respond::rsvps(r, &events, &look.clock)?;
     let slack: Vec<i64> = sigs.iter().filter(|s| s.source == "slack").map(|s| s.item_id).collect();
     let mut replies = super::respond::replies(r, &slack, &look.clock)?;
+    let mut changes: HashMap<i64, Vec<FieldChangeRow>> = HashMap::new();
+    for c in r.incoming().field_changes(&ids)? {
+        changes.entry(c.item_id).or_default().push(c);
+    }
     for s in sigs {
         let raw_rows = messages.remove(&s.item_id).unwrap_or_default();
+        let raw_changes = changes.remove(&s.item_id).unwrap_or_default();
         s.keys = raw_rows.iter().filter_map(|m| m.ext_key.clone()).collect();
+        s.keys.extend(raw_changes.iter().map(|c| c.ext_key.clone()));
         let rows = message_rows(look, &s.source, raw_rows);
         let author_ids: Vec<(String, String)> = rows
             .iter()
@@ -658,6 +697,18 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
             let (prev, at) = (own[i - 1].1, own[i].1);
             own[i].0.gap = others.iter().any(|t| *t > prev && *t < at);
         }
+        s.field_changes = raw_changes
+            .into_iter()
+            .map(|c| FieldChange {
+                text: field_change_text(&c.field, c.from.as_deref(), c.to.as_deref()),
+                time: look.clock.local(c.at).strftime("%H:%M").to_string(),
+                who: look.people.who(&s.source, c.author_id.as_deref(), &c.author),
+                after: own.iter().filter(|(_, t)| *t <= c.at).count(),
+                key: c.ext_key,
+                author: c.author,
+                read: c.read,
+            })
+            .collect();
         s.messages = own.into_iter().map(|r| r.0).collect();
         let triaged = s.messages.iter().any(|m| m.read || m.replies.iter().any(|r| r.read));
         s.context = if triaged && !s.thread { vec![] } else { context };
@@ -665,6 +716,7 @@ fn load_messages(r: &dyn Reads, look: &Lookup, sigs: &mut [Signal], bodies: Bodi
         if !full(s) {
             s.messages.clear();
             s.context.clear();
+            s.field_changes.clear();
         }
         s.held = held.remove(&s.item_id);
         s.rsvp = rsvps.remove(&s.item_id);
@@ -683,7 +735,9 @@ pub fn messages(r: &dyn Reads, clock: &Clock, item_id: i64, settings: &PeopleSet
     let mut sigs = [to_signal(row, clock)];
     load_messages(r, &look, &mut sigs, Bodies::All)?;
     let [s] = sigs;
-    Ok(json!({ "item_id": s.item_id, "rev": s.rev, "keys": s.keys, "messages": s.messages, "context": s.context }))
+    Ok(
+        json!({ "item_id": s.item_id, "rev": s.rev, "keys": s.keys, "messages": s.messages, "context": s.context, "field_changes": s.field_changes }),
+    )
 }
 
 /// Topics with new signals (most recent signal first), then Unsorted, with
@@ -2949,6 +3003,105 @@ mod tests {
         .unwrap();
         conn.query_row("SELECT id FROM items WHERE external_id = 'D9/100.1'", [], |r| r.get(0))
             .unwrap()
+    }
+
+    #[test]
+    fn jira_field_changes_sit_among_comments_and_read_like_them() {
+        use crate::sync::{apply_now, Batch, FieldChange as F, ItemUpsert, Message as M};
+        let (conn, now, _d) = setup();
+        let sid: i64 = conn
+            .query_row("SELECT id FROM sources WHERE kind = 'jira'", [], |r| r.get(0))
+            .unwrap();
+        let src = crate::sync::load_source(&conn, sid).unwrap();
+        let at = |h: u32| crate::time::Ts::parse(&format!("2026-09-27T0{h}:00:00Z")).unwrap();
+        let change = |k: &str, h, field: &str, from: Option<&str>, to: Option<&str>| F {
+            key: k.into(),
+            at: at(h),
+            author: "Kim".into(),
+            author_id: Some("acc-kim".into()),
+            field: field.into(),
+            from: from.map(str::to_owned),
+            to: to.map(str::to_owned),
+        };
+        let long = "x".repeat(200);
+        let sync = |rev: &str, changes: Vec<F>| {
+            let it = ItemUpsert {
+                external_id: "OPS-1".into(),
+                kind: "issue".into(),
+                title: "OPS-1 · Fix it".into(),
+                occurred_at: at(6),
+                status: "open".into(),
+                raw_json: json!({ "msgs": ["jira:1", "jira:2"] }),
+                messages: [2, 4]
+                    .iter()
+                    .map(|h| M {
+                        at: at(*h),
+                        author: "Ana".into(),
+                        text: format!("comment {h}"),
+                        ..Default::default()
+                    })
+                    .collect(),
+                field_changes: changes,
+                remote_rev: Some(rev.into()),
+                bump: true,
+                ..Default::default()
+            };
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![it],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        };
+        let first = vec![
+            change("h:1:0", 1, "status", Some("To Do"), Some("In Progress")),
+            change("h:2:0", 3, "assignee", None, Some("Sam Rivera")),
+            change("h:3:0", 5, "description", Some("old"), Some(&long)),
+            change("h:3:1", 5, "Sprint", Some("Sprint 4"), None),
+        ];
+        sync("r1", first.clone());
+        let item: i64 = conn
+            .query_row("SELECT id FROM items WHERE external_id = 'OPS-1'", [], |r| r.get(0))
+            .unwrap();
+        let shown = |conn: &Connection| {
+            let b = messages(&crate::store::over(conn), &now, item, &PeopleSettings::default()).unwrap();
+            b["field_changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    (
+                        c["text"].as_str().unwrap().to_string(),
+                        c["after"].as_u64().unwrap(),
+                        c["read"] == true,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shown(&conn),
+            [
+                ("Status: To Do → In Progress".into(), 0, false),
+                ("Assignee: Sam Rivera".into(), 1, false),
+                ("Description changed".into(), 2, false),
+                ("Sprint: Sprint 4 → none".into(), 2, false),
+            ]
+        );
+        let saw = listed(&conn, &now, item);
+        assert!(saw.keys.iter().any(|k| k == "h:3:1"));
+        dismiss_seen(&crate::store::over(&conn), item, Some(&saw)).unwrap();
+
+        let mut second = first;
+        second.push(change("h:4:0", 6, "status", Some("In Progress"), Some("Done")));
+        sync("r2", second);
+        let read: Vec<bool> = shown(&conn).into_iter().map(|c| c.2).collect();
+        assert_eq!(read, [true, true, true, true, false]);
+        let sql = crate::store::over(&conn);
+        let uow: &dyn UnitOfWork = &sql;
+        assert_eq!(uow.items().unread_keys(item).unwrap(), ["h:4:0"]);
     }
 
     fn listed(conn: &Connection, now: &Clock, item: i64) -> Saw {

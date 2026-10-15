@@ -96,6 +96,16 @@ Interim fix in `views/Incoming.svelte`: when a signal is expanded, the title get
 
 A change by someone else to priority, due date, summary, labels or any other field doesn't bring an issue back to Incoming; only status, assignee and comments do (`bump` in `sync/connectors/jira.rs`). The item still picks up the new values on the next poll. The user isn't sure these should count; revisit if a missed due-date change bites.
 
+### Jira field history: what's left (2026-10-09)
+
+- Not checked on screen (no Playwright in the Mac devshell). Order is "in order" only; the user wants to compare against a separate section once seen.
+- An existing issue gets its history only when it next changes in Jira (unchanged `remote_rev` skips it).
+- A change that doesn't bump (priority, sprint, by someone else) is stored unread, but a later bump on a triaged issue marks everything before it read (`mark_read_if_triaged`), so it shows faded though never seen. Same as messages today.
+- Every field is listed, noise included (Rank). Long or multi-line values show as "Field changed".
+- Jira's changelog via `expand=changelog` may be capped per issue (unverified how many and which end); `bump` has the same exposure.
+- Only Incoming shows it; a topic's chronology doesn't.
+- Jira families split before this stay split.
+
 ### Slack messages as "updates" on filed items
 
 Unseen items with a `confirmed` link now show under their topic in Incoming as updates (with Confirm, like any signal). A busy Slack thread filed under a topic would resurface on every new message; the user is designing how Slack should behave here. Jira counts status/assignee changes and comments by others as updates.

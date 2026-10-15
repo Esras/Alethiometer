@@ -2,7 +2,7 @@
 
 use super::Sql;
 use crate::domain::incoming::{
-    FiledSignal, IncomingViews, ItemHeader, MessageRow, PartRow, SignalRow, TopicRef, WaitingAgent,
+    FieldChangeRow, FiledSignal, IncomingViews, ItemHeader, MessageRow, PartRow, SignalRow, TopicRef, WaitingAgent,
 };
 use crate::error::{msg, Result};
 use crate::time::Ts;
@@ -160,6 +160,32 @@ impl IncomingViews for Sql<'_> {
 
     fn message_heads(&self, item_ids: &[i64]) -> Result<Vec<MessageRow>> {
         self.message_rows(item_ids, "''")
+    }
+
+    fn field_changes(&self, item_ids: &[i64]) -> Result<Vec<FieldChangeRow>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "WITH f AS (
+                   SELECT *, row_number() OVER (PARTITION BY item_id ORDER BY at DESC, id DESC) AS newest
+                     FROM item_field_changes WHERE item_id IN (SELECT value FROM json_each(?1)))
+                 SELECT item_id, ext_key, at, author, author_id, field, from_text, to_text, read FROM f
+                  WHERE newest <= ?2 ORDER BY item_id, at, id",
+            )?
+            .query_map(params![id_list(item_ids), SHOWN_MESSAGES], |r| {
+                Ok(FieldChangeRow {
+                    item_id: r.get(0)?,
+                    ext_key: r.get(1)?,
+                    at: r.get(2)?,
+                    author: r.get(3)?,
+                    author_id: r.get(4)?,
+                    field: r.get(5)?,
+                    from: r.get(6)?,
+                    to: r.get(7)?,
+                    read: r.get(8)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     fn signal(&self, item_id: i64) -> Result<Option<SignalRow>> {

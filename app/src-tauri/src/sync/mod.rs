@@ -68,7 +68,9 @@ impl Ctx<'_> {
     }
 }
 
-pub use crate::domain::ingest::{Batch, Busy, EventFields, Handle, ItemUpsert, Message, Profile, StreamOutcome};
+pub use crate::domain::ingest::{
+    Batch, Busy, EventFields, FieldChange, Handle, ItemUpsert, Message, Profile, StreamOutcome,
+};
 
 /// What a poll knows from earlier polls beyond `Ctx`, and how it commits as
 /// it goes. Read before the poll; the database isn't open during it.
@@ -253,6 +255,9 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
             if skipped > 0 {
                 uow.splits().recount(item_id, skipped)?;
             }
+        }
+        if !it.field_changes.is_empty() {
+            ingest.upsert_field_changes(item_id, &it.field_changes)?;
         }
         if let Some(e) = &it.event {
             ingest.put_event(item_id, source.id, &it.title, e)?;
