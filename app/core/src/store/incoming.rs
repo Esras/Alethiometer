@@ -87,9 +87,17 @@ impl Sql<'_> {
 
 impl IncomingViews for Sql<'_> {
     fn unseen_count(&self) -> Result<i64> {
-        Ok(self
-            .conn()
-            .query_row("SELECT count(*) FROM items WHERE seen = 0", [], |r| r.get(0))?)
+        Ok(self.conn().query_row(
+            "SELECT count(*) FROM items i CROSS JOIN sources s ON s.id = i.source_id
+              WHERE i.seen = 0
+                AND ((s.tag = 'work'
+                      AND (EXISTS (SELECT 1 FROM topic_links tl JOIN topics t ON t.id = tl.topic_id
+                                    WHERE tl.item_id = i.id AND tl.state IN ('suggested', 'confirmed') AND t.archived_at IS NULL)
+                           OR NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.item_id = i.id AND tl.state != 'wrong')))
+                     OR (s.kind = 'agents' AND json_extract(i.raw_json, '$.agent.waiting') = 1))",
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     fn filed_signals(&self) -> Result<Vec<FiledSignal>> {

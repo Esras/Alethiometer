@@ -220,13 +220,13 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
             "{}: occurred_at not set",
             it.external_id
         );
+        let series = it.raw_json.get("recurringEventId").and_then(Value::as_str);
+        if let Some(k) = series {
+            touched.insert(k.to_string());
+        }
         let item_id = match existing {
             None => {
                 let id = ingest.insert_item(source.id, it, author)?;
-                let series = it.raw_json.get("recurringEventId").and_then(Value::as_str);
-                if let Some(k) = series {
-                    touched.insert(k.to_string());
-                }
                 if !series.map_or(Ok(false), |k| ingest.inherit_series(source.id, id, k))? {
                     new_signal += 1;
                 }
@@ -1142,6 +1142,24 @@ mod tests {
         );
         assert!(unseen(&conn).is_empty());
         assert_eq!(linked(&conn), 4);
+
+        let edited = Batch {
+            items: [
+                ("past", "2000-01-01T09:00:00"),
+                ("jan", "2099-01-01T09:00:00"),
+                ("feb", "2099-02-01T09:00:00"),
+                ("mar", "2099-03-01T09:00:00"),
+            ]
+            .iter()
+            .map(|(id, at)| ItemUpsert {
+                title: "Standup (moved)".into(),
+                ..inst(id, at)
+            })
+            .collect(),
+            ..Default::default()
+        };
+        apply_in(&conn, &src, &edited, crate::time::t("2026-09-28T10:52:00")).unwrap();
+        assert_eq!(unseen(&conn), ["jan"], "an edited series comes back once");
     }
 
     #[test]

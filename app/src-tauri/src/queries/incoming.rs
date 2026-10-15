@@ -2342,6 +2342,48 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn the_badge_counts_what_incoming_shows_once_each() {
+        let (conn, now, _d) = setup();
+        let check = |conn: &Connection| {
+            let q = queue(&crate::store::over(conn), &now).unwrap();
+            let ids: std::collections::BTreeSet<i64> = q
+                .topics
+                .iter()
+                .flat_map(|t| &t.signals)
+                .chain(&q.unsorted)
+                .chain(&q.agents)
+                .map(|s| s.item_id)
+                .collect();
+            assert_eq!(
+                crate::store::over(conn).incoming().unseen_count().unwrap() as usize,
+                ids.len()
+            );
+        };
+        check(&conn);
+        let (item, topic): (i64, i64) = conn
+            .query_row(
+                "SELECT tl.item_id, tl.topic_id FROM topic_links tl JOIN items i ON i.id = tl.item_id
+                  WHERE i.seen = 0 AND tl.state IN ('suggested', 'confirmed') LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let other = topic_named(&conn, "Q4 planning");
+        conn.execute(
+            "INSERT OR IGNORE INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+            params![item, other],
+        )
+        .unwrap();
+        check(&conn);
+        conn.execute(
+            "UPDATE topics SET archived_at = '2026-09-27T00:00:00.000Z' WHERE id IN (?1, ?2)",
+            params![topic, other],
+        )
+        .unwrap();
+        check(&conn);
+    }
+
     fn exists(conn: &Connection, item: i64) -> bool {
         conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1)", [item], |r| {
             r.get(0)

@@ -114,7 +114,7 @@ pub struct PartRow {
 }
 
 pub trait IncomingViews {
-    /// Every unseen item, any source.
+    /// The items Incoming shows, each once.
     fn unseen_count(&self) -> Result<i64>;
     /// Unseen work signals linked (suggested or confirmed) to a topic not
     /// archived, newest activity first.
