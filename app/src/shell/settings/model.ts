@@ -77,6 +77,7 @@ export interface State {
 export interface Page {
   values: Record<string, unknown>;
   fields: Field[];
+  harness_fields: Field[];
   kinds: Kind[];
   sources: SourceRow[];
   usage: { model: string; calls: number; tokens: number }[];

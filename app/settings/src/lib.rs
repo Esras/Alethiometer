@@ -339,11 +339,13 @@ pub struct HarnessSandbox {
     /// OpenShell providers attached to a new sandbox (credentials, e.g. an Anthropic API key).
     pub providers: Vec<String>,
     /// A policy YAML file for a new sandbox. Empty: the gateway's default.
+    #[schemars(extend("x-label" = "Policy file", "x-mono" = true))]
     pub policy: String,
     /// The adapter inside the sandbox. Empty: the harness's own command and args.
     pub command: String,
     pub args: Vec<String>,
     /// Non-secret variables for the adapter (`sandbox exec --env`); secrets go in providers.
+    #[schemars(extend("x-label" = "Environment"))]
     pub env: BTreeMap<String, String>,
 }
 

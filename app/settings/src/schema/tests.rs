@@ -49,3 +49,20 @@ fn every_kind_has_a_page() {
         .unwrap();
     assert_eq!(lb.path, vec![Value::from("config"), Value::from("lookback_hours")]);
 }
+
+#[test]
+fn a_harness_has_sandbox_env_and_policy_rows() {
+    let f = harness_fields();
+    let keys: Vec<&str> = f.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            "agents.harnesses[].openshell.policy",
+            "agents.harnesses[].openshell.env"
+        ]
+    );
+    let env = &f[1];
+    assert_eq!((env.widget.as_str(), env.label.as_str()), ("map", "Environment"));
+    assert_eq!(env.path, vec![Value::from("openshell"), Value::from("env")]);
+    assert_eq!((f[0].widget.as_str(), f[0].label.as_str()), ("text", "Policy file"));
+}

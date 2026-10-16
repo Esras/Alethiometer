@@ -187,6 +187,17 @@ pub fn source_fields(kind: &str) -> Vec<Field> {
     out
 }
 
+pub fn harness_fields() -> Vec<Field> {
+    let root = serde_json::to_value(schemars::schema_for!(super::HarnessSandbox)).unwrap_or(Value::Null);
+    let mut out = vec![];
+    walk(&root, &root, &[Value::String("openshell".into())], "agents", &mut out);
+    out.retain(|f| matches!(f.key.as_str(), "openshell.env" | "openshell.policy"));
+    for f in &mut out {
+        f.key = format!("agents.harnesses[].{}", f.key);
+    }
+    out
+}
+
 /// Everything settings.json can hold, for editors (`settings.schema.json`).
 pub fn document() -> Value {
     let mut root = settings_schema();

@@ -150,6 +150,7 @@ fn get(app: &App) -> Result<Value> {
     Ok(json!({
         "values": values,
         "fields": schema::settings_fields(),
+        "harness_fields": schema::harness_fields(),
         "kinds": kinds,
         "sources": srcs,
         "usage": usage,

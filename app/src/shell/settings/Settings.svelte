@@ -192,6 +192,17 @@
     if (section === 'ai')
       for (const k of p.ai_secrets.filter((k) => inUse.has(k.provider)))
         out.push({ t: 'secret', group: k.group, secret: k });
+    if (section === 'agents') {
+      const harnesses = (get(p.values, ['agents', 'harnesses']) ?? []) as { label: string }[];
+      harnesses.forEach((h, i) => {
+        for (const f of p.harness_fields) {
+          const path = ['agents', 'harnesses', i, ...f.path];
+          const value = get(p.values, path) ?? (f.widget === 'map' ? {} : '');
+          const field = { ...f, key: f.key.replace('harnesses[]', `harnesses[${i}]`) };
+          out.push({ t: 'field', group: `${h.label} in OpenShell`, field, path, value });
+        }
+      });
+    }
     return out;
   }
 

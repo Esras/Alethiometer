@@ -273,6 +273,20 @@ pub fn patch(app: &App, edits: &[Edit]) -> Result<State> {
     let _guard = WRITE.lock().unwrap_or_else(|e| e.into_inner());
     let mut v = read_file(&path)?;
     let before = v.clone();
+    let by_index = |e: &Edit| {
+        e.path()
+            .get(..3)
+            .is_some_and(|p| p[0] == "agents" && p[1] == "harnesses" && p[2].is_number())
+    };
+    if edits.iter().any(by_index) && v.pointer("/agents/harnesses").is_none() {
+        apply_edit(
+            &mut v,
+            &Edit::Set(
+                vec!["agents".into(), "harnesses".into()],
+                json!(app.settings().agents.harnesses),
+            ),
+        )?;
+    }
     for e in edits {
         if e.path().first().and_then(Value::as_str) == Some("ai")
             && e.path().get(1).and_then(Value::as_str) == Some("allowed_providers")
@@ -625,6 +639,25 @@ mod tests {
         // The watcher's reload of our own write is a no-op: same rev.
         let again = reload(&app);
         assert_eq!(again.rev, st.rev);
+    }
+
+    #[test]
+    fn a_harness_edit_works_when_the_file_has_no_harness_list() {
+        let (app, _dir) = arc();
+        write_file(&app.settings_path(), &json!({ "demo_data": false })).unwrap();
+        reload(&app);
+        let edit = set(
+            json!(["agents", "harnesses", 0, "openshell", "env"]),
+            json!({ "AWS_REGION": "us-west-2" }),
+        );
+        patch(&app, &[edit]).unwrap();
+        let s = app.settings();
+        assert_eq!(s.agents.harnesses.len(), 2, "the defaults are kept");
+        assert_eq!(s.agents.harnesses[0].key, "pi");
+        assert_eq!(
+            s.agents.harnesses[0].openshell.as_ref().unwrap().env["AWS_REGION"],
+            "us-west-2"
+        );
     }
 
     #[test]

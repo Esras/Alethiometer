@@ -268,6 +268,7 @@
       <input
         class="input text-input"
         class:mono={field.widget === 'folder' ||
+          o.mono ||
           field.key.includes('profile') ||
           field.key.endsWith('url') ||
           field.key.includes('model')}
