@@ -128,7 +128,7 @@ export const SECTIONS = [
   { id: 'sources', label: 'Sources', icon: 'plugs-connected', blurb: '' },
   {
     id: 'ai',
-    label: 'AI',
+    label: 'LLM Providers',
     icon: 'sparkle',
     blurb: 'Work data only goes to allowed providers. Anything else fails closed.',
   },

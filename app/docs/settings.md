@@ -26,7 +26,7 @@ Connectors still read their own config from JSON. `settings::sources::tests::def
 2. **Categories**: the Topics index category editor (writes `categories` back).
 3. **People**: your colour, your accounts, when to suggest a People note.
 4. **Sources**: one sub-item per source (a Scion Hub is one: `scion`, see `agents.md`), plus Add source. Pages: Identity, Secrets, What it reads (Categories on Google Calendar), Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.
-5. **AI**: allowed providers (read-only), Bedrock region and profile, models (each tier has an on/off toggle, `ai.small.enabled` / `ai.large.enabled`) with today's usage, prices (editable for now; see ISSUES.md), local embeddings state.
+5. **LLM Providers** (section id `ai`): allowed providers (read-only), Bedrock region and profile, models (each tier has an on/off toggle, `ai.small.enabled` / `ai.large.enabled`) with today's usage, prices (editable for now; see ISSUES.md), local embeddings state.
 6. **Agents**: a live preview, then Approvals (`agents.accept_edits`), Message colors (`←`/`→` picks a preset, Reset to default), Agent names, Boxes, and "<harness> in OpenShell" per harness: Policy file and Environment (`agents.harnesses[i].openshell.policy` and `.env`). The rest of the harness list is settings.json only; with no list in the file, the first edit writes the defaults in. `⌫` resets a row. See `agents.md`.
 7. **Developer**: `fake_now` (dev builds only) and the settings path.
 
