@@ -22,7 +22,7 @@ Connectors still read their own config from JSON. `settings::sources::tests::def
 
 ## Sections
 
-1. **General**: Window (`ui_scale`), Type (`ui_font`, `mono_font`, `ui_font_size`, `reading_font_size`), Day strip, Topics, Notes (vault), Data (sample data).
+1. **General**: Window (`ui_scale`), Type (`ui_font`, `mono_font`, `ui_font_size`, `reading_font_size`), Day strip, Topics, Notes (vault), Data (sample data), Ignore suggestions (`ignore_suggestions`: after how many actions, what share dismissed, within how many days).
 2. **Categories**: the Topics index category editor (writes `categories` back).
 3. **People**: your colour, your accounts, when to suggest a People note.
 4. **Sources**: one sub-item per source (a Scion Hub is one: `scion`, see `agents.md`), plus Add source. Pages: Identity, Secrets, What it reads (Categories on Google Calendar), Limits, Advanced (secret names, paths). A red dot means a required secret is missing or the last sync failed. ⇧X twice removes a source; its items stay. A rename keeps the source's data.

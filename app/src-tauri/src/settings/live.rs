@@ -269,9 +269,45 @@ pub fn startup(app: &App, problem: Option<String>) {
 
 /// Apply edits: write the file, then reload. Returns the new state.
 pub fn patch(app: &App, edits: &[Edit]) -> Result<State> {
+    patch_with(app, |_| Ok(edits.to_vec()))
+}
+
+/// Add `entry` to a Slack or Teams source's `muted` list (Incoming's ignore
+/// suggestions), the source found by kind and name in the file as it is now.
+pub fn mute(app: &App, kind: &str, name: &str, entry: &str) -> Result<State> {
+    if !crate::settings::sources::is_chat(kind) {
+        return Err(msg(format!("a {kind} source has no muted list")));
+    }
+    patch_with(app, |v| {
+        let sources = v.get("sources").and_then(Value::as_array);
+        let i = sources
+            .and_then(|a| {
+                a.iter().position(|s| {
+                    s.get("kind").and_then(Value::as_str) == Some(kind)
+                        && s.get("name").and_then(Value::as_str) == Some(name)
+                })
+            })
+            .ok_or_else(|| msg(format!("no {kind} source named '{name}'")))?;
+        let muted = v
+            .pointer(&format!("/sources/{i}/config/muted"))
+            .and_then(Value::as_array);
+        if muted.is_some_and(|m| m.iter().any(|m| m.as_str() == Some(entry))) {
+            return Ok(vec![]);
+        }
+        Ok(vec![Edit::Push(
+            vec!["sources".into(), json!(i), "config".into(), "muted".into()],
+            json!(entry),
+        )])
+    })
+}
+
+/// Apply the edits `edits` makes from the file as it is, under the write lock.
+fn patch_with(app: &App, edits: impl FnOnce(&Value) -> Result<Vec<Edit>>) -> Result<State> {
     let path = app.settings_path();
     let _guard = WRITE.lock().unwrap_or_else(|e| e.into_inner());
     let mut v = read_file(&path)?;
+    let edits = edits(&v)?;
+    let edits = edits.as_slice();
     let before = v.clone();
     let by_index = |e: &Edit| {
         e.path()
@@ -626,6 +662,23 @@ mod tests {
         );
         assert!(patch(&app, &[bad]).is_err());
         assert!(app.settings().validate().is_ok());
+    }
+
+    #[test]
+    fn mute_adds_a_chat_channel_once_to_the_right_source() {
+        let (app, _dir) = arc();
+        let source = |name: &str, muted: Value| json!({ "kind": "slack", "tag": "work", "name": name, "enabled": false, "config": { "muted": muted } });
+        let file =
+            json!({ "demo_data": false, "sources": [source("Other", json!([])), source("Slack", json!(["#random"]))] });
+        write_file(&app.settings_path(), &file).unwrap();
+        let read =
+            || -> Value { serde_json::from_str(&std::fs::read_to_string(app.settings_path()).unwrap()).unwrap() };
+        mute(&app, "slack", "Slack", "#alerts").unwrap();
+        mute(&app, "slack", "Slack", "#alerts").unwrap();
+        assert_eq!(read()["sources"][1]["config"]["muted"], json!(["#random", "#alerts"]));
+        assert_eq!(read()["sources"][0]["config"]["muted"], json!([]));
+        assert!(mute(&app, "slack", "Nope", "#alerts").is_err());
+        assert!(mute(&app, "gmail", "Gmail", "x").is_err());
     }
 
     #[test]

@@ -42,6 +42,7 @@ pub mod suggest;
 pub mod timestamps;
 pub mod todos;
 pub mod topics;
+pub mod triage;
 pub mod usage;
 pub mod utc_migration;
 
@@ -338,6 +339,7 @@ ports!(Reads {
     suggest: crate::domain::suggest::SuggestViews,
     todos: crate::domain::todos::TodoViews,
     topics: crate::domain::topics::TopicViews,
+    triage: crate::domain::triage::TriageViews,
     usage: crate::domain::usage::UsageViews,
     vectors: crate::domain::embed::VectorViews,
 });
@@ -361,6 +363,7 @@ ports!(UnitOfWork {
     suggest_runs: crate::domain::suggest::SuggestRuns,
     todos: crate::domain::todos::Todos,
     topics: crate::domain::topics::Topics,
+    triage: crate::domain::triage::TriageLog,
     usage: crate::domain::usage::Usage,
     vectors: crate::domain::embed::Vectors,
 });

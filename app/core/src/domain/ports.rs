@@ -28,6 +28,7 @@ use super::splits::Splits;
 use super::suggest::{SuggestRuns, SuggestViews};
 use super::todos::{TodoViews, Todos};
 use super::topics::{TopicViews, Topics};
+use super::triage::{TriageLog, TriageViews};
 use super::usage::{Usage, UsageViews};
 
 /// Read models, one port per screen or area.
@@ -50,6 +51,7 @@ pub trait Reads {
     fn suggest(&self) -> &dyn SuggestViews;
     fn todos(&self) -> &dyn TodoViews;
     fn topics(&self) -> &dyn TopicViews;
+    fn triage(&self) -> &dyn TriageViews;
     fn usage(&self) -> &dyn UsageViews;
     fn vectors(&self) -> &dyn VectorViews;
 }
@@ -74,6 +76,7 @@ pub trait UnitOfWork {
     fn suggest_runs(&self) -> &dyn SuggestRuns;
     fn todos(&self) -> &dyn Todos;
     fn topics(&self) -> &dyn Topics;
+    fn triage(&self) -> &dyn TriageLog;
     fn usage(&self) -> &dyn Usage;
     fn vectors(&self) -> &dyn Vectors;
 }

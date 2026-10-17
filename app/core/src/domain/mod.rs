@@ -31,4 +31,5 @@ pub mod splits;
 pub mod suggest;
 pub mod todos;
 pub mod topics;
+pub mod triage;
 pub mod usage;

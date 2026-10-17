@@ -4,6 +4,16 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Ignore suggestions: what's left (2026-10-17)
+
+Built (HANDOFF.md, "Ignore suggestions"); not yet run on real data, so the thresholds are untested in practice.
+- The line shows only while the dismissed row is still on screen (until the selection moves and the list reloads). It comes back on the next dismiss of the same key until Not now.
+- No list of current candidates or past Not nows; a Not now can't be undone before its 30 days.
+- 1:1 mail is decided from headers (two addresses across From/To/Cc, no List-Id/List-Unsubscribe/Precedence bulk/Auto-Submitted, sender not a no-reply address). A person mailing from a service without those headers counts as 1:1.
+- A domain is suggested once two addresses under it were dismissed; freemail domains (gmail.com) aren't excluded beyond that and the share threshold.
+- GitHub and Jira count by repo and project only, not by notification reason or reporter.
+- Gmail threads already in the Inbox carry no keys until they change; a refetch would add them.
+
 ### Microsoft Teams: built, never run against a tenant (2026-10-14)
 
 Built from Graph v1.0's documentation and recorded shapes (`app/docs/sources/teams.md`, `tests/fixtures/teams/`). To check on a real tenant, chats first:

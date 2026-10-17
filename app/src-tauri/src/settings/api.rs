@@ -4,6 +4,7 @@
 //! - `patch {edits: [{op?, path, value?}]}`: change settings.json and apply it
 //! - `state`: the header line and `rev` (polled while the modal is open)
 //! - `secret_set {name, value}`: Replace…; the value is never read back
+//! - `mute {kind, name, entry}`: add to a chat source's `muted` list (Incoming's ignore suggestions)
 //! - `fonts`: installed font families for the Type pickers
 //! - `slack_channels {source}`: channels you're in, for Review…
 //! - `open_file`: open settings.json in the default editor (⌘⇧,)
@@ -53,6 +54,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             st.message = message;
             Ok(json!(*st))
         }
+        "mute" => Ok(json!(live::mute(
+            app,
+            &arg_str(args, "kind")?,
+            &arg_str(args, "name")?,
+            &arg_str(args, "entry")?
+        )?)),
         "fonts" => Ok(json!(fonts())),
         "slack_channels" => slack_channels(app, arg_i64(args, "source")?),
         "open_file" => {

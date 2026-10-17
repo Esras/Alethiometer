@@ -49,6 +49,8 @@ tree-sitter-bash = "0.25"
 shlex = "2"
 # Finding an agent's command on the PATH (PATHEXT on Windows: npx is npx.cmd).
 which = "8"
+# Gmail To/Cc address lists (is a thread 1:1 mail?).
+mailparse = "0.18"
 # Teams messages are HTML; shown as Markdown.
 htmd = "0.5"
 ureq = { version = "3", features = ["json"] }

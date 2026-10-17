@@ -183,3 +183,17 @@ export interface Bodies {
   context: Message[];
   field_changes?: FieldChange[];
 }
+
+/** After a dismiss: what you keep dismissing, and how to stop seeing it (`queries/ignore.rs`). Suggest only. */
+export type IgnoreSuggestion = {
+  source_id: number;
+  source_kind: string;
+  source_name: string;
+  kind: 'from' | 'domain' | 'list' | 'channel' | 'repo' | 'project';
+  key: string;
+  label: string;
+  dismissed: number;
+  total: number;
+  days: number;
+  offer: { type: 'copy'; text: string } | { type: 'mute'; entry: string } | { type: 'open'; url: string };
+};

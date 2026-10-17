@@ -198,7 +198,8 @@ fn services_do_not_take_app() {
             ("queries/topics.rs", 5),
             ("seed.rs", 1),
             ("settings/api.rs", 4),
-            ("settings/live.rs", 9),
+            // The settings writer; `mute` (ignore suggestions) and `patch_with` added 2026-10-17.
+            ("settings/live.rs", 11),
             ("standin.rs", 3),
             ("sync/connectors/gcal/oauth.rs", 4),
             ("sync/connectors/obsidian.rs", 1),

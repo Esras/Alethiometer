@@ -811,6 +811,8 @@ impl Poller<'_, '_, '_> {
         let mut raw = json!({
             "channel": conv.id,
             "conv": conv.kind,
+            // How ignore suggestions name it (`queries::ignore`).
+            "name": conv.title,
             "first_ts": first.id,
             "last_ts": last.id,
             // One id per stored message, in the same order.
