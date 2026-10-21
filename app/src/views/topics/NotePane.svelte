@@ -314,7 +314,7 @@
     min-height: 0;
     padding: 12px 16px 16px;
     font-size: calc(var(--fs-read) * 13 / 14);
-    line-height: 1.75;
+    line-height: 1.45;
     color: var(--tx-2);
   }
   textarea.note-body {

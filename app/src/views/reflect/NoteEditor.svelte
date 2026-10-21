@@ -327,7 +327,7 @@
     outline: none;
     background: transparent;
     font-size: calc(var(--fs-read) * 15 / 14);
-    line-height: 1.8;
+    line-height: 1.45;
     color: var(--tx-2);
     caret-color: var(--aqua);
     padding: 0;
