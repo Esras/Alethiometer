@@ -30,6 +30,11 @@ const sites = {
     probe: (t) => t.page.getByText('? or Esc to close'),
     from: (t) => t.page.getByRole('button', { name: 'New agent' }).first(),
   },
+  'Incoming keys': {
+    open: (t) => t.steps('Shift+?'),
+    probe: (t) => t.page.getByText('? or Esc to close'),
+    from: (t) => t.page.locator('button').first(),
+  },
 };
 
 const dialog = (t) => t.page.getByRole('dialog');

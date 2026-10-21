@@ -35,6 +35,7 @@
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
+  import KeySheet, { type KeySection } from '../lib/ui/KeySheet.svelte';
   import Markdown from '../lib/ui/Markdown.svelte';
   import PersonName from '../lib/ui/PersonName.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
@@ -670,8 +671,83 @@
     openExternal(messageUrl(s.url, m, inMsgs ? undefined : m?.replies?.[m.replies.length - 1]));
   }
 
+  let keysOpen = $state(false);
+  const KEYS: KeySection[] = [
+    {
+      title: 'Everywhere',
+      keys: [
+        [['[', ']'], 'Previous or next topic'],
+        [[chord('⌘K', 'Ctrl+K')], 'Search everything'],
+        [['?'], 'This sheet'],
+      ],
+    },
+    {
+      title: 'Signals',
+      keys: [
+        [['J', 'K'], 'Move'],
+        [['G', '⇧G'], 'Top or end of the signal'],
+        [['↵'], 'Expand; in Unsorted, pick its messages'],
+        [['Esc'], 'Collapse'],
+        [['O'], 'Open in its app (agents: in Agents, and dismiss)'],
+      ],
+    },
+    {
+      title: 'Triage',
+      keys: [
+        [['C'], 'Confirm the topic'],
+        [['X'], 'Wrong topic'],
+        [['T'], 'Move to a topic'],
+        [['D'], 'Dismiss'],
+        [['U'], 'Undo'],
+        [['N'], 'Hold a todo, made when it’s filed'],
+      ],
+    },
+    {
+      title: 'Unsorted messages',
+      keys: [
+        [['J', 'K'], 'Move'],
+        [['Space'], 'Select'],
+        [['⇧J', '⇧K'], 'Select a range'],
+        [['T'], 'Move the selected, or the whole signal'],
+        [['↵', 'Esc'], 'Collapse, or done'],
+      ],
+    },
+    {
+      title: 'Slack and Teams',
+      keys: [
+        [['R'], 'Reply'],
+        [[chord('⌥T', 'Alt+T')], 'Thread or conversation'],
+        [['S'], 'Split review'],
+      ],
+    },
+    {
+      title: 'Gmail and Calendar',
+      keys: [
+        [['#'], 'Trash (Gmail)'],
+        [[chord('⌥Y', 'Alt+Y')], 'Accept'],
+        [[chord('⌥N', 'Alt+N')], 'Decline'],
+        [[chord('⌥⇧N', 'Alt+Shift+N')], 'Decline with a note'],
+      ],
+    },
+    {
+      title: 'Agents',
+      keys: [
+        [['1', '…', '9'], 'Answer (open)'],
+        [['R'], 'Reply'],
+      ],
+    },
+    {
+      title: 'New person',
+      keys: [
+        [['P'], 'Create their note'],
+        [['L'], 'Link to someone'],
+      ],
+    },
+  ];
+
   useKeys((e) => {
     if (picking || todoFor !== null || linking || reviewing !== null) return;
+    if (plain(e, '?')) return ((keysOpen = true), true);
     if (inMsgs && current) {
       const shift = shiftStep(e);
       if (shift) return (stepMsg(shift, true), true);
@@ -1115,42 +1191,13 @@
           <span><kbd>t</kbd> {chosen.size ? `move ${chosen.size} selected` : 'move whole signal'}</span>
           <span><kbd>↵</kbd> collapse</span><span><kbd>Esc</kbd> done</span>
         {:else if unsorted}
-          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span
-            ><kbd>↵</kbd> {splittable(current) ? 'pick messages' : 'expand'}</span
-          ><span><kbd>g</kbd> <kbd>G</kbd> top / end</span>
-          <span><kbd>t</kbd> move to topic</span><span><kbd>n</kbd> todo</span><span><kbd>d</kbd> dismiss</span
-          >{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span>
-        {:else}
-          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> expand</span><span
-            ><kbd>g</kbd> <kbd>G</kbd> top / end</span
-          >
-          <span><kbd>c</kbd> confirm</span><span><kbd>x</kbd> wrong topic</span><span><kbd>n</kbd> todo</span><span
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>t</kbd> move to topic</span><span
             ><kbd>d</kbd> dismiss</span
-          >{#if current?.source === 'gmail'}<span><kbd>#</kbd> trash</span>{/if}<span><kbd>u</kbd> undo</span><span
+          ><span><kbd>u</kbd> undo</span><span><kbd>?</kbd> keys</span>
+        {:else}
+          <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>c</kbd> confirm</span><span
             ><kbd>t</kbd> move to topic</span
-          >
-        {/if}
-        {#if current?.agent && reviewing === null}
-          {#if expanded.has(current.item_id) && current.agent.waiting}<span><kbd>1–9</kbd> answer</span
-            >{/if}{#if ['wrote', 'turn', 'ask'].includes(current.agent.kind)}<span><kbd>r</kbd> reply</span>{/if}<span
-            ><kbd>o</kbd> open in Agents</span
-          >
-        {/if}
-        {#if reviewing === null && current && isChat(current.source) && !dismissed.has(current.item_id)}<span
-            ><kbd>r</kbd> reply</span
-          >{/if}
-        {#if reviewing === null && answerable(current)}
-          <span><kbd>{chord('⌥Y', 'Alt+Y')}</kbd> accept</span><span><kbd>{chord('⌥N', 'Alt+N')}</kbd> decline</span
-          ><span><kbd>{chord('⌥⇧N', 'Alt+Shift+N')}</kbd> decline with note</span>
-        {/if}
-        {#if reviewing === null}
-          {#if current?.split}<span><kbd>s</kbd> review split</span>{:else if reviewable(current)}<span
-              ><kbd>s</kbd> split</span
-            >{/if}
-          {#if current?.new_person && expanded.has(current.item_id)}<span><kbd>p</kbd> new person</span><span
-              ><kbd>l</kbd> link</span
-            >{/if}
-          {#if !current?.agent}<span><kbd>o</kbd> open</span>{/if}<span><kbd>[</kbd> <kbd>]</kbd> topic</span>
+          ><span><kbd>d</kbd> dismiss</span><span><kbd>u</kbd> undo</span><span><kbd>?</kbd> keys</span>
         {/if}
       </div>
     </div>
@@ -1158,6 +1205,8 @@
 
   <AssistantPane topic={queue?.topics.find((t) => t.id === selKey) ?? null} />
 </div>
+
+{#if keysOpen}<KeySheet sections={KEYS} onclose={() => (keysOpen = false)} />{/if}
 
 <style>
   .view {

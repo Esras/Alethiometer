@@ -1,11 +1,11 @@
 <script lang="ts">
   // The keys sheet (06), on ?.
-  import Modal from '../../lib/ui/Modal.svelte';
+  import KeySheet, { type KeySection } from '../../lib/ui/KeySheet.svelte';
   import { ag } from './state.svelte';
 
   const isMac = navigator.platform.toLowerCase().includes('mac');
   const M = isMac ? '⌘' : 'Ctrl+';
-  const SECTIONS: { title: string; keys: [string[], string][] }[] = [
+  const SECTIONS: KeySection[] = [
     {
       title: 'Everywhere',
       keys: [
@@ -61,101 +61,14 @@
       ],
     },
   ];
-
-  const close = () => (ag.keys = false);
-  // Modal does Esc; ? closes too, as it opens.
-  function onkeys(e: KeyboardEvent): boolean {
-    if (e.key !== '?') return false;
-    close();
-    return true;
-  }
 </script>
 
-<Modal label="Keys" onclose={close} {onkeys} position="absolute">
-  <div class="sheet modal">
-    <div class="head">
-      <span class="pane-title">Keys</span>
-      <span class="lede"
-        ><kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> goes from the tree to the thread, then toggles the
-        thread and the composer.</span
-      >
-      <span class="close"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span>
-    </div>
-    <div class="grid">
-      {#each SECTIONS as s (s.title)}
-        <div class="sec">
-          <div class="st label">{s.title}</div>
-          <div class="keys">
-            {#each s.keys as [ks, what] (what)}
-              <span class="ks"
-                >{#each ks as k (k)}<kbd>{k}</kbd>{/each}</span
-              >
-              <span class="what">{what}</span>
-            {/each}
-          </div>
-        </div>
-      {/each}
-    </div>
-    <div class="foot">
-      Needs you keys work whenever a request is pinned and you aren’t typing. Single-letter keys are off while the
-      composer has focus.
-    </div>
-  </div>
-</Modal>
-
-<style>
-  .sheet {
-    width: min(1080px, calc(100% - 48px));
-    border-radius: var(--radius-md);
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .head {
-    display: flex;
-    gap: 14px;
-    align-items: baseline;
-  }
-  .lede {
-    font-size: 1rem;
-    color: var(--tx-muted);
-  }
-  .close {
-    margin-left: auto;
-    font-size: 0.885rem;
-    color: var(--tx-label);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px 28px;
-  }
-  .sec {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .st {
-    padding-bottom: 2px;
-    border-bottom: 1px solid var(--border);
-  }
-  .keys {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px 12px;
-    align-items: center;
-  }
-  .ks {
-    display: flex;
-    gap: 3px;
-    justify-content: flex-end;
-  }
-  .what {
-    font-size: 1rem;
-    color: var(--tx-2);
-  }
-  .foot {
-    font-size: 0.923rem;
-    color: var(--tx-label);
-  }
-</style>
+<KeySheet
+  sections={SECTIONS}
+  onclose={() => (ag.keys = false)}
+  position="absolute"
+  foot="Needs you keys work whenever a request is pinned and you aren’t typing. Single-letter keys are off while the composer has focus."
+>
+  {#snippet lede()}<kbd>⏎</kbd> goes in, <kbd>Esc</kbd> comes out. <kbd>Tab</kbd> goes from the tree to the thread, then toggles
+    the thread and the composer.{/snippet}
+</KeySheet>
