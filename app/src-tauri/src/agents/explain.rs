@@ -349,7 +349,7 @@ pub fn request(app: &App, id: &str) {
     let id = id.to_owned();
     std::thread::spawn(move || {
         let user = prompt(&req, &task, &answers, &files);
-        let out = ai::with_live(&app, |deps| ai::complete(&app, deps, Tier::Small, SYSTEM, &user, 900));
+        let out = ai::with_live(&app, |deps| ai::complete(&app, deps, Tier::Small, SYSTEM, &user, 2_000));
         let e = match out {
             Ok(reply) => {
                 let mut e = parse_reply(&reply, label(&app));
