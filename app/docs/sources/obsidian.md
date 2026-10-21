@@ -110,6 +110,7 @@ The whole note, as edited in Alethiometer: anything anywhere, including reorderi
 - The note already holds `text` (a retry after the write landed): nothing is written, `"changed": false`.
 - Anything else: the op fails with `conflict: the note changed in Obsidian since you started editing; nothing was written`. **Nothing is merged.** The editor then offers *reload* (take Obsidian's version, drop yours) or *keep mine* (re-send your text with the note as it is now as the new base, still checked).
 - `base` is required, so a replace can't be sent unguarded.
+- Once a replace of a note goes through, earlier failed or queued replaces of that note are deleted (`Outbox::drop_superseded`; migration 0037 cleared the ones already stuck): they're whole-note writes the later one already overtook, and retrying one would only conflict again (user, 2026-10-21).
 
 Used by the Topics note editor and Reflect (see below).
 

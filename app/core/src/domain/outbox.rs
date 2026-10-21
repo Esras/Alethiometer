@@ -17,6 +17,7 @@ pub struct OutboxEntry {
     pub item_id: Option<i64>,
     pub created_at: Ts,
     pub confirmed_at: Option<Ts>,
+    pub item_title: Option<String>,
 }
 
 pub trait OutboxViews {
@@ -42,6 +43,8 @@ pub trait Outbox {
     fn recover_expired(&self, now: Ts, safe_to_resend: &[&str]) -> Result<(usize, usize)>;
     fn confirm(&self, id: i64, receipt_json: &str) -> Result<()>;
     fn fail(&self, id: i64, error: &str) -> Result<()>;
+    /// Earlier pending or failed rows of the same op, source and payload `path` as `id` are deleted. How many.
+    fn drop_superseded(&self, id: i64) -> Result<usize>;
     /// Failed rows go back to pending: one, or all of them. How many did.
     fn retry(&self, id: Option<i64>) -> Result<usize>;
     /// Replace the payload of a row not sent yet (pending or failed). False when it's gone out.

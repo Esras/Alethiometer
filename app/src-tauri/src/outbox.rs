@@ -181,6 +181,9 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
     app.store().write(|uow| match &result {
         Ok(receipt) => {
             uow.outbox().confirm(row.id, &receipt.to_string())?;
+            if row.op == "obsidian.replace" {
+                uow.outbox().drop_superseded(row.id)?;
+            }
             on_confirmed(uow, now, &row.op, row.item_id, &payload, receipt)
         }
         Err(e) => uow.outbox().fail(row.id, &e.to_string()),
@@ -235,6 +238,8 @@ struct Row {
     id: i64,
     source: String,
     op: String,
+    /// What it writes to: the note path, else the signal's title.
+    target: Option<String>,
     state: String,
     error: Option<String>,
     item_id: Option<i64>,
@@ -252,6 +257,10 @@ pub fn route(name: &str) -> Option<crate::api::Route> {
                 .recent(since, 200)?
                 .into_iter()
                 .map(|e| Row {
+                    target: serde_json::from_str::<Value>(&e.payload_json)
+                        .ok()
+                        .and_then(|p| p.get("path").and_then(Value::as_str).map(str::to_owned))
+                        .or(e.item_title),
                     id: e.id,
                     source: e.source_name,
                     op: e.op,

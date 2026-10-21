@@ -7,7 +7,8 @@ use crate::time::{Date, Ts, SQL_NOW};
 use rusqlite::{params, OptionalExtension, Row};
 
 const ENTRY: &str =
-    "o.id, o.source_id, s.name, o.op, o.payload_json, o.state, o.error, o.item_id, o.created_at, o.confirmed_at";
+    "o.id, o.source_id, s.name, o.op, o.payload_json, o.state, o.error, o.item_id, o.created_at, o.confirmed_at,
+     (SELECT title FROM items WHERE id = o.item_id)";
 
 fn entry(r: &Row) -> rusqlite::Result<OutboxEntry> {
     Ok(OutboxEntry {
@@ -21,6 +22,7 @@ fn entry(r: &Row) -> rusqlite::Result<OutboxEntry> {
         item_id: r.get(7)?,
         created_at: r.get(8)?,
         confirmed_at: r.get(9)?,
+        item_title: r.get(10)?,
     })
 }
 
@@ -137,6 +139,16 @@ impl Outbox for Sql<'_> {
             params![id, error],
         )?;
         Ok(())
+    }
+
+    fn drop_superseded(&self, id: i64) -> Result<usize> {
+        Ok(self.conn().execute(
+            "DELETE FROM outbox AS o
+              WHERE o.state IN ('pending', 'failed') AND o.id < ?1
+                AND EXISTS (SELECT 1 FROM outbox n WHERE n.id = ?1 AND n.op = o.op AND n.source_id = o.source_id
+                              AND json_extract(n.payload_json, '$.path') = json_extract(o.payload_json, '$.path'))",
+            [id],
+        )?)
     }
 
     fn retry(&self, id: Option<i64>) -> Result<usize> {

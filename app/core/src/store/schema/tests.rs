@@ -79,3 +79,39 @@ fn rebuilt_tables_keep_their_rows_and_an_old_broken_reference_doesnt_block_start
         .unwrap();
     assert!(crate::time::Ts::parse(&fresh).is_some(), "{fresh}");
 }
+
+#[test]
+fn a_note_save_that_went_through_clears_the_earlier_failed_and_queued_saves_of_that_note() {
+    let save = |id: i64, path: &str, state: &str| {
+        format!(
+            "INSERT INTO outbox (id, source_id, op, payload_json, state) VALUES ({id}, 1, 'obsidian.replace', '{{\"path\":\"{path}\"}}', '{state}');"
+        )
+    };
+    let rows = [
+        "INSERT INTO sources (id, kind, tag, name) VALUES (1, 'obsidian', 'work', 'Obsidian');".to_string(),
+        save(1, "Daily/19.md", "failed"),
+        save(2, "Other.md", "failed"),
+        save(3, "Daily/19.md", "confirmed"),
+        save(4, "Daily/19.md", "failed"),
+        save(5, "Daily/19.md", "pending"),
+    ]
+    .concat();
+    let ids = |conn: &Connection| -> Vec<i64> {
+        conn.prepare("SELECT id FROM outbox ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    };
+    let mut conn = open_in_memory_at(MIGRATIONS.len() - 1);
+    conn.execute_batch(&rows).unwrap();
+    migrate(&mut conn, MIGRATIONS.len()).unwrap();
+    assert_eq!(ids(&conn), [2, 3, 4, 5], "rows already stuck, once");
+
+    let conn = open_in_memory_at(MIGRATIONS.len());
+    conn.execute_batch(&rows).unwrap();
+    use crate::domain::outbox::Outbox;
+    assert_eq!(crate::store::over(&conn).drop_superseded(5).unwrap(), 2);
+    assert_eq!(ids(&conn), [2, 3, 5], "other notes and later saves stay");
+}

@@ -2,7 +2,7 @@
   // Freshness per source ("synced 2m ago") and writeback state, in the tab bar.
   // A dot summarises: orange when a source errored or a write failed.
   import { call } from '../lib/api';
-  import { refresh, ui } from '../lib/app.svelte';
+  import { clockFull, refresh, ui } from '../lib/app.svelte';
   import { chord, mod, useKeys } from '../lib/keys.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import { popover } from '../lib/ui/popover';
@@ -22,8 +22,10 @@
     id: number;
     source: string;
     op: string;
+    target: string | null;
     state: 'pending' | 'sent' | 'confirmed' | 'failed';
     error: string | null;
+    created_at: string;
   };
 
   type Tokens = { calls: number; input: number; output: number; cost: number | null };
@@ -234,8 +236,12 @@
         {#each shownWrites as w (w.id)}
           <div class="row w">
             <span class="count {w.state}">{w.state}</span>
-            <span class="ellipsis">{w.op}</span>
-            <span class="when ellipsis">{w.error ? 'error' : w.source}</span>
+            <span class="ellipsis" title={w.target ?? w.op}
+              >{w.op}{#if w.target}<span class="target"> · {w.target}</span>{/if}</span
+            >
+            <span class="when ellipsis" title={clockFull(w.created_at)}
+              >{w.error ? `error · ${ago(w.created_at)}` : w.source}</span
+            >
           </div>
           {#if w.error}<div class="err">{w.error}</div>{/if}
         {/each}
@@ -291,6 +297,9 @@
   }
   .row.w {
     grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .target {
+    color: var(--tx-2);
   }
   .row.u {
     grid-template-columns: minmax(0, 1fr) auto;
