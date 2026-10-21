@@ -4,6 +4,14 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Agents: pi's cache-miss notices never reach Alethiometer (user, 2026-10-21: on hold)
+
+pi (`showCacheMissNotices: true`) computes them only in its TUI (`interactive-mode.js`, `core/cache-stats.js` `detectCacheMiss`), never over RPC, so pi-acp has nothing to forward. pi-acp's `usage_update` carries only the running cost and context size, once per turn, so Alethiometer can't tell a miss from it reliably. The per-call usage (input, cacheRead, cacheWrite, cost split, model, timestamp) is in pi's `message_end`, which pi-acp drops. Options put to the user: port `detectMiss` into the pi-acp fork and send a notify chunk, or forward the usage in `_meta` and compute here. Also: pi `notify` chunks (`_meta.piAcp.notify`) are merged into the agent's output text today instead of a line of their own.
+
+### Checked by tests only, not on screen (2026-10-21)
+
+Playwright isn't in the Mac devshell, so these weren't looked at: the toasts (top right, under the nudge), Incoming's keys sheet and shorter hint bar, the `.` menu, the brighter ⋯, the note editors at line-height 1.45, Settings › Slack/Teams › Ignored and its Add… picker. New ui-keys checks (`scripts/ui-keys/incoming.mjs`, the Incoming keys and sticky New agent cases in `modal.mjs`) haven't been run.
+
 ### Microsoft Teams: built, never run against a tenant (2026-10-14)
 
 Built from Graph v1.0's documentation and recorded shapes (`app/docs/sources/teams.md`, `tests/fixtures/teams/`). To check on a real tenant, chats first:
