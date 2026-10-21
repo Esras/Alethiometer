@@ -83,7 +83,7 @@ Done, pixel-identical on every scene (wave 1 to `7e6be64`, the pickers to `5e2d8
 - **`PersonName`** takes `variant` (`thread` | `tertiary`, both in the person's colour) and `dim`, instead of `:global` reach-ins from Incoming and the split review.
 
 **Behaviour changes to try on the Mac:**
-- **Settings, the palette, the Keys sheet:** they close on mousedown on the scrim, not on a click, so a drag that ends there no longer closes them. Tab stays inside, and focus goes back where it was.
+- **Settings, the palette, the Keys sheet:** they close on mousedown on the scrim, not on a click, so a drag that ends there no longer closes them. Tab stays inside, and focus goes back where it was. The New agent modal is `sticky`: a mousedown on its scrim does nothing, since closing threw away what you'd typed (user, 2026-10-21); Escape still closes it.
 - **Slack review:** it's a key floor now, so ⌘, no longer closes Settings underneath it. Press Esc first.
 - **The Keys sheet:** Esc and `?` close it, and other keys stop at it instead of being swallowed.
 - **New agent:** its keys go through the key stack. ⌘K, ⌘1–7 and `g i` still don't reach the window under it.

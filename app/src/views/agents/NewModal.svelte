@@ -22,7 +22,7 @@
   }
 </script>
 
-<Modal label="New agent" onclose={onClose} {onkeys} inset="32px 0 0 0" isolate>
+<Modal label="New agent" onclose={onClose} {onkeys} inset="32px 0 0 0" isolate sticky>
   <div class="new modal agent-form">
     <div class="top">
       <i class="ph ph-user-plus"></i><span class="t">New agent</span><span class="sub">{sub}</span><kbd>Esc</kbd>

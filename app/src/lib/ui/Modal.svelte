@@ -26,6 +26,7 @@
     position = 'fixed',
     inset = '0',
     isolate = false,
+    sticky = false,
     children,
   }: {
     onclose: () => void;
@@ -34,6 +35,7 @@
     position?: 'fixed' | 'absolute';
     inset?: string;
     isolate?: boolean;
+    sticky?: boolean;
     children: Snippet;
   } = $props();
 
@@ -101,7 +103,7 @@
   style:position
   style:inset
   {onkeydown}
-  onmousedown={(e) => e.target === e.currentTarget && onclose()}
+  onmousedown={(e) => e.target === e.currentTarget && !sticky && onclose()}
 >
   <div class="dialog" bind:this={dialog} role="dialog" aria-modal="true" aria-label={label}>
     {@render children()}

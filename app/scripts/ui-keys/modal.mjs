@@ -23,6 +23,7 @@ const sites = {
     open: (t) => t.page.getByRole('button', { name: 'New agent' }).first().click(),
     probe: (t) => t.page.locator('.modal.agent-form'),
     from: (t) => t.page.getByRole('button', { name: 'New agent' }).first(),
+    sticky: true,
   },
   Keys: {
     prepare: (t) => t.steps('Control+7'),
@@ -67,13 +68,14 @@ for (const [name, s] of Object.entries(sites)) {
     await t.gone(s.probe(t), 'still open after Escape');
   };
 
-  checks[`${name}: mousedown on the scrim closes`] = async (t) => {
+  checks[`${name}: mousedown on the scrim ${s.sticky ? 'keeps it open' : 'closes'}`] = async (t) => {
     await start(t);
     const p = await outside(t);
     await t.page.mouse.move(p.x, p.y);
     await t.page.mouse.down();
     await t.page.waitForTimeout(200);
-    await t.gone(s.probe(t), 'still open after mousedown outside');
+    if (s.sticky) await t.visible(s.probe(t), 'closed by a mousedown outside, losing what was typed');
+    else await t.gone(s.probe(t), 'still open after mousedown outside');
     await t.page.mouse.up();
   };
 
