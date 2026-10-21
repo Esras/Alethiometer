@@ -82,10 +82,6 @@
 
 <style>
   .nudge {
-    position: fixed;
-    top: 48px;
-    right: 16px;
-    z-index: 50;
     width: 420px;
     border-radius: var(--radius-md);
     color: var(--tx-body);

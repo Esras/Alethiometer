@@ -4,6 +4,7 @@
 
 import { call } from '../../lib/api';
 import { ui } from '../../lib/app.svelte';
+import { toast } from '../../lib/toast.svelte';
 import { DEFAULT_LOOK } from './look';
 import type { ArchivedItem, ArchivedOpen, Group, Kind, Plan, Request, Row, Session, ThreadData, Tree } from './types';
 
@@ -98,8 +99,6 @@ export function stopPolling() {
   timer = null;
 }
 
-let pollError: string | null = null;
-
 export async function poll() {
   if (busy) return;
   busy = true;
@@ -118,10 +117,9 @@ export async function poll() {
     }
     ag.rev = r.rev;
     if (r.thread && r.thread.key === ag.open && r.thread.tab === ag.tab) merge(r.thread);
-    if (ag.error === pollError) ag.error = null;
-    pollError = null;
+    ag.error = null;
   } catch (e) {
-    ag.error = pollError = String((e as Error).message ?? e);
+    ag.error = String((e as Error).message ?? e);
   } finally {
     busy = false;
   }
@@ -369,7 +367,7 @@ export function searchArchived(q: string) {
         ag.hitsTotal = r.total;
       }
     } catch (e) {
-      ag.error = String((e as Error).message ?? e);
+      toast(e);
     }
   }, 150);
 }
@@ -380,7 +378,7 @@ export async function openArchived(id: string) {
     ag.archivedQ = ag.filter.trim();
     ag.sel = `a:${id}`;
   } catch (e) {
-    ag.error = String((e as Error).message ?? e);
+    toast(e);
   }
 }
 
@@ -404,7 +402,7 @@ export async function askArchive(key: string | null) {
   try {
     ag.plan = await call<Plan>('agents.archive_plan', { target });
   } catch (e) {
-    ag.error = String((e as Error).message ?? e);
+    toast(e);
   }
 }
 
@@ -469,11 +467,10 @@ export { clockHM as hm } from '../../lib/app.svelte';
 export async function act(cmd: string, args: Record<string, unknown>) {
   try {
     const r = await call(`agents.${cmd}`, args);
-    ag.error = null;
     poll();
     return r;
   } catch (e) {
-    ag.error = String((e as Error).message ?? e);
+    toast(e);
     throw e;
   }
 }

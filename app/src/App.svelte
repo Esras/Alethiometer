@@ -18,6 +18,8 @@
   import Topics from './views/Topics.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
   import StandinNotes from './shell/StandinNotes.svelte';
+  import Toasts from './lib/ui/Toasts.svelte';
+  import { toast } from './lib/toast.svelte';
 
   const inTauri = '__TAURI_INTERNALS__' in window;
   let ready = $state(false);
@@ -39,7 +41,7 @@
   function onKey(e: KeyboardEvent) {
     // ⌘, opens Settings (a modal, not a tab); ⌘⇧, opens settings.json itself.
     if (mod(e) && e.code === 'Comma' && !ui.settingsOpen) {
-      if (e.shiftKey) call('settings.open_file').catch((x) => (ui.error = String(x.message ?? x)));
+      if (e.shiftKey) call('settings.open_file').catch(toast);
       else ui.settingsOpen = true;
       e.preventDefault();
       return;
@@ -116,7 +118,10 @@
   {/if}
   {#if ui.searchOpen}<SearchPalette />{/if}
   {#if ui.settingsOpen && ready}<Settings />{/if}
-  {#if ready}<Nudge />{/if}
+  <div class="notices">
+    {#if ready}<Nudge />{/if}
+    <Toasts />
+  </div>
   {#if ready && standin && !ui.settingsOpen}<StandinNotes listing={standin} onclose={() => (standin = null)} />{/if}
 </div>
 
@@ -130,6 +135,19 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+  .notices {
+    position: fixed;
+    top: 48px;
+    right: 16px;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .notices > :global(*) {
+    pointer-events: auto;
   }
   .fatal {
     padding: 24px;

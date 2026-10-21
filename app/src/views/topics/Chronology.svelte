@@ -20,6 +20,7 @@
   import SplitReview from '../incoming/SplitReview.svelte';
   import TopicPicker from '../incoming/TopicPicker.svelte';
   import SignalDetail from '../shared/SignalDetail.svelte';
+  import { toast } from '../../lib/toast.svelte';
 
   type Entry = TopicDetail['chronology'][number];
 
@@ -30,7 +31,6 @@
   let detail = $state<Detail | null>(null);
   let picking = $state(false);
   let reviewing = $state<number | null>(null);
-  let err = $state<string | null>(null);
   let line = $state<RsvpLine>();
   // Moved signals keep their line (and place) until the topic changes.
   let moves = $state<{ move: Move; entry: Entry; index: number }[]>([]);
@@ -91,10 +91,9 @@
       const move = await moveSignal(id, topicId, to, name);
       moves = [...moves, { move, entry, index }];
       expanded = null;
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -105,10 +104,9 @@
       await undoMove(m.move);
       moves = moves.filter((x) => x !== m);
       sel = m.entry.item_id;
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -194,7 +192,6 @@
       </div>
     {/if}
   {/each}
-  {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}
 </div>
 
 {#if picking && expanded !== null}
@@ -320,12 +317,5 @@
     flex: 1;
     height: 1px;
     background: linear-gradient(90deg, var(--aqua-line), transparent);
-  }
-  .err {
-    padding-top: 6px;
-    font-size: 0.9231rem;
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
 </style>

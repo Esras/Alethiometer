@@ -11,6 +11,7 @@
   import { ag } from '../agents/state.svelte';
   import type { Request, Session } from '../agents/types';
   import type { AgentInfo, Signal } from './types';
+  import { toast } from '../../lib/toast.svelte';
 
   let {
     s,
@@ -33,7 +34,6 @@
   let text = $state('');
   let denyWith = $state<string | null>(null);
   let to = $state('');
-  let err = $state<string | null>(null);
   let busy = false;
   let box = $state<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>();
 
@@ -44,11 +44,10 @@
     busy = true;
     try {
       await call(`agents.${cmd}`, args);
-      err = null;
       writing = null;
       onDone(`${label} · ${hm()}`);
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     } finally {
       busy = false;
     }
@@ -270,7 +269,6 @@
       >
     </div>
   {/if}
-  {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}
 </div>
 
 <style>
@@ -348,11 +346,5 @@
     width: auto;
     font: inherit;
     resize: vertical;
-  }
-  .err {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    font-size: 0.923rem;
   }
 </style>

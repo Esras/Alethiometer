@@ -9,6 +9,7 @@
   import SignalDetail from './shared/SignalDetail.svelte';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, Todo, TodosData } from './todos/types';
+  import { toast } from '../lib/toast.svelte';
 
   const ICON = { local: 'notes', jira: 'jira', obsidian: 'obsidian' } as const;
   const SOURCES = [
@@ -46,7 +47,6 @@
   let sort = $state<{ key: SortKey; asc: boolean }>({ key: 'due', asc: true });
   let sel = $state<number | null>(null);
   let creating = $state(false);
-  let err = $state<string | null>(null);
   let filterEl = $state<HTMLInputElement>();
   let editing = $state<number | null>(null);
   /** The todo whose scheduled day is being edited (`d`, local todos only). */
@@ -72,16 +72,15 @@
   async function setEstimate(t: Todo, value: string) {
     const minutes = parseDur(value);
     if (minutes === undefined) {
-      err = `"${value}" isn't a time: try 45m, 1h30m, 2h or 1d (empty lets the AI guess)`;
+      toast(`"${value}" isn't a time: try 45m, 1h30m, 2h or 1d (empty lets the AI guess)`);
       return;
     }
     editing = null;
     try {
       await call('todos.estimate', { item_id: t.item_id, minutes });
-      err = null;
       asked = minutes !== null && asked;
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -167,14 +166,13 @@
     struck = next;
     try {
       await call(done ? 'todos.complete' : 'todos.reopen', { item_id: t.item_id });
-      err = null;
       refresh();
     } catch (e) {
       const back = new Set(struck);
       if (done) back.delete(t.item_id);
       else back.add(t.item_id);
       struck = back;
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -182,9 +180,8 @@
     scheduling = null;
     try {
       await call('todos.schedule', { item_id: t.item_id, sched: value || null });
-      err = null;
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -192,10 +189,9 @@
     try {
       await call('todos.create', d);
       creating = false;
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -241,7 +237,6 @@
       <span class="grow"></span>
       <button class="btn primary" onclick={() => (creating = true)}><i class="ph ph-plus"></i> New <kbd>n</kbd></button>
     </div>
-    {#if err}<div class="err">{err}</div>{/if}
     {#if creating}
       <TodoForm {jira} choose onsave={create} oncancel={() => (creating = false)} />
     {/if}
@@ -435,10 +430,6 @@
   }
   .grow {
     flex: 1;
-  }
-  .err {
-    margin-bottom: 8px;
-    font-size: 0.9615rem;
   }
   .panel {
     flex: 1;

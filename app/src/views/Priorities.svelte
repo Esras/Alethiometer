@@ -18,6 +18,7 @@
   import { popover } from '../lib/ui/popover';
   import AssistantPane from '../shell/AssistantPane.svelte';
   import type { ColumnKey, PrioritiesData, PriorityRow } from './priorities/types';
+  import { toast } from '../lib/toast.svelte';
 
   const ICON = { local: 'notes', jira: 'jira', obsidian: 'obsidian' } as const;
   const COLS: { key: ColumnKey; name: string }[] = [
@@ -57,7 +58,6 @@
   /** Each column's visible height; they're the same. */
   let heights = $state([0, 0, 0]);
   const viewH = $derived(heights[0]);
-  let err = $state<string | null>(null);
   let filterEl = $state<HTMLInputElement | null>(null);
   const colEls: (HTMLElement | undefined)[] = $state([]);
   const chipEls: Partial<Record<Dim, HTMLElement>> = $state({});
@@ -224,9 +224,8 @@
     if (!t) return;
     try {
       await call('todos.complete', { item_id: t.item_id });
-      err = null;
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -451,7 +450,6 @@
       <span><kbd>x</kbd> done</span>
       <span><kbd>/</kbd> filter</span>
       <span><kbd>Esc</kbd> close</span>
-      {#if err}<span class="err">{err}</span>{/if}
     </div>
   </div>
   <AssistantPane topic={selT?.topic ?? null} />

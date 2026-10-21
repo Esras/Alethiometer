@@ -8,6 +8,7 @@
 // deleted.
 import { call } from './api';
 import { refresh } from './app.svelte';
+import { toast } from './toast.svelte';
 
 export interface Merge {
   from: number;
@@ -16,11 +17,10 @@ export interface Merge {
   intoName: string;
 }
 
-export const merges = $state<{ list: Merge[]; err: string | null }>({ list: [], err: null });
+export const merges = $state<{ list: Merge[] }>({ list: [] });
 
 export function stageMerge(m: Merge) {
   merges.list = [...merges.list.filter((x) => x.from !== m.from), m];
-  merges.err = null;
 }
 
 /** Cancel the merge of `from` (or the latest one). */
@@ -50,9 +50,11 @@ export async function commitMerges() {
       const r = await call<{ note: string }>('topics.merge', { from: m.from, into: m.into });
       // Merged; only the note text couldn't be appended.
       if (r.note.startsWith('failed'))
-        merges.err = `Merged ${m.fromName} into ${m.intoName}, but its note wasn't appended (${r.note}). ${m.fromName}'s note file is still there.`;
+        toast(
+          `Merged ${m.fromName} into ${m.intoName}, but its note wasn't appended (${r.note}). ${m.fromName}'s note file is still there.`,
+        );
     } catch (e) {
-      merges.err = `Merging ${m.fromName} into ${m.intoName} failed: ${String((e as Error).message ?? e)}`;
+      toast(`Merging ${m.fromName} into ${m.intoName} failed: ${String((e as Error).message ?? e)}`);
     }
   }
   refresh();

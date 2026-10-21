@@ -12,6 +12,7 @@
   import NewModal from './NewModal.svelte';
   import Where from './Where.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
+  import { toast } from '../../lib/toast.svelte';
 
   type Catalog = {
     templates: { name: string; versions: string[]; instructions: string; skills: string[] }[];
@@ -93,7 +94,7 @@
       }
       onClose();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     } finally {
       busy = false;
     }

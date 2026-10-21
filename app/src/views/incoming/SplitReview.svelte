@@ -24,6 +24,7 @@
   import PersonName from '../../lib/ui/PersonName.svelte';
   import TopicPicker from './TopicPicker.svelte';
   import type { Family, Message, Part } from './types';
+  import { toast } from '../../lib/toast.svelte';
 
   let {
     itemId,
@@ -48,7 +49,6 @@
   let chosen = $state<Set<number>>(new Set());
   let picking = $state(false);
   let busy = false;
-  let err = $state<string | null>(null);
   // Per review, kept across reloads: each part's topic and bar colour (a part
   // pruned after its messages left still names the group they came from),
   // where a dismissed message was, and what can be undone.
@@ -194,11 +194,10 @@
     busy = true;
     try {
       await run();
-      err = null;
       changed = true;
       await load();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     } finally {
       busy = false;
     }
@@ -410,7 +409,6 @@
         </button>
       {/if}
     </span>
-    {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
   </div>
 {/if}
 
@@ -598,12 +596,6 @@
   }
   .btns {
     margin-left: auto;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .err {
-    flex-basis: 100%;
     display: flex;
     gap: 6px;
     align-items: center;

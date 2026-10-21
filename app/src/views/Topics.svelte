@@ -28,6 +28,7 @@
   import Chronology from './topics/Chronology.svelte';
   import PersonPicker from './incoming/PersonPicker.svelte';
   import RsvpLine, { answerable } from './incoming/RsvpLine.svelte';
+  import { toast } from '../lib/toast.svelte';
 
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
@@ -45,7 +46,6 @@
   // Renaming the open topic (r); the draft name, or null when not renaming.
   let renaming = $state<string | null>(null);
   let renameInput = $state<HTMLInputElement>();
-  let renameErr = $state('');
   $effect(() => {
     if (renaming !== null) renameInput?.focus();
   });
@@ -122,10 +122,9 @@
     if (!d || !trimmed || trimmed === d.topic.name) return;
     try {
       await call('topics.rename', { id: d.topic.id, name: trimmed });
-      renameErr = '';
       refresh();
     } catch (e) {
-      renameErr = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -232,10 +231,6 @@
               <div class="merging">
                 merging into {pendingMerge(d.topic.id)?.intoName} when you leave · <kbd>u</kbd> undo
               </div>
-            {:else if merges.err}
-              <div class="merging err"><i class="ph ph-warning"></i>{merges.err}</div>
-            {:else if renameErr}
-              <div class="merging err"><i class="ph ph-warning"></i>{renameErr}</div>
             {/if}
           </div>
           <div class="pills">
@@ -502,11 +497,6 @@
   .merging {
     font-size: 0.9231rem;
     color: var(--tx-label);
-  }
-  .merging.err {
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
   .pills {
     margin-left: auto;

@@ -6,31 +6,32 @@
   import { refresh } from '../../lib/app.svelte';
   import { live } from '../../lib/live';
   import type { CategoryRow } from '../../lib/types';
+  import { toast } from '../../lib/toast.svelte';
 
   let { embedded = false }: { embedded?: boolean } = $props();
 
   let cats = $state<CategoryRow[]>([]);
-  let err = $state<string | null>(null);
   let name = $state('');
   let color = $state('#8ec07c');
 
   $effect(() => live<CategoryRow[]>('categories.list', {}, (c) => (cats = c)));
 
   async function run(cmd: string, args: Record<string, unknown>) {
+    let ok = true;
     try {
       await call(cmd, args);
-      err = null;
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      ok = false;
+      toast(e);
     }
     refresh();
+    return ok;
   }
 
   async function add(e: SubmitEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    await run('categories.create', { label: name, color });
-    if (!err) name = '';
+    if (await run('categories.create', { label: name, color })) name = '';
   }
 </script>
 
@@ -65,7 +66,6 @@
       ><i class="ph ph-plus"></i></button
     >
   </form>
-  {#if err}<div class="err"><i class="ph ph-warning"></i>{err}</div>{/if}
 </div>
 
 <style>
@@ -101,10 +101,5 @@
   }
   .cat kbd {
     justify-self: start;
-  }
-  .err {
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
 </style>

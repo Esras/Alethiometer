@@ -22,13 +22,13 @@
   import type { CategoryRow, TopicRow } from '../../lib/types';
   import CategoryManager from './CategoryManager.svelte';
   import CategoryPicker from './CategoryPicker.svelte';
+  import { toast } from '../../lib/toast.svelte';
 
   let archived = $state(saved.archived);
   let rows = $state<TopicRow[]>([]);
   let q = $state(saved.q);
   let selId = $state<number | null>(null);
   let input = $state<HTMLInputElement>();
-  let err = $state<string | null>(null);
   let cats = $state<CategoryRow[]>([]);
   let catFilter = $state<string | null>(saved.catFilter);
   let body = $state<HTMLDivElement>();
@@ -117,7 +117,7 @@
       naming = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -128,19 +128,17 @@
     try {
       await call(archived ? 'topics.unarchive' : 'topics.archive', { id: t.id });
       if (selId === t.id) selId = next;
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
   async function setPriority(t: TopicRow) {
     try {
       await cyclePriority(t.id, t.priority);
-      err = null;
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -148,10 +146,9 @@
     picking = null;
     try {
       await call('topics.set_category', { id, category: key });
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -354,9 +351,7 @@
           ><kbd>m</kbd> merge</span
         >{/if}
       {#if merges.list.length}<span><kbd>u</kbd> undo merge</span>{/if}
-      {#if err || merges.err}<span class="err"><i class="ph ph-warning"></i>{err ?? merges.err}</span>{:else}<span
-          class="note">Archived topics keep their note and stop matching new signals</span
-        >{/if}
+      <span class="note">Archived topics keep their note and stop matching new signals</span>
     </div>
   </div>
 </div>
@@ -533,11 +528,5 @@
   .note {
     margin-left: auto;
     color: var(--tx-muted);
-  }
-  .err {
-    margin-left: auto;
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
 </style>

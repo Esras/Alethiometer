@@ -18,6 +18,7 @@
   import Rollup from './reflect/Rollup.svelte';
   import { rs } from './reflect/state.svelte';
   import type { CarryAction, CarryRow, ChildRow, Lens, ReflectData, Scope } from './reflect/types';
+  import { toast } from '../lib/toast.svelte';
 
   const SCOPES: { id: Scope; label: string }[] = [
     { id: 'day', label: 'Day' },
@@ -92,7 +93,7 @@
       await call('reflect.carry', { item_id: row.item_id, period: row.period, action });
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
   function actSelected(action: CarryAction) {

@@ -17,7 +17,7 @@
   // Agents (2a–2c, app/docs/agents.md): agent signals are one more app group,
   // after GitHub, oldest first; Agents waiting lists the ones waiting on you
   // across topics. Open, 1–9 pick the agent's answers, r replies, o opens it
-  // in Agents. An answered row keeps a check until you move off it.
+  // in Agents and dismisses it here. An answered row keeps a check until you move off it.
   // Answering (app/src-tauri/src/queries/respond.rs) never triages: an
   // invite's second line answers it (⌥Y accept, ⌥N decline, ⌥⇧N decline with
   // a note; 14a), and `r` on a Slack signal writes a reply (⌥T thread or
@@ -30,6 +30,7 @@
   import { extend, shiftStep, type Range } from '../lib/range';
   import { isChat, sourceLabel } from '../lib/sources';
   import { messageUrl } from '../lib/slackLink';
+  import { toast } from '../lib/toast.svelte';
   import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
@@ -81,7 +82,6 @@
   let dismissed = $state<Set<number>>(new Set());
   let trashed = $state<Set<number>>(new Set());
   let busy = false;
-  let err = $state<string | null>(null);
   // Agents: the live sessions and requests behind agent signals, and rows answered here.
   let live = $state<{ sessions: AgentSession[]; requests: AgentRequest[] } | null>(null);
   let answered = $state<Map<number, string>>(new Map());
@@ -214,7 +214,7 @@
     setTab('agents');
     ag.sel = key;
     openThread(key);
-    if (a.kind === 'approval') dismiss(s);
+    dismiss(s);
     return true;
   }
 
@@ -508,10 +508,9 @@
     try {
       const r = await call<{ moved: unknown }>(cmd, args);
       after?.(r);
-      err = null;
       refresh();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     } finally {
       busy = false;
     }
@@ -546,10 +545,9 @@
         { item_id: s.item_id, ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [] }) },
       );
       if (on) unreadBefore.set(s.item_id, r.unread ?? []);
-      err = null;
     } catch (e) {
       flip(!on);
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -1154,7 +1152,6 @@
             >{/if}
           {#if !current?.agent}<span><kbd>o</kbd> open</span>{/if}<span><kbd>[</kbd> <kbd>]</kbd> topic</span>
         {/if}
-        {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
       </div>
     </div>
   </div>
@@ -1524,12 +1521,6 @@
   }
   .links button:hover {
     text-decoration: underline;
-  }
-  .err {
-    margin-left: auto;
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
   .empty-pane {
     display: block;

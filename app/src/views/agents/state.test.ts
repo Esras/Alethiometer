@@ -5,9 +5,10 @@ vi.mock('../../lib/api', () => ({ call: (...a: unknown[]) => call(...a) }));
 vi.mock('../../lib/app.svelte', () => ({ ui: {}, clockHM: () => '' }));
 
 const { act, ag, nodes, poll } = await import('./state.svelte');
+const { toasts } = await import('../../lib/toast.svelte');
 
 describe('ag.error', () => {
-  it("an action's error outlives the next poll; the poll's own error doesn't", async () => {
+  it("is the poll's own error; an action's error is a toast", async () => {
     call.mockImplementation(async (cmd: string) => {
       if (cmd === 'agents.open') throw new Error('no terminal');
       if (cmd === 'agents.poll' && call.mock.calls.length === 1) throw new Error('poll down');
@@ -18,8 +19,8 @@ describe('ag.error', () => {
     await poll();
     expect(ag.error).toBeNull();
     await expect(act('open', { session: 's', how: 'terminal' })).rejects.toThrow();
-    await poll();
-    expect(ag.error).toBe('no terminal');
+    expect(ag.error).toBeNull();
+    expect(toasts.list.map((t) => t.text)).toContain('no terminal');
   });
 });
 

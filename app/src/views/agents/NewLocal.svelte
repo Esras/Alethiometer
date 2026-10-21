@@ -13,6 +13,7 @@
   import NewModal from './NewModal.svelte';
   import Where from './Where.svelte';
   import { act, ag, groupById, openThread } from './state.svelte';
+  import { toast } from '../../lib/toast.svelte';
 
   let { group = null, onClose }: { group?: string | null; onClose: () => void } = $props();
 
@@ -155,7 +156,7 @@
       openThread(`s:${r.id}`);
       onClose();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     } finally {
       busy = false;
     }

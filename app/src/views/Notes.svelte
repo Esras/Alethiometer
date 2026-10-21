@@ -7,6 +7,7 @@
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
   import { chord, mod, plain, useKeys } from '../lib/keys.svelte';
+  import { toast } from '../lib/toast.svelte';
   import Margin from './notes/Margin.svelte';
   import Picker from './notes/Picker.svelte';
   import { GLYPHS, PREFIXES, type EditLine, type Line, type Page, type Target } from './notes/types';
@@ -105,9 +106,7 @@
           if (texts.get(l.key) === l.text) l.stale = false;
         }
       })
-      .catch((e) => {
-        ui.error = String(e.message ?? e);
-      })
+      .catch(toast)
       .finally(() => {
         inflight = null;
         if (again) {

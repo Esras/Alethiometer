@@ -15,6 +15,7 @@
   import { hydrated, inLens, parts, ROUTE_COLOR, type HRow, type Hydrated, type Lens } from '../lib/hydrated';
   import { chord, plain, useKeys } from '../lib/keys.svelte';
   import { moveSignal, undoMove, type Move } from '../lib/reclassify';
+  import { toast } from '../lib/toast.svelte';
   import AppIcon from '../lib/ui/AppIcon.svelte';
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
@@ -32,7 +33,6 @@
   let picking = $state(false);
   let reviewing = $state<number | null>(null);
   let moves = $state<Move[]>([]);
-  let err = $state<string | null>(null);
   let asking = $state(false);
   // Bumped after this view's own changes. Not a live query: results are for
   // the query as asked, and asking again can call Glean.
@@ -54,7 +54,7 @@
         res = r;
         if (sel === null || !r.rows.some((x) => x.key === sel)) sel = r.rows[0]?.key ?? null;
       })
-      .catch((e) => (err = String(e.message ?? e)))
+      .catch(toast)
       .finally(() => (asking = false));
   });
 
@@ -97,10 +97,9 @@
     try {
       const m = await moveSignal(r.item_id, r.topic?.id ?? null, to, name);
       moves = [...moves.filter((x) => x.itemId !== r.item_id), m];
-      err = null;
       reload();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -111,10 +110,9 @@
       await undoMove(m);
       moves = moves.filter((x) => x !== m);
       sel = `item:${m.itemId}`;
-      err = null;
       reload();
     } catch (e) {
-      err = String((e as Error).message ?? e);
+      toast(e);
     }
   }
 
@@ -235,7 +233,6 @@
       {#if moves.length}<span><kbd>u</kbd> undo</span>{/if}<span><kbd>/</kbd> edit search</span><span
         ><kbd>Esc</kbd> back</span
       >
-      {#if err}<span class="err"><i class="ph ph-warning"></i>{err}</span>{/if}
     </div>
   </div>
 </div>
@@ -372,11 +369,5 @@
   }
   .hint-bar .key {
     color: var(--tx-2);
-  }
-  .err {
-    margin-left: auto;
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
 </style>
