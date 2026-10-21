@@ -21,13 +21,17 @@
 //! - Every message carries who wrote it (`people::Who`: person colour, People
 //!   note), and a signal from an unknown sender seen often enough carries a
 //!   new-person suggestion (17a).
+//! - Dismiss, trash, confirm and move are recorded for ignore suggestions; a
+//!   dismiss can return one (`ignore.rs`).
 
+use super::ignore;
 use super::people::{self, Resolver, Suggestion, Who};
 use super::{arg_i64, opt_i64, when_label};
-use crate::api::Route;
+use crate::api::{arg_str, Route};
 use crate::clock::Clock;
 use crate::domain::incoming::{FieldChangeRow, MessageRow, SignalRow};
 use crate::domain::ports::{Reads, UnitOfWork};
+use crate::domain::triage::TriageKey;
 use crate::error::{msg, Result};
 use crate::outbox::request;
 use crate::seed::{Ctx, ItemSeed};
@@ -252,13 +256,19 @@ pub fn route(name: &str) -> Option<Route> {
             Ok(json!({ "ok": true, "item_id": part }))
         }),
         "review_confirm" => Route::Write(|uow, ctx, args| {
-            Ok(json!({ "ok": true, "confirmed": review_confirm(uow, ctx.clock.now(), arg_i64(args, "item_id")?)? }))
+            let item = arg_i64(args, "item_id")?;
+            let confirmed = review_confirm(uow, ctx.clock.now(), item)?;
+            if confirmed > 0 {
+                ignore::record(uow, ctx.clock.now(), item, "keep")?;
+            }
+            Ok(json!({ "ok": true, "confirmed": confirmed }))
         }),
         "confirm" => Route::Write(|uow, ctx, args| {
             let (item, topic) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?);
             let moved = snapshot(uow, item, None, topic)?;
             let changed = confirm_seen(uow, ctx.clock.now(), item, topic, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed, "moved": moved }))
+            let event = ignore::record(uow, ctx.clock.now(), item, "keep")?;
+            Ok(json!({ "ok": true, "changed": changed, "moved": moved, "event": event }))
         }),
         "wrong" => Route::Write(|uow, _, args| {
             let (item, topic) = (arg_i64(args, "item_id")?, arg_i64(args, "topic_id")?);
@@ -274,7 +284,8 @@ pub fn route(name: &str) -> Option<Route> {
             );
             let moved = snapshot(uow, item, from, topic)?;
             let changed = move_seen(uow, ctx.clock.now(), item, topic, from, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed, "moved": moved }))
+            let event = ignore::record(uow, ctx.clock.now(), item, "keep")?;
+            Ok(json!({ "ok": true, "changed": changed, "moved": moved, "event": event }))
         }),
         "unfile" => Route::Write(|uow, _, args| {
             let moved: Vec<Moved> = serde_json::from_value(args.get("moved").cloned().unwrap_or_default())
@@ -286,17 +297,22 @@ pub fn route(name: &str) -> Option<Route> {
                 arg_i64(args, "to_topic_id")?,
                 args.get("filed").and_then(Value::as_bool).unwrap_or(false),
             )?;
+            if let Some(item) = opt_i64(args, "item_id") {
+                ignore::forget(uow, opt_i64(args, "event"), item)?;
+            }
             Ok(json!({ "ok": true }))
         }),
-        "dismiss" => Route::Write(|uow, _, args| {
+        "dismiss" => Route::Write(|uow, ctx, args| {
             let item = arg_i64(args, "item_id")?;
             let unread = uow.items().unread_keys(item)?;
             let changed = dismiss_seen(uow, item, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed, "unread": unread }))
+            let (event, suggestion) = dismissed(uow, ctx, item, "dismiss")?;
+            Ok(json!({ "ok": true, "changed": changed, "unread": unread, "event": event, "suggestion": suggestion }))
         }),
         "undismiss" => Route::Write(|uow, _, args| {
             let item = arg_i64(args, "item_id")?;
             dismiss(uow, item, false)?;
+            ignore::forget(uow, opt_i64(args, "event"), item)?;
             let unread: Vec<String> = args
                 .get("unread")
                 .and_then(Value::as_array)
@@ -305,11 +321,20 @@ pub fn route(name: &str) -> Option<Route> {
             uow.items().mark_unread(item, &unread)?;
             Ok(json!({ "ok": true }))
         }),
-        "trash" => Route::Write(|uow, _, args| {
+        "trash" => Route::Write(|uow, ctx, args| {
             let item = arg_i64(args, "item_id")?;
             let unread = uow.items().unread_keys(item)?;
             let changed = trash_seen(uow, item, saw_arg(args).as_ref())?;
-            Ok(json!({ "ok": true, "changed": changed, "unread": unread }))
+            let (event, suggestion) = dismissed(uow, ctx, item, "trash")?;
+            Ok(json!({ "ok": true, "changed": changed, "unread": unread, "event": event, "suggestion": suggestion }))
+        }),
+        "ignore_not_now" => Route::Write(|uow, ctx, args| {
+            let k = TriageKey {
+                kind: arg_str(args, "kind")?,
+                key: arg_str(args, "key")?,
+            };
+            ignore::not_now(uow, ctx.clock.now(), arg_i64(args, "source_id")?, &k)?;
+            Ok(json!({ "ok": true }))
         }),
         "split" => Route::Write(|uow, ctx, args| {
             let child = split_to(
@@ -323,6 +348,21 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         _ => return None,
     })
+}
+
+/// Record a dismiss or trash, and what to suggest after it (`ignore`).
+fn dismissed(
+    uow: &dyn UnitOfWork,
+    ctx: &crate::api::Ctx,
+    item: i64,
+    action: &str,
+) -> Result<(Option<i64>, Option<ignore::Suggestion>)> {
+    let event = ignore::record(uow, ctx.clock.now(), item, action)?;
+    let suggestion = match event {
+        Some(_) => ignore::suggest(uow, ctx.clock.now(), &ctx.settings.ignore_suggestions, item)?,
+        None => None,
+    };
+    Ok((event, suggestion))
 }
 
 /// A split review of filed signals (18c/18d) names the parts it works on; Incoming's doesn't.

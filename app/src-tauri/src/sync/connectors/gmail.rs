@@ -340,12 +340,16 @@ fn map_thread(
         ended_at: Some(at(last)),
         status: "open".into(),
         msg_count: Some(messages.len() as i64),
-        raw_json: json!({
-            "thread_id": id,
-            "last_ms": last_ms,
-            "msgs": msgs.iter().filter_map(|m| m["id"].as_str()).collect::<Vec<_>>(),
-            "category": category,
-        }),
+        raw_json: {
+            let mut raw = json!({
+                "thread_id": id,
+                "last_ms": last_ms,
+                "msgs": msgs.iter().filter_map(|m| m["id"].as_str()).collect::<Vec<_>>(),
+                "category": category,
+            });
+            filter_keys(&msgs, &mut raw);
+            raw
+        },
         messages,
         bump: prev.is_none_or(|p| last_ms > p),
         ..Default::default()
@@ -377,11 +381,7 @@ fn sender(m: &Value) -> Option<Handle> {
         return Some(person(original));
     }
     let (name, email) = address(header(m, "From")?)?;
-    let local = email.split('@').next().unwrap_or_default();
-    let relay = ["noreply", "no-reply", "notification"]
-        .iter()
-        .any(|n| local.contains(n))
-        || ["jira", "confluence"].contains(&local);
+    let relay = relay(&email);
     let group = name.contains(" via ") && !name.contains("(via ");
     if !(relay || group) {
         return Some(person((name, email)));
@@ -406,6 +406,66 @@ fn sender(m: &Value) -> Option<Handle> {
         handle: format!("{} {}", p.handle, p.display_name),
         display_name: p.display_name,
     })
+}
+
+/// A sending service's address, not a person's.
+fn relay(email: &str) -> bool {
+    let local = email.split('@').next().unwrap_or_default();
+    ["noreply", "no-reply", "notification"]
+        .iter()
+        .any(|n| local.contains(n))
+        || ["jira", "confluence"].contains(&local)
+}
+
+/// What a Gmail filter on the thread would match, for ignore suggestions
+/// (`queries::ignore`): `from`, the From address of its newest message you
+/// didn't send (the header Gmail's `from:` reads, not the relayed sender
+/// `sender` resolves), its `list` (List-Id), and `direct`: 1:1 mail, just you
+/// and one other address, sent by a person rather than a list or a service.
+fn filter_keys(msgs: &[&Value], raw: &mut Value) {
+    let theirs = msgs.iter().rev().find(|m| !labeled(m, "SENT")).copied();
+    let from = theirs.and_then(|m| header(m, "From")).and_then(address).map(|(_, e)| e);
+    let list = theirs.and_then(|m| header(m, "List-Id")).and_then(list_id);
+    let bulk = |m: &Value| {
+        header(m, "List-Id").is_some()
+            || header(m, "List-Unsubscribe").is_some()
+            || header(m, "Precedence")
+                .is_some_and(|p| ["bulk", "list", "junk"].contains(&p.trim().to_ascii_lowercase().as_str()))
+            || header(m, "Auto-Submitted").is_some_and(|a| !a.trim().eq_ignore_ascii_case("no"))
+    };
+    let mut people = HashSet::new();
+    for m in msgs {
+        for h in ["From", "To", "Cc"] {
+            let Some(v) = header(m, h) else { continue };
+            // An address list that doesn't parse isn't counted as 1:1.
+            let Ok(list) = mailparse::addrparse(v) else {
+                people.insert(String::new());
+                continue;
+            };
+            for a in list.iter() {
+                match a {
+                    mailparse::MailAddr::Single(s) => {
+                        people.insert(s.addr.to_ascii_lowercase());
+                    }
+                    mailparse::MailAddr::Group(g) => people.extend(g.addrs.iter().map(|s| s.addr.to_ascii_lowercase())),
+                }
+            }
+        }
+    }
+    let direct = people.len() <= 2 && !msgs.iter().any(|m| bulk(m)) && from.as_deref().is_some_and(|f| !relay(f));
+    raw["from"] = json!(from);
+    raw["list"] = json!(list);
+    raw["direct"] = json!(direct);
+}
+
+/// `Acme News <news.acme.com>` → `news.acme.com`, what Gmail's `list:` matches.
+fn list_id(v: &str) -> Option<String> {
+    let id = match (v.rfind('<'), v.rfind('>')) {
+        (Some(a), Some(b)) if a < b => &v[a + 1..b],
+        _ => v,
+    };
+    let id = id.trim().to_ascii_lowercase();
+    (!id.is_empty()).then_some(id)
 }
 
 /// text/plain if there is one, else the HTML's text; quoted history cut off.
@@ -814,6 +874,72 @@ mod tests {
         assert_eq!(item(&b, A).raw_json["category"], "vendors");
         assert_eq!(item(&b, B).raw_json["category"], Value::Null);
         assert!(gets(&http).contains(&format!("{API}/labels")));
+    }
+
+    #[test]
+    fn filter_keys_name_the_sender_list_and_whether_its_one_to_one() {
+        let msg = |labels: &[&str], hs: &[(&str, &str)]| {
+            let hs: Vec<Value> = hs.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect();
+            json!({ "labelIds": labels, "payload": { "headers": hs } })
+        };
+        let keys = |msgs: &[Value]| {
+            let mut raw = json!({});
+            filter_keys(&msgs.iter().collect::<Vec<_>>(), &mut raw);
+            (raw["from"].clone(), raw["list"].clone(), raw["direct"].clone())
+        };
+        let news = msg(
+            &["INBOX"],
+            &[
+                ("From", "Acme News <News@Acme.com>"),
+                ("To", "me@work.com"),
+                ("List-Id", "Acme weekly <weekly.acme.com>"),
+            ],
+        );
+        assert_eq!(
+            keys(&[news]),
+            (json!("news@acme.com"), json!("weekly.acme.com"), json!(false))
+        );
+        // Your own reply is newest: the sender is still theirs. Two people: 1:1.
+        let ana = msg(
+            &["INBOX"],
+            &[("From", "\"Lee, Ana\" <ana@x.com>"), ("To", "Me <me@work.com>")],
+        );
+        let mine = msg(&["SENT"], &[("From", "me@work.com"), ("To", "ana@x.com")]);
+        assert_eq!(
+            keys(&[ana.clone(), mine]),
+            (json!("ana@x.com"), Value::Null, json!(true))
+        );
+        // Someone else on Cc, a service, or an unsubscribe link: not 1:1.
+        let cc = msg(
+            &["INBOX"],
+            &[
+                ("From", "ana@x.com"),
+                ("To", "me@work.com"),
+                ("Cc", "bo@x.com, \"Cy, D\" <cy@x.com>"),
+            ],
+        );
+        assert_eq!(keys(&[cc]).2, json!(false));
+        let bot = msg(&["INBOX"], &[("From", "noreply@x.com"), ("To", "me@work.com")]);
+        assert_eq!(keys(&[bot]).2, json!(false));
+        let unsub = msg(
+            &["INBOX"],
+            &[
+                ("From", "ana@x.com"),
+                ("To", "me@work.com"),
+                ("List-Unsubscribe", "<mailto:u@x.com>"),
+            ],
+        );
+        assert_eq!(keys(&[unsub]).2, json!(false));
+        let auto = msg(
+            &["INBOX"],
+            &[
+                ("From", "ana@x.com"),
+                ("To", "me@work.com"),
+                ("Auto-Submitted", "auto-generated"),
+            ],
+        );
+        assert_eq!(keys(&[auto]).2, json!(false));
+        assert_eq!(keys(&[ana]).2, json!(true));
     }
 
     #[test]

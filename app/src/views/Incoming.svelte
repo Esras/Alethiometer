@@ -51,7 +51,7 @@
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
   import { nextKey, putBack, stillDismissed } from './incoming/nextKey';
-  import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
+  import type { Bodies, IgnoreSuggestion, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
 
@@ -252,6 +252,8 @@
     );
     dismissed = stillDismissed(dismissed, dismissedRev, listed);
     const present = new Set(listed.keys());
+    if ([...ignoreHint.keys()].some((id) => !present.has(id)))
+      ignoreHint = new Map([...ignoreHint].filter(([id]) => present.has(id)));
     if ([...answered.keys()].some((id) => !present.has(id)))
       answered = new Map([...answered].filter(([id]) => present.has(id)));
     const keys: QueueKey[] = [
@@ -494,6 +496,8 @@
     from: number | null;
     to: number;
     gmail: boolean;
+    /** The triage event the filing recorded (`queries/ignore.rs`), forgotten on `u`. */
+    event: number | null;
   };
   let filed = $state<Filed | null>(null);
   const topicNamed = (id: number) => entries.find((e) => e.key === id)?.name ?? 'topic';
@@ -502,16 +506,24 @@
     const f = filed;
     if (!f || busy) return;
     filed = null;
-    await act('incoming.unfile', { moved: f.moved, from_topic_id: f.from, to_topic_id: f.to, filed: f.gmail });
+    await act('incoming.unfile', {
+      moved: f.moved,
+      from_topic_id: f.from,
+      to_topic_id: f.to,
+      filed: f.gmail,
+      item_id: f.itemId,
+      event: f.event,
+    });
     if (f.key !== null) selKey = f.key;
     selItem = f.itemId;
   }
 
-  async function act(cmd: string, args: Record<string, unknown>, after?: (r: { moved: unknown }) => void) {
+  type Acted = { moved: unknown; event?: number | null };
+  async function act(cmd: string, args: Record<string, unknown>, after?: (r: Acted) => void) {
     if (busy) return;
     busy = true;
     try {
-      const r = await call<{ moved: unknown }>(cmd, args);
+      const r = await call<Acted>(cmd, args);
       after?.(r);
       refresh();
     } catch (e) {
@@ -533,6 +545,35 @@
   // The unread messages a dismissal marked read, so `u` makes the same ones unread.
   const unreadBefore = new Map<number, string[]>();
   const dismissedRev = new Map<number, number>();
+  // The triage event a dismissal recorded, forgotten on `u`, and what it suggests ignoring.
+  const dismissEvent = new Map<number, number | null>();
+  let ignoreHint = $state<Map<number, IgnoreSuggestion>>(new Map());
+  let ignoreDone = $state<Map<number, string>>(new Map());
+  async function ignoreAct(id: number, h: IgnoreSuggestion) {
+    const o = h.offer;
+    const done = (text: string) => (ignoreDone = new Map(ignoreDone).set(id, text));
+    try {
+      if (o.type === 'copy') {
+        await navigator.clipboard?.writeText(o.text);
+        done(`Copied ${o.text} for a Gmail filter`);
+      } else if (o.type === 'mute') {
+        await call('settings.mute', { kind: h.source_kind, name: h.source_name, entry: o.entry });
+        done(`Muted in ${h.source_name}`);
+      } else openExternal(o.url);
+    } catch (e) {
+      toast(e);
+    }
+  }
+  function notNow(id: number, h: IgnoreSuggestion) {
+    setHint(id, null);
+    call('incoming.ignore_not_now', { source_id: h.source_id, kind: h.kind, key: h.key }).catch(() => {});
+  }
+  const setHint = (id: number, s: IgnoreSuggestion | null) => {
+    const next = new Map(ignoreHint);
+    if (s) next.set(id, s);
+    else next.delete(id);
+    ignoreHint = next;
+  };
 
   async function dismiss(s: Signal | null, on = true, trash = false) {
     if (!s || dismissed.has(s.item_id) === on || (trash && s.source !== 'gmail')) return;
@@ -552,11 +593,18 @@
     if (on) dismissedRev.set(s.item_id, s.rev);
     else dismissedRev.delete(s.item_id);
     try {
-      const r = await call<{ unread?: string[] }>(
+      const r = await call<{ unread?: string[]; event?: number | null; suggestion?: IgnoreSuggestion | null }>(
         on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss',
-        { item_id: s.item_id, ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [] }) },
+        {
+          item_id: s.item_id,
+          ...(on ? saw(s) : { unread: unreadBefore.get(s.item_id) ?? [], event: dismissEvent.get(s.item_id) ?? null }),
+        },
       );
-      if (on) unreadBefore.set(s.item_id, r.unread ?? []);
+      if (on) {
+        unreadBefore.set(s.item_id, r.unread ?? []);
+        dismissEvent.set(s.item_id, r.event ?? null);
+      } else dismissEvent.delete(s.item_id);
+      setHint(s.item_id, on ? (r.suggestion ?? null) : null);
     } catch (e) {
       flip(!on);
       toast(e);
@@ -591,6 +639,7 @@
         from: null,
         to: topic,
         gmail: true,
+        event: r.event ?? null,
       };
     });
   }
@@ -610,6 +659,7 @@
         from: null,
         to: topic,
         gmail: false,
+        event: null,
       };
     });
   }
@@ -641,6 +691,7 @@
         from,
         to: topicId,
         gmail: true,
+        event: r.event ?? null,
       };
     });
   }
@@ -690,7 +741,7 @@
   async function ignore(s: Signal) {
     acting = null;
     try {
-      await call('settings.mute', { item_id: s.item_id });
+      await call('settings.mute_signal', { item_id: s.item_id });
       toast(
         `Ignoring ${conversationOf(s)}: its new messages won't come to Incoming. Settings › ${sourceLabel(s.source)} › Ignored undoes it.`,
         true,
@@ -1052,6 +1103,26 @@
                       onclick={(e) => (e.stopPropagation(), act('todos.unhold', { item_id: s.item_id }))}
                       >Discard <kbd>u</kbd></button
                     >
+                  </div>
+                {/if}
+                {#if gone && ignoreHint.has(s.item_id)}
+                  {@const h = ignoreHint.get(s.item_id)!}
+                  {@const done = ignoreDone.get(s.item_id)}
+                  <div class="held ignore">
+                    <i class="ph ph-funnel"></i>
+                    <span class="ellipsis"
+                      ><span class="htext">{h.label}</span>: you dismissed {h.dismissed} of {h.total} in the last {h.days}
+                      days</span
+                    >
+                    {#if done}
+                      <span class="htext">{done}</span>
+                    {:else}
+                      <button class="btn" onclick={(e) => (e.stopPropagation(), ignoreAct(s.item_id, h))}
+                        >{#if h.offer.type === 'copy'}<i class="ph ph-copy"></i>Copy filter{:else if h.offer.type === 'mute'}Add
+                          to muted{:else}<i class="ph ph-arrow-square-out"></i>Open {h.kind}{/if}</button
+                      >
+                      <button class="btn" onclick={(e) => (e.stopPropagation(), notNow(s.item_id, h))}>Not now</button>
+                    {/if}
                   </div>
                 {/if}
                 {#if isOpen}
@@ -1487,6 +1558,9 @@
   }
   .held .btn {
     flex: none;
+  }
+  .held.ignore {
+    margin-top: -2px;
   }
   .more {
     padding: 2px 0 2px 54px;

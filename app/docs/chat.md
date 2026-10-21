@@ -24,6 +24,7 @@ This page is the contract a chat connector keeps so the shared code works for it
 - `thread_ts`: on a thread item, its root message's key. The item is a thread for the UI and the split review.
 - `mark_ts`: the key "mark read" sends; only on items the source can mark read.
 - `conv` (optional): `dm`, `group` or `channel`. Without it the conversation kind is read off Slack's titles (`DM · …`, `Group DM · …`).
+- `name` (optional): the conversation's name, which ignore suggestions show (`queries/ignore.rs`); for Slack the channel name without `#`, what `muted` takes.
 
 The field names come from Slack, the first chat source; they stay so existing items need no migration.
 

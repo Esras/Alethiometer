@@ -976,7 +976,16 @@ impl Poller<'_, '_, '_> {
             "last_ts": last.ts,
             // One ts per stored message, in the same order.
             "msgs": context.iter().chain(kept).map(|m| m.ts.as_str()).collect::<Vec<_>>(),
+            "conv": match conv.kind {
+                ConvKind::Channel { .. } => "channel",
+                ConvKind::Im { .. } => "dm",
+                ConvKind::Mpim { .. } => "group",
+            },
         });
+        if let ConvKind::Channel { name } = &conv.kind {
+            // What `muted` takes, for ignore suggestions (`queries::ignore`).
+            raw["name"] = json!(name);
+        }
         match thread {
             Some((tts, _)) => raw["thread_ts"] = json!(tts),
             // What `slack.mark_read` sends: conversations.mark up to here. Only
@@ -1222,7 +1231,10 @@ impl Poller<'_, '_, '_> {
             status: "open".into(),
             msg_count: Some(1),
             raw_json: {
-                let mut raw = json!({ "channel": channel, "first_ts": m.ts, "last_ts": m.ts, "msgs": [m.ts] });
+                let mut raw = json!({
+                    "channel": channel, "first_ts": m.ts, "last_ts": m.ts, "msgs": [m.ts],
+                    "conv": "channel", "name": channel_name,
+                });
                 if member {
                     raw["mark_ts"] = json!(m.ts);
                 }

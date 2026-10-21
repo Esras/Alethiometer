@@ -104,7 +104,7 @@ fn a_note_save_that_went_through_clears_the_earlier_failed_and_queued_saves_of_t
             .collect::<rusqlite::Result<_>>()
             .unwrap()
     };
-    let mut conn = open_in_memory_at(MIGRATIONS.len() - 1);
+    let mut conn = open_in_memory_at(36);
     conn.execute_batch(&rows).unwrap();
     migrate(&mut conn, MIGRATIONS.len()).unwrap();
     assert_eq!(ids(&conn), [2, 3, 4, 5], "rows already stuck, once");

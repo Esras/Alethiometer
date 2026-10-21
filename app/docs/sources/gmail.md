@@ -1,6 +1,6 @@
 # Gmail (work inbox)
 
-Kind `gmail`, tag `work`. Every thread in your Inbox, read or not, is one signal in Incoming, including on the first sync. A new message in a thread brings it back, even when it's already filed under a topic. A thread that leaves the Inbox in Gmail (archived, trashed, deleted) leaves Incoming. Triage writes back: filing under a topic labels the thread with its category's label, marks it read and archives it (with or without a todo; never past mail that arrived after you looked), **Dismiss** archives it, **Trash** (`#`) trashes it, and undo (`u`) puts it back in the Inbox. A thread is never split across topics.
+Kind `gmail`, tag `work`. Every thread in your Inbox, read or not, is one signal in Incoming, including on the first sync. A new message in a thread brings it back, even when it's already filed under a topic. A thread that leaves the Inbox in Gmail (archived, trashed, deleted) leaves Incoming. Triage writes back: filing under a topic labels the thread with its category's label, marks it read and archives it (with or without a todo; never past mail that arrived after you looked), **Dismiss** archives it, **Trash** (`#`) trashes it, and undo (`u`) puts it back in the Inbox. A thread is never split across topics. Each thread also stores what a Gmail filter would match, for Incoming's ignore suggestions: `from` (the From address of its newest message you didn't send), `list` (its List-Id) and `direct` (1:1 mail, never suggested).
 
 ## 1. Google Cloud project and OAuth client
 

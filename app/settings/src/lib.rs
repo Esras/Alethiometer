@@ -171,6 +171,9 @@ pub struct Settings {
     /// The Agents tab: local harnesses, colours, names and boxes.
     #[schemars(extend("x-section" = "agents"))]
     pub agents: AgentsSettings,
+    /// When Incoming suggests muting or filtering what you keep dismissing.
+    #[schemars(extend("x-section" = "general"))]
+    pub ignore_suggestions: IgnoreSuggestions,
     /// The Priorities tab's scoring (`app/docs/priorities.md`). In the file only for now.
     #[schemars(extend("x-hidden" = true))]
     pub priorities: PrioritySettings,
@@ -496,6 +499,31 @@ impl Default for PeopleSettings {
     }
 }
 
+/// A sender, list, channel, repo or project is suggested once at least
+/// `min_actions` triage actions on it in the last `window_days` were, at
+/// least `min_share` percent of them, dismissals (`queries::ignore`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(default)]
+pub struct IgnoreSuggestions {
+    #[schemars(extend("x-group" = "Ignore suggestions", "x-label" = "After", "x-unit" = "actions", "x-min" = 1, "x-max" = 100))]
+    pub min_actions: i64,
+    #[schemars(extend("x-group" = "Ignore suggestions", "x-label" = "Dismissed at least", "x-unit" = "%", "x-step" = 5, "x-min" = 50, "x-max" = 100))]
+    pub min_share: i64,
+    #[schemars(extend("x-group" = "Ignore suggestions", "x-label" = "Within", "x-unit" = "days", "x-min" = 1, "x-max" = 365))]
+    pub window_days: i64,
+}
+
+impl Default for IgnoreSuggestions {
+    fn default() -> Self {
+        // User, 2026-10-17.
+        IgnoreSuggestions {
+            min_actions: 5,
+            min_share: 80,
+            window_days: 60,
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         let cat = |key: &str, label: &str, color: &str| Category {
@@ -547,6 +575,7 @@ impl Default for Settings {
             demo_data: true,
             people: PeopleSettings::default(),
             agents: AgentsSettings::default(),
+            ignore_suggestions: IgnoreSuggestions::default(),
             priorities: PrioritySettings::default(),
         }
     }

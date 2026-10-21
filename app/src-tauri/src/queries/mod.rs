@@ -3,6 +3,7 @@
 
 pub mod categories;
 pub mod daystrip;
+pub mod ignore;
 pub mod incoming;
 pub mod note_save;
 pub mod note_text;

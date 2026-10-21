@@ -4,6 +4,7 @@
 //! - `patch {edits: [{op?, path, value?}]}`: change settings.json and apply it
 //! - `state`: the header line and `rev` (polled while the modal is open)
 //! - `secret_set {name, value}`: Replace…; the value is never read back
+//! - `mute {kind, name, entry}`: add to a chat source's `muted` list (Incoming's ignore suggestions)
 //! - `fonts`: installed font families for the Type pickers
 //! - `slack_channels {source}`: channels you're in, for Review…
 //! - `open_file`: open settings.json in the default editor (⌘⇧,)
@@ -53,16 +54,20 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             st.message = message;
             Ok(json!(*st))
         }
+        "mute" => Ok(json!(live::mute(
+            app,
+            &arg_str(args, "kind")?,
+            &arg_str(args, "name")?,
+            &arg_str(args, "entry")?
+        )?)),
         "fonts" => Ok(json!(fonts())),
         "slack_channels" => slack_channels(app, arg_i64(args, "source")?),
         "chat_conversations" => app.store().read(|r| chat_conversations(r, arg_i64(args, "source")?)),
-        "mute" => {
+        "mute_signal" => {
             let item_id = arg_i64(args, "item_id")?;
-            let (channel, edit) = app.store().read(|r| mute_edit(r, &app.settings().sources, item_id))?;
-            if let Some(e) = edit {
-                live::patch(app, &[e])?;
-            }
-            Ok(json!({ "value": channel }))
+            let (kind, name, entry) = app.store().read(|r| mute_entry(r, item_id))?;
+            live::mute(app, &kind, &name, &entry)?;
+            Ok(json!({ "value": entry }))
         }
         "open_file" => {
             let path = app.settings_path();
@@ -288,12 +293,8 @@ fn resolve_muted(
     (rows, choices)
 }
 
-/// Mute a chat signal's conversation (`.` in Incoming): its channel, and the edit adding it unless it's listed.
-fn mute_edit(
-    r: &dyn crate::domain::ports::Reads,
-    sources: &[super::SourceConfig],
-    item_id: i64,
-) -> Result<(String, Option<Edit>)> {
+/// A chat signal's source kind and name, and its `muted` entry: `#name` for a Slack channel, else the id.
+fn mute_entry(r: &dyn crate::domain::ports::Reads, item_id: i64) -> Result<(String, String, String)> {
     let item = r.items().item(item_id)?.ok_or_else(|| msg("no such signal"))?;
     let source = crate::sync::source(r, item.source_id)?;
     let raw: Value = serde_json::from_str(&item.raw_json).unwrap_or(Value::Null);
@@ -301,24 +302,12 @@ fn mute_edit(
         .get("channel")
         .and_then(Value::as_str)
         .filter(|_| crate::sync::connectors::chat::is_chat(&source.kind))
-        .ok_or_else(|| msg("only a chat conversation can be ignored"))?
-        .to_owned();
-    let index = sources
-        .iter()
-        .position(|s| s.kind == source.kind && s.name == source.name)
-        .ok_or_else(|| msg(format!("{} isn't in settings.json", source.name)))?;
-    let listed = source
-        .config
-        .get("muted")
-        .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().any(|m| m.as_str() == Some(channel.as_str())));
-    let edit = (!listed).then(|| {
-        Edit::Push(
-            vec!["sources".into(), json!(index), "config".into(), "muted".into()],
-            json!(channel),
-        )
-    });
-    Ok((channel, edit))
+        .ok_or_else(|| msg("only a chat conversation can be ignored"))?;
+    let entry = match raw.get("name").and_then(Value::as_str) {
+        Some(n) if source.kind == "slack" => format!("#{n}"),
+        _ => channel.to_owned(),
+    };
+    Ok((source.kind, source.name, entry))
 }
 
 /// Channels you're in, with what Alethiometer saw of them in the last 14 days.
@@ -447,7 +436,11 @@ mod tests {
             "DM · Priya · thread: hi",
             json!({ "channel": "D1", "thread_ts": "1.0" }),
         );
-        item("C1/2.0", "#ops", json!({ "channel": "C1" }));
+        let ops = item(
+            "C1/2.0",
+            "#ops",
+            json!({ "channel": "C1", "conv": "channel", "name": "ops" }),
+        );
         let index = app
             .settings()
             .sources
@@ -455,8 +448,8 @@ mod tests {
             .position(|s| s.name == "Work Slack")
             .unwrap();
         let muted = |app: &App| app.settings().sources[index].config["muted"].clone();
-        call(&app, "mute", &json!({ "item_id": dm })).unwrap();
-        call(&app, "mute", &json!({ "item_id": dm })).unwrap();
+        call(&app, "mute_signal", &json!({ "item_id": dm })).unwrap();
+        call(&app, "mute_signal", &json!({ "item_id": dm })).unwrap();
         assert_eq!(muted(&app), json!(["#random", "D1"]));
         let page = call(&app, "chat_conversations", &json!({ "source": source })).unwrap();
         assert_eq!(
@@ -470,5 +463,13 @@ mod tests {
             page["choices"],
             json!([{ "value": "C1", "name": "#ops", "kind": "channel" }])
         );
+        call(&app, "mute_signal", &json!({ "item_id": ops })).unwrap();
+        assert_eq!(
+            muted(&app),
+            json!(["#random", "D1", "#ops"]),
+            "a named channel as the suggestions add it"
+        );
+        let page = call(&app, "chat_conversations", &json!({ "source": source })).unwrap();
+        assert_eq!(page["choices"], json!([]));
     }
 }
