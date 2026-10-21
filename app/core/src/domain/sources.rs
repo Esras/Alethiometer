@@ -17,6 +17,14 @@ pub struct SourceRow {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Conversation {
+    pub channel: String,
+    pub title: String,
+    pub conv: Option<String>,
+    pub last: crate::time::Ts,
+}
+
 pub trait SourceViews {
     /// Sources of a kind, in id order.
     fn of_kind(&self, kind: &str) -> Result<Vec<SourceRow>>;
@@ -26,6 +34,8 @@ pub trait SourceViews {
     fn find(&self, kind: &str, name: &str) -> Result<Option<i64>>;
     /// Per Slack channel of a source: the latest message since `since` and how many.
     fn channel_activity(&self, source_id: i64, since: crate::time::Ts) -> Result<Vec<(String, crate::time::Ts, i64)>>;
+    /// Each chat conversation of a source, most recently active first.
+    fn conversations(&self, source_id: i64) -> Result<Vec<Conversation>>;
     /// Stored revisions of a source's items, by external id.
     fn item_revs(&self, source_id: i64) -> Result<std::collections::HashMap<String, String>>;
     /// Open items of a source not read by id since `before` (and not failing

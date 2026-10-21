@@ -63,6 +63,31 @@ impl SourceViews for Sql<'_> {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    fn conversations(&self, source_id: i64) -> Result<Vec<crate::domain::sources::Conversation>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT channel, title, conv, last FROM (
+                   SELECT json_extract(raw_json, '$.channel') AS channel, title, json_extract(raw_json, '$.conv') AS conv,
+                          max(coalesce(ended_at, occurred_at)) OVER w AS last,
+                          row_number() OVER (PARTITION BY json_extract(raw_json, '$.channel')
+                            ORDER BY json_extract(raw_json, '$.thread_ts') IS NOT NULL, instr(external_id, '/mention/') > 0,
+                                     occurred_at DESC) AS n
+                     FROM items WHERE source_id = ?1 AND json_extract(raw_json, '$.channel') IS NOT NULL
+                   WINDOW w AS (PARTITION BY json_extract(raw_json, '$.channel')))
+                  WHERE n = 1 ORDER BY last DESC",
+            )?
+            .query_map([source_id], |r| {
+                Ok(crate::domain::sources::Conversation {
+                    channel: r.get(0)?,
+                    title: r.get(1)?,
+                    conv: r.get(2)?,
+                    last: r.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     fn item_revs(&self, source_id: i64) -> Result<std::collections::HashMap<String, String>> {
         Ok(self
             .conn()

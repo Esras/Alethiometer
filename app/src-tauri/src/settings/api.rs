@@ -55,6 +55,15 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "fonts" => Ok(json!(fonts())),
         "slack_channels" => slack_channels(app, arg_i64(args, "source")?),
+        "chat_conversations" => app.store().read(|r| chat_conversations(r, arg_i64(args, "source")?)),
+        "mute" => {
+            let item_id = arg_i64(args, "item_id")?;
+            let (channel, edit) = app.store().read(|r| mute_edit(r, &app.settings().sources, item_id))?;
+            if let Some(e) = edit {
+                live::patch(app, &[e])?;
+            }
+            Ok(json!({ "value": channel }))
+        }
         "open_file" => {
             let path = app.settings_path();
             app.platform
@@ -182,6 +191,136 @@ pub fn fonts() -> Vec<Value> {
         .collect()
 }
 
+/// A chat source's muted list resolved to names, and the conversations it has seen that aren't muted.
+fn chat_conversations(r: &dyn crate::domain::ports::Reads, source_id: i64) -> Result<Value> {
+    let (source, convs, profiles) = (
+        crate::sync::source(r, source_id)?,
+        r.sources().conversations(source_id)?,
+        r.people().directory()?.profiles,
+    );
+    if !crate::sync::connectors::chat::is_chat(&source.kind) {
+        return Err(msg("not a chat source"));
+    }
+    let muted: Vec<String> = source
+        .config
+        .get("muted")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    let names: Vec<(String, String)> = profiles
+        .into_iter()
+        .filter(|p| p.kind == source.kind)
+        .filter_map(|p| Some((p.account, p.real_name?)))
+        .collect();
+    let (muted, choices) = resolve_muted(&muted, &convs, &names);
+    Ok(json!({ "muted": muted, "choices": choices }))
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Muted {
+    value: String,
+    name: String,
+    kind: &'static str,
+}
+
+fn conversation_name(c: &crate::domain::sources::Conversation) -> (String, &'static str) {
+    let base = [" · thread", " · mention"]
+        .iter()
+        .filter_map(|s| c.title.find(s))
+        .min()
+        .map_or(c.title.as_str(), |i| &c.title[..i]);
+    let kind = match c.conv.as_deref() {
+        Some("dm") => "dm",
+        Some("group") => "group",
+        Some(_) => "channel",
+        None if base.starts_with("DM · ") => "dm",
+        None if base.starts_with("Group DM · ") => "group",
+        None => "channel",
+    };
+    let name = match kind {
+        "channel" => base,
+        _ => base.split_once(" · ").map_or(base, |(_, n)| n),
+    };
+    (name.to_owned(), kind)
+}
+
+fn resolve_muted(
+    muted: &[String],
+    convs: &[crate::domain::sources::Conversation],
+    people: &[(String, String)],
+) -> (Vec<Muted>, Vec<Muted>) {
+    let named: Vec<(&str, String, &'static str)> = convs
+        .iter()
+        .map(|c| {
+            let (name, kind) = conversation_name(c);
+            (c.channel.as_str(), name, kind)
+        })
+        .collect();
+    let rows = muted
+        .iter()
+        .map(|m| {
+            let (name, kind) = match named.iter().find(|(ch, name, _)| ch == m || name == m) {
+                Some((_, name, kind)) => (name.clone(), *kind),
+                None => match people.iter().find(|(a, _)| a == m) {
+                    Some((_, n)) => (n.clone(), "dm"),
+                    None if m.starts_with('#') => (m.clone(), "channel"),
+                    None if m.starts_with("mpdm-") => (m.clone(), "group"),
+                    None if m.starts_with('D') || m.starts_with('U') || m.starts_with('W') => (m.clone(), "dm"),
+                    None => (m.clone(), "channel"),
+                },
+            };
+            Muted {
+                value: m.clone(),
+                name,
+                kind,
+            }
+        })
+        .collect();
+    let choices = named
+        .into_iter()
+        .filter(|(ch, name, _)| !muted.iter().any(|m| m == ch || m == name))
+        .map(|(ch, name, kind)| Muted {
+            value: ch.to_owned(),
+            name,
+            kind,
+        })
+        .collect();
+    (rows, choices)
+}
+
+/// Mute a chat signal's conversation (`.` in Incoming): its channel, and the edit adding it unless it's listed.
+fn mute_edit(
+    r: &dyn crate::domain::ports::Reads,
+    sources: &[super::SourceConfig],
+    item_id: i64,
+) -> Result<(String, Option<Edit>)> {
+    let item = r.items().item(item_id)?.ok_or_else(|| msg("no such signal"))?;
+    let source = crate::sync::source(r, item.source_id)?;
+    let raw: Value = serde_json::from_str(&item.raw_json).unwrap_or(Value::Null);
+    let channel = raw
+        .get("channel")
+        .and_then(Value::as_str)
+        .filter(|_| crate::sync::connectors::chat::is_chat(&source.kind))
+        .ok_or_else(|| msg("only a chat conversation can be ignored"))?
+        .to_owned();
+    let index = sources
+        .iter()
+        .position(|s| s.kind == source.kind && s.name == source.name)
+        .ok_or_else(|| msg(format!("{} isn't in settings.json", source.name)))?;
+    let listed = source
+        .config
+        .get("muted")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|m| m.as_str() == Some(channel.as_str())));
+    let edit = (!listed).then(|| {
+        Edit::Push(
+            vec!["sources".into(), json!(index), "config".into(), "muted".into()],
+            json!(channel),
+        )
+    });
+    Ok((channel, edit))
+}
+
 /// Channels you're in, with what Alethiometer saw of them in the last 14 days.
 fn slack_channels(app: &App, source_id: i64) -> Result<Value> {
     let source = app.store().read(|r| crate::sync::source(r, source_id))?;
@@ -274,6 +413,62 @@ mod tests {
         assert!(
             call(&app, "secret_set", &json!({ "name": "someone.else", "value": "x" })).is_err(),
             "only secrets a source uses"
+        );
+    }
+
+    #[test]
+    fn muting_from_a_signal_adds_its_conversation_once_and_settings_show_it_by_name() {
+        let (app, _dir) = app();
+        live::write_file(&app.settings_path(), &serde_json::to_value(&*app.settings()).unwrap()).unwrap();
+        let app = App::shared(app);
+        let src = json!({ "kind": "slack", "tag": "work", "name": "Work Slack", "config": { "muted": ["#random"] } });
+        live::patch(
+            &app,
+            &[Edit::parse(&json!({ "op": "push", "path": ["sources"], "value": src })).unwrap()],
+        )
+        .unwrap();
+        let source: i64 = app
+            .db()
+            .query_row("SELECT id FROM sources WHERE name = 'Work Slack'", [], |r| r.get(0))
+            .unwrap();
+        let item = |ext: &str, title: &str, raw: Value| -> i64 {
+            app.db()
+                .execute(
+                    "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen, raw_json)
+                     VALUES (?1, ?2, 'thread', ?3, '2026-10-20T10:00:00Z', 'open', 0, ?4)",
+                    rusqlite::params![source, ext, title, raw.to_string()],
+                )
+                .unwrap();
+            app.db().last_insert_rowid()
+        };
+        let dm = item("D1/1.0", "DM · Priya", json!({ "channel": "D1" }));
+        item(
+            "D1/thread/1.0",
+            "DM · Priya · thread: hi",
+            json!({ "channel": "D1", "thread_ts": "1.0" }),
+        );
+        item("C1/2.0", "#ops", json!({ "channel": "C1" }));
+        let index = app
+            .settings()
+            .sources
+            .iter()
+            .position(|s| s.name == "Work Slack")
+            .unwrap();
+        let muted = |app: &App| app.settings().sources[index].config["muted"].clone();
+        call(&app, "mute", &json!({ "item_id": dm })).unwrap();
+        call(&app, "mute", &json!({ "item_id": dm })).unwrap();
+        assert_eq!(muted(&app), json!(["#random", "D1"]));
+        let page = call(&app, "chat_conversations", &json!({ "source": source })).unwrap();
+        assert_eq!(
+            page["muted"],
+            json!([
+                { "value": "#random", "name": "#random", "kind": "channel" },
+                { "value": "D1", "name": "Priya", "kind": "dm" }
+            ])
+        );
+        assert_eq!(
+            page["choices"],
+            json!([{ "value": "C1", "name": "#ops", "kind": "channel" }])
         );
     }
 }

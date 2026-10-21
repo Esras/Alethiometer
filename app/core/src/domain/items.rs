@@ -78,6 +78,7 @@ pub trait Items {
 
 /// Reads about single items, outside a unit of work.
 pub trait ItemViews {
+    fn item(&self, id: i64) -> Result<Option<ItemRef>>;
     /// Whether the source's item is seen, if there is one.
     fn seen_by_external(&self, source_id: i64, external_id: &str) -> Result<Option<bool>>;
     fn seen(&self, id: i64) -> Result<Option<bool>>;

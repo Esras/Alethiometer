@@ -7,6 +7,7 @@
   import MapEdit from './MapEdit.svelte';
   import FontPick from './FontPick.svelte';
   import ListEdit from './ListEdit.svelte';
+  import MutedList from './MutedList.svelte';
   import type { Field, Seg } from './model';
   import Stepper from '../../lib/ui/Stepper.svelte';
   import Segmented from '../../lib/ui/Segmented.svelte';
@@ -20,6 +21,7 @@
     pair = undefined,
     fonts = [],
     extra = '',
+    sourceId = undefined,
     onset,
     onedit,
     onfocus,
@@ -34,6 +36,7 @@
     fonts?: { name: string; mono: boolean }[];
     /** Extra text after the control (usage, counts). */
     extra?: string;
+    sourceId?: number;
     onset: (value: unknown, path?: Seg[]) => void;
     onedit: (on: boolean) => void;
     onfocus: () => void;
@@ -161,6 +164,13 @@
         {editing}
         {onedit}
         onchange={(v) => onset(v)}
+      />
+    {:else if field.widget === 'chat_muted'}
+      <MutedList
+        {sourceId}
+        value={(value as string[]) ?? []}
+        onchange={(v) => onset(v)}
+        onadd={() => onaction('mute_add')}
       />
     {:else if field.widget === 'map' || field.widget === 'category_map'}
       <MapEdit

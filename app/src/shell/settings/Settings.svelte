@@ -38,6 +38,7 @@
   import Segmented from '../../lib/ui/Segmented.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
+  import MutedPicker from './MutedPicker.svelte';
 
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
@@ -56,6 +57,7 @@
   let secretValue = $state('');
   let removeArmed = $state<number | null>(null);
   let review = $state<SourceRow | null>(null);
+  let mutePick = $state<SourceRow | null>(null);
 
   async function load() {
     page = await loadPage();
@@ -273,6 +275,7 @@
       if (it.field.opts?.readonly) return;
       if (it.field.widget === 'toggle') return setField(it, !it.value);
       if (it.field.widget === 'slack_channels' && source) return (review = source);
+      if (it.field.widget === 'chat_muted' && source) return (mutePick = source);
       editing = true;
       return;
     }
@@ -606,7 +609,7 @@
                       ? 'every channel you’re in'
                       : item.extra}
                     {fonts}
-                    focused={i === focus}
+                    sourceId={source?.status?.id}
                     editing={i === focus && editing}
                     onfocus={() => (focus = i)}
                     onedit={(on) => {
@@ -617,6 +620,7 @@
                     onaction={(a) => {
                       if (a === 'review' && source) review = source;
                       if (a === 'only' && source) onlyThese(source);
+                      if (a === 'mute_add' && source) mutePick = source;
                     }}
                   />
                 {:else if item.t === 'enabled'}
@@ -823,6 +827,14 @@
     channels={sourceValue(page, review.index, 'slack', ['config', 'channels'])}
     onclose={() => (review = null)}
     onchange={(v) => apply([{ path: ['sources', review!.index, 'config', 'channels'], value: v }])}
+  />
+{/if}
+{#if mutePick && page}
+  <MutedPicker
+    source={mutePick}
+    muted={(sourceValue(page, mutePick.index, mutePick.kind, ['config', 'muted']) as string[]) ?? []}
+    onclose={() => (mutePick = null)}
+    onchange={(v) => apply([{ path: ['sources', mutePick!.index, 'config', 'muted'], value: v }])}
   />
 {/if}
 

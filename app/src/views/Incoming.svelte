@@ -36,6 +36,7 @@
   import Dock from '../lib/ui/Dock.svelte';
   import DockHost from '../lib/ui/DockHost.svelte';
   import KeySheet, { type KeySection } from '../lib/ui/KeySheet.svelte';
+  import { popover } from '../lib/ui/popover';
   import Markdown from '../lib/ui/Markdown.svelte';
   import PersonName from '../lib/ui/PersonName.svelte';
   import AssistantPane from '../shell/AssistantPane.svelte';
@@ -682,6 +683,22 @@
   }
 
   let keysOpen = $state(false);
+  let acting = $state<number | null>(null);
+  const conversationOf = (s: Signal) =>
+    [' · thread', ' · mention'].reduce((t, cut) => (t.includes(cut) ? t.slice(0, t.indexOf(cut)) : t), s.title);
+
+  async function ignore(s: Signal) {
+    acting = null;
+    try {
+      await call('settings.mute', { item_id: s.item_id });
+      toast(
+        `Ignoring ${conversationOf(s)}: its new messages won't come to Incoming. Settings › ${sourceLabel(s.source)} › Ignored undoes it.`,
+        true,
+      );
+    } catch (e) {
+      toast(e);
+    }
+  }
   const KEYS: KeySection[] = [
     {
       title: 'Everywhere',
@@ -728,6 +745,7 @@
         [['R'], 'Reply'],
         [[chord('⌥T', 'Alt+T')], 'Thread or conversation'],
         [['S'], 'Split review'],
+        [['.'], 'More: ignore the channel or DM'],
       ],
     },
     {
@@ -757,6 +775,13 @@
 
   useKeys((e) => {
     if (picking || todoFor !== null || linking || reviewing !== null) return;
+    if (acting !== null) {
+      const s = flat.find((x) => x.item_id === acting);
+      if (plain(e, 'i') && s) return (ignore(s), true);
+      acting = null;
+      if (plain(e, '.')) return true;
+    }
+    if (plain(e, '.') && current && isChat(current.source)) return ((acting = current.item_id), true);
     if (plain(e, '?')) return ((keysOpen = true), true);
     if (inMsgs && current) {
       const shift = shiftStep(e);
@@ -1173,6 +1198,15 @@
           />
         </Dock>
       {/if}
+      {#if acting !== null && current?.item_id === acting}
+        <Dock under=".sig.sel">
+          <div class="more popover flush" role="menu" use:popover={{ onclose: () => (acting = null) }}>
+            <button role="menuitem" onclick={() => current && ignore(current)}
+              ><i class="ph ph-bell-slash"></i>Ignore {conversationOf(current)}<kbd>i</kbd></button
+            >
+          </div>
+        </Dock>
+      {/if}
       {#if picking && current}
         <Dock under=".sig.sel">
           <TopicPicker
@@ -1580,6 +1614,26 @@
   }
   .links button:hover {
     text-decoration: underline;
+  }
+  .more {
+    width: 300px;
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+  }
+  .more button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 12px;
+    text-align: left;
+    color: var(--tx-2);
+  }
+  .more button:hover {
+    background: var(--hover-tint);
+  }
+  .more button kbd {
+    margin-left: auto;
   }
   .empty-pane {
     display: block;

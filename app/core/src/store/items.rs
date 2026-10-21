@@ -207,6 +207,10 @@ impl Items for Sql<'_> {
 }
 
 impl ItemViews for Sql<'_> {
+    fn item(&self, id: i64) -> Result<Option<ItemRef>> {
+        Items::get(self, id)
+    }
+
     fn seen_by_external(&self, source_id: i64, external_id: &str) -> Result<Option<bool>> {
         Ok(self
             .conn()

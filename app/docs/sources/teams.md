@@ -52,7 +52,7 @@ Then **Connect** in the sync status popover: your browser opens Microsoft's sign
 | `tenant` | `organizations` | Directory (tenant) ID or domain. `organizations` lets any work account sign in. |
 | `chats` | `true` | Read your chats. |
 | `channels` | `[]` | Channels to read: paste each channel's link (… next to the channel → **Get link to channel**), or write `<team id>|<channel id>`. Needs the channel stage. |
-| `muted` | `[]` | Chat or channel ids: still read and stored, never new in Incoming. |
+| `muted` | `[]` | Chat or channel ids: still read and stored, never new in Incoming. Listed by name in Settings › Teams › Ignored (chats and channels apart, Add… picks from what's been seen); `.` then `i` on a Teams signal in Incoming adds its conversation. |
 | `lookback_hours` | `72` | The furthest back anything is read: the first sync, and after Alethiometer was off. |
 | `max_chats` | `50` | Chats checked per poll, most recently active first (Graph lists 50 per call). A chat beyond it is read again once it's among the most recent. |
 | `thread_days` | `90` | A channel thread is tracked this long after its last reply. |

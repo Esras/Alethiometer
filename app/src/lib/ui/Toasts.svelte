@@ -6,7 +6,7 @@
 {#each toasts.list as t (t.id)}
   <div class="toast popover" role="alert" onmouseenter={() => hold(t.id, true)} onmouseleave={() => hold(t.id, false)}>
     <div class="top">
-      <i class="ph ph-warning icon"></i>Didn't work
+      {#if t.ok}<i class="ph ph-check icon ok"></i>Done{:else}<i class="ph ph-warning icon"></i>Didn't work{/if}
       <span class="at tnum">{clockHM(t.at)}</span>
       <button class="x" onclick={() => closeToast(t.id)} title="Close" aria-label="Close"
         ><i class="ph ph-x"></i></button
@@ -37,6 +37,9 @@
   .icon {
     font-size: 1.1538rem;
     color: var(--red);
+  }
+  .icon.ok {
+    color: var(--aqua);
   }
   .at {
     margin-left: auto;

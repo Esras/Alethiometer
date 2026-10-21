@@ -77,8 +77,8 @@ pub struct TeamsConfig {
     /// "Get link to channel" links, or "<team id>|<channel id>". Needs admin approval.
     #[schemars(extend("x-group" = "reads", "x-label" = "Channels", "x-widget" = "list"))]
     pub channels: Vec<String>,
-    /// Chat or channel ids: still read, never new in Incoming.
-    #[schemars(extend("x-group" = "reads", "x-label" = "Muted", "x-widget" = "list"))]
+    /// Chats and channels: still read, never new in Incoming.
+    #[schemars(extend("x-group" = "reads", "x-label" = "Ignored", "x-widget" = "chat_muted"))]
     pub muted: Vec<String>,
     #[schemars(extend("x-group" = "limits", "x-label" = "Look back", "x-unit" = "h", "x-step" = 12, "x-min" = 1))]
     pub lookback_hours: i64,
@@ -139,8 +139,8 @@ pub struct SlackConfig {
     /// Past ~100, a catch-up takes minutes without the live token.
     #[schemars(extend("x-group" = "reads", "x-label" = "Channels", "x-widget" = "slack_channels"))]
     pub channels: Channels,
-    /// Still read, never new in Incoming.
-    #[schemars(extend("x-group" = "reads", "x-label" = "Muted", "x-widget" = "list"))]
+    /// Channels and DMs: still read, never new in Incoming.
+    #[schemars(extend("x-group" = "reads", "x-label" = "Ignored", "x-widget" = "chat_muted"))]
     pub muted: Vec<String>,
     #[schemars(extend("x-group" = "reads", "x-label" = "DMs"))]
     pub dms: bool,
