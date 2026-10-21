@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextKey, putBack } from './nextKey';
+import { nextKey, putBack, stillDismissed } from './nextKey';
 
 describe('nextKey', () => {
   it('goes to the next topic left, even when one before it went too', () => {
@@ -19,5 +19,22 @@ describe('putBack', () => {
     const list = [3, 4, 5].map(row);
     putBack(list, [1, 2, 3, 4, 5].map(row), 2);
     expect(list.map((s) => s.item_id)).toEqual([2, 3, 4, 5]);
+  });
+});
+
+describe('stillDismissed', () => {
+  it('forgets a dismissal once the row is gone, or back with a new message', () => {
+    const dismissed = new Set([1, 2, 3, 4]);
+    const revAt = new Map([
+      [1, 5],
+      [2, 5],
+      [3, 5],
+    ]);
+    const listed = new Map([
+      [1, 5],
+      [2, 6],
+      [4, 9],
+    ]);
+    expect([...stillDismissed(dismissed, revAt, listed)]).toEqual([1, 4]);
   });
 });

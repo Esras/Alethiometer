@@ -5,6 +5,11 @@ export function nextKey<K>(before: K[], sel: K | null, now: K[]): K | undefined 
   return now.find((k) => before.indexOf(k) > at || !before.includes(k)) ?? now[now.length - 1];
 }
 
+/** Dismissed rows still to show as dismissed: listed, and not back with new activity since (a higher rev). */
+export function stillDismissed(dismissed: Set<number>, revAt: Map<number, number>, listed: Map<number, number>) {
+  return new Set([...dismissed].filter((id) => listed.has(id) && !(revAt.has(id) && listed.get(id)! > revAt.get(id)!)));
+}
+
 /** Put `id` back before the first row that followed it in `from` and is still in `list`. */
 export function putBack<T extends { item_id: number }>(list: T[], from: T[], id: number) {
   const i = from.findIndex((s) => s.item_id === id);

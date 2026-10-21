@@ -49,7 +49,7 @@
   import ChatReply from './incoming/ChatReply.svelte';
   import SplitReview from './incoming/SplitReview.svelte';
   import TopicPicker from './incoming/TopicPicker.svelte';
-  import { nextKey, putBack } from './incoming/nextKey';
+  import { nextKey, putBack, stillDismissed } from './incoming/nextKey';
   import type { Bodies, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
   import type { Draft, JiraTarget, TodosData } from './todos/types';
@@ -246,8 +246,11 @@
     q.topics.sort((a, b) => pos(a.id) - pos(b.id));
     queue = q;
     if (hasAgents(q)) loadLive();
-    const present = new Set([...q.topics.flatMap((t) => t.signals), ...q.unsorted, ...q.agents].map((s) => s.item_id));
-    dismissed = new Set([...dismissed].filter((id) => present.has(id)));
+    const listed = new Map(
+      [...q.topics.flatMap((t) => t.signals), ...q.unsorted, ...q.agents].map((s) => [s.item_id, s.rev]),
+    );
+    dismissed = stillDismissed(dismissed, dismissedRev, listed);
+    const present = new Set(listed.keys());
     if ([...answered.keys()].some((id) => !present.has(id)))
       answered = new Map([...answered].filter(([id]) => present.has(id)));
     const keys: QueueKey[] = [
@@ -519,11 +522,16 @@
 
   $effect(() => {
     const id = selItem;
-    if (untrack(() => [...dismissed].some((d) => d !== id))) untrack(refresh);
+    if (untrack(() => [...dismissed].some((d) => d !== id)))
+      untrack(() => {
+        refresh();
+        if (lastList) apply(structuredClone(lastList));
+      });
   });
 
   // The unread messages a dismissal marked read, so `u` makes the same ones unread.
   const unreadBefore = new Map<number, string[]>();
+  const dismissedRev = new Map<number, number>();
 
   async function dismiss(s: Signal | null, on = true, trash = false) {
     if (!s || dismissed.has(s.item_id) === on || (trash && s.source !== 'gmail')) return;
@@ -540,6 +548,8 @@
       trashed = t;
     };
     flip(on);
+    if (on) dismissedRev.set(s.item_id, s.rev);
+    else dismissedRev.delete(s.item_id);
     try {
       const r = await call<{ unread?: string[] }>(
         on ? (trash ? 'incoming.trash' : 'incoming.dismiss') : 'incoming.undismiss',
