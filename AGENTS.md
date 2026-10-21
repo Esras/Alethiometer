@@ -1,8 +1,15 @@
 # Working on Alethiometer
 
-For agents and people. Read `HANDOFF.md` next: state of the work, user decisions, how to run things.
+For agents and people.
 
 Priorities: **accuracy over performance, maintainability over speed of development.**
+
+## Read in this order
+
+1. **`HANDOFF.md`**: what is built, what's in flight, every decision the user has made (don't re-ask those), and how to run the checks.
+2. **`app/README.md`**: the app's status table and how to run it.
+3. **`app/docs/`**: one document per area: `ai.md`, `agents.md`, `db-plan.md`, `people.md`, `settings.md`, `todos.md`, `reclassify-and-merge.md`, `ui-plan.md` (front-end work), and `sources/` for connector setup.
+4. **`ISSUES.md`**: bugs and gaps found on real accounts. Check it before connector work.
 
 ## Engineering rules
 
@@ -19,3 +26,18 @@ Priorities: **accuracy over performance, maintainability over speed of developme
 - **Tests:** a fix comes with a test that fails without it. Races get a test that runs the competing paths at once. Fixtures replace live accounts.
 - **Formatting is the tools', not by hand**, 120 columns: Rust with rustfmt (`rustfmt.toml`; `cargo fmt` in `app/src-tauri` and `app/agentd`, `cargo fmt --check` must pass), the front end with Prettier (`app/.prettierrc.json`; `npm run format` in `app`, `npm run format:check` must pass). Run them before committing. Don't match an older wide style.
 - **Keep each change minimal and say what it doesn't do.** Record decisions in `HANDOFF.md` and open problems in `ISSUES.md`.
+
+## The design
+
+The app was built from a Claude Design handoff, which stays in the repo as the reference:
+
+- **`project/design_handoff_helm/README.md`** is the spec. Its "Files" section says which mock IDs are current.
+- **`project/*.dc.html`** are the HTML mocks: explorations by round (rounds 1–6 are superseded), Agents, Glean and the day strip.
+- **`chats/`** holds the design conversations. Read them for intent: they show where the user landed, not only what was drawn.
+
+The **Alethiometer design system** (https://claude.ai/artifact/WH4uwJJM3gk6Ux2HX7f565) holds the tokens, shared classes and numbered decisions for the front end. Where it differs from the "User" notes in `app/docs/ui-plan.md`, the notes win.
+
+## Other files
+
+- `REVIEW-2026-10-03.md`: an architecture and correctness review, with its findings.
+- `patches/pi-acp/`: patches for the user's fork of `pi-acp`, the Pi adapter, kept until they land there. Alethiometer doesn't depend on them.

@@ -4,7 +4,7 @@ Personal, local-first work assistant. Tauri 2 (Rust core, system WebKit) with a 
 
 ## Status
 
-All five views run against the real SQLite schema. With `demo_data: true` (the default) they show sample data from the design mocks. Connectors, writeback and the work AI are built and tested against recorded API responses, but none has run against a live account yet.
+All five views run against the real SQLite schema. With `demo_data: true` (the default) they show sample data from the design mocks. Slack, Gmail, Google Calendar, Jira, GitHub, Obsidian and the work AI run against live accounts on the work Mac; Microsoft Teams, Proton ICS and Glean are tested only against recorded API responses.
 
 | Area | State |
 |---|---|
@@ -13,8 +13,8 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Day strip, countdown, Life blocks, leave-by, buffer override | done |
 | Topics (7a/7b) | done |
 | Incoming (8a), Priorities (8b), Notes (9a/10a/11a), Reflect (9b/9c/9d, nudge as in-app card) | done |
-| Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, untested against a live account; off until models are set. See `docs/ai.md` |
-| Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Microsoft Teams (polling; chats, channels with admin approval), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done, untested live. Setup per source in `docs/sources/`; what chat sources share in `docs/chat.md` |
+| Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, live on Bedrock; off until models are set. See `docs/ai.md` |
+| Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Microsoft Teams (polling; chats, channels with admin approval), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done; Teams and Proton ICS untested live. Setup per source in `docs/sources/`; what chat sources share in `docs/chat.md` |
 | People notes (`People/*.md`), person colours, new-person suggestions, link to person, Slack split review | done. See `docs/people.md` |
 | Reclassify a filed signal (chronology 18c, Search view 18d), merge topics | done. See `docs/reclassify-and-merge.md` |
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |

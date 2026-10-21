@@ -99,7 +99,7 @@ Open Settings (`⌘,`) › **Sources** › **Add source**. Each source has its o
 
 Secrets you paste go to `secrets.json` in the data directory (mode 0600) and are never shown again. The sync status in the tab bar shows each source's last sync and any error; a red dot in Settings marks a missing secret or a failed sync.
 
-None of the connectors has run against a live account yet. If one misbehaves, check `ISSUES.md` first and add what you find there.
+Microsoft Teams, Proton Calendar and Glean have only been tested against recorded API responses. If a source misbehaves, check `ISSUES.md` first and add what you find there.
 
 ## 6. Optional extras
 

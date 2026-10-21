@@ -1,6 +1,6 @@
 # Alethiometer: handoff for the next session
 
-Read this first, then `app/README.md` and the docs it links. The original design handoff (mocks, chats, spec) is in `README.md`, `chats/` and `project/`; the spec is `project/design_handoff_helm/README.md`. The app was called Helm during design; it is now **Alethiometer**.
+Read this first, then `app/README.md` and the docs it links. The original design handoff (mocks, chats, spec) is in `AGENTS.md`, `chats/` and `project/`; the spec is `project/design_handoff_helm/README.md`. The app was called Helm during design; it is now **Alethiometer**.
 
 ## Where things are
 
