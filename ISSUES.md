@@ -4,6 +4,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### UI checks in the real web view (user, 2026-10-21: deferred)
+
+`scripts/shot.mjs`, `ui-diff` and `ui-keys` drive Chromium against the browser-mode dev server, but the app renders in WKWebView (Mac), WebKitGTK (Linux) and WebView2 (Windows). Tauri's docs recommend WebdriverIO's `@wdio/tauri-service` with `tauri-plugin-wdio-webdriver`, a WebDriver server embedded in the app, which is the only route that works on macOS (`tauri-driver` has no WKWebView driver there). It would need the plugin behind a dev-only Cargo feature, the WebdriverIO dev dependencies, a test build and its own data dir. Firefox was ruled out: no Tauri platform uses Gecko.
+
 ### Agents: pi's cache-miss notices never reach Alethiometer (user, 2026-10-21: on hold)
 
 pi (`showCacheMissNotices: true`) computes them only in its TUI (`interactive-mode.js`, `core/cache-stats.js` `detectCacheMiss`), never over RPC, so pi-acp has nothing to forward. pi-acp's `usage_update` carries only the running cost and context size, once per turn, so Alethiometer can't tell a miss from it reliably. The per-call usage (input, cacheRead, cacheWrite, cost split, model, timestamp) is in pi's `message_end`, which pi-acp drops. Options put to the user: port `detectMiss` into the pi-acp fork and send a notify chunk, or forward the usage in `_meta` and compute here. Also: pi `notify` chunks (`_meta.piAcp.notify`) are merged into the agent's output text today instead of a line of their own.
