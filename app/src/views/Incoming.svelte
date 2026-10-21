@@ -1509,13 +1509,13 @@
   }
   .gap {
     display: block;
-    height: 14px;
-    padding: 0 8px;
+    height: 18px;
+    padding: 0 8px 0 22px;
     margin: 0 -8px;
-    font-size: 0.9231rem;
-    line-height: 14px;
+    font-size: 1.25rem;
+    line-height: 18px;
     letter-spacing: 2px;
-    color: var(--tx-disabled);
+    color: var(--tx-muted-2);
   }
   .gap:hover {
     color: var(--aqua);

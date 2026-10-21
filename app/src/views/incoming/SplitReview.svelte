@@ -561,12 +561,13 @@
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 10px;
-    height: 14px;
+    height: 18px;
     align-items: center;
-    font-size: 0.9231rem;
+    padding-left: 14px;
+    font-size: 1.25rem;
     line-height: 1;
     letter-spacing: 2px;
-    color: var(--tx-disabled);
+    color: var(--tx-muted-2);
   }
   .legend {
     margin: 10px 16px 12px 38px;
