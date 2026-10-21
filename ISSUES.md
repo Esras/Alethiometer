@@ -6,7 +6,7 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ### UI checks in the real web view (user, 2026-10-21: deferred)
 
-`scripts/shot.mjs`, `ui-diff` and `ui-keys` drive Chromium against the browser-mode dev server, but the app renders in WKWebView (Mac), WebKitGTK (Linux) and WebView2 (Windows). Tauri's docs recommend WebdriverIO's `@wdio/tauri-service` with `tauri-plugin-wdio-webdriver`, a WebDriver server embedded in the app, which is the only route that works on macOS (`tauri-driver` has no WKWebView driver there). It would need the plugin behind a dev-only Cargo feature, the WebdriverIO dev dependencies, a test build and its own data dir. Firefox was ruled out: no Tauri platform uses Gecko.
+`scripts/shot.mjs`, `ui-diff` and `ui-keys` drive Chromium against the browser-mode dev server, but the app renders in WKWebView (Mac), WebKitGTK (Linux) and WebView2 (Windows). Tauri's docs recommend WebdriverIO's `@wdio/tauri-service` with `tauri-plugin-wdio-webdriver`, a WebDriver server embedded in the app, which is the only route that works on macOS (`tauri-driver` has no WKWebView driver there). It would need the plugin behind a dev-only Cargo feature, the WebdriverIO dev dependencies, a test build and its own data dir. Firefox was ruled out: no Tauri platform uses Gecko. Playwright's WebKit against the dev server was offered as the cheap stand-in and declined (user, 2026-10-21).
 
 ### Agents: pi's cache-miss notices never reach Alethiometer (user, 2026-10-21: on hold)
 
