@@ -138,6 +138,13 @@ export function wall(at: string | number) {
 /** "10:52" for an instant, on the app's clock. */
 export const clockHM = (at: string | number | null | undefined) => (at ? wall(at).hm : '');
 
+/** "Tue 2026-10-21 10:52", for a hover. */
+export const clockFull = (at: string | number | null | undefined) => {
+  if (!at) return '';
+  const w = wall(at);
+  return `${w.weekday} ${w.day} ${w.hm}`;
+};
+
 /** Minutes since local midnight, from the (possibly offset) clock. */
 export function nowMinute(): number {
   return wall(ui.nowMs).minute;

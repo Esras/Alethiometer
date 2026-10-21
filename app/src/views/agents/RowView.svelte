@@ -7,6 +7,7 @@
   import RowView from './RowView.svelte';
   import { agentColor, ROOM, YOU } from './look';
   import { hm, look, sessionById } from './state.svelte';
+  import { clockFull } from '../../lib/app.svelte';
   import type { Row, Who } from './types';
 
   let {
@@ -113,7 +114,7 @@
     <span class="right">
       {#if right}{@render right()}{/if}
       {#if earlier}<span class="earlier">{earlier} earlier <kbd>E</kbd></span>{/if}
-      {#if row.at}<span class="time">{hm(row.at)}</span>{/if}
+      {#if row.at}<span class="time" title={clockFull(row.at)}>{hm(row.at)}</span>{/if}
     </span>
   </div>
 {/snippet}
@@ -158,7 +159,9 @@
           <span class="line-text"
             >{#if row.who}<span style:color={color(row.who)}>{row.who.name}</span>{' '}{/if}{row.text}</span
           >
-          <span class="right">{@render deliveryMark()}<span class="time">{hm(row.at)}</span></span>
+          <span class="right"
+            >{@render deliveryMark()}<span class="time" title={clockFull(row.at)}>{hm(row.at)}</span></span
+          >
         </div>
       </div>
     </div>
@@ -168,7 +171,7 @@
       <div class="mid">
         <div class="head line hubline">
           <span class="line-text"><span style:color="var(--hub)">Hub</span> · {row.text}</span>
-          <span class="right"><span class="time">{hm(row.at)}</span></span>
+          <span class="right"><span class="time" title={clockFull(row.at)}>{hm(row.at)}</span></span>
         </div>
       </div>
     </div>
