@@ -223,6 +223,7 @@ struct Msg {
     user: Option<String>,
     bot_name: Option<String>,
     bot_id: Option<String>,
+    posted_for: Option<String>,
     text: String,
     thread_ts: Option<String>,
     reply_count: i64,
@@ -263,6 +264,7 @@ impl Msg {
                 .map(str::to_owned)
                 .or_else(|| s("username")),
             bot_id: s("bot_id").filter(|b| !b.is_empty()),
+            posted_for: s("bot_id").and_then(|_| posted_for(v)),
             text,
             thread_ts: s("thread_ts"),
             reply_count: v.get("reply_count").and_then(Value::as_i64).unwrap_or(0),
@@ -273,6 +275,25 @@ impl Msg {
     fn is_reply(&self) -> bool {
         matches!(&self.thread_ts, Some(t) if t != &self.ts)
     }
+}
+
+/// The person an app posted for, as Jira Cloud names them: a leading context block of their picture and `*Name*`.
+fn posted_for(v: &Value) -> Option<String> {
+    let first = v.get("blocks")?.as_array()?.first()?;
+    if first.get("type")?.as_str()? != "context" {
+        return None;
+    }
+    let els = first.get("elements")?.as_array()?;
+    let picture = els
+        .iter()
+        .any(|e| e.get("type").and_then(Value::as_str) == Some("image"));
+    let names: Vec<&str> = els
+        .iter()
+        .filter(|e| e.get("type").and_then(Value::as_str) == Some("mrkdwn"))
+        .filter_map(|e| e.get("text").and_then(Value::as_str))
+        .collect();
+    let name = names.first()?.trim().strip_prefix('*')?.strip_suffix('*')?.trim();
+    (picture && names.len() == 1 && !name.is_empty() && !name.contains('*')).then(|| name.to_owned())
 }
 
 fn rich_text(v: &Value) -> String {
@@ -1097,6 +1118,7 @@ impl Poller<'_, '_, '_> {
                     user: Some(hit.user).filter(|u| !u.is_empty()),
                     bot_name: Some(hit.username),
                     bot_id: None,
+                    posted_for: None,
                     text: hit.text,
                     thread_ts: None,
                     reply_count: 0,
@@ -1301,6 +1323,9 @@ impl Poller<'_, '_, '_> {
     }
 
     fn author_name(&mut self, m: &Msg) -> anyhow::Result<String> {
+        if let Some(p) = &m.posted_for {
+            return Ok(p.clone());
+        }
         match (&m.user, &m.bot_name) {
             (Some(u), _) => self.user_name(u),
             (None, Some(b)) if !b.is_empty() => Ok(b.clone()),
@@ -1528,6 +1553,32 @@ mod tests {
             ]}]}
         ]});
         assert_eq!(Msg::parse(&blocks).unwrap().text, "Deploy\ndone by <@U0ME>");
+    }
+
+    #[test]
+    fn an_app_posting_for_someone_shows_them() {
+        let jira = json!({ "ts": "1.0", "user": "U9JIRA", "bot_id": "B9JIRA", "text": "We'd need to prioritize this.",
+        "bot_profile": { "name": "Jira Cloud" },
+        "blocks": [
+            { "type": "context", "elements": [
+                { "type": "image", "image_url": "https://x/a.png", "alt_text": "profile_picture" },
+                { "type": "mrkdwn", "text": "*Bani K Maini*" }
+            ]},
+            { "type": "section", "text": { "type": "mrkdwn", "text": "We'd need to prioritize this." } }
+        ]});
+        let m = Msg::parse(&jira).unwrap();
+        assert_eq!(m.posted_for.as_deref(), Some("Bani K Maini"));
+        assert_eq!(m.user.as_deref(), Some("U9JIRA"));
+        let mut person = jira.clone();
+        person.as_object_mut().unwrap().remove("bot_id");
+        assert_eq!(
+            Msg::parse(&person).unwrap().posted_for,
+            None,
+            "only apps post for someone"
+        );
+        let mut status = jira.clone();
+        status["blocks"][0]["elements"][1]["text"] = json!("*NS24-1* moved to *Done*");
+        assert_eq!(Msg::parse(&status).unwrap().posted_for, None);
     }
 
     #[test]
