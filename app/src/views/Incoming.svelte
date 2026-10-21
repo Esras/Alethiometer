@@ -29,7 +29,7 @@
   import { alt, chord, plain, useKeys } from '../lib/keys.svelte';
   import { extend, shiftStep, type Range } from '../lib/range';
   import { isChat, sourceLabel } from '../lib/sources';
-  import { messageUrl } from '../lib/slackLink';
+  import { messageUrl, newest } from '../lib/slackLink';
   import { toast } from '../lib/toast.svelte';
   import type { Account } from '../lib/people';
   import AppIcon from '../lib/ui/AppIcon.svelte';
@@ -667,8 +667,8 @@
 
   function open(s: Signal | null) {
     if (!s?.url) return;
-    const m = inMsgs ? s.messages[msgIdx] : s.messages[s.messages.length - 1];
-    openExternal(messageUrl(s.url, m, inMsgs ? undefined : m?.replies?.[m.replies.length - 1]));
+    const [m, reply] = inMsgs ? [s.messages[msgIdx], undefined] : newest(s.messages);
+    openExternal(messageUrl(s.url, m, reply));
   }
 
   let keysOpen = $state(false);

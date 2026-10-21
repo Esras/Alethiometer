@@ -448,6 +448,17 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
         [],
     )
     .unwrap();
+    conn.execute(
+        "INSERT INTO topics (name, category) VALUES ('Incident 2291', 'work')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO topic_links (item_id, topic_id, state)
+         SELECT id, (SELECT id FROM topics WHERE name = 'Incident 2291'), 'confirmed' FROM items WHERE external_id = 'C0INC/1789960000.000100'",
+        [],
+    )
+    .unwrap();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();
     src.cursor = Slack.before_poll(&crate::store::over(&conn), &src).unwrap();
     let state = State::parse(src.cursor.as_deref());
@@ -473,18 +484,68 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
     assert_eq!(context(thread)[0], "Backoff patch is up, needs a second reviewer.");
     assert_eq!(context(thread).len(), 3);
 
-    // The new reply lands under its parent and brings the triaged run back.
     apply_now(&conn, &src, &b).unwrap();
     assert_eq!(
         unseen(&conn),
         [
-            "C0INC/1789960000.000100",
             "C0INC/1789999000.001000",
+            "C0INC/thread/1789990000.000200",
             "C0RANDOM/mention/1789998000.000900",
             "C0RANDOM/thread/1789000000.000100",
             "D0PRIYA/1789997000.000800"
         ]
     );
+    let msgs = |ext: &str| -> Vec<(String, bool)> {
+        conn.prepare("SELECT m.text, m.context FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = ?1 ORDER BY m.at")
+            .unwrap()
+            .query_map([ext], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    };
+    assert_eq!(
+        msgs("C0INC/thread/1789990000.000200"),
+        [
+            ("Backoff patch is up, needs a second reviewer.".to_string(), true),
+            ("@Marco Rossi I can review & merge".to_string(), true),
+            ("thanks, see PR 812 and #inc-2291".to_string(), true),
+            ("Merged.".to_string(), false)
+        ]
+    );
+    assert!(!msgs("C0INC/1789960000.000100").iter().any(|(t, _)| t == "Merged."));
+    let topic: String = conn
+        .query_row(
+            "SELECT t.name FROM topic_links l JOIN topics t ON t.id = l.topic_id JOIN items i ON i.id = l.item_id
+              WHERE i.external_id = 'C0INC/thread/1789990000.000200' AND l.state = 'confirmed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(topic, "Incident 2291");
+
+    let mut src = crate::sync::load_source(&conn, 1).unwrap();
+    src.cursor = Slack.before_poll(&crate::store::over(&conn), &src).unwrap();
+    replies["messages"].as_array_mut().unwrap().push(json!({ "type": "message", "user": "U0SAM", "text": "Deployed.", "ts": "1789999200.001200", "thread_ts": "1789990000.000200" }));
+    http.on("GET", "conversations.replies?channel=C0INC", 200, replies.to_string());
+    apply_now(&conn, &src, &run_poll(&http, &src).unwrap()).unwrap();
+    assert_eq!(
+        msgs("C0INC/thread/1789990000.000200").last().unwrap(),
+        &("Deployed.".to_string(), false)
+    );
+}
+
+#[test]
+fn a_reply_under_an_untriaged_parent_nests_under_it() {
+    let conn = db();
+    let src = crate::sync::load_source(&conn, 1).unwrap();
+    apply_now(&conn, &src, &run_poll(&workspace(HISTORY_INC_1), &src).unwrap()).unwrap();
+    let src = crate::sync::load_source(&conn, 1).unwrap();
+    let http = workspace(HISTORY_INC_1);
+    let mut replies: Value = serde_json::from_str(REPLIES_INC).unwrap();
+    replies["messages"].as_array_mut().unwrap().push(json!({ "type": "message", "user": "U0ME", "text": "Merged.", "ts": "1789999100.001100", "thread_ts": "1789990000.000200" }));
+    http.on("GET", "conversations.replies?channel=C0INC", 200, replies.to_string());
+    apply_now(&conn, &src, &run_poll(&http, &src).unwrap()).unwrap();
+    assert!(!unseen(&conn).iter().any(|e| e.starts_with("C0INC/thread/")));
     let replies: Vec<(String, String)> = conn
         .prepare("SELECT m.text, m.reply_to FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.reply_to IS NOT NULL ORDER BY m.at")
         .unwrap()
@@ -501,15 +562,6 @@ fn triage_closes_a_run_and_the_next_message_starts_a_new_one() {
         ]
     );
     assert!(replies.iter().all(|r| r.1 == "1789990000.000200"));
-    // What you'd triaged comes back read (faded); only the new reply is new.
-    let read: Vec<(String, bool)> = conn
-        .prepare("SELECT m.text, m.read FROM item_messages m JOIN items i ON i.id = m.item_id WHERE i.external_id = 'C0INC/1789960000.000100' AND m.context = 0 ORDER BY m.at")
-        .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    assert!(read.iter().all(|(t, r)| *r == (t != "Merged.")), "{read:?}");
 }
 
 fn with_new_message(user: &str, text: &str) -> String {

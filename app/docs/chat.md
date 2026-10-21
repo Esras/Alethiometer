@@ -29,7 +29,7 @@ The field names come from Slack, the first chat source; they stay so existing it
 
 **Message keys** (`item_messages.ext_key`) are unique within a conversation and **sort as numbers in time order**: mark read takes the newest key you saw, comparing them as numbers. Slack's are its `ts` ("1789960000.000100"); Teams' are its message ids, which are creation times in milliseconds ("1791978000000").
 
-**Thread replies** carry `reply_to` (the parent's key) and are stored under the parent's item when one holds it (`ItemUpsert.attach_to` = the parent's key).
+**Thread replies** carry `reply_to` (the parent's key) and are stored under the parent's item when one holds it and it's still in Incoming (`ItemUpsert.attach_to` = the parent's key). Once that item is triaged, the thread's next replies get their own thread item instead (the parent and earlier replies as context), filed under the item's confirmed topics (`sync::apply`, user 2026-10-21): two threads in one conversation are two signals, and neither brings the conversation's other messages back.
 
 **Cursor.** The connector's cursor has `open` (runs not triaged yet: `{id, first, last}` by stream key, "<channel>" or "<channel>/<root key>") and `closed` (per stream, the last key of the newest triaged run), plus `me`, your own user id on that source.
 

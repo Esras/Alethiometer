@@ -266,6 +266,15 @@ impl Ingest for Sql<'_> {
         Ok(quiet)
     }
 
+    fn inherit_confirmed(&self, from: i64, to: i64) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR IGNORE INTO topic_links (item_id, topic_id, state, confidence, reason)
+             SELECT ?2, topic_id, state, confidence, reason FROM topic_links WHERE item_id = ?1 AND state = 'confirmed'",
+            params![from, to],
+        )?;
+        Ok(())
+    }
+
     fn collapse_series(&self, source_id: i64, key: &str, now: Ts) -> Result<()> {
         self.conn().execute(
             &format!(

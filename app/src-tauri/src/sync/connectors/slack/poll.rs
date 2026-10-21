@@ -21,7 +21,7 @@
 //! **A thread attaches to its parent.** When Alethiometer holds the parent as a
 //! message of some item (a top-level run, triaged or not, or the split part it
 //! went to), the thread's messages are stored there as the parent's replies and
-//! new ones bring that item back (`ItemUpsert::attach_to`, applied in `sync`).
+//! new ones bring that item back until it's triaged; after that the thread is its own item, under its topics
 //! The thread item above exists only when the parent was never captured (older
 //! than the lookback, a channel you don't follow), or from before this rule.
 //!

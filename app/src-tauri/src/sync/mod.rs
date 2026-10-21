@@ -222,21 +222,22 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
                 continue;
             }
         }
+        let mut split_from = None;
         if let Some(parent) = &it.attach_to {
             let channel = it.raw_json.get("channel").and_then(Value::as_str);
             if let (None, Some(holder)) = (existing, uow.reads().items().holder(source.id, channel, parent)?) {
-                if bump {
-                    ingest.mark_read_if_triaged(holder)?;
+                if uow.reads().items().seen(holder)? == Some(true) {
+                    split_from = Some(holder);
+                } else {
+                    for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| *k != parent) {
+                        let read = m.context || ingest.reply_read(holder, key, parent)?;
+                        ingest.put_reply(holder, m, key, parent, read)?;
+                    }
+                    if bump && uow.items().set_seen(holder, false)? {
+                        new_signal += 1;
+                    }
+                    continue;
                 }
-                for (m, key) in it.messages.iter().zip(&keys).filter(|(_, k)| *k != parent) {
-                    // Replies before the run (context) were read; so were ones stored when you triaged.
-                    let read = m.context || ingest.reply_read(holder, key, parent)?;
-                    ingest.put_reply(holder, m, key, parent, read)?;
-                }
-                if bump && uow.items().set_seen(holder, false)? {
-                    new_signal += 1;
-                }
-                continue;
             }
         }
         debug_assert!(
@@ -251,6 +252,9 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
         let item_id = match existing {
             None => {
                 let id = ingest.insert_item(source.id, it, author)?;
+                if let Some(holder) = split_from {
+                    ingest.inherit_confirmed(holder, id)?;
+                }
                 if !series.map_or(Ok(false), |k| ingest.inherit_series(source.id, id, k))? {
                     new_signal += 1;
                 }

@@ -410,36 +410,6 @@ mod tests {
             "replies aren't top-level messages"
         );
 
-        // The run re-synced keeps the replies; a new reply after triage brings it back.
-        conn.execute("UPDATE items SET seen = 1", []).unwrap();
-        apply_now(
-            &conn,
-            &src,
-            &Batch {
-                items: vec![run(&["10", "11", "12"], false)],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            apply_now(
-                &conn,
-                &src,
-                &Batch {
-                    items: vec![thread("11", &["20", "21", "22"], true)],
-                    ..Default::default()
-                }
-            )
-            .unwrap(),
-            1
-        );
-        assert_eq!(under(dm), ["msg 20", "msg 21", "msg 22"]);
-        let seen: i64 = conn
-            .query_row("SELECT seen FROM items WHERE id = ?1", [dm], |r| r.get(0))
-            .unwrap();
-        assert_eq!(seen, 0);
-
-        // Splitting the parent off takes its replies; the next reply follows it there.
         let ids = message_ids(&conn, dm).unwrap();
         let child = split_off(&conn, dm, &[ids[1]]).unwrap();
         assert!(under(dm).is_empty());
@@ -447,12 +417,29 @@ mod tests {
             &conn,
             &src,
             &Batch {
-                items: vec![thread("11", &["20", "21", "22", "23"], true)],
+                items: vec![thread("11", &["20", "21", "22"], true)],
                 ..Default::default()
             },
         )
         .unwrap();
-        assert_eq!(under(child), ["msg 20", "msg 21", "msg 22", "msg 23"]);
+        assert_eq!(under(child), ["msg 20", "msg 21", "msg 22"]);
+
+        conn.execute("UPDATE items SET seen = 1", []).unwrap();
+        assert_eq!(
+            apply_now(
+                &conn,
+                &src,
+                &Batch {
+                    items: vec![thread("11", &["20", "21", "22", "23"], true)],
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(under(child), ["msg 20", "msg 21", "msg 22"]);
+        let own = item_id(&conn, "D1/thread/11");
+        assert!(texts(&conn, own).contains(&"msg 23".to_string()));
 
         // Parent never captured: the thread is its own item, and stays one.
         apply_now(

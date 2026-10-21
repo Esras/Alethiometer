@@ -167,6 +167,8 @@ pub trait Ingest {
     /// A new instance of a known series takes the series' links; true when it
     /// stays quiet (the series isn't in Incoming, or is filed).
     fn inherit_series(&self, source_id: i64, item_id: i64, series: &str) -> Result<bool>;
+    /// A thread split out of its parent's triaged item takes that item's confirmed topics.
+    fn inherit_confirmed(&self, from: i64, to: i64) -> Result<()>;
     /// One unseen instance per series: the next upcoming, else the latest past.
     fn collapse_series(&self, source_id: i64, series: &str, now: Ts) -> Result<()>;
     /// Replace a personal calendar's busy blocks, keeping buffers set on them (by start).
