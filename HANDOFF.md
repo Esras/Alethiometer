@@ -1,6 +1,6 @@
 # Alethiometer: handoff for the next session
 
-State of the work. Read `AGENTS.md` first (rules, reading order), then this. Standing material moved out on 2026-10-21: how to build, check and run is `app/docs/dev.md`; every user decision (don't re-ask) is `app/docs/decisions.md`; the feature-by-feature record is `app/docs/built.md`; bugs and gaps are `ISSUES.md`.
+State of the work. Read `AGENTS.md` first (rules, reading order), then this. Standing material moved out on 2026-10-21: how to build, check and run is `app/docs/dev.md`; every user decision (don't re-ask) is `app/docs/decisions.md`; the old feature-by-feature record is in git (`35f1272:HANDOFF.md`, "Built"); bugs and gaps are `ISSUES.md`.
 
 The original design handoff (mocks, chats, spec) is in `README.md`, `chats/` and `project/`; the spec is `project/design_handoff_helm/README.md`. The app was called Helm during design.
 

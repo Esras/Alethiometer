@@ -8,7 +8,7 @@ Priorities: **accuracy over performance, maintainability over speed of developme
 
 1. **`HANDOFF.md`**: what's in flight and what's next.
 2. **`app/docs/decisions.md`**: every decision the user has made (don't re-ask those). **`app/docs/dev.md`**: how to build, run and check.
-3. **`app/README.md`**: the app's status table and how to run it. **`app/docs/built.md`**: the feature-by-feature record (may be dated).
+3. **`app/README.md`**: the app's status table and how to run it.
 4. **`app/docs/`**: one document per area: `ai.md`, `agents.md`, `db-plan.md`, `people.md`, `settings.md`, `todos.md`, `reclassify-and-merge.md`, `ui-plan.md` (front-end work), and `sources/` for connector setup.
 5. **`ISSUES.md`**: bugs and gaps found on real accounts. Check it before connector work.
 
