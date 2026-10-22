@@ -1,6 +1,6 @@
 # Chat sources
 
-Slack and Microsoft Teams are *chat sources* (`settings::sources::CHAT_KINDS`). The rules the user set for Slack (HANDOFF.md, "User decisions") hold for every chat source: Incoming is for filing context to topics, not for "have I read this"; every message is captured, yours too; only triage here closes a signal; a thread is one topic and attaches to its parent message; DMs and channels mix topics, so the AI files top-level messages one by one.
+Slack and Microsoft Teams are *chat sources* (`settings::sources::CHAT_KINDS`). The rules the user set for Slack (`app/docs/decisions.md`, Slack) hold for every chat source: Incoming is for filing context to topics, not for "have I read this"; every message is captured, yours too; only triage here closes a signal; a thread is one topic and attaches to its parent message; DMs and channels mix topics, so the AI files top-level messages one by one.
 
 This page is the contract a chat connector keeps so the shared code works for it. Each source's own page (`sources/slack.md`, `sources/teams.md`) says how it meets it.
 

@@ -6,10 +6,11 @@ Priorities: **accuracy over performance, maintainability over speed of developme
 
 ## Read in this order
 
-1. **`HANDOFF.md`**: what is built, what's in flight, every decision the user has made (don't re-ask those), and how to run the checks.
-2. **`app/README.md`**: the app's status table and how to run it.
-3. **`app/docs/`**: one document per area: `ai.md`, `agents.md`, `db-plan.md`, `people.md`, `settings.md`, `todos.md`, `reclassify-and-merge.md`, `ui-plan.md` (front-end work), and `sources/` for connector setup.
-4. **`ISSUES.md`**: bugs and gaps found on real accounts. Check it before connector work.
+1. **`HANDOFF.md`**: what's in flight and what's next.
+2. **`app/docs/decisions.md`**: every decision the user has made (don't re-ask those). **`app/docs/dev.md`**: how to build, run and check.
+3. **`app/README.md`**: the app's status table and how to run it. **`app/docs/built.md`**: the feature-by-feature record (may be dated).
+4. **`app/docs/`**: one document per area: `ai.md`, `agents.md`, `db-plan.md`, `people.md`, `settings.md`, `todos.md`, `reclassify-and-merge.md`, `ui-plan.md` (front-end work), and `sources/` for connector setup.
+5. **`ISSUES.md`**: bugs and gaps found on real accounts. Check it before connector work.
 
 ## Engineering rules
 
@@ -25,7 +26,7 @@ Priorities: **accuracy over performance, maintainability over speed of developme
 - **Keep the build green after every edit when you're running inside Alethiometer.** The user runs `npx tauri dev`, which rebuilds on each save; a broken build takes the window away, and with it the only way to answer your permission prompts. Add a function or field before anything uses it, and change a signature and all its callers in one edit.
 - **Tests:** a fix comes with a test that fails without it. Races get a test that runs the competing paths at once. Fixtures replace live accounts.
 - **Formatting is the tools', not by hand**, 120 columns: Rust with rustfmt (`rustfmt.toml`; `cargo fmt` in `app/src-tauri` and `app/agentd`, `cargo fmt --check` must pass), the front end with Prettier (`app/.prettierrc.json`; `npm run format` in `app`, `npm run format:check` must pass). Run them before committing. Don't match an older wide style.
-- **Keep each change minimal and say what it doesn't do.** Record decisions in `HANDOFF.md` and open problems in `ISSUES.md`.
+- **Keep each change minimal and say what it doesn't do.** Record decisions in `app/docs/decisions.md`, open problems in `ISSUES.md`, and current state in `HANDOFF.md`.
 
 ## The design
 

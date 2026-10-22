@@ -4,6 +4,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Agents inherit cargo's env from a dev build
+
+Under `npx tauri dev`/`cargo run`, the app's env has `OUT_DIR`, `CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH`, `CARGO_PKG_*` (and `CARGO_TERM_*`), and agents the app spawns inherit them. ring's build script tracks `OUT_DIR`/`CARGO_MANIFEST_DIR`/`CARGO_PKG_NAME`, so every `cargo build` an agent runs (in any project using ring) reruns it and rebuilds ring → rustls → ureq/tungstenite: ~13 s instead of 6.8 s here. Fix: strip those vars when spawning agents (or at app start), with a test. Not done yet (moved here from HANDOFF.md 2026-10-21; check it still holds). When benchmarking from inside an agent session, `env -u OUT_DIR -u CARGO_…` first, or numbers are inflated.
+
 ### UI checks in the real web view (user, 2026-10-21: deferred)
 
 `scripts/shot.mjs`, `ui-diff` and `ui-keys` drive Chromium against the browser-mode dev server, but the app renders in WKWebView (Mac), WebKitGTK (Linux) and WebView2 (Windows). Tauri's docs recommend WebdriverIO's `@wdio/tauri-service` with `tauri-plugin-wdio-webdriver`, a WebDriver server embedded in the app, which is the only route that works on macOS (`tauri-driver` has no WKWebView driver there). It would need the plugin behind a dev-only Cargo feature, the WebdriverIO dev dependencies, a test build and its own data dir. Firefox was ruled out: no Tauri platform uses Gecko. Playwright's WebKit against the dev server was offered as the cheap stand-in and declined (user, 2026-10-21).
@@ -18,7 +22,7 @@ Playwright isn't in the Mac devshell, so these weren't looked at: the toasts (to
 
 ### Ignore suggestions: what's left (2026-10-17)
 
-Built (HANDOFF.md, "Ignore suggestions"); not yet run on real data, so the thresholds are untested in practice.
+Built (`app/docs/decisions.md`, "Ignore suggestions"); not yet run on real data, so the thresholds are untested in practice.
 - The line shows only while the dismissed row is still on screen (until the selection moves and the list reloads). It comes back on the next dismiss of the same key until Not now.
 - No list of current candidates or past Not nows; a Not now can't be undone before its 30 days.
 - 1:1 mail is decided from headers (two addresses across From/To/Cc, no List-Id/List-Unsubscribe/Precedence bulk/Auto-Submitted, sender not a no-reply address). A person mailing from a service without those headers counts as 1:1.
