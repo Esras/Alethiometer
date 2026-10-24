@@ -14,7 +14,7 @@
   import NoteText from '../../lib/ui/NoteText.svelte';
   import type { SaveState, TopicNote } from './types';
 
-  let { topicId, note }: { topicId: number; note: TopicNote | null } = $props();
+  let { topicId, note, keepO = false }: { topicId: number; note: TopicNote | null; keepO?: boolean } = $props();
 
   type Status = 'idle' | 'editing' | 'saving' | 'saved' | 'conflict' | 'offline' | 'failed';
   let editing = $state(false);
@@ -175,7 +175,7 @@
     if (status === 'conflict' && plain(e, 'r')) return (reload(), true);
     if (status === 'conflict' && plain(e, 'k')) return (keepMine(), true);
     if (plain(e, 'e')) return (edit(), true);
-    if (plain(e, 'o')) return (openInObsidian(), true);
+    if (plain(e, 'o') && !keepO) return (openInObsidian(), true);
   });
 
   onDestroy(() => {

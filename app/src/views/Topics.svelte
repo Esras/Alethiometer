@@ -33,6 +33,7 @@
   let topics = $state<TopicRow[]>([]);
   let d = $state<TopicDetail | null>(null);
   let filter = $state<string | null>(null);
+  let chronSel = $state<number | null>(null);
   let open = $state({ up: true, open: true, chron: true, people: true });
   // Which panel j/k and the RSVP keys act on; Tab switches (user, 2026-10-07).
   let section = $state<'up' | 'chron'>('chron');
@@ -324,6 +325,7 @@
               topicId={d.topic.id}
               {entries}
               active={open.chron && !linking && !picking && section === 'chron'}
+              bind:selected={chronSel}
             />
           </Panel>
 
@@ -388,8 +390,17 @@
         </div>
 
         <div class="right-col">
-          {#key d.topic.id}<NotePane topicId={d.topic.id} note={d.note} />{/key}
+          {#key d.topic.id}<NotePane topicId={d.topic.id} note={d.note} keepO={chronSel !== null} />{/key}
         </div>
+      </div>
+      <div class="hint-bar">
+        <span><kbd>j</kbd> <kbd>k</kbd> signal</span><span><kbd>↵</kbd> expand</span><span
+          ><kbd>o</kbd> open signal</span
+        ><span><kbd>f</kbd> source filter</span><span><kbd>Tab</kbd> upcoming</span><span><kbd>t</kbd> move</span><span
+          ><kbd>[</kbd> <kbd>]</kbd> topic</span
+        ><span><kbd>c</kbd> category</span><span><kbd>p</kbd> priority</span><span><kbd>m</kbd> merge</span><span
+          ><kbd>r</kbd> rename</span
+        ><span><kbd>e</kbd> edit note</span><span><kbd>z</kbd> fold</span><span><kbd>Esc</kbd> back</span>
       </div>
     </div>
     <AssistantPane topic={d.topic} />

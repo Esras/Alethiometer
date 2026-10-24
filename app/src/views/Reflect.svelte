@@ -16,6 +16,7 @@
   import DayBrief from './reflect/DayBrief.svelte';
   import NoteEditor from './reflect/NoteEditor.svelte';
   import Rollup from './reflect/Rollup.svelte';
+  import Markdown from '../lib/ui/Markdown.svelte';
   import { rs } from './reflect/state.svelte';
   import type { CarryAction, CarryRow, ChildRow, Lens, ReflectData, Scope } from './reflect/types';
   import { toast } from '../lib/toast.svelte';
@@ -47,7 +48,7 @@
   let editor = $state<{ focus: () => void; openInObsidian: () => void } | null>(null);
   let askEl = $state<HTMLInputElement | null>(null);
   let question = $state('');
-  let answer = $state<{ ok: boolean; text: string } | null>(null);
+  let thread = $state<{ q: string; ok: boolean; text: string }[]>([]);
   let asking = $state(false);
 
   ui.topicId = null;
@@ -107,15 +108,17 @@
     const q = question.trim();
     if (!q || asking) return;
     asking = true;
-    answer = null;
+    question = '';
+    let turn: { q: string; ok: boolean; text: string };
     try {
       const r = await call<{ answer: string }>('ai.ask', { question: q, scope: 'today' });
-      answer = { ok: true, text: r.answer };
+      turn = { q, ok: true, text: r.answer };
     } catch (e) {
-      answer = { ok: false, text: String((e as Error).message ?? e) };
+      turn = { q, ok: false, text: String((e as Error).message ?? e) };
     } finally {
       asking = false;
     }
+    thread.push(turn);
   }
 
   useKeys((e) => {
@@ -221,12 +224,17 @@
                 </span>
                 {#if asking}<span class="asking nowrap">asking…</span>{/if}
               </label>
-              {#if answer}
-                <div class="answer" class:fail={!answer.ok}>
-                  {#if !answer.ok}<i class="ph-bold ph-warning"></i>{/if}
-                  <span>{answer.ok ? answer.text : `Couldn't ask: ${answer.text}`}</span>
+              {#each thread as t, ti (ti)}
+                <div class="turn">
+                  <div class="q">{t.q}</div>
+                  <div class="answer" class:fail={!t.ok}>
+                    {#if !t.ok}<i class="ph-bold ph-warning"></i>{/if}
+                    {#if t.ok}<div class="md"><Markdown text={t.text} tags={false} /></div>{:else}<span
+                        >Couldn't ask: {t.text}</span
+                      >{/if}
+                  </div>
                 </div>
-              {/if}
+              {/each}
             </div>
           {/if}
         {/if}
@@ -356,6 +364,19 @@
     font-size: calc(var(--fs-read) * 12.5 / 14);
     color: var(--tx-2);
     line-height: 1.5;
+  }
+  .turn .q {
+    padding: 8px 12px 0;
+    border-top: 1px solid var(--bg-head);
+    font-size: calc(var(--fs-read) * 12.5 / 14);
+    color: var(--tx-label);
+  }
+  .turn .answer {
+    border-top: 0;
+    padding-top: 2px;
+  }
+  .md {
+    min-width: 0;
   }
   .answer.fail i {
     color: var(--status-attention);

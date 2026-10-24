@@ -500,6 +500,24 @@
     event: number | null;
   };
   let filed = $state<Filed | null>(null);
+  // The last dismissal, so `u` still undoes it once its row has left the list.
+  let lastDis = $state<{ id: number; title: string; key: QueueKey | null } | null>(null);
+  const disGone = $derived(lastDis && !flat.some((s) => s.item_id === lastDis!.id) ? lastDis : null);
+
+  async function undoGone() {
+    const d = disGone;
+    if (!d || busy) return;
+    lastDis = null;
+    dismissedRev.delete(d.id);
+    await act('incoming.undismiss', {
+      item_id: d.id,
+      unread: unreadBefore.get(d.id) ?? [],
+      event: dismissEvent.get(d.id) ?? null,
+    });
+    dismissEvent.delete(d.id);
+    if (d.key !== null) selKey = d.key;
+    selItem = d.id;
+  }
   const topicNamed = (id: number) => entries.find((e) => e.key === id)?.name ?? 'topic';
 
   async function unfile() {
@@ -591,6 +609,8 @@
     };
     flip(on);
     if (on) dismissedRev.set(s.item_id, s.rev);
+    if (on) lastDis = { id: s.item_id, title: s.title, key: selKey };
+    else if (lastDis?.id === s.item_id) lastDis = null;
     else dismissedRev.delete(s.item_id);
     try {
       const r = await call<{ unread?: string[]; event?: number | null; suggestion?: IgnoreSuggestion | null }>(
@@ -877,6 +897,7 @@
     if (plain(e, 'u')) {
       if (filed && !current?.held && !(current && dismissed.has(current.item_id))) unfile();
       else if (current?.held && !dismissed.has(current.item_id)) act('todos.unhold', { item_id: current.item_id });
+      else if (disGone && !(current && dismissed.has(current.item_id))) undoGone();
       else dismiss(current, false);
       return true;
     }
@@ -939,6 +960,12 @@
         {#if filed}
           <div class="filed">
             <i class="ph ph-check"></i>{filed.text}<button class="btn" onclick={unfile}>Undo <kbd>u</kbd></button>
+          </div>
+        {:else if disGone}
+          <div class="filed">
+            <i class="ph ph-check"></i>Dismissed {disGone.title}<button class="btn" onclick={undoGone}
+              >Undo <kbd>u</kbd></button
+            >
           </div>
         {/if}
         {#each groups as g, gi (g.source + g.label)}
@@ -1128,7 +1155,9 @@
                 {#if isOpen}
                   {@const hidden = fullContext.has(s.item_id) ? 0 : Math.max(0, s.context.length - 3)}
                   <div class="ctx">
-                    <div class="info tnum">{@render metaText(s, info(s))}</div>
+                    {#if !(isChat(s.source) && s.n_messages <= 1)}
+                      <div class="info tnum">{@render metaText(s, info(s))}</div>
+                    {/if}
                     {#if s.description}<div class="desc"><Markdown text={s.description} /></div>{/if}
                     {#each s.context as m, ci (m.id)}
                       {#if hidden && ci === 1}
@@ -1140,7 +1169,7 @@
                         </button>
                       {/if}
                       {#if !hidden || ci === 0 || ci > hidden}
-                        <div class="msg context">
+                        <div class="msg context" class:reply={s.thread && ci > 0}>
                           <span class="t tnum">{m.time}</span>
                           <PersonName who={m.who} name={m.author} />
                           <div class="txt"><Markdown text={m.text} tags={s.source !== 'slack'} /></div>
@@ -1160,6 +1189,7 @@
                         {/if}
                         <div
                           class="msg"
+                          class:reply={s.thread}
                           class:context={m.read}
                           class:pickable={canPick}
                           class:focus={sel && inMsgs && mi === msgIdx}

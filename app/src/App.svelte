@@ -64,7 +64,7 @@
       ui.tab !== 'todos' &&
       ui.tab !== 'priorities' &&
       ui.tab !== 'agents' &&
-      !(ui.tab === 'topics' && ui.openTopicId === null)
+      ui.tab !== 'topics'
     ) {
       ui.searchOpen = true;
       e.preventDefault();

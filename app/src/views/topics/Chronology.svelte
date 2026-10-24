@@ -9,8 +9,10 @@
   // An unanswered invite shows a `no reply` pill; selected, it gets the RSVP
   // line (⌥Y accept, ⌥N decline, ⌥⇧N decline with a note; 14b).
   import { untrack } from 'svelte';
+  import { call, openExternal } from '../../lib/api';
   import { refresh } from '../../lib/app.svelte';
-  import { alt, plain, useKeys } from '../../lib/keys.svelte';
+  import { alt, isTyping, plain, useKeys } from '../../lib/keys.svelte';
+  import { messageUrl } from '../../lib/slackLink';
   import { moveSignal, undoMove, type Detail, type Move } from '../../lib/reclassify';
   import { SOURCES } from '../../lib/sources';
   import type { TopicDetail } from '../../lib/types';
@@ -24,9 +26,17 @@
 
   type Entry = TopicDetail['chronology'][number];
 
-  let { topicId, entries, active }: { topicId: number; entries: Entry[]; active: boolean } = $props();
+  let {
+    topicId,
+    entries,
+    active,
+    selected = $bindable(null),
+  }: { topicId: number; entries: Entry[]; active: boolean; selected?: number | null } = $props();
 
   let sel = $state<number | null>(null);
+  $effect(() => {
+    selected = sel;
+  });
   let expanded = $state<number | null>(null);
   let detail = $state<Detail | null>(null);
   let picking = $state(false);
@@ -115,6 +125,16 @@
     if (changed) refresh();
   }
 
+  async function openSel(id: number) {
+    try {
+      const d = await call<Detail>('incoming.detail', { item_id: id });
+      if (!d.url) return toast('Nothing to open for this signal');
+      openExternal(messageUrl(d.url, d.messages.at(-1), d.messages.at(-1)?.replies?.at(-1)));
+    } catch (e) {
+      toast(e);
+    }
+  }
+
   useKeys((e) => {
     if (!active || picking || reviewing !== null) return;
     if (plain(e, 'j') || plain(e, 'ArrowDown')) return (step(1), true);
@@ -124,6 +144,17 @@
     if (plain(e, 't') && expanded !== null) return ((picking = true), true);
     if (plain(e, 's') && expanded !== null && multi) return ((reviewing = expanded), true);
     if (plain(e, 'u') && moves.length) return (undo(), true);
+    if (plain(e, 'o') && sel !== null) return (openSel(sel), true);
+    if (expanded !== null) {
+      const entry = () => document.querySelector(`[data-chron="${expanded}"]`);
+      if (plain(e, 'g')) return (entry()?.scrollIntoView({ block: 'start' }), true);
+      if (plain(e, 'G')) return (entry()?.scrollIntoView({ block: 'end' }), true);
+      if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e)) {
+        const pane = entry()?.closest('.scroll');
+        pane?.scrollBy({ top: (e.shiftKey ? -1 : 1) * pane.clientHeight * 0.8 });
+        return true;
+      }
+    }
     const r = entries.find((x) => x.item_id === sel)?.rsvp;
     if (r && answerable(r) && line) {
       if (alt(e, 'y')) return (line.accept(), true);
@@ -184,7 +215,8 @@
           {#if expanded === e.item_id}
             <div class="expanded" onclick={(ev) => ev.stopPropagation()} role="presentation">
               <SignalDetail itemId={e.item_id} ondetail={(d) => (detail = d)}>
-                {#snippet hints()}<kbd>t</kbd> move · {#if multi}<kbd>s</kbd> split{' · '}{/if}<kbd>Esc</kbd> collapse{/snippet}
+                {#snippet hints()}<kbd>t</kbd> move · {#if multi}<kbd>s</kbd> split{' · '}{/if}<kbd>o</kbd> open ·
+                  <kbd>Space</kbd> <kbd>g</kbd> <kbd>G</kbd> scroll · <kbd>Esc</kbd> collapse{/snippet}
               </SignalDetail>
             </div>
           {/if}
