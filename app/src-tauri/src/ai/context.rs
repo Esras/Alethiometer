@@ -268,9 +268,28 @@ pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Contex
         .filter(|r| r.tag == "work")
         .collect();
     ctx.push("\nWork items touched today (newest first):\n", None);
+    let (skipped, rows): (Vec<ContextItem>, Vec<ContextItem>) = rows.into_iter().partition(|r| r.dismissed);
     for r in &rows {
         if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
             break;
+        }
+    }
+    if !skipped.is_empty() {
+        ctx.push(
+            "\nDismissed by the user without filing under a topic (low importance; mention only if asked, and never as a count):\n",
+            None,
+        );
+        for r in &skipped {
+            let line = format!(
+                "- [item {}] {} {}: {}\n",
+                r.id,
+                r.source_kind,
+                r.kind,
+                clip(&r.title, 120)
+            );
+            if !ctx.push(&line, Some(r.id)) {
+                break;
+            }
         }
     }
     Ok(ctx)
@@ -365,6 +384,52 @@ pub mod tests {
         assert!(ctx.text.contains("not yet confirmed"));
         assert!(ctx.text.contains("FRESH-SUGGESTION"));
         assert!(!ctx.text.contains("OLD-SUGGESTION"));
+    }
+
+    #[test]
+    fn today_leaves_out_agent_approvals_and_demotes_dismissed_items() {
+        let (app, _dir) = app();
+        let conn = app.db();
+        let at = app.clock.from_local(app.clock.today().at(10, 0, 0, 0));
+        conn.execute(
+            "INSERT INTO sources (kind, tag, name) VALUES ('agents', 'work', 'Agents')",
+            [],
+        )
+        .unwrap();
+        let agents = conn.last_insert_rowid();
+        let work: i64 = conn
+            .query_row(
+                "SELECT id FROM sources WHERE tag = 'work' AND kind != 'agents' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        for (src, ext, kind, title, seen) in [
+            (agents, "a1", "approval", "APPROVAL-NOISE run ls", 1),
+            (work, "d1", "message", "DISMISSED-ONE newsletter", 1),
+            (work, "k1", "message", "KEPT-ONE status", 0),
+        ] {
+            conn.execute(
+                "INSERT INTO items (source_id, external_id, kind, title, occurred_at, status, seen) VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6)",
+                params![src, ext, kind, title, at, seen],
+            )
+            .unwrap();
+        }
+        drop(conn);
+        let ctx = app
+            .store()
+            .read(|r| for_today(r, &app.clock, app.clock.today()))
+            .unwrap();
+        assert!(!ctx.text.contains("APPROVAL-NOISE"));
+        let (kept, dismissed) = (
+            ctx.text.find("KEPT-ONE").unwrap(),
+            ctx.text.find("DISMISSED-ONE").unwrap(),
+        );
+        assert!(
+            kept < dismissed && ctx.text.contains("Dismissed by the user"),
+            "{}",
+            ctx.text
+        );
     }
 
     #[test]

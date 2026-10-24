@@ -6,7 +6,8 @@ use crate::error::Result;
 use crate::time::{Date, Due, Ts};
 use rusqlite::{params, Row};
 
-const ITEM: &str = "i.id, s.tag, s.kind, i.kind, i.title, i.summary, i.body, i.occurred_at, i.ended_at, i.due_at, i.due_day, i.status, i.owner";
+const ITEM: &str = "i.id, s.tag, s.kind, i.kind, i.title, i.summary, i.body, i.occurred_at, i.ended_at, i.due_at, i.due_day, i.status, i.owner,
+    (i.seen = 1 AND NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.item_id = i.id AND tl.state = 'confirmed'))";
 
 fn item(r: &Row) -> rusqlite::Result<ContextItem> {
     Ok(ContextItem {
@@ -22,6 +23,7 @@ fn item(r: &Row) -> rusqlite::Result<ContextItem> {
         due: Due::from_columns(r.get(9)?, r.get::<_, Option<Date>>(10)?),
         status: r.get(11)?,
         owner: r.get(12)?,
+        dismissed: r.get(13)?,
     })
 }
 
@@ -107,7 +109,7 @@ impl ContextViews for Sql<'_> {
             .prepare_cached(&format!(
                 "SELECT {ITEM}
                    FROM items i JOIN sources s ON s.id = i.source_id
-                  WHERE s.tag = 'work' AND i.kind != 'event'
+                  WHERE s.tag = 'work' AND i.kind != 'event' AND NOT (s.kind = 'agents' AND i.kind = 'approval')
                     AND ((i.occurred_at >= ?1 AND i.occurred_at < ?2) OR (i.ended_at >= ?1 AND i.ended_at < ?2)
                          OR EXISTS (SELECT 1 FROM item_messages m WHERE m.item_id = i.id AND m.at >= ?1 AND m.at < ?2))
                   ORDER BY coalesce(i.ended_at, i.occurred_at) DESC, i.id DESC"

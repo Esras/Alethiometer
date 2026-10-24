@@ -19,6 +19,8 @@ pub struct ContextItem {
     pub due: Option<Due>,
     pub status: String,
     pub owner: Option<String>,
+    /// Seen in Incoming and never filed under a topic (dismissed, or left unfiled).
+    pub dismissed: bool,
 }
 
 /// An active topic for the topics overview.
