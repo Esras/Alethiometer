@@ -103,6 +103,7 @@ export interface Tool {
   result: string;
   added: number | null;
   removed: number | null;
+  diff?: string;
   summary: string;
 }
 

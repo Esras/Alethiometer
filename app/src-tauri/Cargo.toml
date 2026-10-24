@@ -89,6 +89,8 @@ alethiometer-core = { path = "../core" }
 alethiometer-settings = { path = "../settings" }
 # Atomic file writes, the secrets file, opening URLs.
 alethiometer-platform = { path = "../platform" }
+similar = "3.2.0"
+strip-ansi-escapes = "0.2.1"
 
 [dev-dependencies]
 tempfile = "3"

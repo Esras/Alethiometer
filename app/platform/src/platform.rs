@@ -21,6 +21,23 @@ pub trait Platform: Send + Sync {
         false
     }
     fn set_tray_dot(&self, _on: bool) {}
+    /// A banner in the system's notification centre (macOS; nothing elsewhere). Fire and forget.
+    fn notify(&self, title: &str, body: &str) {
+        if cfg!(target_os = "macos") {
+            let _ = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    "on run argv",
+                    "-e",
+                    "display notification (item 2 of argv) with title (item 1 of argv)",
+                    "-e",
+                    "end run",
+                    title,
+                    body,
+                ])
+                .spawn();
+        }
+    }
     /// Open a URL in the default browser (consent screens, "open in app").
     fn open_url(&self, url: &str) -> std::io::Result<()> {
         open::that_detached(url)

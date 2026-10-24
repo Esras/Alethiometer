@@ -324,6 +324,9 @@ pub struct Tool {
     /// Lines added/removed, for edits.
     pub added: Option<u64>,
     pub removed: Option<u64>,
+    /// The edit as a unified diff (capped), shown when the call is opened.
+    #[serde(default)]
+    pub diff: String,
     /// Folded summary for a subagent's calls: "5 tool calls · read ×3, grep ×2 · 4.8s".
     pub summary: String,
 }

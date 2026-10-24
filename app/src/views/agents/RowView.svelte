@@ -245,6 +245,19 @@
         </div>
       </div>
     {/if}
+    {#if row.kind === 'tool' && open && t?.diff}
+      <div class="g">
+        <i class="ph ph-arrow-elbow-down-right ic" style:color="var(--tx-label)"></i>
+        <div class="mid">
+          <pre class="patch">{#each t.diff.split('\n') as ln}<span
+                class:padd={ln.startsWith('+') && !ln.startsWith('+++')}
+                class:pdel={ln.startsWith('-') && !ln.startsWith('---')}
+                class:phunk={ln.startsWith('@@')}
+                >{ln}
+</span>{/each}</pre>
+        </div>
+      </div>
+    {/if}
   {:else}
     <div class="g">
       <i
@@ -524,6 +537,21 @@
   }
   .add {
     color: var(--green);
+  }
+  .patch {
+    margin: 0;
+    font: 0.885rem/20px var(--font-mono);
+    color: var(--tx-label);
+    overflow-x: auto;
+  }
+  .padd {
+    color: var(--green);
+  }
+  .pdel {
+    color: var(--red);
+  }
+  .phunk {
+    color: var(--aqua);
   }
   .del {
     color: var(--red);

@@ -748,6 +748,7 @@ pub fn models(app: &App, harness: &str, cwd: &str) -> Result<Value> {
     };
     let mut child = crate::process::command(exe)
         .args(&h.args)
+        .env("NO_COLOR", "1")
         .envs(&h.env)
         .env("PATH", path)
         .current_dir(&cwd)
@@ -1666,7 +1667,20 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
     }
 }
 
+/// A system notification for something waiting on you (not from tests).
+fn alert(app: &App, title: &str, body: &str) {
+    if !cfg!(test) {
+        app.platform.notify(title, body);
+    }
+}
+
+/// Tool output without terminal colour codes (the user's shell may colour it).
+fn no_ansi(s: &str) -> String {
+    String::from_utf8_lossy(&strip_ansi_escapes::strip(s)).into_owned()
+}
+
 fn strip_fence(s: &str) -> String {
+    let s = no_ansi(s);
     let t = s.trim();
     if let Some(rest) = t.strip_prefix("```") {
         let body = rest.split_once('\n').map(|(_, b)| b).unwrap_or("");
@@ -1685,6 +1699,27 @@ fn rel(path: &str, cwd: &str) -> String {
 }
 
 /// Lines added and removed between two texts (LCS on lines; big files fall back to counts).
+/// A diff content block as a unified diff, for the transcript. Capped: a Write can be a whole file.
+fn unified_diff(block: &Value) -> String {
+    const CAP: usize = 40_000;
+    let text = |k: &str| block.get(k).and_then(Value::as_str).unwrap_or("");
+    let path = text("path");
+    let mut s = similar::TextDiff::from_lines(text("oldText"), text("newText"))
+        .unified_diff()
+        .context_radius(3)
+        .header(path, path)
+        .to_string();
+    if s.len() > CAP {
+        let mut end = CAP;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push_str("\n… (diff cut)\n");
+    }
+    s
+}
+
 pub fn diff_stat(old: &str, new: &str) -> (u64, u64) {
     let a: Vec<&str> = old.lines().collect();
     let b: Vec<&str> = new.lines().collect();
@@ -1901,10 +1936,12 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
         }
         if let Some(out) = term_out {
             t.result.push_str(&out);
+            t.result = no_ansi(&t.result);
         }
         if let Some(blocks) = &content {
             let mut text = vec![];
             let (mut add, mut del, mut diffs) = (0, 0, false);
+            let mut patch = String::new();
             for b in blocks {
                 match b.get("type").and_then(Value::as_str) {
                     Some("content") => {
@@ -1920,6 +1957,7 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
                         );
                         add += a;
                         del += d;
+                        patch.push_str(&unified_diff(b));
                     }
                     _ => {}
                 }
@@ -1927,6 +1965,7 @@ fn tool_update(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &str) {
             if diffs {
                 t.added = Some(add);
                 t.removed = Some(del);
+                t.diff = patch;
             }
             // Only a finished call's content is its result (before, it's the description).
             if done && !text.is_empty() {
@@ -2452,6 +2491,11 @@ fn permission(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         }
         return;
     }
+    alert(
+        app,
+        &format!("{} needs approval", s.name),
+        &crate::ai::context::clip(&detail, 120),
+    );
     if !question {
         super::explain::request(app, &req_id);
     }
@@ -2505,6 +2549,7 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
         form: Some(schema),
         ..Default::default()
     };
+    let question_text = question.clone();
     let mut turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
     turn.waiting.insert(
         req_id.clone(),
@@ -2533,6 +2578,13 @@ fn elicit(app: &Arc<App>, conn: &Arc<Conn>, rpc_id: Value, p: &Value) {
     }
     i.put_request(req);
     i.update_session(&session, |s| s.status = Status::Waiting);
+    drop(i);
+    drop(turn);
+    alert(
+        app,
+        &format!("{} asks you", s.name),
+        &crate::ai::context::clip(&question_text, 120),
+    );
 }
 
 /// The form's one single-choice field and its options, when that's all it
@@ -3687,9 +3739,20 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn tool_output_loses_colour_codes() {
+        assert_eq!(strip_fence("\u{1b}[32mok\u{1b}[0m \u{1b}[1;31mbad\u{1b}[0m"), "ok bad");
+    }
+
+    #[test]
     fn diff_stats() {
         assert_eq!(diff_stat("a\nb\nc", "a\nB\nc\nd"), (2, 1));
         assert_eq!(diff_stat("", "x\ny"), (2, 0));
+    }
+
+    #[test]
+    fn a_diff_block_becomes_a_unified_diff() {
+        let d = unified_diff(&json!({ "path": "/a.rs", "oldText": "a\nb\n", "newText": "a\nB\n" }));
+        assert!(d.contains("-b\n") && d.contains("+B\n") && d.contains("/a.rs"), "{d}");
     }
 
     #[test]
