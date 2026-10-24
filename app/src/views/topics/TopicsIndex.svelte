@@ -88,7 +88,7 @@
   });
 
   onDestroy(() => {
-    Object.assign(saved, { scroll: body?.scrollTop ?? 0, id: current?.id ?? null, q, catFilter, archived });
+    Object.assign(saved, { id: current?.id ?? null, q, catFilter, archived });
   });
 
   function open(t: TopicRow | null) {
@@ -128,6 +128,16 @@
     try {
       await call(archived ? 'topics.unarchive' : 'topics.archive', { id: t.id });
       if (selId === t.id) selId = next;
+      refresh();
+    } catch (e) {
+      toast(e);
+    }
+  }
+
+  async function archiveEmpty() {
+    try {
+      const r = await call<{ archived: number }>('topics.archive_empty', {});
+      toast(`Archived ${r.archived} topic${r.archived === 1 ? '' : 's'} with no signals`, true);
       refresh();
     } catch (e) {
       toast(e);
@@ -273,6 +283,11 @@
         <button class:on={!archived} onclick={() => (archived = false)}>Active</button>
         <button class:on={archived} onclick={() => (archived = true)}>Archived</button>
       </div>
+      {#if !archived}
+        <button class="btn md" onclick={archiveEmpty} title="Archive every topic with no signals"
+          ><i class="ph ph-archive"></i>Archive empty</button
+        >
+      {/if}
       <button class="btn md" class:on={managing} onclick={() => (managing = !managing)} title="Manage categories"
         ><i class="ph ph-palette"></i>Categories</button
       >
@@ -312,7 +327,7 @@
         <span class="hint"><kbd>↵</kbd> create · <kbd>Esc</kbd></span>
       </FilterField>
     {/if}
-    <div class="body scroll" bind:this={body}>
+    <div class="body scroll" bind:this={body} onscroll={() => body && (saved.scroll = body.scrollTop)}>
       {#if active.length}
         <div class="section label">{archived ? 'Archived' : 'Active'} <span class="n">{active.length}</span></div>
         {#each active as t (t.id)}{@render row(t)}{/each}

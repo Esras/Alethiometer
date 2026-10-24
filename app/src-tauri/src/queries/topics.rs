@@ -95,6 +95,7 @@ pub fn route(name: &str) -> Option<Route> {
         }),
         "archive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, true)),
         "unarchive" => Route::Write(|uow, _, args| set_archived(uow, arg_i64(args, "id")?, false)),
+        "archive_empty" => Route::Write(|uow, _, _| Ok(json!({ "archived": uow.topics().archive_empty()? }))),
         "create" => Route::Write(|uow, _, args| {
             create(
                 uow,
@@ -833,6 +834,21 @@ mod tests {
         assert!(list(true).as_array().unwrap().iter().any(|t| t["id"] == id));
         crate::api::call(&app, "topics.unarchive", &json!({ "id": id })).unwrap();
         assert!(list(false).as_array().unwrap().iter().any(|t| t["id"] == id));
+    }
+
+    #[test]
+    fn archive_empty_leaves_topics_with_signals() {
+        let (app, _dir) = app();
+        let call = |n: &str, a: Value| crate::api::call(&app, n, &a).unwrap();
+        let empty = call("topics.create", json!({ "name": "Nothing here" }))["id"]
+            .as_i64()
+            .unwrap();
+        let dd = topic_id(&app, "Datadog renewal");
+        assert!(call("topics.archive_empty", json!({}))["archived"].as_i64().unwrap() >= 1);
+        let active = call("topics.list", json!({ "archived": false }));
+        assert!(!active.as_array().unwrap().iter().any(|t| t["id"] == empty));
+        assert!(active.as_array().unwrap().iter().any(|t| t["id"] == dd));
+        assert_eq!(call("topics.archive_empty", json!({}))["archived"], 0);
     }
 
     #[test]

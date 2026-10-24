@@ -175,6 +175,17 @@ impl Topics for Sql<'_> {
         )? == 1)
     }
 
+    fn archive_empty(&self) -> Result<usize> {
+        Ok(self.conn().execute(
+            &format!(
+                "UPDATE topics SET archived_at = {SQL_NOW}
+                  WHERE archived_at IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.topic_id = topics.id AND tl.state = 'confirmed')"
+            ),
+            [],
+        )?)
+    }
+
     fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()> {
         self.conn().execute(
             "UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL",
