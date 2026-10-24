@@ -100,3 +100,43 @@ export function accountLabel(kind: string): string {
 export function initial(name: string): string {
   return (name.trim()[0] ?? '?').toUpperCase();
 }
+
+/** A person's colour at `alpha` (0–1), for a tint. */
+export function personTint(index: number, alpha: number): string {
+  return personColor(index).replace(')', ` / ${alpha})`);
+}
+
+/** A topic on a People index row (`people_index::TopicCount`). */
+export interface PersonTopic {
+  id: number;
+  name: string;
+  category: string;
+  /** Confirmed signals in the last 30 days (0 when only older ones). */
+  n: number;
+}
+
+/** A row of the People index (`people_index::Row`). */
+export interface PeopleRow {
+  /** "p:<person id>" or "a:<kind>:<account>". */
+  key: string;
+  id: number | null;
+  name: string;
+  role: string | null;
+  color: number;
+  known: boolean;
+  account: Account | null;
+  /** Aliases and accounts, lowercased, for the filter. */
+  terms: string[];
+  group: 'recent' | 'quiet' | 'unknown';
+  /** Confirmed signals in the last 30 days. */
+  total: number;
+  /** Every topic with a confirmed signal of theirs, most in 30 days first. */
+  topics: PersonTopic[];
+  /** Signals per Monday week, oldest first; the last is this week. */
+  weeks: number[];
+  last_at: string | null;
+  /** "today 09:40", "Oct 20". */
+  last: string | null;
+  last_source: string | null;
+  next_meeting: { start: string; title: string } | null;
+}

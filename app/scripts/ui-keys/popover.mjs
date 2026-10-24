@@ -32,7 +32,7 @@ function cases(name, { open, pop, inside }) {
 
 const life = (t) => t.page.getByRole('button', { name: /^Life, busy/ });
 const composerMenu = async (t) => {
-  await t.steps('Control+7', { exact: 'migration', nth: 1 });
+  await t.steps({ tab: 'Agents' }, { exact: 'migration', nth: 1 });
   await t.page.getByPlaceholder(/^Message #migration/).click();
   await t.page.keyboard.type('@');
   await t.page.waitForTimeout(300);

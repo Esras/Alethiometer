@@ -1,6 +1,6 @@
 # People, person colours and the split review
 
-Design: 15g/15h (split review), 16c (person palette), 17a (new person), 17b (link to person). Code: `src-tauri/src/queries/people.rs`, `queries/incoming.rs` (review), `queries/split.rs` (moving messages), `src/lib/people.ts` (palette), `src/views/incoming/SplitReview.svelte`, `PersonPicker.svelte`.
+Design: 15g/15h (split review), 16c (person palette), 17a (new person), 17b (link to person), the People tab (design canvas "People and the graph", decisions.md › "People tab design"). Code: `src-tauri/src/queries/people.rs`, `queries/incoming.rs` (review), `queries/split.rs` (moving messages), `src/lib/people.ts` (palette), `src/views/incoming/SplitReview.svelte`, `PersonPicker.svelte`.
 
 ## People are notes
 
@@ -46,6 +46,17 @@ The backend hands out indices; `lib/people.ts` owns the palette (checked against
 - Unknown names have a dotted underline in their hash colour; clicking one (in Incoming or a topic's People panel) opens the picker. It matches note names and aliases; ↵ adds the account to that note's frontmatter, keeping the rest of the note as written (a missing key is added, a value becomes a list, a list grows). The last row creates a new person.
 - Writes go through `obsidian::save` like any note edit: the outbox (`obsidian.replace`, refused if the note changed meanwhile) or the file when no Obsidian source reads the vault. While a write is queued, the account is recorded locally so colours follow right away; the next scan has the final word.
 - Nothing is automatic: no auto-create, auto-link or auto-merge.
+
+## The People tab
+
+Tab 4 (`⌘4`), after Topics. Code: `queries/people_index.rs` (`people.index`, a live query), `queries/person_merge.rs` (`people.merge_preview`, `people.merge`), `src/views/People.svelte`, `src/views/people/`, `src/lib/topicTone.ts`.
+
+- **Rows:** every People note, then senders with no note. A person's signals are the **confirmed** work signals they wrote in (a message, or the item's author), matched as everywhere else; you're left out. A signal counts once per week and once in the total however many messages they wrote in it.
+- **Columns:** the person (avatar, name in their colour, `role`); their top three topics in the last 30 days, each box filled by length against the busiest box in the list (`topicTone.ts`: every category colour at one OKLCH lightness, chroma capped, through `culori`); the 30-day total and 12 Monday weeks (the last is this week so far), shaded in four steps against the busiest week in the list; last signal (its source's icon); next meeting.
+- **Groups:** Recent (a signal in 30 days), Quiet (every other People note, with or without signals), No People note (a sender with an account, a confirmed signal in 30 days, not a bot and not mail from a list or system; named by the address for mail, else the profile's real name or the latest name seen).
+- **Next meeting:** the soonest timed event within 7 days with them as a guest. Guests are read from the event as Google sent it (the item's `raw_json`, so no new table and no connector change; Proton ICS feeds are busy blocks only and never read guests). Events you declined have no `events` row; events they declined are skipped. Matched by email to the person's `email` accounts.
+- **Keys:** `j`/`k`; `s` sort picker (Last signal, the default; Signals; Next meeting; Name), `⇧S` reverses, rows sort within their group; `t` adds a topic filter (AND, up to 8): each picked topic becomes an 82px column of 30-day counts tinted in the topic's colour, matching anyone with a confirmed signal there ever (so a cell can be 0), and `⌫` removes the last; `/` filters by name, alias, role or account; `n` asks for a name and writes a stub `People/<Name>.md`; `l` on a No People note row opens Link to person; `m` merges; `u` undoes a staged merge. `↵` does nothing until the person page is built.
+- **Merge (`m`):** a picker under the row (people by name, alias or account; then those sharing an email domain; then by signals), then the two notes side by side. The kept note stays as written; the other's `aliases` and account fields are unioned in, a field only it has is copied, a field both set differently is a line to decide (`n` next, `←` takes the left note's value, `→` keeps the kept one), and its body is appended under `## Merged from <name>`. `s` swaps who is kept, `⌘↵` stages it. Staged merges are written when you leave People (`u` undoes until then), from the texts the dialog showed: if either note changed since, nothing is written. With an Obsidian source it's one outbox op, `obsidian.merge_notes` (both notes checked, then the kept one written and the other deleted the way Obsidian's own Delete does, into the trash its "Deleted files" setting names); without one, the files are written directly and the other note moves to the vault's `.trash/`. When it lands, topics linked to the merged-away person by hand (`topic_people`) link to the kept one. The merged-away name isn't added as an alias (the design doesn't show one), so a signal matched only by that name (no account id) stops matching.
 
 ## A topic's People panel
 

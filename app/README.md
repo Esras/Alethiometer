@@ -16,6 +16,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Work AI (fail closed, Bedrock Converse + SigV4, ask, topic suggestions) | done, live on Bedrock; off until models are set. See `docs/ai.md` |
 | Connectors: Google Calendar, Gmail, Slack (+ Socket Mode), Microsoft Teams (polling; chats, channels with admin approval), Jira, GitHub, Obsidian (watcher), Proton ICS (busy only) | done; Teams and Proton ICS untested live. Setup per source in `docs/sources/`; what chat sources share in `docs/chat.md` |
 | People notes (`People/*.md`), person colours, new-person suggestions, link to person, Slack split review | done. See `docs/people.md` |
+| People tab: the index (top 3 topics, 12-week strip, sort, topic columns), merge two people | done, 2026-10-24. See `docs/people.md` › "The People tab". The person page isn't built |
 | Reclassify a filed signal (chronology 18c, Search view 18d), merge topics | done. See `docs/reclassify-and-merge.md` |
 | Writeback outbox (pending → sent → confirmed/failed, ⌘R retry) | done. Wired: Slack mark-read on Confirm, Gmail mark-read on Confirm and Move, Jira create from Notes, calendar holds from Reflect. Connectors also support RSVP, reply, react, transition, comment, assign, label, Obsidian append/toggle; no UI for those yet |
 | macOS Keychain, global hotkey, tray, notifications | behind `platform::Platform`; file-backed stub for now |
@@ -41,7 +42,7 @@ The UI reaches the dev server through Vite's `/call` proxy. The dev server answe
 
 `ALETHIOMETER_FAKE_NOW` pins the clock to the mock's 10:52 so the countdown and "now" line match the designs. Delete `.alethiometer-dev/` to re-seed.
 
-Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses).
+Screenshots: `node scripts/shot.mjs out.png topics ']'` (Playwright; the extra args are key presses; `ALETHIOMETER_SHOT_SIZE=1760x1175` for the app's window size).
 To check a UI refactor changes nothing: `scripts/ui-diff.sh <ref>`, then `node scripts/ui-diff.mjs` (pixel diff of ~40 scenes against `<ref>`).
 
 ### Desktop
@@ -106,7 +107,7 @@ Instants are stored in UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`, fixed width so text orde
 
 | Key | Where | Action |
 |---|---|---|
-| `⌘1`–`⌘7` | anywhere | switch tab (`⌘7` Agents); `g i` / `g a` Incoming / Agents |
+| `⌘1`–`⌘8` | anywhere | switch tab (`⌘8` Agents); `g i` / `g a` Incoming / Agents |
 | `⌘K` or `/` | anywhere | search (`⌥↵` Glean, `⌥A` anchor, `⇧↵` off-topic, `⌘T` link, `⌘⌫` reject, `⌘↵` Search view) |
 | `⌘,` / `⌘⇧,` | anywhere | Settings / open settings.json |
 | `e` | Assistant (Glean) | Sources panel (`⇥` Kept/Dropped, `p` pin, `x` reject) |

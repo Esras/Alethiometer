@@ -190,9 +190,12 @@ fn services_do_not_take_app() {
             ("live.rs", 11),
             ("outbox.rs", 3),
             ("queries/categories.rs", 2),
-            ("queries/note_save.rs", 7),
+            // `merge_notes` (People merge) added 2026-10-24.
+            ("queries/note_save.rs", 8),
             ("queries/notes.rs", 5),
             ("queries/people.rs", 7),
+            // People merge (`preview`, `merge`, and their `sides`), 2026-10-24: they read notes in the vault.
+            ("queries/person_merge.rs", 3),
             ("queries/reflect.rs", 8),
             ("queries/search.rs", 1),
             ("queries/topics.rs", 5),

@@ -2,7 +2,8 @@
 
 use super::Sql;
 use crate::domain::people::{
-    AccountRow, Directory, LinkedPerson, People, PeopleViews, PersonNote, PersonRow, Profile, SeenAuthor, TopicAuthor,
+    AccountRow, AuthorTopic, Directory, Guest, LinkedPerson, People, PeopleViews, PersonNote, PersonRow, Profile,
+    SeenAuthor, SignalAuthor, TopicAuthor,
 };
 use crate::error::Result;
 use crate::time::Ts;
@@ -167,6 +168,91 @@ impl PeopleViews for Sql<'_> {
             )
             .optional()?)
     }
+
+    fn signal_authors_since(&self, since: Ts) -> Result<Vec<SignalAuthor>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                // CROSS JOIN: start from what's recent (indexes on time).
+                "SELECT s.kind, m.author_id, m.author, i.id, tl.topic_id, m.at
+                   FROM item_messages m CROSS JOIN items i ON i.id = m.item_id CROSS JOIN sources s ON s.id = i.source_id
+                   JOIN topic_links tl ON tl.item_id = i.id AND tl.state = 'confirmed'
+                  WHERE m.context = 0 AND m.at >= ?1 AND s.tag = 'work'
+                 UNION ALL
+                 SELECT s.kind, h.handle, p.display_name, i.id, tl.topic_id, i.occurred_at
+                   FROM items i CROSS JOIN sources s ON s.id = i.source_id
+                   JOIN topic_links tl ON tl.item_id = i.id AND tl.state = 'confirmed'
+                   JOIN people p ON p.id = i.author_person_id
+                   LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = s.kind
+                  WHERE i.occurred_at >= ?1 AND s.tag = 'work'",
+            )?
+            .query_map([since], |r| {
+                Ok(SignalAuthor {
+                    source_kind: r.get(0)?,
+                    handle: r.get(1)?,
+                    name: r.get(2)?,
+                    item_id: r.get(3)?,
+                    topic_id: r.get(4)?,
+                    at: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn author_topics(&self) -> Result<Vec<AuthorTopic>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT kind, handle, name, topic_id, max(at) FROM (
+                   SELECT s.kind AS kind, m.author_id AS handle, m.author AS name, tl.topic_id AS topic_id, m.at AS at
+                     FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                     JOIN item_messages m ON m.item_id = i.id
+                    WHERE tl.state = 'confirmed' AND m.context = 0 AND s.tag = 'work'
+                   UNION ALL
+                   SELECT s.kind, h.handle, p.display_name, tl.topic_id, i.occurred_at
+                     FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
+                     JOIN people p ON p.id = i.author_person_id
+                     LEFT JOIN person_handles h ON h.person_id = p.id AND h.source_kind = s.kind
+                    WHERE tl.state = 'confirmed' AND s.tag = 'work')
+                  GROUP BY kind, handle, name, topic_id",
+            )?
+            .query_map([], |r| {
+                Ok(AuthorTopic {
+                    source_kind: r.get(0)?,
+                    handle: r.get(1)?,
+                    name: r.get(2)?,
+                    topic_id: r.get(3)?,
+                    last_at: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn upcoming_guests(&self, after: Ts, until: Ts) -> Result<Vec<Guest>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                // The event as Google sent it is the item's raw_json. Rows in
+                // `events` are timed and not declined by you; `self` and
+                // `resource` are JSON true, which json_extract reads as 1.
+                "SELECT lower(json_extract(a.value, '$.email')), json_extract(a.value, '$.responseStatus'), e.start, coalesce(e.title, '')
+                   FROM events e JOIN items i ON i.id = e.item_id JOIN sources s ON s.id = i.source_id,
+                        json_each(i.raw_json, '$.attendees') a
+                  WHERE e.start > ?1 AND e.start <= ?2 AND e.is_life_busy = 0 AND s.kind = 'gcal' AND s.tag = 'work'
+                    AND json_extract(a.value, '$.email') IS NOT NULL
+                    AND coalesce(json_extract(a.value, '$.self'), 0) != 1 AND coalesce(json_extract(a.value, '$.resource'), 0) != 1
+                  ORDER BY e.start, e.id",
+            )?
+            .query_map(params![after, until], |r| {
+                Ok(Guest {
+                    email: r.get(0)?,
+                    response: r.get(1)?,
+                    start: r.get(2)?,
+                    title: r.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
 }
 
 impl People for Sql<'_> {
@@ -245,6 +331,16 @@ impl People for Sql<'_> {
             "INSERT INTO person_snoozes (kind, account, until) VALUES (?1, ?2, ?3) ON CONFLICT (kind, account) DO UPDATE SET until = ?3",
             params![kind, account, until],
         )?;
+        Ok(())
+    }
+
+    fn move_topic_links(&self, from: i64, into: i64) -> Result<()> {
+        let c = self.conn();
+        c.execute(
+            "INSERT OR IGNORE INTO topic_people (topic_id, person_id) SELECT topic_id, ?2 FROM topic_people WHERE person_id = ?1",
+            params![from, into],
+        )?;
+        c.execute("DELETE FROM topic_people WHERE person_id = ?1", [from])?;
         Ok(())
     }
 }

@@ -1,5 +1,5 @@
 // Screenshot the UI in browser mode (devserver + vite must be running).
-// usage: [ALETHIOMETER_UI_URL=http://localhost:1420/] node scripts/shot.mjs <out.png> [tab] [keys...]
+// usage: [ALETHIOMETER_UI_URL=http://localhost:1420/] [ALETHIOMETER_SHOT_SIZE=1760x1175] node scripts/shot.mjs <out.png> [tab] [keys...]
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 let pw;
@@ -10,12 +10,13 @@ try {
 }
 const [out, tab = 'incoming', ...keys] = process.argv.slice(2);
 const browser = await pw.chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1320, height: 880 }, deviceScaleFactor: 1 });
+const [w, h] = (process.env.ALETHIOMETER_SHOT_SIZE ?? '1320x880').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
 page.on('console', (m) => m.type() === 'error' && console.error('console:', m.text()));
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
 await page.goto(process.env.ALETHIOMETER_UI_URL ?? 'http://localhost:1420/');
 await page.waitForTimeout(800);
-const idx = ['incoming', 'priorities', 'topics', 'todos', 'notes', 'reflect', 'agents'].indexOf(tab) + 1;
+const idx = ['incoming', 'priorities', 'topics', 'people', 'todos', 'notes', 'reflect', 'agents'].indexOf(tab) + 1;
 await page.keyboard.press(`Control+${idx}`);
 await page.waitForTimeout(500);
 for (const k of keys) {

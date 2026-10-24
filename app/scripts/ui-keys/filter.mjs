@@ -44,7 +44,7 @@ export const checks = {
     await leaves(t, field, { clears: false });
   },
   'Todos: / focuses the filter and Esc clears and leaves it': async (t) => {
-    await t.steps('Control+4');
+    await t.steps({ tab: 'Todos' });
     const field = t.page.getByPlaceholder('Filter todos');
     t.ok((await border(field)) !== (await aqua(t)), 'the box is aqua at rest');
     await t.steps('/');
@@ -58,7 +58,7 @@ export const checks = {
     await t.visible(field, 'Esc closed Settings');
   },
   'Agents: / focuses the tree filter and Esc clears and leaves it': async (t) => {
-    await t.steps('Control+7');
+    await t.steps({ tab: 'Agents' });
     const field = t.page.getByPlaceholder('Filter sessions');
     t.ok((await border(field)) !== (await aqua(t)), 'the box is aqua at rest');
     await t.steps('/');

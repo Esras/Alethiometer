@@ -46,7 +46,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Frontmatter field for each account kind.
-const KINDS: &[&str] = &["slack", "teams", "email", "jira", "github"];
+pub(crate) const KINDS: &[&str] = &["slack", "teams", "email", "jira", "github"];
 
 /// FNV-1a, 32 bit.
 pub fn fnv1a(s: &str) -> u32 {
@@ -101,7 +101,7 @@ pub type Fields = Vec<(String, Vec<String>)>;
 
 /// Lines of the frontmatter block: (index of the opening `---`, index of the
 /// closing one). None when the note has none.
-fn fence(lines: &[&str]) -> Option<(usize, usize)> {
+pub(crate) fn fence(lines: &[&str]) -> Option<(usize, usize)> {
     let first = lines.first()?.trim_start_matches('\u{feff}').trim_end();
     if first != "---" {
         return None;
@@ -124,7 +124,7 @@ fn unquote(s: &str) -> String {
 }
 
 /// `value  # comment` → `value` (not inside quotes).
-fn strip_comment(s: &str) -> &str {
+pub(crate) fn strip_comment(s: &str) -> &str {
     let t = s.trim();
     if t.starts_with('"') || t.starts_with('\'') {
         return t;
@@ -206,7 +206,7 @@ pub fn field<'a>(fields: &'a Fields, key: &str) -> &'a [String] {
         .unwrap_or(&[])
 }
 
-fn yaml_value(v: &str) -> String {
+pub(crate) fn yaml_value(v: &str) -> String {
     let special = v.starts_with(|c: char| "[]{},&*!|>'\"%@`#-?:".contains(c))
         || v.contains(": ")
         || v.contains(" #")
@@ -277,6 +277,47 @@ pub fn add_to_frontmatter(text: &str, key: &str, value: &str) -> Option<String> 
         out.push_str(nl);
     }
     Some(out)
+}
+
+/// Set `key` to `values` in the note's frontmatter, replacing what it held
+/// (a block list's items too) and keeping every other line as written. A
+/// missing key is added before the closing `---`.
+pub fn set_field(text: &str, key: &str, values: &[String]) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let line = match values {
+        [v] => format!("{key}: {}", yaml_value(v)),
+        vs => format!(
+            "{key}: [{}]",
+            vs.iter().map(|v| yaml_value(v)).collect::<Vec<_>>().join(", ")
+        ),
+    };
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let Some((a, b)) = fence(&refs) else {
+        return format!("---{nl}{line}{nl}---{nl}{text}");
+    };
+    let at = (a + 1..b).find(|&i| {
+        let l = &lines[i];
+        !l.starts_with(' ') && !l.starts_with('\t') && l.split_once(':').is_some_and(|(k, _)| k.trim() == key)
+    });
+    match at {
+        None => lines.insert(b, line),
+        Some(i) => {
+            let mut end = i + 1;
+            while end < b && {
+                let l = &lines[end];
+                l.starts_with(' ') || l.starts_with('\t') || l.trim_start().starts_with("- ") || l.trim() == "-"
+            } {
+                end += 1;
+            }
+            lines.splice(i..end, [line]);
+        }
+    }
+    let mut out = lines.join(nl);
+    if text.ends_with('\n') {
+        out.push_str(nl);
+    }
+    out
 }
 
 /// A new person's note: aliases plus the account it was created from (and,
@@ -644,7 +685,7 @@ pub struct Suggestion {
 }
 
 /// Mail from a list or a system, not a person: never worth a People note.
-fn bulk((kind, account): &(String, String)) -> bool {
+pub(crate) fn is_bulk((kind, account): &(String, String)) -> bool {
     const LOCAL: &[&str] = &[
         "news",
         "newsletter",
@@ -706,7 +747,7 @@ pub fn suggestions(
             || r.is_known(&acct.0, &acct.1)
             || snoozed.contains(&acct)
             || bots.contains(&acct)
-            || bulk(&acct)
+            || is_bulk(&acct)
         {
             continue;
         }
@@ -1100,7 +1141,8 @@ pub fn route(name: &str) -> Option<Route> {
             snooze(uow, &kind, &account, ctx.clock.now())?;
             Ok(json!({ "ok": true }))
         }),
-        _ => return None,
+        "merge_preview" => Route::ReadFiles(super::person_merge::preview),
+        _ => return super::people_index::route(name),
     })
 }
 
@@ -1120,6 +1162,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             create(app, &arg_str(args, "name")?, alias, account)
         }
         "rescan" => Ok(json!({ "notes": rescan(app)? })),
+        "merge" => super::person_merge::merge(app, args),
         _ => Err(unknown(name)),
     }
 }
@@ -1222,14 +1265,14 @@ mod tests {
         assert_eq!(account_of("gmail", "noreply@x.com Jira"), None, "relays aren't people");
         assert_eq!(account_of("slack", "U1"), Some(("slack".into(), "U1".into())));
         assert_eq!(account_of("obsidian", "x"), None);
-        assert!(bulk(&("email".into(), "newsletter@acme.com".into())));
-        assert!(bulk(&("email".into(), "bounce-123@lists.x.com".into())));
+        assert!(is_bulk(&("email".into(), "newsletter@acme.com".into())));
+        assert!(is_bulk(&("email".into(), "bounce-123@lists.x.com".into())));
         assert!(
-            bulk(&("email".into(), "google-workspace-alerts-noreply@google.com".into())),
+            is_bulk(&("email".into(), "google-workspace-alerts-noreply@google.com".into())),
             "noreply as a suffix, no hyphen"
         );
-        assert!(!bulk(&("email".into(), "dana@acme.com".into())));
-        assert!(!bulk(&("slack".into(), "news".into())));
+        assert!(!is_bulk(&("email".into(), "dana@acme.com".into())));
+        assert!(!is_bulk(&("slack".into(), "news".into())));
     }
 
     #[test]

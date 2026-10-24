@@ -92,6 +92,42 @@ pub fn save_note(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result
     Ok(Saved::Queued(id))
 }
 
+/// Merge two People notes in one go (`person_merge`): `keep` = (path, the
+/// text it holds, the merged text), `gone` = (path, the text it holds), which
+/// goes to the trash. `people` = (kept person, merged-away person): their
+/// hand-made topic links move once the merge lands. With an obsidian source
+/// it's one outbox row, `obsidian.merge_notes`; without one, the files are
+/// written here, the kept note first, both checked against their text.
+pub fn merge_notes(app: &App, keep: (&str, &str, &str), gone: (&str, &str), people: (i64, i64)) -> Result<Saved> {
+    check_rel(keep.0)?;
+    check_rel(gone.0)?;
+    let Some(source) = writer(app)? else {
+        let disk = disk_text(app, gone.0);
+        if disk.as_deref() != Some(gone.1) {
+            return Ok(Saved::Conflict(disk));
+        }
+        match write_direct(app, keep.0, Some(keep.1), keep.2)? {
+            Saved::Written => {}
+            other => return Ok(other),
+        }
+        crate::fsx::move_to_trash(&app.vault, &app.vault.join(gone.0), gone.1).map_err(|e| msg(e.to_string()))?;
+        app.store()
+            .write(|uow| uow.people().move_topic_links(people.1, people.0))?;
+        crate::live::Live::vault_changed(app);
+        return Ok(Saved::Written);
+    };
+    let payload = json!({
+        "path": keep.0, "base": keep.1, "text": keep.2,
+        "trash": { "path": gone.0, "base": gone.1 },
+        "people": { "keep": people.0, "gone": people.1 },
+    });
+    let id = app
+        .store()
+        .write(|uow| crate::outbox::request(uow, source, "obsidian.merge_notes", &payload, None))?;
+    crate::outbox::wake();
+    Ok(Saved::Queued(id))
+}
+
 fn write_direct(app: &App, rel: &str, base: Option<&str>, text: &str) -> Result<Saved> {
     let abs = app.vault.join(rel);
     let disk = std::fs::read_to_string(&abs).ok();

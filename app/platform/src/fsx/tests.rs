@@ -95,3 +95,29 @@ fn write_checked_refuses_a_file_that_changed_and_cleans_up() {
     write_checked(&abs, Some("now"), "new").unwrap();
     assert_eq!(std::fs::read_to_string(&abs).unwrap(), "new");
 }
+
+#[test]
+fn move_to_trash_checks_the_text_and_never_replaces_a_trashed_note() {
+    let d = tempfile::tempdir().unwrap();
+    let people = d.path().join("People");
+    std::fs::create_dir_all(&people).unwrap();
+    let a = people.join("Kim.md");
+    std::fs::write(&a, "old").unwrap();
+    assert!(move_to_trash(d.path(), &a, "something else").is_err());
+    assert!(a.exists(), "changed since: left alone");
+    assert_eq!(
+        move_to_trash(d.path(), &a, "old").unwrap(),
+        d.path().join(".trash/Kim.md")
+    );
+    assert!(!a.exists());
+    std::fs::write(&a, "new").unwrap();
+    assert_eq!(
+        move_to_trash(d.path(), &a, "new").unwrap(),
+        d.path().join(".trash/Kim 1.md")
+    );
+    assert_eq!(std::fs::read_to_string(d.path().join(".trash/Kim.md")).unwrap(), "old");
+    assert_eq!(
+        std::fs::read_to_string(d.path().join(".trash/Kim 1.md")).unwrap(),
+        "new"
+    );
+}

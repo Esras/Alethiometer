@@ -16,6 +16,7 @@
   import Todos from './views/Todos.svelte';
   import Agents from './views/Agents.svelte';
   import Topics from './views/Topics.svelte';
+  import People from './views/People.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
   import StandinNotes from './shell/StandinNotes.svelte';
   import Toasts from './lib/ui/Toasts.svelte';
@@ -64,7 +65,8 @@
       ui.tab !== 'todos' &&
       ui.tab !== 'priorities' &&
       ui.tab !== 'agents' &&
-      ui.tab !== 'topics'
+      ui.tab !== 'topics' &&
+      ui.tab !== 'people'
     ) {
       ui.searchOpen = true;
       e.preventDefault();
@@ -75,7 +77,7 @@
       e.preventDefault();
       return;
     }
-    if (mod(e) && /^[1-7]$/.test(e.key)) {
+    if (mod(e) && /^[1-8]$/.test(e.key)) {
       setTab(TABS[Number(e.key) - 1].id);
       e.preventDefault();
       return;
@@ -110,6 +112,7 @@
       {:else if ui.tab === 'priorities'}<Priorities />
       {:else if ui.tab === 'todos'}<Todos />
       {:else if ui.tab === 'topics'}<Topics />
+      {:else if ui.tab === 'people'}<People />
       {:else if ui.tab === 'notes'}<Notes />
       {:else if ui.tab === 'search'}<Search />
       {:else if ui.tab === 'agents'}<Agents />

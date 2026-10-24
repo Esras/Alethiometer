@@ -71,6 +71,13 @@ fn on_confirmed(
             uow.items().set_status(id, if done { "done" } else { "open" })?;
         }
     }
+    // Two People notes merged: topics linked to the merged-away person by hand follow.
+    if op == "obsidian.merge_notes" {
+        let person = |k: &str| payload.pointer(&format!("/people/{k}")).and_then(Value::as_i64);
+        if let (Some(keep), Some(gone)) = (person("keep"), person("gone")) {
+            uow.people().move_topic_links(gone, keep)?;
+        }
+    }
     if let Some(id) = item_id {
         match op {
             // The Notes line's Incoming item now points at the new Jira issue.
@@ -122,6 +129,7 @@ pub const SAFE_TO_RESEND: &[&str] = &[
     "gcal.rsvp",
     "gcal.hold",
     "obsidian.replace",
+    "obsidian.merge_notes",
     "obsidian.toggle_task",
     "scion.delete_agent",
     "openshell.delete_sandbox",

@@ -65,7 +65,17 @@ const FIXED = new Date();
 // Give Vite's watcher time to see edits saved just before this run.
 await new Promise((r) => setTimeout(r, 2500));
 
-// Key presses, or { click: title }, { clickText }, { exact: text, nth }, { button: name }, { type: text }, { placeholder: text }.
+// A tab's ⌘/Ctrl number, read from the tab bar: the same scene then reaches the
+// same tab in a checkout from before the People tab (which renumbered Todos on).
+async function tabNumber(page, label) {
+  const i = await page
+    .locator('nav.tabs .tab')
+    .evaluateAll((els, l) => els.findIndex((e) => e.textContent.trim().startsWith(l)), label);
+  if (i < 0) throw new Error(`no tab ${label}`);
+  return i + 1;
+}
+
+// Key presses, or { tab: label }, { click: title }, { clickText }, { exact: text, nth }, { button: name }, { type: text }, { placeholder: text }.
 const scenes = {
   incoming: [],
   'incoming-expanded': ['j', 'Enter'],
@@ -91,16 +101,16 @@ const scenes = {
   'topics-catpicker': ['Control+3', 'c'],
   'topics-categories': ['Control+3', { click: 'Manage categories' }],
   'topic-page': ['Control+3', 'Enter'],
-  todos: ['Control+4'],
-  'todos-new': ['Control+4', 'n'],
-  notes: ['Control+5'],
-  reflect: ['Control+6'],
-  'reflect-week': ['Control+6', 'w'],
-  agents: ['Control+7'],
-  'agents-approval': ['Control+7', { exact: 'fake-agent' }],
-  'agents-ask': ['Control+7', { exact: 'fakeask-agent' }],
-  'agents-new': ['Control+7', { button: 'New agent' }],
-  'agents-keys': ['Control+7', 'Shift+?'],
+  todos: [{ tab: 'Todos' }],
+  'todos-new': [{ tab: 'Todos' }, 'n'],
+  notes: [{ tab: 'Notes' }],
+  reflect: [{ tab: 'Reflect' }],
+  'reflect-week': [{ tab: 'Reflect' }, 'w'],
+  agents: [{ tab: 'Agents' }],
+  'agents-approval': [{ tab: 'Agents' }, { exact: 'fake-agent' }],
+  'agents-ask': [{ tab: 'Agents' }, { exact: 'fakeask-agent' }],
+  'agents-new': [{ tab: 'Agents' }, { button: 'New agent' }],
+  'agents-keys': [{ tab: 'Agents' }, 'Shift+?'],
   palette: ['Control+k', { type: 'acme' }],
   search: ['Control+k', { type: 'acme' }, 'Control+Enter'],
   assistant: ['Control+i'],
@@ -119,13 +129,13 @@ const scenes = {
   // The Composer's menu is the @ completion in a Scion room, so this scene needs
   // the fake hub (docs/agents.md) as a scion source on both dev servers.
   'daystrip-popover': [{ exact: 'Life' }],
-  'composer-menu': ['Control+7', { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
+  'composer-menu': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
   // Small moves
   'incoming-split-dismissed': ['j', 's', 'd'],
   // Picker
   // Notes saves what you type, so these open the picker on the last line as it is.
-  'notes-picker': ['Control+5', 'Enter', 'Tab'],
-  'notes-picker-moved': ['Control+5', 'Enter', 'Tab', 'ArrowDown', 'ArrowDown'],
+  'notes-picker': [{ tab: 'Notes' }, 'Enter', 'Tab'],
+  'notes-picker-moved': [{ tab: 'Notes' }, 'Enter', 'Tab', 'ArrowDown', 'ArrowDown'],
   'settings-fontpick': ['Control+,', { exact: 'System', nth: 0 }],
   'settings-fontpick-typed': ['Control+,', { exact: 'System', nth: 0 }, { type: 'dej' }, 'ArrowDown'],
   'incoming-topicpicker-typed': ['t', { type: 'acme' }, 'ArrowDown'],
@@ -134,7 +144,7 @@ const scenes = {
   // Buttons
   // The reply toggle is .btn.on. The Assistant's Sources button (.btn.on too) only
   // shows after a Glean answer, which the sample data can't give.
-  'agents-ask-reply': ['Control+7', { exact: 'fakeask-agent' }, 'r'],
+  'agents-ask-reply': [{ tab: 'Agents' }, { exact: 'fakeask-agent' }, 'r'],
   // Counts and chips
   // The palette opened from a topic shows the anchor chip.
   'palette-in-topic': ['Control+3', 'Enter', 'Control+k'],
@@ -142,18 +152,18 @@ const scenes = {
   // A focused field is the only aqua one: these scenes focus the filters, the new-name
   // field, Reflect's ask box and the agents' reply and deny fields. The todo ones make
   // a todo first, so they come last of this group.
-  'todos-filter-focus': ['Control+4', '/'],
+  'todos-filter-focus': [{ tab: 'Todos' }, '/'],
   'topics-filter-focus': ['Control+3', '/'],
   'topics-naming': ['Control+3', 'n'],
-  'agents-filter-focus': ['Control+7', '/'],
-  'reflect-ask-focus': ['Control+6', 'a'],
-  'agents-deny': ['Control+7', { exact: 'fake-agent' }, '3'],
+  'agents-filter-focus': [{ tab: 'Agents' }, '/'],
+  'reflect-ask-focus': [{ tab: 'Reflect' }, 'a'],
+  'agents-deny': [{ tab: 'Agents' }, { exact: 'fake-agent' }, '3'],
   'incoming-agents-reply': [{ exact: 'Agents waiting' }, 'j', 'Enter', 'r'],
   'daystrip-buffer': [{ exact: 'Life' }, 'b'],
   'settings-edit-number': ['Control+,', 'Enter'],
-  'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', 'Control+4', 'e'],
+  'todos-estimate': ['n', { type: 'Write the RCA' }, 'Control+Enter', 'c', { tab: 'Todos' }, 'e'],
   // A local todo's scheduled day (the first row, due earliest, is local in the sample data).
-  'todos-sched': ['Control+4', 'd'],
+  'todos-sched': [{ tab: 'Todos' }, 'd'],
   // Key hints
   // Keys written inside sentences and legends (decision 9): the legend under an
   // expanded Search result and Topics' chronology, and the note pane's editing line.
@@ -173,11 +183,11 @@ const scenes = {
   // block in Incoming. Not covered: the Nudge toast (it shows near the end of the
   // day, the clock is at 10:52) and Slack review (it needs a Slack source).
   'palette-link-topic': ['Control+k', { type: 'acme' }, 'ArrowDown', 'Alt+a', 'Control+t'],
-  'todos-new-topic-picker': ['Control+4', 'n', { exact: 'No topic' }],
+  'todos-new-topic-picker': [{ tab: 'Todos' }, 'n', { exact: 'No topic' }],
   'topics-index-merge-picker': ['Control+3', 'm'],
   'topic-page-catpicker': ['Control+3', 'Enter', 'c'],
   'incoming-agents-command': [{ exact: 'Agents waiting' }, { clickText: 'needs approval' }],
-  'agents-new-scion': ['Control+7', { exact: 'migration', nth: 1 }, 'n'],
+  'agents-new-scion': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'n'],
   // Colours
   // Error lines (decision 11): the assistant's failed ask is red (the dev server's
   // Bedrock rejects the keys, so the AI can't be reached); a todo's bad estimate is
@@ -196,7 +206,7 @@ const scenes = {
     { type: 'Write the RCA' },
     'Control+Enter',
     'c',
-    'Control+4',
+    { tab: 'Todos' },
     'e',
     { type: 'zzz' },
     'Enter',
@@ -209,25 +219,25 @@ const scenes = {
   // Create instead), Slack review and the Assistant's Sources panel.
   'empty-search': ['Control+k', { type: 'zzqx' }, 'Control+Enter'],
   'empty-palette': ['Control+k', { type: 'zzqx' }],
-  'empty-agents-tree': ['Control+7', '/', { type: 'zzqx' }],
+  'empty-agents-tree': [{ tab: 'Agents' }, '/', { type: 'zzqx' }],
   'empty-settings-find': ['Control+,', '/', { type: 'zzqx' }],
   'empty-catpicker': ['Control+3', 'c', { type: 'zzqx' }],
   'empty-fontpick': ['Control+,', { exact: 'System', nth: 0 }, { type: 'zzqx' }],
   'empty-topics-index': ['Control+3', { exact: 'Archived' }, '/', { type: 'zz' }],
   'empty-topic-page': ['Control+3', 'j', 'j', 'j', 'j', 'j', 'j', 'Enter'],
-  'empty-reflect-day': ['Control+6', '[', 'T', 'D'],
+  'empty-reflect-day': [{ tab: 'Reflect' }, '[', 'T', 'D'],
   // People and reach-ins (decision 2, Phase 0-2 leftovers): Marco has no People note, so
   // his signal shows the New person strip; New agent on a Scion hub marks a name already
   // in the project ("planner") as taken. Not covered: Topics' People panel with an
   // unknown person who has an account (the sample data gives Marco none; checked by
   // patching the topic's response), and Glean's avatars (parked).
   'incoming-new-person': ['Enter'],
-  'agents-new-scion-taken': ['Control+7', { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
+  'agents-new-scion-taken': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
   // A pi-style gate on a long multi-line command (the fakepi agent): the approval keeps
   // the transcript's room, shows only the gate's `rule *` and scrolls Parsed and Explained
   // separately. The same at 1760×800 (VIEWPORT), where the card must shrink.
-  'agents-approval-pi': ['Control+7', { exact: 'fakepi-agent' }],
-  'agents-approval-pi-short': ['Control+7', { exact: 'fakepi-agent' }],
+  'agents-approval-pi': [{ tab: 'Agents' }, { exact: 'fakepi-agent' }],
+  'agents-approval-pi-short': [{ tab: 'Agents' }, { exact: 'fakepi-agent' }],
   // Done and dismissed
   // These change the sample data (a todo done, a signal dismissed, a merge staged), so
   // keep them last and run them after the others, or restart ui-diff.sh between runs.
@@ -242,7 +252,7 @@ const scenes = {
     { type: 'Reply to Dana' },
     'Control+Enter',
     'c',
-    'Control+4',
+    { tab: 'Todos' },
     'x',
     'j',
   ],
@@ -313,6 +323,7 @@ async function shoot(base, steps, file, viewport = { width: 1760, height: 1175 }
     lastStep = Date.now();
     try {
       if (typeof k === 'string') await page.keyboard.press(k);
+      else if (k.tab) await page.keyboard.press(`Control+${await tabNumber(page, k.tab)}`);
       else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
       else if (k.click) await page.getByTitle(k.click).first().click({ timeout: 3000 });
       else if (k.clickText) await page.getByText(k.clickText).first().click({ timeout: 3000 });

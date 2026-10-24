@@ -1,6 +1,6 @@
 # Agents
 
-Coding-agent sessions from local ACP harnesses (on this machine or in an OpenShell sandbox) and Scion, in one tree (design "Agents Final" 01–08; spec in `project/design_handoff_helm/README.md` → Agents). Code: `src-tauri/src/agents/`, `src/views/Agents.svelte`, `src/views/agents/`. Tab 7 (`⌘7`), or `g a` from anywhere (`g i` back to Incoming). Local agents run in a separate agent host, so they keep going when the app quits or rebuilds. The tab's badge is the Needs you count.
+Coding-agent sessions from local ACP harnesses (on this machine or in an OpenShell sandbox) and Scion, in one tree (design "Agents Final" 01–08; spec in `project/design_handoff_helm/README.md` → Agents). Code: `src-tauri/src/agents/`, `src/views/Agents.svelte`, `src/views/agents/`. Tab 8 (`⌘8`), or `g a` from anywhere (`g i` back to Incoming). Local agents run in a separate agent host, so they keep going when the app quits or rebuilds. The tab's badge is the Needs you count.
 
 - **Local ACP sessions.** Alethiometer is the ACP client and launches the agent itself (`agents.harnesses`). It sees only sessions it started; one Zed launched belongs to Zed.
 - **Scion agents.** Alethiometer is a Hub client (`agents/scion.rs`, a `scion` source in Settings › Sources). Rooms, DMs and delivery states come from the Hub. There's no messaging layer here, and local sessions never join rooms.

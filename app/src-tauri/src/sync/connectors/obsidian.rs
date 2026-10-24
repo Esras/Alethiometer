@@ -14,7 +14,9 @@
 //! plugin see ordinary Obsidian edits; `config.write_mode = "file"` writes the
 //! files directly instead. Either way every op reads the note first and never
 //! merges: `obsidian.replace` needs the note to still hold the text the edit
-//! started from, `append`/`toggle_task` need their target to be unambiguous.
+//! started from, `append`/`toggle_task` need their target to be unambiguous,
+//! and `merge_notes` (two People notes merged) needs both notes unchanged
+//! before it writes one and trashes the other.
 //! Reads (the poll) always scan the files.
 
 pub mod rest;
@@ -138,6 +140,15 @@ impl Store<'_> {
         }
     }
 
+    /// Delete a note that holds `before`: the file store moves it into the
+    /// vault's `.trash/`; the REST store deletes it the way Obsidian does.
+    fn trash(&self, vault: &Path, abs: &Path, rel: &str, before: &str) -> anyhow::Result<()> {
+        match self {
+            Store::File => crate::fsx::move_to_trash(vault, abs, before).map(|_| ()),
+            Store::Rest(api) => api.delete(rel),
+        }
+    }
+
     fn receipt(&self, abs: &Path, rel: &str, changed: bool, line: Option<usize>) -> Value {
         let mut r = json!({ "path": rel, "changed": changed });
         if let Some(line) = line {
@@ -192,6 +203,47 @@ fn write_op(store: &Store, vault: &Path, op: &str, payload: &Value) -> anyhow::R
             }
             store.write(&abs, &rel, now.as_deref(), text)?;
             Ok(store.receipt(&abs, &rel, true, None))
+        }
+        // Merging two People notes: `path` gets the merged `text` (it must
+        // still hold `base`) and `trash.path` goes to the trash (it must still
+        // hold `trash.base`). Both are checked before either is touched; a
+        // retry after both landed is done.
+        "obsidian.merge_notes" => {
+            let text = str_arg("text").ok_or_else(|| anyhow::anyhow!("obsidian.merge_notes: payload needs text"))?;
+            let base = str_arg("base").ok_or_else(|| anyhow::anyhow!("obsidian.merge_notes: payload needs base"))?;
+            let (gone_path, gone_base) = payload
+                .get("trash")
+                .and_then(|t| Some((t.get("path")?.as_str()?, t.get("base")?.as_str()?)))
+                .ok_or_else(|| anyhow::anyhow!("obsidian.merge_notes: payload needs trash.path and trash.base"))?;
+            let (abs, rel) = target(vault, path, false)?;
+            let (gone_abs, gone_rel) = target(vault, gone_path, true)?;
+            if rel == gone_rel {
+                anyhow::bail!("obsidian.merge_notes: a note can't be merged into itself");
+            }
+            let now = store.read(&abs, &rel)?;
+            let gone = store.read(&gone_abs, &gone_rel)?;
+            let merged = now.as_deref() == Some(text);
+            if !merged && now.as_deref() != Some(base) {
+                anyhow::bail!(
+                    "{} {rel} changed since the merge was shown; nothing was written",
+                    rest::CONFLICT
+                );
+            }
+            if gone.as_deref().is_some_and(|g| g != gone_base) {
+                anyhow::bail!(
+                    "{} {gone_rel} changed since the merge was shown; nothing was written",
+                    rest::CONFLICT
+                );
+            }
+            if !merged {
+                store.write(&abs, &rel, now.as_deref(), text)?;
+            }
+            if gone.is_some() {
+                store.trash(vault, &gone_abs, &gone_rel, gone_base)?;
+            }
+            let mut r = store.receipt(&abs, &rel, !merged || gone.is_some(), None);
+            r["trashed"] = json!(gone_rel);
+            Ok(r)
         }
         "obsidian.append" => {
             let text = str_arg("text").ok_or_else(|| anyhow::anyhow!("obsidian.append: payload needs text"))?;
@@ -1029,6 +1081,69 @@ mod tests {
         assert!(puts(&http).is_empty());
         // base is required, so nothing is written unguarded.
         assert!(send_rest(&v, &http, "obsidian.replace", json!({ "path": "T.md", "text": "y" })).is_err());
+    }
+
+    fn merge(keep_base: &str, gone_base: &str) -> Value {
+        json!({ "path": "People/Kim.md", "base": keep_base, "text": "merged\n",
+                "trash": { "path": "People/Kimberly P.md", "base": gone_base } })
+    }
+
+    #[test]
+    fn merge_notes_writes_the_kept_note_and_trashes_the_other() {
+        let v = Vault::new();
+        v.write("People/Kim.md", "kim\n");
+        v.write("People/Kimberly P.md", "kimberly\n");
+        // Either note changed since the merge was shown: nothing is touched.
+        for p in [merge("other\n", "kimberly\n"), merge("kim\n", "other\n")] {
+            let e = send(&v, "obsidian.merge_notes", p).unwrap_err().to_string();
+            assert!(e.starts_with(rest::CONFLICT), "{e}");
+            assert_eq!(v.read("People/Kim.md"), "kim\n");
+            assert_eq!(v.read("People/Kimberly P.md"), "kimberly\n");
+        }
+        let r = send(&v, "obsidian.merge_notes", merge("kim\n", "kimberly\n")).unwrap();
+        assert_eq!(
+            (r["changed"].as_bool(), r["trashed"].as_str()),
+            (Some(true), Some("People/Kimberly P.md"))
+        );
+        assert_eq!(v.read("People/Kim.md"), "merged\n");
+        assert_eq!(v.read(".trash/Kimberly P.md"), "kimberly\n");
+        assert!(!v.dir.path().join("People/Kimberly P.md").exists());
+        // Sent again after it landed: done, nothing changes.
+        let r = send(&v, "obsidian.merge_notes", merge("kim\n", "kimberly\n")).unwrap();
+        assert_eq!(r["changed"], false);
+        assert_eq!(v.read("People/Kim.md"), "merged\n");
+    }
+
+    #[test]
+    fn rest_merge_notes_puts_then_deletes_through_obsidian() {
+        let v = Vault::new();
+        v.write("People/Kim.md", "on disk\n");
+        v.write("People/Kimberly P.md", "on disk\n");
+        let http = FakeHttp::default();
+        http.on("GET", "/vault/People/Kim.md", 200, note_json("kim\n"));
+        http.on("GET", "/vault/People/Kimberly%20P.md", 200, note_json("kimberly\n"));
+        http.on("PUT", "/vault/People/Kim.md", 204, "");
+        http.on("DELETE", "/vault/People/Kimberly%20P.md", 204, "");
+        send_rest(&v, &http, "obsidian.merge_notes", merge("kim\n", "kimberly\n")).unwrap();
+        let writes: Vec<(String, String)> = http
+            .requests()
+            .into_iter()
+            .filter(|r| r.0 != "GET")
+            .map(|r| (r.0, r.1))
+            .collect();
+        assert_eq!(
+            writes,
+            [
+                (
+                    "PUT".to_string(),
+                    "https://127.0.0.1:27124/vault/People/Kim.md".to_string()
+                ),
+                (
+                    "DELETE".to_string(),
+                    "https://127.0.0.1:27124/vault/People/Kimberly%20P.md".to_string()
+                )
+            ]
+        );
     }
 
     #[test]

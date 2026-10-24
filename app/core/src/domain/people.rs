@@ -67,6 +67,39 @@ pub struct TopicAuthor {
     pub at: Ts,
 }
 
+/// Someone who wrote in a confirmed work signal, with the topic it's
+/// confirmed to: one row per message they sent, or for the item they authored.
+#[derive(Debug, Clone)]
+pub struct SignalAuthor {
+    pub source_kind: String,
+    pub handle: Option<String>,
+    pub name: String,
+    pub item_id: i64,
+    pub topic_id: i64,
+    pub at: Ts,
+}
+
+/// An author's latest confirmed work signal in a topic, over all time.
+#[derive(Debug, Clone)]
+pub struct AuthorTopic {
+    pub source_kind: String,
+    pub handle: Option<String>,
+    pub name: String,
+    pub topic_id: i64,
+    pub last_at: Ts,
+}
+
+/// A guest (not you, not a room) on an upcoming timed event of the work calendar.
+#[derive(Debug, Clone)]
+pub struct Guest {
+    /// Lowercased.
+    pub email: String,
+    /// Their answer as Google gives it (`accepted`, `declined`, `tentative`, `needsAction`).
+    pub response: Option<String>,
+    pub start: Ts,
+    pub title: String,
+}
+
 /// A person linked to a topic by hand.
 #[derive(Debug, Clone)]
 pub struct LinkedPerson {
@@ -91,6 +124,12 @@ pub trait PeopleViews {
     fn filed_by(&self, person_id: i64, limit: usize) -> Result<Vec<(String, i64, Ts)>>;
     /// A person's note path and name, when they have a note.
     fn note_of(&self, person_id: i64) -> Result<Option<(String, String)>>;
+    /// Authors of confirmed work signals since `since` (by message time, or the item's time for its author).
+    fn signal_authors_since(&self, since: Ts) -> Result<Vec<SignalAuthor>>;
+    /// Every author of a confirmed work signal, per topic, with their latest time there.
+    fn author_topics(&self) -> Result<Vec<AuthorTopic>>;
+    /// Guests on the work calendar's timed events starting in (`after`, `until`], soonest first.
+    fn upcoming_guests(&self, after: Ts, until: Ts) -> Result<Vec<Guest>>;
 }
 
 /// A People note as read from the vault.
@@ -119,6 +158,8 @@ pub trait People {
     fn note_queued(&self, path: &str, name: &str, account: Option<(&str, &str)>) -> Result<()>;
     /// Hide the new-person suggestion for an account until `until`.
     fn snooze(&self, kind: &str, account: &str, until: Ts) -> Result<()>;
+    /// A merge of `from`'s note into `into`'s landed: topics linked to `from` by hand link to `into`.
+    fn move_topic_links(&self, from: i64, into: i64) -> Result<()>;
 }
 
 /// Where People notes live in the vault.

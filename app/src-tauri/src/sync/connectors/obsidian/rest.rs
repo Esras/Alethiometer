@@ -97,6 +97,17 @@ impl<'a> Rest<'a> {
         check(resp)?;
         Ok(())
     }
+
+    /// Delete a file the way Obsidian's own Delete does: into the trash its
+    /// "Deleted files" setting names (system trash, `.trash/`, or none).
+    pub fn delete(&self, path: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .request("DELETE", &self.url(path), &[("Authorization", &self.auth)], None)
+            .map_err(explain)?;
+        check(resp)?;
+        Ok(())
+    }
 }
 
 /// Each segment percent-encoded on its own, `/` kept: how the plugin decodes
@@ -329,6 +340,18 @@ mod tests {
         assert_eq!(http.requests()[0].2.as_deref(), Some("hello\n"));
         let h = &http.header_log.lock().unwrap()[0];
         assert!(h.contains(&("Content-Type".into(), "text/markdown; charset=utf-8".into())));
+    }
+
+    #[test]
+    fn delete_is_obsidians_own_delete_not_a_permanent_one() {
+        let http = FakeHttp::default();
+        http.on("DELETE", "/vault/People/Kimberly%20P.md", 204, "");
+        Rest::new(&http, DEFAULT_URL, "k")
+            .delete("People/Kimberly P.md")
+            .unwrap();
+        let reqs = http.requests();
+        assert_eq!(reqs[0].0, "DELETE");
+        assert!(!reqs[0].1.contains("permanent"), "{}", reqs[0].1);
     }
 
     #[test]

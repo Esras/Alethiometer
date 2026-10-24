@@ -3,7 +3,7 @@
 // reviewer can be archived and the room can't until they stop.
 export const checks = {
   'agents menu: Archive session opens the confirm': async (t) => {
-    await t.steps('Control+7');
+    await t.steps({ tab: 'Agents' });
     await t.page.locator('.tree .row', { hasText: 'reviewer' }).first().click({ button: 'right' });
     await t.visible(t.page.getByRole('menu'));
     await t.page.getByRole('menuitem', { name: /^Archive session/ }).click({ timeout: 3000 });
@@ -12,7 +12,7 @@ export const checks = {
     await t.visible(t.page.getByRole('dialog', { name: 'Archive' }), 'no confirm opened');
   },
   'agents menu: a group with a busy agent can’t be archived': async (t) => {
-    await t.steps('Control+7');
+    await t.steps({ tab: 'Agents' });
     await t.page.locator('.tree .row', { hasText: 'migration' }).first().click({ button: 'right' });
     await t.visible(t.page.getByRole('menu'));
     const item = t.page.getByRole('menuitem', { name: /^Archive group/ });

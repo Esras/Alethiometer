@@ -9,6 +9,8 @@ pub mod note_save;
 pub mod note_text;
 pub mod notes;
 pub mod people;
+pub mod people_index;
+pub mod person_merge;
 pub mod priorities;
 pub mod reflect;
 pub mod respond;

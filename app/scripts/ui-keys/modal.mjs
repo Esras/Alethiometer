@@ -18,7 +18,7 @@ const sites = {
     from: (t) => t.page.locator('button').first(),
   },
   'New agent': {
-    prepare: (t) => t.steps('Control+7'),
+    prepare: (t) => t.steps({ tab: 'Agents' }),
     // The Enter key would go to the tree, so click.
     open: (t) => t.page.getByRole('button', { name: 'New agent' }).first().click(),
     probe: (t) => t.page.locator('.modal.agent-form'),
@@ -26,7 +26,7 @@ const sites = {
     sticky: true,
   },
   Keys: {
-    prepare: (t) => t.steps('Control+7'),
+    prepare: (t) => t.steps({ tab: 'Agents' }),
     open: (t) => t.steps('Shift+?'),
     probe: (t) => t.page.getByText('? or Esc to close'),
     from: (t) => t.page.getByRole('button', { name: 'New agent' }).first(),
@@ -127,7 +127,7 @@ for (const [name, s] of Object.entries(sites)) {
 
 // What stays as it was.
 checks['Keys: keys behind the sheet stay behind it, and ? closes it'] = async (t) => {
-  await t.steps('Control+7', 'Shift+?');
+  await t.steps({ tab: 'Agents' }, 'Shift+?');
   await t.visible(t.page.getByText('? or Esc to close'));
   await t.steps('n');
   await t.gone(t.page.locator('.modal.agent-form'), 'n opened the New agent form under the sheet');
@@ -137,7 +137,7 @@ checks['Keys: keys behind the sheet stay behind it, and ? closes it'] = async (t
 };
 
 checks['New agent: ⌘K does not reach the window under it'] = async (t) => {
-  await t.steps('Control+7', { button: 'New agent' });
+  await t.steps({ tab: 'Agents' }, { button: 'New agent' });
   await t.visible(t.page.getByRole('dialog'));
   await t.steps('Control+k');
   await t.gone(t.page.getByPlaceholder('Search everything'), '⌘K opened the palette under the modal');

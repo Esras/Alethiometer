@@ -89,7 +89,7 @@ function cases(name, cfg) {
 // Todos' new-todo form: nothing is written until it's saved, so a pick only fills the field.
 const todoTopic = {
   open: async (t) => {
-    await t.steps('Control+4', 'n');
+    await t.steps({ tab: 'Todos' }, 'n');
     await t.page.getByRole('button', { name: 'No topic' }).click();
   },
   root: (t) => t.page.locator('.picker'),
@@ -117,7 +117,7 @@ const topicsCategory = {
 };
 
 const notesLine = {
-  open: (t) => t.steps('Control+5', 'Enter', 'Tab'),
+  open: (t) => t.steps({ tab: 'Notes' }, 'Enter', 'Tab'),
   root: (t) => t.page.locator('.picker[aria-label="Where it goes"]'),
   opts: (t) => t.page.locator('.picker .opt'),
   filter: { type: 'q4', expect: /Q4/i },

@@ -4,6 +4,11 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Checks that fail on `main` (found 2026-10-24)
+
+- `cargo test --test architecture` (`services_do_not_take_app`): `agents/acp.rs` has 41 functions with `App` in their signature, the allowlist says 40. Not from the People work; the list needs the count or the function moved.
+- `scripts/ui-keys.mjs picker`: the font picker's starting cursor and Settings' `j`/`k` checks fail on a plain dev server whose sample data earlier checks already changed; not rerun on a fresh `ui-diff.sh` start. The agents-menu and composer-menu checks need `ui-diff.sh`'s scripted agents and fail without them.
+
 ### Agents inherit cargo's env from a dev build
 
 Under `npx tauri dev`/`cargo run`, the app's env has `OUT_DIR`, `CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH`, `CARGO_PKG_*` (and `CARGO_TERM_*`), and agents the app spawns inherit them. ring's build script tracks `OUT_DIR`/`CARGO_MANIFEST_DIR`/`CARGO_PKG_NAME`, so every `cargo build` an agent runs (in any project using ring) reruns it and rebuilds ring → rustls → ureq/tungstenite: ~13 s instead of 6.8 s here. Fix: strip those vars when spawning agents (or at app start), with a test. Not done yet (moved here from HANDOFF.md 2026-10-21; check it still holds). When benchmarking from inside an agent session, `env -u OUT_DIR -u CARGO_…` first, or numbers are inflated.

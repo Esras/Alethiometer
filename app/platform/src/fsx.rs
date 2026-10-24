@@ -121,5 +121,46 @@ pub fn write_checked(abs: &Path, before: Option<&str>, after: &str) -> anyhow::R
     Ok(std::fs::metadata(abs)?.modified()?)
 }
 
+/// Move a vault note into the vault's `.trash/` (where Obsidian's "Move to
+/// Obsidian trash" puts deleted files), but only if it still holds `before`.
+/// A name already in the trash gets " 1", " 2"… before `.md`; the note is
+/// hard-linked in under a free name first, so nothing there is replaced.
+/// Returns where it went.
+pub fn move_to_trash(vault: &Path, abs: &Path, before: &str) -> anyhow::Result<PathBuf> {
+    if std::fs::read(abs)?.as_slice() != before.as_bytes() {
+        anyhow::bail!("the note changed; it wasn't moved to the trash");
+    }
+    let trash = vault.join(".trash");
+    std::fs::create_dir_all(&trash)?;
+    let stem = abs
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = abs
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for n in 0.. {
+        let to = trash.join(if n == 0 {
+            format!("{stem}{ext}")
+        } else {
+            format!("{stem} {n}{ext}")
+        });
+        match std::fs::hard_link(abs, &to) {
+            Ok(()) => {
+                std::fs::remove_file(abs)?;
+                sync_dir(&trash);
+                if let Some(dir) = abs.parent() {
+                    sync_dir(dir);
+                }
+                return Ok(to);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    unreachable!()
+}
+
 #[cfg(test)]
 mod tests;

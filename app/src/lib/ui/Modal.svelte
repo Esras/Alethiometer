@@ -14,7 +14,7 @@
   //             the pane and not the tab bar; the rest are fixed
   //   inset     NewModal starts below the 32px title bar, which is the window's
   //             drag region; the rest cover the window
-  //   isolate   NewModal never let a key reach the window handler (⌘K, ⌘1–7,
+  //   isolate   NewModal never let a key reach the window handler (⌘K, ⌘1–8,
   //             g i); the rest do
   import type { Snippet } from 'svelte';
   import { dispatchKey, useKeys, type KeyHandler } from '../keys.svelte';

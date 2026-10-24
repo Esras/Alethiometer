@@ -180,6 +180,24 @@ impl<'a> Ctx<'a> {
                 life: false,
             })
             .expect("seed event");
+        // The guests that have a sample People note, as Google lists them (People: next meeting).
+        let guests: Vec<serde_json::Value> = attendees
+            .split(", ")
+            .filter_map(|a| SAMPLE_NOTES.iter().find(|n| n.0 == a).and_then(|n| n.1))
+            .map(|email| serde_json::json!({ "email": email, "responseStatus": "accepted" }))
+            .collect();
+        if !guests.is_empty() {
+            let raw = serde_json::json!({ "attendees": guests }).to_string();
+            self.sample()
+                .patch_item(
+                    item,
+                    &crate::domain::sample::ItemPatch {
+                        raw_json: Some(&raw),
+                        ..Default::default()
+                    },
+                )
+                .expect("seed meeting guests");
+        }
         self.meetings.borrow_mut().insert((days, title.to_owned()), item);
         item
     }
@@ -289,6 +307,18 @@ pub fn seed_if_empty(app: &App) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The sample people with a People note: name, email, GitHub login, team.
+const SAMPLE_NOTES: [(&str, Option<&str>, Option<&str>, &str); 8] = [
+    ("Jordan", Some("jordan.lee@work.com"), Some("jlee-work"), "[[Platform]]"),
+    ("Priya", Some("priya.n@work.com"), None, "[[Data eng]]"),
+    ("Sam", Some("sam.k@work.com"), None, "[[Accounts]]"),
+    ("Kim", Some("kim@work.com"), None, "[[Procurement]]"),
+    ("Lee", Some("lee.h@work.com"), None, "[[People team]]"),
+    ("Ana", Some("ana@work.com"), None, "[[Finance]]"),
+    ("Ravi", Some("ravi@datadoghq.com"), None, ""),
+    ("Dana", Some("dana@acme.com"), None, ""),
+];
+
 /// People notes (17a/17b) for the sample people, in the stand-in vault, and
 /// the rows `queries::people::scan` would make from them. Marco has none, so
 /// Incoming can suggest one for him.
@@ -297,19 +327,9 @@ fn seed_people_notes(
     vault: &std::path::Path,
     people: &HashMap<&'static str, (i64, &str)>,
 ) -> anyhow::Result<()> {
-    let notes: [(&str, Option<&str>, Option<&str>, &str); 8] = [
-        ("Jordan", Some("jordan.lee@work.com"), Some("jlee-work"), "[[Platform]]"),
-        ("Priya", Some("priya.n@work.com"), None, "[[Data eng]]"),
-        ("Sam", Some("sam.k@work.com"), None, "[[Accounts]]"),
-        ("Kim", Some("kim@work.com"), None, "[[Procurement]]"),
-        ("Lee", Some("lee.h@work.com"), None, "[[People team]]"),
-        ("Ana", Some("ana@work.com"), None, "[[Finance]]"),
-        ("Ravi", Some("ravi@datadoghq.com"), None, ""),
-        ("Dana", Some("dana@acme.com"), None, ""),
-    ];
     let dir = vault.join(crate::domain::people::PEOPLE_DIR);
     std::fs::create_dir_all(&dir)?;
-    for (name, email, github, team) in notes {
+    for (name, email, github, team) in SAMPLE_NOTES {
         let (id, role) = people[name];
         let slack = slack_id(name);
         let mut text = format!("---\naliases: []\nslack: {slack}\n");

@@ -2,7 +2,8 @@
   // Inline "move to topic" picker (t). Type to filter, ↑/↓ to move,
   // ↵ to pick, Esc to close (lib/ui/picker.svelte.ts). Picking creates a
   // confirmed link. With `onunsorted` (the split review), a first "Unsorted"
-  // row moves there. The create row isn't a cursor row: ↵ with no match creates.
+  // row moves there. The create row isn't a cursor row: ↵ with no match creates,
+  // unless `create` is false (picking a topic to filter by).
   import { call } from '../../lib/api';
   import { catColor } from '../../lib/app.svelte';
   import FilterField from '../../lib/ui/FilterField.svelte';
@@ -13,6 +14,7 @@
     exclude = null,
     excludeIds = [],
     placeholder = 'Move to topic…',
+    create: allowCreate = true,
     onpick,
     onunsorted,
     onclose,
@@ -21,8 +23,10 @@
     /** More topics to leave out (e.g. ones staged to merge away). */
     excludeIds?: number[];
     placeholder?: string;
-    /** The topic's name comes along for "moved to X" lines. */
-    onpick: (topicId: number, name: string) => void;
+    /** Whether ↵ with no match creates the topic. */
+    create?: boolean;
+    /** The topic's name and category come along ("moved to X" lines, filter chips). */
+    onpick: (topicId: number, name: string, category: string) => void;
     onunsorted?: () => void;
     onclose: () => void;
   } = $props();
@@ -47,7 +51,7 @@
   const offset = $derived(showUnsorted ? 1 : 0);
 
   const canCreate = $derived(
-    p.q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === p.q.trim().toLowerCase()),
+    allowCreate && p.q.trim().length > 0 && !all.some((t) => t.name.toLowerCase() === p.q.trim().toLowerCase()),
   );
   let creating = $state(false);
 
@@ -57,7 +61,7 @@
     creating = true;
     try {
       const r = await call<{ id: number }>('topics.create', { name });
-      onpick(r.id, name);
+      onpick(r.id, name, ''); // created uncategorized
     } finally {
       creating = false;
     }
@@ -66,7 +70,7 @@
   function pick(i: number) {
     if (showUnsorted && i === 0) return onunsorted?.();
     const t = matches[i - offset];
-    if (t) onpick(t.id, t.name);
+    if (t) onpick(t.id, t.name, t.category);
     else if (canCreate) void create();
   }
 </script>

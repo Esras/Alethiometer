@@ -5,7 +5,7 @@
 //
 // A check file exports `checks`: { 'name': async (t) => { … } }, where t has
 //   t.page                  a fresh page on the app, fonts loaded
-//   t.steps(…steps)         key presses or { click } / { clickText } / { exact } / { button } / { type }, as in ui-diff.mjs
+//   t.steps(…steps)         key presses or { tab } / { click } / { clickText } / { exact } / { button } / { type }, as in ui-diff.mjs
 //   t.visible(locator)      fails unless it's visible;  t.gone(locator) unless it isn't
 //   t.focused(locator)      fails unless it holds focus
 //   t.ok(cond, message)     fails unless cond
@@ -52,7 +52,12 @@ for (const file of files) {
       async steps(...steps) {
         for (const k of steps) {
           if (typeof k === 'string') await page.keyboard.press(k);
-          else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
+          else if (k.tab) {
+            const i = await page
+              .locator('nav.tabs .tab')
+              .evaluateAll((els, l) => els.findIndex((e) => e.textContent.trim().startsWith(l)), k.tab);
+            await page.keyboard.press(`Control+${i + 1}`);
+          } else if (k.type) await page.keyboard.type(k.type, { delay: 30 });
           else if (k.click) await page.getByTitle(k.click).first().click({ timeout: 3000 });
           else if (k.clickText) await page.getByText(k.clickText).first().click({ timeout: 3000 });
           else if (k.exact)
