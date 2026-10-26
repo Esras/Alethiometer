@@ -35,6 +35,7 @@ The app was built from a Claude Design handoff, which stays in the repo as the r
 - **`project/design_handoff_helm/README.md`** is the spec. Its "Files" section says which mock IDs are current.
 - **`project/*.dc.html`** are the HTML mocks: explorations by round (rounds 1–6 are superseded), Agents, Glean and the day strip.
 - **`chats/`** holds the design conversations. Read them for intent: they show where the user landed, not only what was drawn.
+- **`project/fixtures/busy-week.json`** (also `busy-week.js`, which sets `window.BUSY_WEEK`) is invented data at the density of a real work week: ~250–300 signals per weekday (Slack ~123, agents ~68, Gmail ~30, Jira ~13, calendar ~10), threads up to 60 messages, 140 people. Populate mocks from it instead of a handful of hand-made rows, and show the density rather than trimming it to fit. It is large (1.7 MB): query it with `jq` or grep. Regenerate with `node app/scripts/gen-busy-week.mjs`.
 
 The **Alethiometer design system** (https://claude.ai/artifact/WH4uwJJM3gk6Ux2HX7f565) holds the tokens, shared classes and numbered decisions for the front end. Where it differs from the "User" notes in `app/docs/ui-plan.md`, the notes win.
 
