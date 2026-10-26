@@ -167,8 +167,8 @@ for (const g of groups) {
   if (g.kind !== 'social') {
     for (const m of g.members) {
       const r = rnd();
-      if (r < 0.1) m.joined = addDays(FIRST_DAY, int(7, 27));
-      else if (r < 0.2) m.left = addDays(FIRST_DAY, int(5, 24));
+      if (r < 0.04) m.joined = addDays(FIRST_DAY, int(7, 27));
+      else if (r < 0.08) m.left = addDays(FIRST_DAY, int(5, 24));
     }
     g.members.push({ id: ME.id });
   }
@@ -178,6 +178,7 @@ const activeOn = (g, day) =>
   g.members
     .filter((m) => m.id !== ME.id && (!m.joined || m.joined <= day) && (!m.left || day < m.left))
     .map((m) => m.id);
+const memberOn = (g, id, day) => id === ME.id || activeOn(g, day).includes(id);
 topics.forEach((t, i) => {
   groups[i % groups.length].topicIds.push(t.id);
   if (rnd() < 0.35) pick(groups).topicIds.push(t.id);
@@ -379,9 +380,10 @@ for (const day of DAYS) {
         const times = threadTimes(at, count);
         it.msgCount = times.length;
         it.endedAt = times.at(-1);
+        const replyPool = it.participantIds.filter((p) => p !== ME.id);
         it.messages = times.slice(0, 6).map((t, m) => ({
           at: t,
-          authorId: m < parts.length ? parts[m] : meIn && rnd() < 0.75 ? ME.id : pick(parts),
+          authorId: m === 0 ? parts[0] : m < parts.length ? parts[m] : meIn && rnd() < 0.75 ? ME.id : pick(replyPool),
           text: text(int(40, 320)),
         }));
         if (meIn && !it.messages.some((m) => m.authorId === ME.id) && it.messages.length > 1)
@@ -399,7 +401,7 @@ const series = [];
 const addSeries = (n, every, size, kinds, minutes, hours) => {
   for (let i = 0; i < n; i++) {
     const g = groupPick(kinds, TODAY);
-    const pool = activeOn(g, TODAY);
+    const pool = g.members.filter((m) => m.id !== ME.id).map((m) => m.id);
     const w = (id) => baseWeight.get(id);
     const others =
       size === 2
@@ -469,7 +471,11 @@ for (const day of [...DAYS, ...FUTURE]) {
       (sr.every === 'weekly' && sr.weekday === wd) ||
       (sr.every === 'biweekly' && sr.weekday === wd && week % 2 === sr.phase) ||
       (sr.every === 'monthly' && sr.weekday === wd && week % 4 === sr.phase);
-    if (on && rnd() > 0.05) pushEvent(day, sr.hour, sr.minutes, sr.guestIds, sr.title, sr.topicId, sr.id, sr.groupId);
+    if (on && rnd() > 0.05) {
+      const g = groups[sr.groupId - 1];
+      const guests = sr.guestIds.filter((p) => memberOn(g, p, day));
+      pushEvent(day, sr.hour, sr.minutes, guests, sr.title, sr.topicId, sr.id, sr.groupId);
+    }
   }
   const oneOffs = day <= TODAY ? int(1, 3) : day <= addDays(TODAY, 14) ? int(0, 2) : int(0, 1);
   for (let k = 0; k < oneOffs; k++) {
@@ -497,6 +503,11 @@ for (const it of items)
     t.itemCount = (t.itemCount || 0) + 1;
     if (!t.lastSignalAt || it.occurredAt > t.lastSignalAt) t.lastSignalAt = it.occurredAt;
   }
+
+const ranked = [...people].sort((a, b) => baseWeight.get(b.id) - baseWeight.get(a.id));
+const noted = new Set([...ranked.slice(0, 75), ...wsample(ranked.slice(75), 7, () => 1)].map((p) => p.id));
+for (const p of people) p.notePath = noted.has(p.id) ? `People/${p.name}.md` : null;
+for (const p of externals) p.notePath = null;
 
 const past = items.filter((i) => i.occurredAt <= NOW);
 const shape = (() => {
@@ -546,6 +557,13 @@ const shape = (() => {
   if (new Set(all.map((p) => p.name)).size !== all.length) throw new Error('duplicate person names');
   if (new Set(topics.map((t) => t.name)).size !== topics.length) throw new Error('duplicate topic names');
   if (past.some((i) => i.authorId === ME.id && i.source !== 'gcal')) throw new Error('me as signal author');
+  const strayGuests = events.filter((e) => {
+    const g = e.seriesId && groups[series[e.seriesId - 1].groupId - 1];
+    return g && e.guestIds.some((p) => !memberOn(g, p, e.start.slice(0, 10)));
+  });
+  if (strayGuests.length) throw new Error(`${strayGuests.length} meetings with guests outside the group that day`);
+  const mail = past.filter((i) => i.source === 'gmail' && i.messages);
+  const mailReplies = mail.flatMap((i) => i.messages.slice(1));
   return {
     slackGroupRepeatShare: +(
       multi.filter((i) => sets[key(i.participantIds.filter((p) => p !== ME.id))] > 1).length / multi.length
@@ -566,6 +584,17 @@ const shape = (() => {
         past.filter((i) => i.messages?.some((m) => m.authorId === ME.id)).length / past.filter((i) => i.messages).length
       ).toFixed(2),
     },
+    notes: {
+      people: noted.size,
+      threadMessageShare: +(msgs.filter((m) => noted.has(m.authorId)).length / msgs.length).toFixed(2),
+    },
+    emailReplies: tally(mailReplies, (m) =>
+      m.authorId === ME.id
+        ? 'me'
+        : mail.find((i) => i.messages.includes(m)).authorId === m.authorId
+          ? 'sender'
+          : 'to/cc',
+    ),
     meetingGuestLists: { distinct: lists.length, usedTwicePlus: lists.filter((c) => c > 1).length },
     upcomingMeetings: events.filter((e) => e.start >= NOW).length,
     topAuthorsByWeek: top.slice(0, 6),
@@ -582,9 +611,9 @@ const shape = (() => {
 const data = {
   about: [
     `Invented data at the density of a real account: four weeks of signals (${FIRST_DAY} to ${TODAY}), now is ${NOW} (ALETHIOMETER_FAKE_NOW=10:52), and calendar events through ${HORIZON}. Nothing here comes from a real person or message. Times are local wall-clock.`,
-    'People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left). crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others.',
-    'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
-    'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. A topic is quiet with no signal in 7 days.',
+    'People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left), and recurring meetings only include guests who are in the group that day. crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others. About 80 people have a People note (notePath), mostly the busiest, as on the real account (82 notes, whose people write about half the thread messages); everyone else is an account with no note.',
+    'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group, and anyone on the mail can reply; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
+    'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. Future meetings are items too (status open, after now), as in the real store. A topic is quiet with no signal in 7 days.',
     'Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18).',
     'shape reports the measured density. Regenerate with node app/scripts/gen-busy-week.mjs.',
   ].join(' '),
