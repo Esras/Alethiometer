@@ -29,7 +29,11 @@ const shuffle = (a) => {
   }
   return a;
 };
+const lognormal = (sigma) => Math.exp(sigma * Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd()));
 const cap = (t) => t[0].toUpperCase() + t.slice(1);
+const key = (ids) => [...ids].sort((a, b) => a - b).join();
+const tally = (xs, f) => xs.reduce((m, x) => ((m[f(x)] = (m[f(x)] || 0) + 1), m), {});
+const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 
 const FIRST =
   'Ada Bram Cleo Dara Elio Faye Gus Hana Ivo Jun Kai Lena Milo Nora Omar Pia Quin Rae Sol Tess Uma Vik Wren Xan Yara Zed Alma Beck Cora Dov Edda Finn Gwen Hugo Ines Jory Kit Lux Mara Nico Opal Pax Remy Suri Taj Una Vera Wade Yuki Zora Anya Basil Cyrus Delia Emeka Flora Gideon Hollis Isla Jonah Keiko Linus Maeve Nadia Orrin Priya Rafael Selma Tobias Ursa Vikram Willa Xiomara Yusuf Zainab'.split(
@@ -51,6 +55,7 @@ const ADJ =
   'flaky stale pending blocked urgent noisy slow duplicate missing legacy shared internal quarterly weekly external partial'.split(
     ' ',
   );
+const ORGS = 'Northwind Globex Initech Umbrella Hooli Vandelay Stark Wayne Tyrell Cyberdyne Soylent Oscorp'.split(' ');
 const CATS = [
   ['ai', 23],
   ['alert', 3],
@@ -85,31 +90,57 @@ const title = (len) =>
     `${pick(VERB)} ${pick(ADJ)} ${pick(NOUN)} ${pick(NOUN)} ${pick(['for', 'in', 'after', 'before'])} ${pick(NOUN)}`,
   ).slice(0, Math.max(10, len));
 
-const WEEKS = 4;
-const DAYS = Array.from({ length: WEEKS * 7 }, (_, i) =>
-  new Date(Date.UTC(2026, 8, 28 + i)).toISOString().slice(0, 10),
-);
-const TODAY = DAYS.at(-1);
+const addDays = (day, n) => new Date(Date.parse(day + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+const addMin = (at, n) => new Date(Date.parse(at + 'Z') + n * 6e4).toISOString().slice(0, 19);
+const FIRST_DAY = '2026-09-28';
+const TODAY = '2026-10-26';
+const NOW = `${TODAY}T10:52:00`;
+const HORIZON = '2026-12-24';
+const DAYS = Array.from({ length: 29 }, (_, i) => addDays(FIRST_DAY, i));
+const FUTURE = Array.from({ length: 59 }, (_, i) => addDays(TODAY, i + 1)).filter((d) => d <= HORIZON);
 const QUIET_DAYS = 7;
+const quietBefore = addDays(TODAY, -QUIET_DAYS);
+const weekOf = (day) => Math.floor((Date.parse(day) - Date.parse(FIRST_DAY)) / (7 * 864e5));
+const WEEKS = weekOf(HORIZON) + 1;
+const weekday = (day) => (new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7;
 const WEEKDAY_SCALE = [0.85, 1.0, 1.15, 1.2, 0.95, 0.07, 0.04];
 
-const ME = { id: 0, name: 'Sam Rivera', handle: 'sam.rivera', email: 'sam.rivera@example.com', weight: 40, groups: [] };
-const names = shuffle(FIRST.flatMap((f) => LAST.map((l) => `${f} ${l}`))).slice(0, 600);
-const people = names.map((name, i) => {
+const names = shuffle(FIRST.flatMap((f) => LAST.map((l) => `${f} ${l}`)));
+const person = (id, name, domain, extra = {}) => {
   const h = name.toLowerCase().replace(' ', '.');
-  return { id: i + 1, name, handle: h, email: `${h}@example.com`, weight: 1 / (i + 4) ** 1.15, groups: [] };
+  return { id, name, handle: h, email: `${h}@${domain}`, groups: [], ...extra };
+};
+const ME = person(0, 'Sam Rivera', 'example.com');
+const people = names.slice(0, 600).map((n, i) => person(i + 1, n, 'example.com'));
+const externals = names.slice(600, 660).map((n, i) => {
+  const org = pick(ORGS);
+  return person(601 + i, n, `${org.toLowerCase()}.example`, { external: true, org });
 });
-const byId = new Map([ME, ...people].map((p) => [p.id, p]));
-const weight = (id) => byId.get(id).weight;
+const all = [ME, ...people, ...externals];
+const byId = new Map(all.map((p) => [p.id, p]));
+const baseWeight = new Map(people.map((p, i) => [p.id, 1 / (i + 4) ** 1.15]));
+externals.forEach((p) => baseWeight.set(p.id, 0.004));
+const personWeek = new Map(all.map((p) => [p.id, Array.from({ length: WEEKS }, () => lognormal(0.55))]));
+const weightOn = (day) => (id) => baseWeight.get(id) * personWeek.get(id)[weekOf(day)];
 
-const topics = Array.from({ length: 184 }, (_, i) => ({
-  id: i + 1,
-  name: `${cap(pick(ADJ))} ${pick(NOUN)} ${pick(['', 'v2', 'cleanup', 'Q4', 'rollout', 'review', 'migration'])}`.trim(),
-  category: wpick(CATS),
-  active: i < 83,
-  lastDay: i < 83 ? TODAY : DAYS[int(0, DAYS.length - QUIET_DAYS - 2)],
-  weight: 1 / (1 + (i % 83)) ** 0.6,
-}));
+const topicNames = new Set();
+const topics = Array.from({ length: 184 }, (_, i) => {
+  let name;
+  do
+    name =
+      `${cap(pick(ADJ))} ${pick(NOUN)} ${pick(['', 'v2', 'cleanup', 'Q4', 'rollout', 'review', 'migration'])}`.trim();
+  while (topicNames.has(name));
+  topicNames.add(name);
+  const active = i < 83;
+  return {
+    id: i + 1,
+    name,
+    category: wpick(CATS),
+    active,
+    lastDay: active ? TODAY : addDays(FIRST_DAY, int(0, 28 - QUIET_DAYS - 2)),
+    weight: 1 / (1 + (i % 83)) ** 0.6,
+  };
+});
 
 const GROUP_KINDS = [
   ['team', 14],
@@ -120,62 +151,71 @@ const GROUP_KINDS = [
 const groups = Array.from({ length: 42 }, (_, i) => {
   const kind = wpick(GROUP_KINDS);
   const size = kind === 'social' ? int(40, 120) : kind === 'cross' ? int(15, 40) : int(4, 18);
-  return {
-    id: i + 1,
-    name: `${kind === 'social' ? 'fun' : kind === 'team' ? 'team' : 'proj'}-${pick(NOUN)}-${i + 1}`,
-    kind,
-    size,
-    members: [],
-    topicIds: [],
-    crews: [],
-  };
+  const prefix = kind === 'social' ? 'fun' : kind === 'team' ? 'team' : 'proj';
+  return { id: i + 1, name: `${prefix}-${pick(NOUN)}-${i + 1}`, kind, size, members: [], topicIds: [], crews: [] };
 });
-shuffle(people.map((p) => p.id)).forEach((id, i) => groups[i % groups.length].members.push(id));
+const groupWeek = new Map(groups.map((g) => [g.id, Array.from({ length: WEEKS }, () => lognormal(0.4))]));
+shuffle(people.map((p) => p.id)).forEach((id, i) => groups[i % groups.length].members.push({ id }));
 for (const g of groups) {
+  const have = new Set(g.members.map((m) => m.id));
   const more = wsample(
-    people.map((p) => p.id).filter((id) => !g.members.includes(id)),
+    people.map((p) => p.id).filter((id) => !have.has(id)),
     Math.max(0, g.size - g.members.length),
-    weight,
+    (id) => baseWeight.get(id),
   );
-  g.members.push(...more);
-  if (g.kind !== 'social') g.members.push(ME.id);
-  for (const id of g.members) byId.get(id).groups.push(g.id);
-  g.size = g.members.length;
+  g.members.push(...more.map((id) => ({ id })));
+  if (g.kind !== 'social') {
+    for (const m of g.members) {
+      const r = rnd();
+      if (r < 0.1) m.joined = addDays(FIRST_DAY, int(7, 27));
+      else if (r < 0.2) m.left = addDays(FIRST_DAY, int(5, 24));
+    }
+    g.members.push({ id: ME.id });
+  }
+  for (const m of g.members) byId.get(m.id).groups.push(g.id);
 }
+const activeOn = (g, day) =>
+  g.members
+    .filter((m) => m.id !== ME.id && (!m.joined || m.joined <= day) && (!m.left || day < m.left))
+    .map((m) => m.id);
 topics.forEach((t, i) => {
-  const home = groups[i % groups.length];
-  home.topicIds.push(t.id);
+  groups[i % groups.length].topicIds.push(t.id);
   if (rnd() < 0.35) pick(groups).topicIds.push(t.id);
 });
 for (const g of groups) {
-  const core = wsample(g.members, Math.min(g.members.length, 10), weight);
-  for (let c = 0; c < int(2, 4); c++) g.crews.push(wsample(core, Math.min(core.length, int(3, 5)), weight));
+  const core = wsample(
+    g.members.filter((m) => m.id !== ME.id && !m.left).map((m) => m.id),
+    10,
+    (id) => baseWeight.get(id),
+  );
+  for (let c = 0; c < int(2, 4); c++)
+    g.crews.push(wsample(core, Math.min(core.length, int(3, 5)), (id) => baseWeight.get(id)).sort((a, b) => a - b));
 }
 
-const HOURS = [
-  [0, 1],
+const LOCAL = [
+  [17, 1],
+  [18, 1],
+  [19, 1],
+  [20, 1],
+  [21, 1],
+  [22, 1],
+  [23, 1],
   [1, 1],
   [2, 1],
   [3, 1],
   [4, 1],
-  [5, 1],
-  [6, 1],
-  [8, 1],
-  [9, 1],
-  [10, 1],
-  [11, 1],
-  [12, 2],
-  [13, 3],
+  [5, 2],
+  [6, 3],
+  [7, 5],
+  [8, 8],
+  [9, 8],
+  [10, 10],
+  [11, 9],
+  [12, 10],
+  [13, 9],
   [14, 5],
-  [15, 8],
-  [16, 8],
-  [17, 10],
-  [18, 9],
-  [19, 10],
-  [20, 9],
-  [21, 5],
-  [22, 5],
-  [23, 3],
+  [15, 5],
+  [16, 3],
 ];
 const AGENT_HOURS = [
   [9, 2],
@@ -202,18 +242,25 @@ const THREAD_SIZE = [
   [9, 1],
   [12, 2],
 ];
+const GAP_MIN = [
+  [[0, 1], 25],
+  [[1, 3], 25],
+  [[3, 40], 25],
+  [[40, 700], 15],
+  [[700, 2000], 10],
+];
 
 // [source, kind, per weekday, hour shape, mean msg_count, title len, body len, owned share, due share]
 const MIX = [
-  ['slack', 'message', 64, HOURS, 1, 17, 261, 0, 0],
-  ['slack', 'thread', 59, HOURS, 3.7, 30, 745, 0, 0],
+  ['slack', 'message', 64, LOCAL, 1, 17, 261, 0, 0],
+  ['slack', 'thread', 59, LOCAL, 3.7, 30, 745, 0, 0],
   ['agents', 'approval', 51, AGENT_HOURS, 1, 28, 356, 0, 0],
-  ['gmail', 'email', 30, HOURS, 1.4, 71, 1221, 0, 0],
-  ['jira', 'issue', 13, HOURS, 1.9, 72, 983, 0.75, 0.13],
+  ['gmail', 'email', 30, LOCAL, 1.4, 71, 1221, 0, 0],
+  ['jira', 'issue', 13, LOCAL, 1.9, 72, 983, 0.75, 0.13],
   ['agents', 'turn', 11, AGENT_HOURS, 1, 32, 365, 0, 0],
   ['agents', 'ask', 6, AGENT_HOURS, 1, 29, 423, 0, 0],
-  ['obsidian', 'note', 2, HOURS, 0, 14, 195, 0, 0],
-  ['github', 'pr', 0.4, HOURS, 1, 111, 1158, 1, 0],
+  ['obsidian', 'note', 2, LOCAL, 0, 14, 195, 0, 0],
+  ['github', 'pr', 0.4, LOCAL, 1, 111, 1158, 1, 0],
 ];
 
 const msgCount = (mean, atLeast) => {
@@ -225,31 +272,83 @@ const topicFor = (g, day) => {
   const open = (g ? g.topicIds.map((id) => topics[id - 1]) : topics).filter((t) => t.lastDay >= day);
   return open.length ? wpick(open.map((t) => [t, t.weight])) : null;
 };
-const groupPick = (kinds) => wpick(groups.filter((g) => kinds.includes(g.kind)).map((g) => [g, Math.sqrt(g.size)]));
-const participantsIn = (g, source) => {
-  if (source === 'gmail') return [wpick(people.map((p) => [p.id, p.weight + 0.002]))];
+const groupPick = (kinds, day) =>
+  wpick(
+    groups
+      .filter((g) => kinds.includes(g.kind) && activeOn(g, day).length)
+      .map((g) => [g, Math.sqrt(g.size) * groupWeek.get(g.id)[weekOf(day)]]),
+  );
+const participantsIn = (g, source, day) => {
+  const pool = activeOn(g, day);
   const n = source === 'slack' && rnd() > 0.5 ? wpick(THREAD_SIZE) : source === 'jira' ? int(1, 3) : 1;
-  if (n >= 3 && rnd() < 0.2) return [...pick(g.crews)];
-  return wsample(g.members, n, weight);
+  if (n >= 3 && rnd() < 0.3) {
+    const crew = pick(g.crews).filter((id) => pool.includes(id));
+    if (crew.length >= 3) return crew;
+  }
+  return wsample(pool, n, weightOn(day));
+};
+const threadTimes = (start, n) => {
+  const at = [start];
+  while (at.length < n) {
+    const [a, b] = wpick(GAP_MIN);
+    const next = addMin(at.at(-1), a + rnd() * (b - a));
+    if (next > NOW) break;
+    at.push(next);
+  }
+  return at;
 };
 
 const items = [];
 const events = [];
 let id = 0;
-DAYS.forEach((day, di) => {
-  const scale = WEEKDAY_SCALE[di % 7];
+for (const day of DAYS) {
+  const scale = WEEKDAY_SCALE[weekday(day)];
   for (const [source, kind, per, hours, mean, tl, bl, owned, due] of MIX) {
     const want = per * scale * (0.85 + rnd() * 0.3);
     const n = Math.floor(want) + (rnd() < want % 1 ? 1 : 0);
     for (let k = 0; k < n; k++) {
       const at = ts(day, wpick(hours));
-      const people_ = source === 'agents' || source === 'obsidian';
-      const g = people_
-        ? null
-        : groupPick(kind === 'message' ? ['team', 'project', 'cross', 'social'] : ['team', 'project', 'cross']);
-      const parts = people_ ? [] : participantsIn(g, source);
+      if (at > NOW) continue;
+      const noPeople = source === 'agents' || source === 'obsidian';
+      const external = source === 'gmail' && rnd() < 0.25;
+      const g =
+        noPeople || external
+          ? null
+          : groupPick(kind === 'message' ? ['team', 'project', 'cross', 'social'] : ['team', 'project', 'cross'], day);
+      let parts = [];
+      let to = [];
+      let cc = [];
+      if (external) {
+        parts = [wpick(externals.map((p) => [p.id, weightOn(day)(p.id)]))];
+        to = [ME.id];
+      } else if (source === 'gmail') {
+        const pool = activeOn(g, day);
+        parts = wsample(pool, 1, weightOn(day));
+        const rest = pool.filter((p) => p !== parts[0]);
+        to = [ME.id, ...wsample(rest, int(0, 2), weightOn(day))];
+        cc = wsample(
+          rest.filter((p) => !to.includes(p)),
+          wpick([
+            [0, 45],
+            [1, 20],
+            [2, 15],
+            [3, 10],
+            [5, 10],
+          ]),
+          weightOn(day),
+        );
+      } else if (!noPeople) parts = participantsIn(g, source, day);
+      const topic =
+        external && rnd() < 0.6
+          ? wpick(
+              topics
+                .filter((t) => ['vendors', 'customers'].includes(t.category) && t.lastDay >= day)
+                .map((t) => [t, t.weight]),
+            )
+          : !external && rnd() < 0.8
+            ? topicFor(rnd() < 0.2 ? null : g, day)
+            : null;
       const count = msgCount(source === 'slack' && kind === 'message' ? 1 : mean, parts.length);
-      const topic = rnd() < 0.8 ? topicFor(g, day) : null;
       const it = {
         id: ++id,
         source,
@@ -261,80 +360,73 @@ DAYS.forEach((day, di) => {
         summary: parts.length ? sentence(8, 18) : null,
         body: text(Math.round(bl * (0.4 + rnd() * 1.2))),
         authorId: parts[0] ?? null,
-        participantIds: parts,
+        participantIds: [...new Set([...parts, ...to, ...cc])],
         groupId: g?.id ?? null,
         topicId: topic?.id ?? null,
         occurredAt: at,
         status: 'open',
         msgCount: count,
-        seen: !(di >= DAYS.length - 3 && rnd() < 0.1),
+        seen: !(day >= addDays(TODAY, -2) && rnd() < 0.1),
         owner: rnd() < owned ? 'you' : null,
-        dueDay: rnd() < due ? DAYS[Math.min(DAYS.length - 1, di + int(1, 6))] : null,
-        channel: source === 'slack' ? `#${g.name}` : undefined,
-        repo: source === 'github' ? pick(REPO) : undefined,
+        dueDay: rnd() < due ? addDays(day, int(1, 10)) : null,
       };
+      if (source === 'gmail') Object.assign(it, { to, cc });
+      if (source === 'slack') it.channel = `#${g.name}`;
+      if (source === 'github') it.repo = pick(REPO);
+      if (source === 'jira') it.assigneeId = it.owner ? ME.id : pick(parts);
       if (count > 1) {
-        it.messages = Array.from({ length: Math.min(count, 6) }, (_, m) => ({
-          at: ts(day, int(+at.slice(11, 13), 23)),
-          authorId: m < parts.length ? parts[m] : rnd() < 0.2 ? ME.id : pick(parts),
+        const meIn = rnd() < 0.25;
+        const times = threadTimes(at, count);
+        it.msgCount = times.length;
+        it.endedAt = times.at(-1);
+        it.messages = times.slice(0, 6).map((t, m) => ({
+          at: t,
+          authorId: m < parts.length ? parts[m] : meIn && rnd() < 0.75 ? ME.id : pick(parts),
           text: text(int(40, 320)),
         }));
+        if (meIn && !it.messages.some((m) => m.authorId === ME.id) && it.messages.length > 1)
+          it.messages.at(-1).authorId = ME.id;
+        if (it.messages.some((m) => m.authorId === ME.id)) it.participantIds.push(ME.id);
+        if (it.msgCount === 1) (delete it.messages, delete it.endedAt);
       }
       if ((source === 'jira' || source === 'github') && rnd() < 0.3) it.status = 'done';
       items.push(it);
     }
   }
-});
+}
 
 const series = [];
-const addSeries = (n, every, size, kinds, minutes, hourChoices) => {
+const addSeries = (n, every, size, kinds, minutes, hours) => {
   for (let i = 0; i < n; i++) {
-    const g = groupPick(kinds);
-    const guests =
+    const g = groupPick(kinds, TODAY);
+    const pool = activeOn(g, TODAY);
+    const w = (id) => baseWeight.get(id);
+    const others =
       size === 2
-        ? [ME.id, wpick(g.members.filter((m) => m !== ME.id).map((m) => [m, weight(m)]))]
-        : [
-            ME.id,
-            ...wsample(
-              g.members.filter((m) => m !== ME.id),
-              size - 1,
-              weight,
-            ),
-          ];
+        ? wsample(pool, 1, w)
+        : wsample(pool, every === 'monthly' ? Math.min(pool.length, int(25, 37)) : int(3, 9), w);
     series.push({
       id: series.length + 1,
       every,
-      guests,
+      guestIds: [ME.id, ...others],
       groupId: g.id,
       topicId: topicFor(g, TODAY)?.id ?? null,
       title: title(int(12, 30)),
       minutes,
-      hour: pick(hourChoices),
+      hour: pick(hours),
       weekday: int(0, 4),
-      startWeek: every === 'monthly' ? int(0, 3) : every === 'biweekly' ? int(0, 1) : 0,
+      phase: int(0, every === 'monthly' ? 3 : 1),
     });
   }
 };
-addSeries(12, 'weekly', 2, ['team', 'project'], 30, [9, 10, 11, 14, 15, 16]);
-addSeries(8, 'weekly', 0, ['team', 'project'], 60, [10, 11, 13, 14]);
-addSeries(14, 'biweekly', 0, ['team', 'project', 'cross'], 45, [9, 11, 13, 15, 16]);
-addSeries(2, 'daily', 0, ['team'], 15, [9, 10]);
-addSeries(2, 'monthly', 0, ['cross'], 60, [16]);
-for (const sr of series) {
-  if (sr.guests.length === 1) {
-    const g = groups[sr.groupId - 1];
-    sr.guests = [
-      ME.id,
-      ...wsample(
-        g.members.filter((m) => m !== ME.id),
-        sr.every === 'monthly' ? Math.min(g.size - 1, int(25, 37)) : int(3, 9),
-        weight,
-      ),
-    ];
-  }
-}
-const pushEvent = (day, hour, minutes, guests, ttl, topicId, seriesId, groupId) => {
+addSeries(12, 'weekly', 2, ['team', 'project'], 30, [8, 9, 10, 11, 13, 14]);
+addSeries(8, 'weekly', 0, ['team', 'project'], 60, [9, 10, 12, 13]);
+addSeries(14, 'biweekly', 0, ['team', 'project', 'cross'], 45, [8, 10, 11, 13, 14]);
+addSeries(2, 'daily', 0, ['team'], 15, [9]);
+addSeries(2, 'monthly', 0, ['cross'], 60, [14]);
+const pushEvent = (day, hour, minutes, guestIds, ttl, topicId, seriesId, groupId) => {
   const start = ts(day, hour, pick([0, 0, 0, 30]));
+  const past = start < NOW;
   const it = {
     id: ++id,
     source: 'gcal',
@@ -342,12 +434,12 @@ const pushEvent = (day, hour, minutes, guests, ttl, topicId, seriesId, groupId) 
     title: ttl,
     summary: null,
     body: text(int(40, 240)),
-    authorId: guests[1] ?? ME.id,
-    participantIds: guests,
+    authorId: guestIds[1] ?? ME.id,
+    participantIds: guestIds,
     groupId,
     topicId,
     occurredAt: start,
-    status: day < TODAY ? 'done' : 'open',
+    status: past ? 'done' : 'open',
     msgCount: 0,
     seen: true,
     owner: null,
@@ -360,65 +452,58 @@ const pushEvent = (day, hour, minutes, guests, ttl, topicId, seriesId, groupId) 
     seriesId,
     title: ttl,
     start,
-    end: new Date(Date.parse(start + 'Z') + minutes * 60000).toISOString().slice(0, 19),
+    end: addMin(start, minutes),
     tentative: rnd() < 0.1,
-    guestIds: guests,
+    guestIds,
+    topicId,
     category: topicId ? topics[topicId - 1].category : wpick(CATS),
   });
 };
-DAYS.forEach((day, di) => {
-  const wd = di % 7;
-  const week = Math.floor(di / 7);
-  if (wd > 4) return;
+for (const day of [...DAYS, ...FUTURE]) {
+  const wd = weekday(day);
+  const week = weekOf(day);
+  if (wd > 4) continue;
   for (const sr of series) {
     const on =
       sr.every === 'daily' ||
       (sr.every === 'weekly' && sr.weekday === wd) ||
-      (sr.every === 'biweekly' && sr.weekday === wd && week % 2 === sr.startWeek) ||
-      (sr.every === 'monthly' && sr.weekday === wd && week === sr.startWeek);
-    if (on && rnd() > 0.05) pushEvent(day, sr.hour, sr.minutes, sr.guests, sr.title, sr.topicId, sr.id, sr.groupId);
+      (sr.every === 'biweekly' && sr.weekday === wd && week % 2 === sr.phase) ||
+      (sr.every === 'monthly' && sr.weekday === wd && week % 4 === sr.phase);
+    if (on && rnd() > 0.05) pushEvent(day, sr.hour, sr.minutes, sr.guestIds, sr.title, sr.topicId, sr.id, sr.groupId);
   }
-  for (let k = 0; k < int(1, 3); k++) {
-    const g = groupPick(['team', 'project', 'cross']);
-    pushEvent(
-      day,
-      int(9, 16),
-      pick([30, 30, 45, 60]),
-      [
-        ME.id,
-        ...wsample(
-          g.members.filter((m) => m !== ME.id),
-          int(1, 5),
-          weight,
-        ),
-      ],
-      title(int(12, 30)),
-      topicFor(g, day)?.id ?? null,
-      null,
-      g.id,
-    );
+  const oneOffs = day <= TODAY ? int(1, 3) : day <= addDays(TODAY, 14) ? int(0, 2) : int(0, 1);
+  for (let k = 0; k < oneOffs; k++) {
+    const g = groupPick(['team', 'project', 'cross'], day > TODAY ? TODAY : day);
+    const guests = [ME.id, ...wsample(activeOn(g, day), int(1, 5), weightOn(day))];
+    const topic = topicFor(g, day > TODAY ? TODAY : day);
+    pushEvent(day, int(8, 14), pick([30, 30, 45, 60]), guests, title(int(12, 30)), topic?.id ?? null, null, g.id);
   }
-});
+}
 items.sort((x, y) => x.occurredAt.localeCompare(y.occurredAt));
 
+const nextMeeting = new Map();
+const nextFor = (k, e) => {
+  const cur = nextMeeting.get(k);
+  if (!cur || e.start < cur.start) nextMeeting.set(k, { eventId: e.id, start: e.start, title: e.title });
+};
+for (const e of events)
+  if (e.start >= NOW) {
+    if (e.topicId) nextFor(`t${e.topicId}`, e);
+    for (const g of e.guestIds) if (g !== ME.id) nextFor(`p${g}`, e);
+  }
 for (const it of items)
-  if (it.topicId) {
+  if (it.topicId && it.occurredAt <= NOW) {
     const t = topics[it.topicId - 1];
     t.itemCount = (t.itemCount || 0) + 1;
     if (!t.lastSignalAt || it.occurredAt > t.lastSignalAt) t.lastSignalAt = it.occurredAt;
   }
-const quietBefore = DAYS[DAYS.length - QUIET_DAYS];
 
-const tally = (f) => items.reduce((m, i) => ((m[f(i)] = (m[f(i)] || 0) + 1), m), {});
-const check = () => {
-  const names = new Set(people.map((p) => p.name));
-  if (names.size !== people.length) throw new Error('duplicate names');
-  const multi = items.filter((i) => i.source === 'slack' && i.participantIds.length >= 3);
-  const key = (ids) => [...ids].sort().join();
-  const sets = multi.reduce((m, i) => ((m[key(i.participantIds)] = (m[key(i.participantIds)] || 0) + 1), m), {});
-  const repeatShare = multi.filter((i) => sets[key(i.participantIds)] > 1).length / multi.length;
+const past = items.filter((i) => i.occurredAt <= NOW);
+const shape = (() => {
+  const multi = past.filter((i) => i.source === 'slack' && i.participantIds.filter((p) => p !== ME.id).length >= 3);
+  const sets = tally(multi, (i) => key(i.participantIds.filter((p) => p !== ME.id)));
   const pt = new Map();
-  for (const i of items)
+  for (const i of past)
     for (const p of i.participantIds)
       if (i.topicId && p !== ME.id) {
         const m = pt.get(p) || new Map();
@@ -436,47 +521,89 @@ const check = () => {
     const b = total < 5 ? '1-4' : total < 20 ? '5-19' : total < 60 ? '20-59' : '60+';
     (buckets[b] ||= []).push([m.size, top3]);
   }
-  const med = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
-  const guestLists = Object.values(
-    events
-      .filter((e) => e.guestIds.length >= 3)
-      .reduce((m, e) => ((m[key(e.guestIds)] = (m[key(e.guestIds)] || 0) + 1), m), {}),
+  const pastEvents = events.filter((e) => e.start < NOW && e.guestIds.length >= 3);
+  const lists = Object.values(tally(pastEvents, (e) => key(e.guestIds)));
+  const msgs = past.flatMap((i) => (i.messages || []).map((m) => ({ ...m, i })));
+  const outOfOrder = past.filter((i) => i.messages?.some((m, k) => m.at < (k ? i.messages[k - 1].at : i.occurredAt)));
+  const perWeek = new Map();
+  for (const i of past)
+    if (i.authorId && i.authorId !== ME.id && i.occurredAt < TODAY) {
+      const w = perWeek.get(i.authorId) || [0, 0, 0, 0];
+      w[weekOf(i.occurredAt.slice(0, 10))]++;
+      perWeek.set(i.authorId, w);
+    }
+  const top = [...perWeek.values()].sort((a, b) => b.reduce((x, y) => x + y) - a.reduce((x, y) => x + y));
+  const cv = top.slice(0, 30).map((w) => {
+    const m = w.reduce((a, b) => a + b) / 4;
+    return Math.sqrt(w.reduce((a, b) => a + (b - m) ** 2, 0) / 4) / m;
+  });
+  const top100 = tally(
+    top.slice(0, 100),
+    (w) => `${w[0] > 0 ? 'in' : 'out'} week 1, ${w[3] > 0 ? 'in' : 'out'} week 4`,
   );
   const quiet = topics.filter((t) => !t.lastSignalAt || t.lastSignalAt < quietBefore).length;
+  if (outOfOrder.length) throw new Error(`${outOfOrder.length} threads out of order`);
+  if (new Set(all.map((p) => p.name)).size !== all.length) throw new Error('duplicate person names');
+  if (new Set(topics.map((t) => t.name)).size !== topics.length) throw new Error('duplicate topic names');
+  if (past.some((i) => i.authorId === ME.id && i.source !== 'gcal')) throw new Error('me as signal author');
   return {
-    slackGroupRepeatShare: +repeatShare.toFixed(2),
+    slackGroupRepeatShare: +(
+      multi.filter((i) => sets[key(i.participantIds.filter((p) => p !== ME.id))] > 1).length / multi.length
+    ).toFixed(2),
     personTopics: Object.fromEntries(
       Object.entries(buckets).map(([b, r]) => [
         b,
         {
           people: r.length,
-          medianTopics: med(r.map((x) => x[0])),
-          medianTop3Share: +med(r.map((x) => x[1])).toFixed(2),
+          medianTopics: median(r.map((x) => x[0])),
+          medianTop3Share: +median(r.map((x) => x[1])).toFixed(2),
         },
       ]),
     ),
-    meetingGuestLists: { distinct: guestLists.length, usedTwicePlus: guestLists.filter((c) => c > 1).length },
-    topics: { active: topics.length - quiet, quiet },
+    me: {
+      threadMessageShare: +(msgs.filter((m) => m.authorId === ME.id).length / msgs.length).toFixed(2),
+      threadsWithMe: +(
+        past.filter((i) => i.messages?.some((m) => m.authorId === ME.id)).length / past.filter((i) => i.messages).length
+      ).toFixed(2),
+    },
+    meetingGuestLists: { distinct: lists.length, usedTwicePlus: lists.filter((c) => c > 1).length },
+    upcomingMeetings: events.filter((e) => e.start >= NOW).length,
+    topAuthorsByWeek: top.slice(0, 6),
+    topAuthorsWeeklyCv: +median(cv).toFixed(2),
+    top100Authors: top100,
+    topics: {
+      active: topics.length - quiet,
+      quiet,
+      withNextMeeting: topics.filter((t) => nextMeeting.has(`t${t.id}`)).length,
+    },
   };
-};
+})();
 
-const shape = check();
 const data = {
-  about: `Invented data at the density of a real account: ${WEEKS} weeks (${DAYS[0]} to ${TODAY}, today is ${TODAY}). Nothing here comes from a real person or message. People belong to groups (teams, projects, cross-team, social channels); signals and meetings draw their participants from a group, so the same people keep showing up together, and topics belong to groups, so people have home topics. Meetings come from recurring series (seriesId) with fixed guest lists plus one-offs. A topic is quiet with no signal in ${QUIET_DAYS} days. msgCount is the full thread length; messages holds at most the first 6. Ids in authorId, participantIds and guestIds point at people (0 is me). Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18). Regenerate with node app/scripts/gen-busy-week.mjs.`,
+  about: [
+    `Invented data at the density of a real account: four weeks of signals (${FIRST_DAY} to ${TODAY}), now is ${NOW} (ALETHIOMETER_FAKE_NOW=10:52), and calendar events through ${HORIZON}. Nothing here comes from a real person or message. Times are local wall-clock.`,
+    'People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left). crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others.',
+    'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
+    'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. A topic is quiet with no signal in 7 days.',
+    'Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18).',
+    'shape reports the measured density. Regenerate with node app/scripts/gen-busy-week.mjs.',
+  ].join(' '),
   shape,
+  now: NOW,
   me: { id: ME.id, name: ME.name, handle: ME.handle, email: ME.email },
   days: DAYS,
-  countsBySourceKind: tally((i) => `${i.source}/${i.kind}`),
-  countsByDay: tally((i) => i.occurredAt.slice(0, 10)),
-  people: people.map(({ weight: _, ...p }) => p),
-  groups: groups.map(({ crews: _, size: __, ...g }) => g),
+  countsBySourceKind: tally(past, (i) => `${i.source}/${i.kind}`),
+  countsByDay: tally(past, (i) => i.occurredAt.slice(0, 10)),
+  people: all.slice(1).map((p) => ({ ...p, nextMeeting: nextMeeting.get(`p${p.id}`) ?? null })),
+  groups: groups.map(({ size: _, ...g }) => g),
   topics: topics.map(({ weight: _, lastDay: __, active: ___, ...t }) => ({
     ...t,
     itemCount: t.itemCount || 0,
     lastSignalAt: t.lastSignalAt || null,
     quiet: !t.lastSignalAt || t.lastSignalAt < quietBefore,
+    nextMeeting: nextMeeting.get(`t${t.id}`) ?? null,
   })),
-  series: series.map(({ hour: _, weekday: __, startWeek: ___, ...sr }) => sr),
+  series: series.map(({ hour: _, weekday: __, phase: ___, ...sr }) => sr),
   items,
   events,
 };
