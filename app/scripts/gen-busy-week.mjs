@@ -497,12 +497,6 @@ for (const e of events)
     if (e.topicId) nextFor(`t${e.topicId}`, e);
     for (const g of e.guestIds) if (g !== ME.id) nextFor(`p${g}`, e);
   }
-for (const it of items)
-  if (it.topicId && it.occurredAt <= NOW) {
-    const t = topics[it.topicId - 1];
-    t.itemCount = (t.itemCount || 0) + 1;
-    if (!t.lastSignalAt || it.occurredAt > t.lastSignalAt) t.lastSignalAt = it.occurredAt;
-  }
 
 const ranked = [...people].sort((a, b) => baseWeight.get(b.id) - baseWeight.get(a.id));
 const noted = new Set([...ranked.slice(0, 75), ...wsample(ranked.slice(75), 7, () => 1)].map((p) => p.id));
@@ -534,17 +528,33 @@ const dupHumans = [
     (p) => Math.sqrt(activity[p.id]),
   ),
 ];
+const used = new Set(all.flatMap((p) => [p.handle, p.email]));
+const unique = (make) => {
+  for (let n = 1; ; n++) {
+    const v = make(n === 1 ? '' : String(n));
+    if (!used.has(v)) return (used.add(v), v);
+  }
+};
 shuffle(dupHumans).forEach((human, n) => {
   const extra = wpick(EXTRA_ROWS);
   for (let k = 0; k < extra; k++) {
-    const source = wpick(COPY_SOURCE);
+    const theirs = COPY_SOURCE.filter(([s]) =>
+      items.some((i) => i.source === s && i.occurredAt <= NOW && i.participantIds.includes(human.id)),
+    );
+    const source = wpick(theirs.length ? theirs : COPY_SOURCE);
     const [first, last] = human.name.toLowerCase().split(' ');
-    const alias = pick([`${first}`, `${first[0]}${last}`, `${first}.${last}${k + 2}`]);
+    const alias = pick([`${first[0]}${last}`, `${first}.${last}`, `${first}${last[0]}`]);
+    const domain = pick(['example.com', 'mail.example.com', 'example.org']);
     const c = {
       id: 661 + copies.length,
       name: human.name,
-      handle: source === 'slack' ? alias : human.handle,
-      email: source === 'gmail' ? `${alias}@${pick(['example.com', 'mail.example.com', 'example.org'])}` : null,
+      handle:
+        source === 'slack'
+          ? unique((n) => `${alias}${n}`)
+          : source === 'jira'
+            ? unique((n) => `jira-${alias}${n}`)
+            : null,
+      email: source === 'gmail' ? unique((n) => `${alias}${n}@${domain}`) : null,
       source,
       groups: human.groups,
       notePath: null,
@@ -571,6 +581,23 @@ for (const it of items) {
   if (it.assigneeId != null) it.assigneeId = to(it.assigneeId);
   for (const m of it.messages || []) m.authorId = to(m.authorId);
 }
+const relabel = (it, from, to) => {
+  const r = (p) => (p === from ? to : p);
+  it.authorId = it.authorId == null ? null : r(it.authorId);
+  it.participantIds = it.participantIds.map(r);
+  if (it.to) it.to = it.to.map(r);
+  if (it.cc) it.cc = it.cc.map(r);
+  if (it.assigneeId != null) it.assigneeId = r(it.assigneeId);
+  for (const m of it.messages || []) m.authorId = r(m.authorId);
+};
+const holds = (id) => items.some((i) => i.occurredAt <= NOW && i.participantIds.includes(id));
+for (const c of copies)
+  if (!holds(c.id) && rnd() < 0.85) {
+    const theirs = items.filter(
+      (i) => i.source === c.source && i.occurredAt <= NOW && i.participantIds.includes(c.copyOf),
+    );
+    if (theirs.length) relabel(pick(theirs), c.copyOf, c.id);
+  }
 const human = (id) => copyOf.get(id) ?? id;
 
 const SERVICES = [
@@ -606,6 +633,13 @@ serviceMail.forEach((it, k) => {
   it.participantIds = [row.id, ...it.participantIds.filter((p) => p === ME.id)];
   it.topicId = null;
 });
+for (const it of items)
+  if (it.topicId && it.occurredAt <= NOW) {
+    const t = topics[it.topicId - 1];
+    t.itemCount = (t.itemCount || 0) + 1;
+    if (!t.lastSignalAt || it.occurredAt > t.lastSignalAt) t.lastSignalAt = it.occurredAt;
+  }
+
 const past = items.filter((i) => i.occurredAt <= NOW);
 const shape = (() => {
   const multi = past.filter((i) => i.source === 'slack' && i.participantIds.filter((p) => p !== ME.id).length >= 3);
@@ -654,6 +688,13 @@ const shape = (() => {
   if (new Set(all.map((p) => p.name)).size !== all.length) throw new Error('duplicate person names');
   if (new Set(topics.map((t) => t.name)).size !== topics.length) throw new Error('duplicate topic names');
   if (past.some((i) => i.authorId === ME.id && i.source !== 'gcal')) throw new Error('me as signal author');
+  const addrs = [...all, ...copies, ...services].flatMap((p) => [p.email, p.handle && `${p.source}:${p.handle}`]);
+  const shared = addrs.filter((a, k) => a && addrs.indexOf(a) !== k);
+  if (shared.length) throw new Error(`addresses on two rows: ${shared.slice(0, 5)}`);
+  for (const t of topics) {
+    const mine = past.filter((i) => i.topicId === t.id);
+    if ((t.itemCount || 0) !== mine.length) throw new Error(`topic ${t.id} counts ${t.itemCount}, has ${mine.length}`);
+  }
   const strayGuests = events.filter((e) => {
     const g = e.seriesId && groups[series[e.seriesId - 1].groupId - 1];
     return g && e.guestIds.some((p) => !memberOn(g, p, e.start.slice(0, 10)));
@@ -693,6 +734,7 @@ const shape = (() => {
       notedWithBareCopy: new Set(copies.filter((c) => noted.has(c.copyOf)).map((c) => c.copyOf)).size,
       copiesBySource: tally(copies, (c) => c.source),
       signalsByCopies: past.filter((i) => copyOf.has(i.authorId)).length,
+      emptyCopies: copies.filter((c) => !holds(c.id)).length,
     },
     emailReplies: tally(mailReplies, (m) =>
       m.authorId === ME.id
@@ -717,7 +759,7 @@ const shape = (() => {
 const data = {
   about: [
     `Invented data at the density of a real account: four weeks of signals (${FIRST_DAY} to ${TODAY}), now is ${NOW} (ALETHIOMETER_FAKE_NOW=10:52), and calendar events through ${HORIZON}. Nothing here comes from a real person or message. Times are local wall-clock.`,
-    "People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left), and recurring meetings only include guests who are in the group that day. crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others. About 80 people have a People note (notePath), mostly the busiest, as on the real account (82 notes, whose people write about half the thread messages); everyone else is an account with no note. Like the real store, about 160 people also have a second, third or more row (copyOf points at the original; the app never sees copyOf, it only sees rows with the same name): a bare row per extra Gmail address, Slack account or Jira account, with no note, holding that source's signals. 67 noted people have such a bare copy, so the No People note group includes them and Merge has real candidates. The biggest same-name groups are service senders (service: true, e.g. Northwind with 32 rows), one bare Gmail row per sending address (noreply@, billing@, \u2026), as on the real store, where the largest are company and tool senders (32, 13, 9 and 8 rows).",
+    "People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left), and recurring meetings only include guests who are in the group that day. crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others. About 80 people have a People note (notePath), mostly the busiest, as on the real account (82 notes, whose people write about half the thread messages); everyone else is an account with no note. Like the real store, about 160 people also have a second, third or more row (copyOf points at the original; the app never sees copyOf, it only sees rows with the same name): a bare row per extra Gmail address, Slack account or Jira account, with no note, holding that source's signals; about one in seven has none, as on the real store. 67 noted people have such a bare copy, so the No People note group includes them and Merge has real candidates. The biggest same-name groups are service senders (service: true, e.g. Northwind with 32 rows), one bare Gmail row per sending address (noreply@, billing@, \u2026), as on the real store, where the largest are company and tool senders (32, 13, 9 and 8 rows).",
     'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group, and anyone on the mail can reply; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
     'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. Future meetings are items too (status open, after now), as in the real store. A topic is quiet with no signal in 7 days.',
     'Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18).',
