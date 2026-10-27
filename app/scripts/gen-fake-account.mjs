@@ -1,4 +1,4 @@
-// Invented work weeks for design mocks. Run: node app/scripts/gen-busy-week.mjs
+// Invented account data for design mocks. Run: node app/scripts/gen-fake-account.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -813,7 +813,7 @@ const data = {
     'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group, and anyone on the mail can reply; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
     'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. Future meetings are items too (status open, after now), as in the real store. A topic is quiet with no signal in 7 days.',
     'Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18).',
-    'shape reports the measured density. Regenerate with node app/scripts/gen-busy-week.mjs.',
+    'shape reports the measured density. Regenerate with node app/scripts/gen-fake-account.mjs.',
   ].join(' '),
   shape,
   now: NOW,
@@ -838,6 +838,6 @@ const data = {
   events,
 };
 mkdirSync(out, { recursive: true });
-writeFileSync(join(out, 'busy-week.json'), JSON.stringify(data));
-writeFileSync(join(out, 'busy-week.js'), `window.BUSY_WEEK = ${JSON.stringify(data)};\n`);
+writeFileSync(join(out, 'fake-account.json'), JSON.stringify(data));
+writeFileSync(join(out, 'fake-account.js'), `window.FAKE_ACCOUNT = ${JSON.stringify(data)};\n`);
 console.log(JSON.stringify(shape, null, 1), items.length, 'items', events.length, 'events');
