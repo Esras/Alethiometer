@@ -4,6 +4,14 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### People: a sender that changes its address per mail makes a person per mail (found 2026-10-26)
+
+Anthropic sends from `no-reply-<random>@mail.anthropic.com`, a new address on every mail, and `handle_person` (`core/src/store/ingest.rs`) makes a person row per new address. On the real store: 32 rows named Anthropic, 25 holding one signal each (2026-07-02 to 2026-10-26), none with a note or an account, none list mail. They fill the No People note group and the merge candidates. Slack (13 rows), Atlassian (9) and GitHub (8) look like the same thing, not checked. Direction, not decided: treat such senders as one bot or service keyed by domain (the bot accounts from migration 0013 may be the place), not one person per address. Why they do it isn't known; per-message bounce tracking (VERP) is a guess.
+
+### People: the same Gmail sender has two rows under two handle formats (found 2026-10-26)
+
+Seven Anthropic addresses each have two person rows: one whose `gmail` handle is the bare address (holds the signals) and one whose handle is the address, a space and the display name, e.g. `no-reply-bnpq\u2026@mail.anthropic.com Anthropic` (no signals). Pairs: 304/131, 308/210, 237/305, 101/306, 246/307, 238/309, 234/310. `handle_person` matches the handle string exactly, so the two formats never meet. Every row in the pairs has `created_at` 2026-10-07T18:34:41.777Z, which looks like a migration backfill, so the `address Name` form is probably from an older Gmail ingest. Not traced: which code wrote that form, whether anything still does, and how many non-Anthropic senders have the same split (128 gmail handles on the real store contain a space; not checked how many have a bare-address twin). Fix would be one handle format (the normalized address), a migration that merges the pairs, and a test that ingesting both forms yields one person.
+
 ### Checks that fail on `main` (found 2026-10-24)
 
 - `cargo test --test architecture` (`services_do_not_take_app`): `agents/acp.rs` has 41 functions with `App` in their signature, the allowlist says 40. Not from the People work; the list needs the count or the function moved.
