@@ -381,6 +381,49 @@ mod tests {
     }
 
     #[test]
+    fn a_reply_extends_its_signal_past_a_resync() {
+        let (conn, src) = slack();
+        let ended = |item: i64| -> String {
+            conn.query_row("SELECT ended_at FROM items WHERE id = ?1", [item], |r| r.get(0))
+                .unwrap()
+        };
+        let at = |m: &str| crate::time::t(&format!("2026-09-27T09:{m}:00")).to_db();
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12"], true), thread("11", &["20", "21"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let dm = item_id(&conn, "D1/100.01");
+        assert_eq!(ended(dm), at("21"));
+
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12", "13"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ended(dm), at("21"), "the run's own end is earlier than the reply");
+
+        apply_now(
+            &conn,
+            &src,
+            &Batch {
+                items: vec![run(&["10", "11", "12", "13", "30"], true)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ended(dm), at("30"));
+    }
+
+    #[test]
     fn a_thread_is_stored_under_its_parent_and_moves_with_it() {
         let (conn, src) = slack();
         apply_now(

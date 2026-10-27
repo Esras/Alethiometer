@@ -4,6 +4,10 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### Thread replies don't count toward a signal's message count (user, 2026-10-26: undecided)
+
+Replies stored under an untriaged Slack or Teams signal now move its `ended_at` (migration 0039), so Incoming sorts it and labels its range by the latest reply. `msg_count` still counts only the run's own messages, so "N new" leaves the replies out; 197 threads on the real store hold more messages than their count. The user wants to think about what the count should track before changing it.
+
 ### People: a sender that changes its address per mail makes a person per mail (found 2026-10-26)
 
 Anthropic sends from `no-reply-<random>@mail.anthropic.com`, a new address on every mail, and `handle_person` (`core/src/store/ingest.rs`) makes a person row per new address. On the real store: 32 rows named Anthropic, 25 holding one signal each (2026-07-02 to 2026-10-26), none with a note or an account, none list mail. They fill the No People note group and the merge candidates. Slack (13 rows), Atlassian (9) and GitHub (8) look like the same thing, not checked. Direction, not decided: treat such senders as one bot or service keyed by domain (the bot accounts from migration 0013 may be the place), not one person per address. Why they do it isn't known; per-message bounce tracking (VERP) is a guess.
