@@ -530,12 +530,12 @@ const dupHumans = [
   ...wsample(notedActive, 67, () => 1),
   ...wsample(
     people.filter((p) => !noted.has(p.id) && activity[p.id]),
-    93,
+    90,
     (p) => Math.sqrt(activity[p.id]),
   ),
 ];
 shuffle(dupHumans).forEach((human, n) => {
-  const extra = n < 3 ? [7, 8, 12][n] : wpick(EXTRA_ROWS);
+  const extra = wpick(EXTRA_ROWS);
   for (let k = 0; k < extra; k++) {
     const source = wpick(COPY_SOURCE);
     const [first, last] = human.name.toLowerCase().split(' ');
@@ -573,6 +573,39 @@ for (const it of items) {
 }
 const human = (id) => copyOf.get(id) ?? id;
 
+const SERVICES = [
+  ['Northwind', 32],
+  ['Chatterbox', 13],
+  ['Trackwell', 9],
+  ['Codehub', 8],
+];
+const LOCAL_PARTS =
+  'noreply notifications billing security team news support alerts digest invoices accounts hello updates events no-reply mailer'.split(
+    ' ',
+  );
+const services = SERVICES.flatMap(([name, n]) => {
+  const domain = `${name.toLowerCase()}.example`;
+  const sub = ['', 'mail.', 'email.', 'notify.', 'billing.'];
+  return Array.from({ length: n }, (_, k) => ({
+    name,
+    handle: null,
+    email: `${LOCAL_PARTS[k % LOCAL_PARTS.length]}@${sub[Math.floor(k / LOCAL_PARTS.length)]}${domain}`,
+    source: 'gmail',
+    groups: [],
+    notePath: null,
+    service: true,
+  }));
+}).map((row, k) => ({ id: 661 + copies.length + k, ...row }));
+for (const s of services) byId.set(s.id, s);
+const serviceMail = shuffle(
+  items.filter((i) => i.source === 'gmail' && byId.get(i.authorId)?.external && !i.messages),
+).slice(0, services.length * 2);
+serviceMail.forEach((it, k) => {
+  const row = k < services.length ? services[k] : wpick(services.map((s) => [s, s.name === 'Northwind' ? 3 : 1]));
+  it.authorId = row.id;
+  it.participantIds = [row.id, ...it.participantIds.filter((p) => p === ME.id)];
+  it.topicId = null;
+});
 const past = items.filter((i) => i.occurredAt <= NOW);
 const shape = (() => {
   const multi = past.filter((i) => i.source === 'slack' && i.participantIds.filter((p) => p !== ME.id).length >= 3);
@@ -653,8 +686,9 @@ const shape = (() => {
       threadMessageShare: +(msgs.filter((m) => noted.has(human(m.authorId))).length / msgs.length).toFixed(2),
     },
     duplicates: {
-      rows: all.length - 1 + copies.length,
-      namesWithCopies: new Set(copies.map((c) => c.copyOf)).size,
+      rows: all.length - 1 + copies.length + services.length,
+      namesWithCopies: new Set(copies.map((c) => c.copyOf)).size + SERVICES.length,
+      services: Object.fromEntries(SERVICES),
       extraRows: copies.length,
       notedWithBareCopy: new Set(copies.filter((c) => noted.has(c.copyOf)).map((c) => c.copyOf)).size,
       copiesBySource: tally(copies, (c) => c.source),
@@ -683,7 +717,7 @@ const shape = (() => {
 const data = {
   about: [
     `Invented data at the density of a real account: four weeks of signals (${FIRST_DAY} to ${TODAY}), now is ${NOW} (ALETHIOMETER_FAKE_NOW=10:52), and calendar events through ${HORIZON}. Nothing here comes from a real person or message. Times are local wall-clock.`,
-    "People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left), and recurring meetings only include guests who are in the group that day. crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others. About 80 people have a People note (notePath), mostly the busiest, as on the real account (82 notes, whose people write about half the thread messages); everyone else is an account with no note. Like the real store, about 160 people also have a second, third or more row (copyOf points at the original; the app never sees copyOf, it only sees rows with the same name): a bare row per extra Gmail address, Slack account or Jira account, with no note, holding that source's signals. 67 noted people have such a bare copy, so the No People note group includes them and Merge has real candidates.",
+    "People (id 0 is me) belong to groups: teams, projects, cross-team and social channels. A group member can have joined or left during the four weeks (members[].joined / left), and recurring meetings only include guests who are in the group that day. crews are the small sets inside a group who often talk together. Signals draw their people and topic from one group, so the same people keep showing up together and people have home topics. People are busier some weeks than others. About 80 people have a People note (notePath), mostly the busiest, as on the real account (82 notes, whose people write about half the thread messages); everyone else is an account with no note. Like the real store, about 160 people also have a second, third or more row (copyOf points at the original; the app never sees copyOf, it only sees rows with the same name): a bare row per extra Gmail address, Slack account or Jira account, with no note, holding that source's signals. 67 noted people have such a bare copy, so the No People note group includes them and Merge has real candidates. The biggest same-name groups are service senders (service: true, e.g. Northwind with 32 rows), one bare Gmail row per sending address (noreply@, billing@, \u2026), as on the real store, where the largest are company and tool senders (32, 13, 9 and 8 rows).",
     'I never author a signal (my own posts are not signals); I write some thread messages. Email: authorId is the sender, to and cc are recipients from the same group, and anyone on the mail can reply; about a quarter of mail comes from external people (external: true) with no group. Jira has an assigneeId.',
     'messages holds at most the first 6 of a thread, in time order from occurredAt; msgCount is the full length and endedAt the last message. Meetings come from recurring series (seriesId, fixed guest lists) plus one-offs; topics and people carry nextMeeting. Future meetings are items too (status open, after now), as in the real store. A topic is quiet with no signal in 7 days.',
     'Triage is not modelled: on the real account about half of the signals triaged in Incoming are dismissed and half kept (Slack 147/165, Gmail 78 dismissed + 16 trashed/43 kept, Jira 25/18).',
@@ -695,7 +729,7 @@ const data = {
   days: DAYS,
   countsBySourceKind: tally(past, (i) => `${i.source}/${i.kind}`),
   countsByDay: tally(past, (i) => i.occurredAt.slice(0, 10)),
-  people: [...all.slice(1), ...copies].map((p) => ({
+  people: [...all.slice(1), ...copies, ...services].map((p) => ({
     ...p,
     nextMeeting: p.copyOf == null ? (nextMeeting.get(`p${p.id}`) ?? null) : null,
   })),
