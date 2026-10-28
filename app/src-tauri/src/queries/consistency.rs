@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Finding {
-    /// `missing_authors` (repaired by `sync.repair_authors`), `split_senders`, `calendar_leftovers`.
+    /// `missing_authors` (repaired by `consistency.repair_authors`), `split_senders`, `calendar_leftovers`.
     pub check: &'static str,
     pub source_id: Option<i64>,
     pub source: String,
@@ -24,12 +24,29 @@ pub fn route(name: &str) -> Option<Route> {
     match name {
         "check" => Some(Route::Read(|r, _: &Ctx, _: &Value| Ok(json!(check(r)?)))),
         "merge_senders" => Some(Route::Write(|uow, _: &Ctx, _: &Value| Ok(json!(merge_senders(uow)?)))),
+        "repair_authors" => Some(Route::Write(|uow, _: &Ctx, args: &Value| {
+            Ok(json!({ "queued": repair_authors(uow, crate::api::arg_i64(args, "source_id")?)? }))
+        })),
         _ => None,
     }
 }
 
+/// Queue the source's items with authorless messages for its own sync to read again.
+pub fn repair_authors(uow: &dyn UnitOfWork, source_id: i64) -> Result<usize> {
+    let ids: Vec<String> = uow
+        .reads()
+        .consistency()
+        .missing_authors(AUTHORED_KINDS)?
+        .into_iter()
+        .filter(|m| m.source_id == source_id)
+        .flat_map(|m| m.items)
+        .collect();
+    uow.consistency().queue_repairs(source_id, &ids)
+}
+
 pub fn check(r: &dyn Reads) -> Result<Vec<Finding>> {
     let sources = r.sources().all()?;
+    let queued = r.consistency().queued_repairs()?;
     let name = |id: i64| {
         sources
             .iter()
@@ -40,6 +57,7 @@ pub fn check(r: &dyn Reads) -> Result<Vec<Finding>> {
     for m in r.consistency().missing_authors(AUTHORED_KINDS)? {
         let (source, kind) = name(m.source_id).unwrap_or_default();
         let items = m.items.len();
+        let waiting = queued.iter().find(|(s, _)| *s == m.source_id).map_or(0, |(_, n)| *n) as usize;
         out.push(Finding {
             check: "missing_authors",
             source_id: Some(m.source_id),
@@ -47,11 +65,18 @@ pub fn check(r: &dyn Reads) -> Result<Vec<Finding>> {
             kind,
             title: "Messages missing an author".into(),
             count: m.messages as usize,
-            detail: vec![format!(
-                "on {items} item{}; Repair reads them again from the source",
-                if items == 1 { "" } else { "s" }
-            )],
-            repairable: true,
+            detail: vec![if waiting > 0 {
+                format!(
+                    "on {items} item{}; {waiting} queued, read again by the next syncs",
+                    plural(items)
+                )
+            } else {
+                format!(
+                    "on {items} item{}; Repair queues them for the next syncs",
+                    plural(items)
+                )
+            }],
+            repairable: waiting < items,
         });
     }
     let pairs = r.consistency().split_senders()?;
@@ -102,6 +127,14 @@ pub fn check(r: &dyn Reads) -> Result<Vec<Finding>> {
         });
     }
     Ok(out)
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

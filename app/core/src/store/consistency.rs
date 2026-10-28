@@ -90,12 +90,37 @@ impl ConsistencyViews for Sql<'_> {
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
+
+    fn repairs(&self, source_id: i64, limit: usize) -> Result<Vec<String>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT external_id FROM repair_queue WHERE source_id = ?1 ORDER BY created_at, external_id LIMIT ?2",
+            )?
+            .query_map(params![source_id, limit as i64], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn queued_repairs(&self) -> Result<Vec<(i64, i64)>> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT source_id, count(*) FROM repair_queue GROUP BY source_id ORDER BY source_id")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
 }
 
 impl Consistency for Sql<'_> {
-    fn forget_revs(&self, source_id: i64, external_ids: &[String]) -> Result<()> {
+    fn queue_repairs(&self, source_id: i64, external_ids: &[String]) -> Result<usize> {
+        Ok(self.conn().execute(
+            "INSERT OR IGNORE INTO repair_queue (source_id, external_id) SELECT ?1, value FROM json_each(?2)",
+            params![source_id, serde_json::to_string(external_ids)?],
+        )?)
+    }
+
+    fn repaired(&self, source_id: i64, external_ids: &[String]) -> Result<()> {
         self.conn().execute(
-            "UPDATE items SET remote_rev = NULL WHERE source_id = ?1 AND external_id IN (SELECT value FROM json_each(?2))",
+            "DELETE FROM repair_queue WHERE source_id = ?1 AND external_id IN (SELECT value FROM json_each(?2))",
             params![source_id, serde_json::to_string(external_ids)?],
         )?;
         Ok(())

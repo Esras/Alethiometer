@@ -42,11 +42,17 @@ pub trait ConsistencyViews {
     fn split_senders(&self) -> Result<Vec<SplitSender>>;
     /// Google Calendar items done, off the strip, neither cancelled nor declined.
     fn calendar_leftovers(&self) -> Result<Vec<Leftover>>;
+    /// The source's queued repairs, oldest first.
+    fn repairs(&self, source_id: i64, limit: usize) -> Result<Vec<String>>;
+    /// Queued repairs per source.
+    fn queued_repairs(&self) -> Result<Vec<(i64, i64)>>;
 }
 
 pub trait Consistency {
-    /// Forget these items' stored revisions, so the next copy applies.
-    fn forget_revs(&self, source_id: i64, external_ids: &[String]) -> Result<()>;
+    /// Queue items for the source's own sync to read again (`repair_queue`); returns how many are new.
+    fn queue_repairs(&self, source_id: i64, external_ids: &[String]) -> Result<usize>;
+    /// Drop repairs the sync has read (or found gone).
+    fn repaired(&self, source_id: i64, external_ids: &[String]) -> Result<()>;
     /// Move everything pointing at person `from` onto `into`, then delete `from`.
     fn merge_person(&self, from: i64, into: i64) -> Result<()>;
 }

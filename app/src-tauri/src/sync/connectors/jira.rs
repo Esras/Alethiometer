@@ -116,12 +116,13 @@ fn error(resp: &Response) -> anyhow::Error {
 }
 
 impl Jira {
-    /// A poll with the stored revisions and the stale open issues to read again.
+    /// A poll with the stored revisions, the stale open issues and the queued repairs to read again.
     fn poll_from(
         &self,
         ctx: &Ctx,
         revs: &std::collections::HashMap<String, String>,
         stale: &[String],
+        repairs: &[String],
     ) -> anyhow::Result<Batch> {
         let api = Api::new(ctx)?;
         let myself = api.get("/rest/api/3/myself")?;
@@ -232,6 +233,16 @@ impl Jira {
                 Err(e) => return Err(e),
             }
         }
+        for key in repairs {
+            match get_issue(&api, key, &fields) {
+                Ok(issue) => batch
+                    .items
+                    .extend(map_issue(&api, &issue, &me, None, due_field).map(|i| ItemUpsert { bump: false, ..i })),
+                Err(e) if about_one_issue(&e) => {}
+                Err(e) => return Err(e),
+            }
+            batch.repaired.push(key.clone());
+        }
         batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
     }
@@ -258,36 +269,15 @@ fn about_one_issue(e: &anyhow::Error) -> bool {
 
 impl Connector for Jira {
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
-        self.poll_from(ctx, &Default::default(), &[])
+        self.poll_from(ctx, &Default::default(), &[], &[])
     }
 
     fn poll_known(&self, ctx: &Ctx, known: &mut Polling) -> anyhow::Result<Batch> {
-        self.poll_from(ctx, &known.revs, &known.stale_open)
+        self.poll_from(ctx, &known.revs, &known.stale_open, &known.repairs)
     }
 
     fn wants_known(&self) -> bool {
         true
-    }
-
-    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
-        let api = Api::new(ctx)?;
-        let me = api
-            .get("/rest/api/3/myself")?
-            .get("accountId")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let due_field = due_field(ctx)?;
-        let fields = fields_for(due_field);
-        let mut batch = Batch::default();
-        for key in external_ids {
-            match get_issue(&api, key, &fields) {
-                Ok(issue) => batch.items.extend(map_issue(&api, &issue, &me, None, due_field)),
-                Err(e) if about_one_issue(&e) => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(batch)
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -941,7 +931,7 @@ mod tests {
         let src = source(Some("2026-09-26T12:00:00.000Z"));
         let revs = Default::default();
         let stale = vec!["OPS-7".to_string(), "OPS-8".to_string()];
-        let b = with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale)).unwrap();
+        let b = with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale, &[])).unwrap();
         let ops7 = b.items.iter().find(|i| i.external_id == "OPS-7").unwrap();
         assert_eq!((ops7.status.as_str(), ops7.owner.as_deref()), ("done", Some("Kim")));
         assert_eq!(ops7.remote_rev.as_deref(), Some("2026-09-27T09:00:00.000+0000"));
@@ -952,7 +942,7 @@ mod tests {
             .is_some_and(|e| e.starts_with("Jira 404")));
         // A rejected token ends the poll.
         http.on("GET", "/rest/api/3/issue/OPS-8", 401, "");
-        assert!(with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale)).is_err());
+        assert!(with_ctx(&src, &http, |ctx| Jira.poll_from(ctx, &revs, &stale, &[])).is_err());
     }
 
     #[test]
@@ -1499,20 +1489,37 @@ mod tests {
             .unwrap();
         let http = FakeHttp::default();
         http.on("GET", "/rest/api/3/myself", 200, MYSELF);
+        http.on(
+            "GET",
+            "/rest/api/3/search/jql",
+            200,
+            r#"{"issues": [], "isLast": true}"#,
+        );
         http.on("GET", "/rest/api/3/issue/OPS-7", 200, format!(r#"{{"key": "OPS-7", "fields": {{
             "summary": "Rotate keys", "updated": "{updated}", "created": "2026-09-01T09:00:00.000+0000",
             "status": {{"name": "Done", "statusCategory": {{"key": "done"}}}},
             "comment": {{"total": 1, "comments": [{{"id": "10001", "created": "2026-09-27T08:00:00.000+0000",
               "author": {{"accountId": "acc-kim", "displayName": "Kim"}},
               "body": {{"type": "doc", "content": [{{"type": "paragraph", "content": [{{"type": "text", "text": "done"}}]}}]}}}}]}}}}}}"#));
+        http.on(
+            "GET",
+            "/rest/api/3/issue/OPS-9",
+            404,
+            r#"{"errorMessages": ["Issue does not exist or you do not have permission to see it."]}"#,
+        );
         let mut src = db.read(|r| crate::sync::source(r, 1)).unwrap();
         src.config = source(None).config;
-        let lock = std::sync::Mutex::new(());
-        let out = with_ctx(&src, &http, |ctx| {
-            crate::sync::repair::missing_authors(&db, ctx, &Jira, &lock)
+        db.write(|uow| uow.consistency().queue_repairs(1, &["OPS-7".into(), "OPS-9".into()]))
+            .unwrap();
+        let repairs = db.read(|r| r.consistency().repairs(1, 10)).unwrap();
+        let b = with_ctx(&src, &http, |ctx| {
+            Jira.poll_from(ctx, &Default::default(), &[], &repairs)
         })
         .unwrap();
-        assert_eq!((out.done, out.stopped), (1, None));
+        assert!(b.items.iter().all(|i| !i.bump));
+        db.write(|uow| crate::sync::apply(uow, &src, &b, crate::time::t("2026-09-28T10:52:00")))
+            .unwrap();
+        assert!(db.read(|r| r.consistency().repairs(1, 10)).unwrap().is_empty());
         let (author, title, seen, rev, cursor): (String, String, bool, String, String) = db
             .legacy()
             .query_row(

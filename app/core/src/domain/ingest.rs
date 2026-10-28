@@ -28,6 +28,8 @@ pub struct Batch {
     /// How each stream (a Slack conversation or thread) went this poll; a
     /// failed one is skipped, recorded, and retried by the next poll.
     pub streams: Vec<StreamOutcome>,
+    /// Queued repairs this poll read or found gone: written over any stored revision, never created.
+    pub repaired: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

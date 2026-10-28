@@ -302,7 +302,13 @@ impl Connector for GitHub {
     }
 
     fn poll_known(&self, ctx: &Ctx, known: &mut Polling) -> anyhow::Result<Batch> {
-        self.poll_known_with(ctx, &run_gh(gh_path(ctx)), &known.revs, &known.stale_open)
+        self.poll_known_with(
+            ctx,
+            &run_gh(gh_path(ctx)),
+            &known.revs,
+            &known.stale_open,
+            &known.repairs,
+        )
     }
 
     fn wants_known(&self) -> bool {
@@ -311,10 +317,6 @@ impl Connector for GitHub {
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         self.send_with(ctx, op, payload, &run_gh(gh_path(ctx)))
-    }
-
-    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
-        self.refetch_with(ctx, &run_gh(gh_path(ctx)), external_ids)
     }
 }
 
@@ -329,7 +331,7 @@ fn gh_path<'c>(ctx: &'c Ctx) -> Option<&'c str> {
 impl GitHub {
     /// `poll` with the `gh` runner passed in (tests pass a fake).
     pub fn poll_with(&self, ctx: &Ctx, gh: &GhRunner<'_>) -> anyhow::Result<Batch> {
-        self.poll_known_with(ctx, gh, &Default::default(), &[])
+        self.poll_known_with(ctx, gh, &Default::default(), &[], &[])
     }
 
     /// A poll with the stored revisions and the stale open items to read again.
@@ -339,6 +341,7 @@ impl GitHub {
         gh: &GhRunner<'_>,
         revs: &std::collections::HashMap<String, String>,
         stale: &[String],
+        repairs: &[String],
     ) -> anyhow::Result<Batch> {
         let api = Api::new(ctx, gh)?;
         let me = api
@@ -437,34 +440,22 @@ impl GitHub {
                 Err(e) => return Err(e),
             }
         }
-        batch.cursor = newest.map(Ts::to_db);
-        Ok(batch)
-    }
-
-    /// `refetch` with the `gh` runner passed in: every item read by number with all its comments.
-    pub fn refetch_with(&self, ctx: &Ctx, gh: &GhRunner<'_>, external_ids: &[String]) -> anyhow::Result<Batch> {
-        let api = Api::new(ctx, gh)?;
-        let me = api
-            .get("/user")?
-            .get("login")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let epoch = Ts::from_unix_secs(0.0);
-        let mut batch = Batch::default();
-        for ext in external_ids {
+        for ext in repairs {
             let Some((repo, number)) = ext.rsplit_once('#') else {
+                batch.repaired.push(ext.clone());
                 continue;
             };
             let read = api
                 .get(&format!("/repos/{repo}/issues/{number}"))
-                .and_then(|it| map_item(&api, &it, false, true, true, &me, &|_| epoch));
+                .and_then(|it| map_item(&api, &it, false, true, team_reviews, &me, &since_for));
             match read {
                 Ok(item) => batch.items.extend(item.map(|i| ItemUpsert { bump: false, ..i })),
                 Err(e) if about_one_item(&e) => {}
                 Err(e) => return Err(e),
             }
+            batch.repaired.push(ext.clone());
         }
+        batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
     }
 
@@ -849,7 +840,9 @@ mod tests {
         let src = source(Some(cursor), json!({}));
         let revs = revs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let stale: Vec<String> = stale.iter().map(|s| s.to_string()).collect();
-        with_ctx(&src, http, |ctx| GitHub.poll_known_with(ctx, &no_gh, &revs, &stale))
+        with_ctx(&src, http, |ctx| {
+            GitHub.poll_known_with(ctx, &no_gh, &revs, &stale, &[])
+        })
     }
 
     #[test]

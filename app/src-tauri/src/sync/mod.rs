@@ -8,7 +8,6 @@
 //!   which is replaced wholesale on each poll (it holds no user content).
 
 pub mod connectors;
-pub mod repair;
 pub mod worker;
 
 pub use worker::{nudge, poll_now};
@@ -93,6 +92,8 @@ pub struct Polling<'a> {
     /// have left the source's query (reassigned, closed by someone else).
     /// Each is a stream `item:<external id>`.
     pub stale_open: Vec<String>,
+    /// Items a consistency repair queued, oldest first (`Batch::repaired`).
+    pub repairs: Vec<String>,
     /// Write what's been read so far (with the cursor as it stands) in its own
     /// unit of work, so a later failure or a quit doesn't lose it.
     pub commit: &'a mut dyn FnMut(Batch) -> anyhow::Result<()>,
@@ -102,6 +103,8 @@ pub struct Polling<'a> {
 pub const REFETCH_EVERY_HOURS: i64 = 6;
 /// Open items read again by id per poll, at most.
 pub const REFETCH_PER_POLL: usize = 10;
+/// Queued repairs handed to one poll, at most (Gmail spends them within its own budget).
+pub const REPAIRS_PER_POLL: usize = 40;
 
 /// A connector for one source kind.
 pub trait Connector: Send + Sync {
@@ -123,11 +126,6 @@ pub trait Connector: Send + Sync {
     /// confirmed it; any error leaves the row failed and visible.
     fn send(&self, _ctx: &Ctx, op: &str, _payload: &Value) -> anyhow::Result<Value> {
         anyhow::bail!("this source doesn't support '{op}'")
-    }
-
-    /// Read these items again by external id for a repair: never bumped, no cursor, an error on a rate limit.
-    fn refetch(&self, _ctx: &Ctx, _external_ids: &[String]) -> anyhow::Result<Batch> {
-        anyhow::bail!("this source can't refetch items")
     }
 
     /// The cursor to poll from, read just before each poll. Chat sources close
@@ -222,8 +220,12 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
         let skipped = keys.iter().filter(|k| owned.contains(*k)).count();
         let bump = it.bump && (it.messages.is_empty() || skipped < it.messages.len());
         let existing = uow.items().find(source.id, &it.external_id)?;
+        let repair = batch.repaired.contains(&it.external_id);
+        if repair && existing.is_none() {
+            continue;
+        }
         // The same revision again (an overlap window re-read it): nothing changed.
-        if let (Some(id), Some(rev)) = (existing, &it.remote_rev) {
+        if let (Some(id), Some(rev), false) = (existing, &it.remote_rev, repair) {
             if ingest.remote_rev(id)?.as_deref() == Some(rev.as_str()) {
                 continue;
             }
@@ -317,6 +319,9 @@ pub fn apply(uow: &dyn UnitOfWork, source: &Source, batch: &Batch, now: Ts) -> R
     for s in &batch.streams {
         ingest.stream_outcome(source.id, &s.key, s.error.as_deref())?;
     }
+    if !batch.repaired.is_empty() {
+        uow.consistency().repaired(source.id, &batch.repaired)?;
+    }
     ingest.finish(source.id, batch.cursor.as_deref())?;
     Ok(new_signal)
 }
@@ -401,6 +406,9 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
     } else {
         Default::default()
     };
+    let repairs = app
+        .store()
+        .read(|r| r.consistency().repairs(source_id, REPAIRS_PER_POLL))?;
     // Streams read so far, written as the poll goes.
     let mut committed = 0;
     let mut commit = |b: Batch| -> anyhow::Result<()> {
@@ -414,6 +422,7 @@ pub fn sync_source(app: &App, source_id: i64) -> Result<usize> {
         failures: failing.into_iter().map(|f| (f.stream, f.failures)).collect(),
         revs,
         stale_open,
+        repairs,
         commit: &mut commit,
     };
     let polled = connector.poll_known(&ctx, &mut known);
@@ -611,30 +620,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "suggest" => {
             suggest_after_sync(app, crate::api::arg_i64(args, "source_id")?);
             Ok(Value::Null)
-        }
-        "repair_authors" => {
-            let id = crate::api::arg_i64(args, "source_id")?;
-            let source = app.store().read(|r| source(r, id))?;
-            let connector =
-                connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
-            let http = http::UreqHttp::default();
-            let secret = |k: &str| app.platform.secret_get(k);
-            let save_secret = |k: &str, v: &str| Ok(app.platform.secret_set(k, v)?);
-            let ctx = Ctx {
-                source: &source,
-                http: &http,
-                secret: &secret,
-                save_secret: &save_secret,
-                now: app.clock.now(),
-                clock: app.clock.clone(),
-            };
-            let lock = worker::poll_lock(app, id);
-            Ok(serde_json::json!(repair::missing_authors(
-                app.store(),
-                &ctx,
-                connector.as_ref(),
-                &lock
-            )?))
         }
         _ => Err(crate::api::unknown(name)),
     }

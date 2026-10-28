@@ -51,5 +51,5 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 - People, not yet: two notes describing one person stay separate until you merge them by hand (never automatic, by design).
 - Wanted later: assistant help writing Gmail filters (needs `gmail.settings.basic` + assistant actions).
 - Check `ISSUES.md`'s "Open" section before starting connector work.
-- **Check consistency (2026-10-27):** in Settings › Sources (no source picked): missing message authors (Gmail/Jira/GitHub, Repair refetches), split Gmail senders (Repair merges), calendar leftovers (listed). `docs/settings.md` › Check consistency. Not yet run on the real store.
+- **Check consistency (2026-10-27):** in Settings › Sources › Check consistency: missing message authors (Gmail/Jira/GitHub, Repair queues them for the sync), split Gmail senders (Repair merges), calendar leftovers (listed). `docs/settings.md` › Check consistency. Not yet run on the real store.
 

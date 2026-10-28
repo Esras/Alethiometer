@@ -162,12 +162,6 @@ export interface Finding {
   repairable: boolean;
 }
 
-export interface Refetched {
-  done: number;
-  total: number;
-  stopped: string | null;
-}
-
 export interface MergedSenders {
   merged: number;
   refused: number;

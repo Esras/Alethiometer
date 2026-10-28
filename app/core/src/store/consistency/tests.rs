@@ -183,19 +183,12 @@ fn calendar_leftovers_skip_cancelled_and_declined_events() {
 }
 
 #[test]
-fn forget_revs_clears_only_the_named_items() {
+fn repairs_queue_once_per_item_and_leave_when_read() {
     let conn = db();
-    item(&conn, 1, 3, "PLAT-1", "open", "", "{}");
-    item(&conn, 2, 3, "PLAT-2", "open", "", "{}");
-    conn.execute("UPDATE items SET remote_rev = 'r1'", []).unwrap();
     let s = over(&conn);
-    s.forget_revs(3, &["PLAT-1".into()]).unwrap();
-    let revs: Vec<Option<String>> = conn
-        .prepare("SELECT remote_rev FROM items ORDER BY id")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .map(|r| r.unwrap())
-        .collect();
-    assert_eq!(revs, [None, Some("r1".into())]);
+    assert_eq!(s.queue_repairs(3, &["PLAT-1".into(), "PLAT-2".into()]).unwrap(), 2);
+    assert_eq!(s.queue_repairs(3, &["PLAT-1".into()]).unwrap(), 0);
+    assert_eq!(s.queued_repairs().unwrap(), [(3, 2)]);
+    s.repaired(3, &["PLAT-1".into()]).unwrap();
+    assert_eq!(s.repairs(3, 10).unwrap(), ["PLAT-2"]);
 }

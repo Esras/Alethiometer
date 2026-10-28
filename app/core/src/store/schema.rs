@@ -51,6 +51,7 @@ const MIGRATIONS: &[Step] = &[
     Sql(include_str!("../../migrations/0038_triage_events.sql")),
     Sql(include_str!("../../migrations/0039_reply_ends.sql")),
     Sql(include_str!("../../migrations/0040_moot_status_writes.sql")),
+    Sql(include_str!("../../migrations/0041_repair_queue.sql")),
 ];
 
 /// sqlite-vec, loaded into every connection this process opens.

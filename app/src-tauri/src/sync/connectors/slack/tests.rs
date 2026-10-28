@@ -1249,6 +1249,7 @@ fn run_streams(
         failures: failures.iter().map(|(k, n)| (k.to_string(), *n)).collect(),
         revs: Default::default(),
         stale_open: vec![],
+        repairs: vec![],
         commit: &mut commit,
     };
     poll::poll_with(&ctx, &cfg, Some(&mut streams))

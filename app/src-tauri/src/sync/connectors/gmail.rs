@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 const QUERY: &str = "in:inbox";
-/// `threads.get` calls per poll; the rest of the queue waits for the next one.
-const FETCH_PER_POLL: usize = 200;
+/// `threads.get` calls per poll, repairs included (120 quota units each against 6,000 a minute); the rest waits.
+const FETCH_PER_POLL: usize = 40;
 /// Pages of 500 for `threads.list` and `history.list`.
 const MAX_PAGES: usize = 100;
 /// Characters kept per message body.
@@ -22,11 +22,11 @@ pub struct Gmail;
 
 impl Connector for Gmail {
     fn poll(&self, ctx: &Ctx) -> anyhow::Result<Batch> {
-        poll_with(ctx, &oauth::CACHE)
+        poll_with(ctx, &oauth::CACHE, &[])
     }
 
-    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
-        refetch_with(ctx, &oauth::CACHE, external_ids)
+    fn poll_known(&self, ctx: &Ctx, known: &mut crate::sync::Polling) -> anyhow::Result<Batch> {
+        poll_with(ctx, &oauth::CACHE, &known.repairs)
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -65,7 +65,7 @@ struct Cursor {
     tracked: BTreeMap<String, i64>,
 }
 
-fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
+fn poll_with(ctx: &Ctx, cache: &TokenCache, repairs: &[String]) -> anyhow::Result<Batch> {
     let api = Api { ctx, cache };
     let mut cur: Cursor = ctx
         .source
@@ -107,14 +107,16 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
     let n = cur.queue.len().min(FETCH_PER_POLL);
     let now: Vec<String> = cur.queue.drain(..n).collect();
     let account = ctx.source.config.get("account").and_then(Value::as_str).unwrap_or("0");
-    let label_cat = if now.is_empty() {
+    let label_cat = if now.is_empty() && repairs.is_empty() {
         HashMap::new()
     } else {
         category_by_label(&api, &ctx.source.config)?
     };
+    let mut limited = false;
     for (i, t) in now.iter().enumerate() {
         let resp = api.get(&format!("{API}/threads/{}?format=full", enc(t)))?;
         if rate_limited(&resp) {
+            limited = true;
             cur.queue.splice(0..0, now[i..].iter().cloned());
             break;
         }
@@ -135,29 +137,20 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
             }
         }
     }
-    batch.cursor = Some(serde_json::to_string(&cur)?);
-    Ok(batch)
-}
-
-/// Threads read again whether or not they're in the Inbox; gone ones are skipped.
-fn refetch_with(ctx: &Ctx, cache: &TokenCache, ids: &[String]) -> anyhow::Result<Batch> {
-    let api = Api { ctx, cache };
-    let account = ctx.source.config.get("account").and_then(Value::as_str).unwrap_or("0");
-    let label_cat = category_by_label(&api, &ctx.source.config)?;
-    let mut batch = Batch::default();
-    for t in ids {
+    let budget = if limited { 0 } else { FETCH_PER_POLL - now.len() };
+    for t in repairs.iter().take(budget) {
         let resp = api.get(&format!("{API}/threads/{}?format=full", enc(t)))?;
         if rate_limited(&resp) {
-            anyhow::bail!("Gmail rate limited");
+            break;
         }
-        if resp.status == 404 {
-            continue;
+        if resp.status != 404 {
+            if let Some((item, _)) = map_thread(t, &resp.ok()?.json()?, account, None, &label_cat, false) {
+                batch.items.push(ItemUpsert { bump: false, ..item });
+            }
         }
-        if let Some((mut item, _)) = map_thread(t, &resp.ok()?.json()?, account, None, &label_cat, false) {
-            item.bump = false;
-            batch.items.push(item);
-        }
+        batch.repaired.push(t.clone());
     }
+    batch.cursor = Some(serde_json::to_string(&cur)?);
     Ok(batch)
 }
 
@@ -743,7 +736,7 @@ mod tests {
             now: crate::sync::connectors::gcal::tests::now(),
             clock: crate::sync::connectors::gcal::tests::clock(),
         };
-        poll_with(&ctx, &TokenCache::new()).unwrap()
+        poll_with(&ctx, &TokenCache::new(), &[]).unwrap()
     }
 
     fn cursor(b: &Batch) -> Value {
@@ -904,7 +897,7 @@ mod tests {
         http.on("GET", &format!("/threads/{A}?"), 200, a.to_string());
         http.on("GET", &format!("/threads/{B}?"), 200, fixture!("thread_b.json"));
         http.on("GET", &format!("/threads/{C}?"), 200, fixture!("thread_c.json"));
-        let b = poll_with(&ctx, &TokenCache::new()).unwrap();
+        let b = poll_with(&ctx, &TokenCache::new(), &[]).unwrap();
         assert_eq!(item(&b, A).raw_json["category"], "vendors");
         assert_eq!(item(&b, B).raw_json["category"], Value::Null);
         assert!(gets(&http).contains(&format!("{API}/labels")));
@@ -1450,6 +1443,8 @@ mod tests {
             fixture!("thread_c_archived.json"),
         );
         http.on("GET", "/threads/unknown?", 200, fixture!("thread_a.json"));
+        http.on("GET", "/threads/x-limited?", 429, "");
+        http.on("GET", "/history?startHistoryId=4201", 200, r#"{"historyId": "4201"}"#);
         let ctx = Ctx {
             source: &src,
             http: &http,
@@ -1458,14 +1453,16 @@ mod tests {
             now: crate::sync::connectors::gcal::tests::now(),
             clock: crate::sync::connectors::gcal::tests::clock(),
         };
-        let lock = std::sync::Mutex::new(());
         let found = |db: &crate::store::Db| db.read(|r| r.consistency().missing_authors(&["gmail"])).unwrap();
         assert_eq!(found(&db)[0].items, [C]);
-        let out = crate::sync::repair::missing_authors(&db, &ctx, &Gmail, &lock).unwrap();
-        assert_eq!((out.done, out.total, out.stopped), (1, 1, None));
+        let ids = [C.to_string(), "unknown".to_string(), "x-limited".to_string()];
+        db.write(|uow| uow.consistency().queue_repairs(1, &ids)).unwrap();
+        let repairs = db.read(|r| r.consistency().repairs(1, 40)).unwrap();
+        let b = poll_with(&ctx, &TokenCache::new(), &repairs).unwrap();
+        assert_eq!(b.repaired, [C, "unknown"], "a rate limit leaves the rest queued");
+        db.write(|uow| crate::sync::apply(uow, &src, &b, ctx.now)).unwrap();
         assert!(found(&db).is_empty());
-        let ids = [C.to_string(), "unknown".to_string()];
-        crate::sync::repair::refetch(&db, &ctx, &Gmail, &lock, &ids).unwrap();
+        assert_eq!(db.read(|r| r.consistency().repairs(1, 40)).unwrap(), ["x-limited"]);
         let conn = db.legacy();
         let (author, seen, items, cursor): (String, bool, i64, String) = conn
             .query_row(

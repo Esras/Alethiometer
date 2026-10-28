@@ -40,7 +40,7 @@
   import SlackReview from './SlackReview.svelte';
   import MutedPicker from './MutedPicker.svelte';
   import { toast } from '../../lib/toast.svelte';
-  import type { Finding, MergedSenders, Refetched } from '../../lib/types';
+  import type { Finding, MergedSenders } from '../../lib/types';
 
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
@@ -360,8 +360,9 @@
     repairing = findingKey(f);
     try {
       if (f.check === 'missing_authors') {
-        const r = await call<Refetched>('sync.repair_authors', { source_id: f.source_id });
-        outcome = `${f.source}: read ${r.done} of ${r.total} items again${r.stopped ? `, stopped: ${r.stopped}` : ''}`;
+        const r = await call<{ queued: number }>('consistency.repair_authors', { source_id: f.source_id });
+        outcome = `${f.source}: queued ${r.queued} item${r.queued === 1 ? '' : 's'}; the next syncs read them again`;
+        call('sync.now', { source_id: f.source_id }).catch(() => {});
       } else {
         const r = await call<MergedSenders>('consistency.merge_senders');
         outcome = `Merged ${r.merged} sender${r.merged === 1 ? '' : 's'}${r.refused ? `, left ${r.refused} with a People note` : ''}`;
