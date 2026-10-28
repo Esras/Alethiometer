@@ -44,8 +44,8 @@
 
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
-  /** On Sources: a source's index, or 'add'. */
-  let src = $state<number | 'add'>(0);
+  /** On Sources: a source's index, 'add', or 'check' (Check consistency). */
+  let src = $state<number | 'add' | 'check'>(0);
   let focus = $state(0);
   let editing = $state(false);
   let status = $state<State | null>(null);
@@ -139,6 +139,7 @@
     const p = page;
     const out: Item[] = [];
     if (section === 'sources') {
+      if (src === 'check') return out;
       if (src === 'add' || !source) {
         for (const k of p.kinds) out.push({ t: 'kind', group: 'Add a source', kind: k.kind, label: k.label });
         return out;
@@ -249,7 +250,7 @@
       src = page?.sources.length ? (typeof src === 'number' && src < page.sources.length ? src : 0) : 'add';
   }
 
-  function goSource(i: number | 'add') {
+  function goSource(i: number | 'add' | 'check') {
     section = 'sources';
     src = i;
     focus = 0;
@@ -507,8 +508,11 @@
       const s = it?.t === 'secret' ? it.secret : source?.secrets.find((k) => !k.oauth);
       if (s) startReplace(s);
     } else if (e.key === 'a') goSource('add');
-    else if (e.key === 'X' && source) removeSource(source.index);
-    else if (e.key === 'c' && section === 'sources' && !source && !checking && !repairing) checkConsistency();
+    else if (e.key === 'c') {
+      if (section === 'sources' && src === 'check') {
+        if (!checking && !repairing) checkConsistency();
+      } else goSource('check');
+    } else if (e.key === 'X' && source) removeSource(source.index);
     else if (e.key === 's' && source?.status)
       call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
     else return false;
@@ -563,6 +567,9 @@
             <button class="sub add" class:on={src === 'add' && !findQ} onclick={() => goSource('add')}
               ><i class="ph ph-plus"></i><span>Add source</span><kbd>a</kbd></button
             >
+            <button class="sub add" class:on={src === 'check' && !findQ} onclick={() => goSource('check')}
+              ><i class="ph ph-stethoscope"></i><span>Check consistency</span><kbd>c</kbd></button
+            >
           {/if}
         {/each}
         <span class="grow"></span>
@@ -604,6 +611,11 @@
                   ><kbd>⇧X</kbd> again removes {source.name} (its items stay)</span
                 >{/if}
             </div>
+          {:else if section === 'sources' && src === 'check'}
+            <h2 class="pane-title">Check consistency</h2>
+            <p class="blurb">
+              Looks for rows older versions of the sources left behind. Nothing changes until you press Repair.
+            </p>
           {:else if section === 'sources'}
             <h2 class="pane-title">Add source</h2>
             <p class="blurb">Pick a kind. It starts enabled with defaults; fill in its page next.</p>
@@ -809,20 +821,18 @@
               {/each}
             </div>
           {/each}
-          {#if section === 'sources' && !source}
-            <div class="label glabel">Consistency<span class="gnote">nothing changes until you press Repair</span></div>
+          {#if section === 'sources' && src === 'check'}
             <div class="card panel">
               <div class="row">
                 <div class="text">
-                  <div class="lbl">Check consistency</div>
-                  <div class="desc">
-                    {outcome ??
-                      (findings === null
-                        ? 'Looks for rows older versions of the sources left behind.'
-                        : findings.length
-                          ? `${findings.length} finding${findings.length === 1 ? '' : 's'}`
-                          : 'Nothing found.')}
+                  <div class="lbl">
+                    {findings === null
+                      ? 'Not checked yet'
+                      : findings.length
+                        ? `${findings.length} finding${findings.length === 1 ? '' : 's'}`
+                        : 'Nothing found'}
                   </div>
+                  {#if outcome}<div class="desc">{outcome}</div>{/if}
                 </div>
                 <button class="btn" onclick={checkConsistency} disabled={checking || !!repairing}
                   >{checking ? 'Checking…' : 'Check'} <kbd>c</kbd></button
@@ -878,7 +888,7 @@
         <span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>r</kbd> replace secret</span><span
           ><kbd>a</kbd> add</span
         ><span><kbd>⇧X</kbd> remove</span><span><kbd>s</kbd> sync now</span>
-        {#if !source}<span><kbd>c</kbd> check consistency</span>{/if}
+        <span><kbd>c</kbd> check consistency</span>
       {:else if section === 'ai'}
         <span><kbd>1–7</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>/</kbd> find</span>
       {:else if section === 'agents'}

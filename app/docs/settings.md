@@ -42,7 +42,7 @@ Interface sizes are rem off the root font size (`ui_font_size`, default 13). Rea
 
 ## Check consistency
 
-On the Sources page with no source picked (Add source), **Check** (`c`) lists what older versions of the connectors left behind, per source with a count. Nothing changes until you press a finding's **Repair**; the checks run again after it, and a toast says how it went (the call keeps running if you close Settings). Code: `queries/consistency.rs` (`consistency.check`, `consistency.merge_senders`), `sync/repair.rs` (`sync.repair_authors`), `core/src/store/consistency.rs`.
+On Sources, the **Check consistency** entry under the source list (`c` opens it; `c` again checks) lists what older versions of the connectors left behind, per source with a count. Nothing changes until you press a finding's **Repair**; the checks run again after it, and a toast says how it went (the call keeps running if you close Settings). Code: `queries/consistency.rs` (`consistency.check`, `consistency.merge_senders`), `sync/repair.rs` (`sync.repair_authors`), `core/src/store/consistency.rs`.
 
 - **Messages missing an author** (Gmail, Jira, GitHub; Slack's and agents' bots are meant to have none): own messages (not context) with no `author_id`. Repair reads those items again from the source (`Connector::refetch`), 25 per unit of work under the source's poll lock, after forgetting their stored revision so the same revision applies. It never resurfaces or marks anything seen, never creates an item, and leaves the cursor alone. Gmail reads threads whether or not they're in the Inbox. It stops at the first error (a rate limit) and says how many it did. GitHub reads all of an item's comments (up to 100), so older comments it never stored come in too.
 - **Same sender on two people** (Gmail): a bare-address handle and exactly one `address name` twin on another person (ISSUES.md). Repair moves handles, accounts, item authors and topic links onto the row with more items (the lower id on a tie) and deletes the other; a pair with a People note is left alone.
@@ -50,4 +50,4 @@ On the Sources page with no source picked (Add source), **Check** (`c`) lists wh
 
 ## Keys
 
-`j`/`k` setting, `1`–`7` or `⇥` section, `←`/`→` pick a colour (Agents), `⌫` reset (Agents), `⌥j`/`⌥k` previous/next source, `↵` edit, `−`/`+` step, `space` toggle, `r` replace secret, `a` add source, `⇧X` remove source, `s` sync now, `c` check consistency (Sources, no source picked), `/` find, `esc` close.
+`j`/`k` setting, `1`–`7` or `⇥` section, `←`/`→` pick a colour (Agents), `⌫` reset (Agents), `⌥j`/`⌥k` previous/next source, `↵` edit, `−`/`+` step, `space` toggle, `r` replace secret, `a` add source, `⇧X` remove source, `s` sync now, `c` check consistency (Sources), `/` find, `esc` close.
