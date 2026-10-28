@@ -9,6 +9,7 @@
 
 pub mod agents;
 pub mod categories;
+pub mod consistency;
 pub mod context;
 pub mod daystrip;
 pub mod embed;

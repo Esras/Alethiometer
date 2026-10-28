@@ -7,6 +7,7 @@
 
 use super::agents::{AgentState, AgentViews};
 use super::categories::{Categories, CategoryViews};
+use super::consistency::{Consistency, ConsistencyViews};
 use super::context::ContextViews;
 use super::daystrip::{DayStripViews, Events};
 use super::embed::{VectorViews, Vectors};
@@ -35,6 +36,7 @@ use super::usage::{Usage, UsageViews};
 pub trait Reads {
     fn agents(&self) -> &dyn AgentViews;
     fn categories(&self) -> &dyn CategoryViews;
+    fn consistency(&self) -> &dyn ConsistencyViews;
     fn context(&self) -> &dyn ContextViews;
     fn day_strip(&self) -> &dyn DayStripViews;
     fn glean(&self) -> &dyn GleanViews;
@@ -61,6 +63,7 @@ pub trait UnitOfWork {
     fn reads(&self) -> &dyn Reads;
     fn agents(&self) -> &dyn AgentState;
     fn categories(&self) -> &dyn Categories;
+    fn consistency(&self) -> &dyn Consistency;
     fn events(&self) -> &dyn Events;
     fn ingest(&self) -> &dyn Ingest;
     fn items(&self) -> &dyn Items;

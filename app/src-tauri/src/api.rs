@@ -44,6 +44,7 @@ pub fn route_of(cmd: &str) -> Option<Route> {
         "topics" => queries::topics::route(name),
         "search" => queries::search::route(name),
         "categories" => queries::categories::route(name),
+        "consistency" => queries::consistency::route(name),
         "people" => queries::people::route(name),
         "priorities" => queries::priorities::route(name),
         "sync" => crate::sync::route(name),

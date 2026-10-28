@@ -25,6 +25,10 @@ impl Connector for Gmail {
         poll_with(ctx, &oauth::CACHE)
     }
 
+    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
+        refetch_with(ctx, &oauth::CACHE, external_ids)
+    }
+
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         let api = Api {
             ctx,
@@ -119,7 +123,7 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
         } else {
             Some(resp.ok()?.json()?)
         };
-        match thread.and_then(|th| map_thread(t, &th, account, cur.tracked.get(t).copied(), &label_cat)) {
+        match thread.and_then(|th| map_thread(t, &th, account, cur.tracked.get(t).copied(), &label_cat, true)) {
             Some((item, last)) => {
                 cur.tracked.insert(t.clone(), last);
                 batch.items.push(item);
@@ -132,6 +136,28 @@ fn poll_with(ctx: &Ctx, cache: &TokenCache) -> anyhow::Result<Batch> {
         }
     }
     batch.cursor = Some(serde_json::to_string(&cur)?);
+    Ok(batch)
+}
+
+/// Threads read again whether or not they're in the Inbox; gone ones are skipped.
+fn refetch_with(ctx: &Ctx, cache: &TokenCache, ids: &[String]) -> anyhow::Result<Batch> {
+    let api = Api { ctx, cache };
+    let account = ctx.source.config.get("account").and_then(Value::as_str).unwrap_or("0");
+    let label_cat = category_by_label(&api, &ctx.source.config)?;
+    let mut batch = Batch::default();
+    for t in ids {
+        let resp = api.get(&format!("{API}/threads/{}?format=full", enc(t)))?;
+        if rate_limited(&resp) {
+            anyhow::bail!("Gmail rate limited");
+        }
+        if resp.status == 404 {
+            continue;
+        }
+        if let Some((mut item, _)) = map_thread(t, &resp.ok()?.json()?, account, None, &label_cat, false) {
+            item.bump = false;
+            batch.items.push(item);
+        }
+    }
     Ok(batch)
 }
 
@@ -278,17 +304,18 @@ fn header<'a>(m: &'a Value, name: &str) -> Option<&'a str> {
         .as_str()
 }
 
-/// The item (every message, read or not) and its newest message time; `None` when the thread isn't in the Inbox.
+/// The item (every message, read or not) and its newest message time; `None` outside the Inbox if `inbox_only`.
 fn map_thread(
     id: &str,
     th: &Value,
     account: &str,
     prev: Option<i64>,
     label_cat: &HashMap<String, String>,
+    inbox_only: bool,
 ) -> Option<(ItemUpsert, i64)> {
     let all = th["messages"].as_array()?;
     let mut msgs: Vec<&Value> = all.iter().filter(|m| kept(m)).collect();
-    if !msgs.iter().any(|m| labeled(m, "INBOX")) {
+    if inbox_only && !msgs.iter().any(|m| labeled(m, "INBOX")) {
         return None;
     }
     msgs.sort_by_key(|m| internal_ms(m));
@@ -1373,5 +1400,58 @@ mod tests {
             crate::queries::split::split_off(&tx, id(A), &msgs[..1]).is_err(),
             "email threads move as a whole"
         );
+    }
+
+    #[test]
+    fn repair_rereads_archived_threads_without_resurfacing_creating_or_moving_the_cursor() {
+        let db = crate::store::Db::new(crate::db::open_in_memory().unwrap()).unwrap();
+        let cur = r#"{"history_id":"4201","queue":[],"tracked":{}}"#;
+        db.legacy()
+            .execute_batch(&format!(
+                "INSERT INTO sources (id, kind, tag, name, cursor) VALUES (1, 'gmail', 'work', 'Work mail', '{cur}');
+                 INSERT INTO items (id, source_id, external_id, kind, title, occurred_at, status, seen)
+                   VALUES (1, 1, '{C}', 'email', 'Agenda', '2026-09-01T09:00:00.000Z', 'open', 1);
+                 INSERT INTO item_messages (item_id, at, author, text, ext_key)
+                   VALUES (1, '2026-09-01T09:00:00.000Z', 'Priya', 'Draft agenda attached.', '{C}');"
+            ))
+            .unwrap();
+        let src = db.read(|r| crate::sync::source(r, 1)).unwrap();
+        let http = google();
+        http.on(
+            "GET",
+            &format!("/threads/{C}?"),
+            200,
+            fixture!("thread_c_archived.json"),
+        );
+        http.on("GET", "/threads/unknown?", 200, fixture!("thread_a.json"));
+        let ctx = Ctx {
+            source: &src,
+            http: &http,
+            secret: &secrets,
+            save_secret: &crate::sync::no_save,
+            now: crate::sync::connectors::gcal::tests::now(),
+            clock: crate::sync::connectors::gcal::tests::clock(),
+        };
+        let lock = std::sync::Mutex::new(());
+        let found = |db: &crate::store::Db| db.read(|r| r.consistency().missing_authors(&["gmail"])).unwrap();
+        assert_eq!(found(&db)[0].items, [C]);
+        let out = crate::sync::repair::missing_authors(&db, &ctx, &Gmail, &lock).unwrap();
+        assert_eq!((out.done, out.total, out.stopped), (1, 1, None));
+        assert!(found(&db).is_empty());
+        let ids = [C.to_string(), "unknown".to_string()];
+        crate::sync::repair::refetch(&db, &ctx, &Gmail, &lock, &ids).unwrap();
+        let conn = db.legacy();
+        let (author, seen, items, cursor): (String, bool, i64, String) = conn
+            .query_row(
+                "SELECT m.author_id, i.seen, (SELECT count(*) FROM items), s.cursor
+                   FROM item_messages m JOIN items i ON i.id = m.item_id JOIN sources s ON s.id = i.source_id",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(author, "priya.shah@acme.com");
+        assert!(seen, "not back in Incoming");
+        assert_eq!(items, 1, "no item for a thread that wasn't stored");
+        assert_eq!(cursor, cur);
     }
 }

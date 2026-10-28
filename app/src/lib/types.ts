@@ -149,3 +149,26 @@ export interface TopicPerson {
   signals: number;
   last: string | null;
 }
+
+/** A Settings › Sources consistency check's finding (`queries::consistency`). */
+export interface Finding {
+  check: 'missing_authors' | 'split_senders' | 'calendar_leftovers';
+  source_id: number | null;
+  source: string;
+  kind: SourceKind;
+  title: string;
+  count: number;
+  detail: string[];
+  repairable: boolean;
+}
+
+export interface Refetched {
+  done: number;
+  total: number;
+  stopped: string | null;
+}
+
+export interface MergedSenders {
+  merged: number;
+  refused: number;
+}

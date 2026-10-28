@@ -8,6 +8,7 @@
 //!   which is replaced wholesale on each poll (it holds no user content).
 
 pub mod connectors;
+pub mod repair;
 pub mod worker;
 
 pub use worker::{nudge, poll_now};
@@ -122,6 +123,11 @@ pub trait Connector: Send + Sync {
     /// confirmed it; any error leaves the row failed and visible.
     fn send(&self, _ctx: &Ctx, op: &str, _payload: &Value) -> anyhow::Result<Value> {
         anyhow::bail!("this source doesn't support '{op}'")
+    }
+
+    /// Read these items again by external id for a repair: never bumped, no cursor, an error on a rate limit.
+    fn refetch(&self, _ctx: &Ctx, _external_ids: &[String]) -> anyhow::Result<Batch> {
+        anyhow::bail!("this source can't refetch items")
     }
 
     /// The cursor to poll from, read just before each poll. Chat sources close
@@ -605,6 +611,30 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "suggest" => {
             suggest_after_sync(app, crate::api::arg_i64(args, "source_id")?);
             Ok(Value::Null)
+        }
+        "repair_authors" => {
+            let id = crate::api::arg_i64(args, "source_id")?;
+            let source = app.store().read(|r| source(r, id))?;
+            let connector =
+                connectors::for_kind(&source.kind).ok_or_else(|| msg(format!("no connector for '{}'", source.kind)))?;
+            let http = http::UreqHttp::default();
+            let secret = |k: &str| app.platform.secret_get(k);
+            let save_secret = |k: &str, v: &str| Ok(app.platform.secret_set(k, v)?);
+            let ctx = Ctx {
+                source: &source,
+                http: &http,
+                secret: &secret,
+                save_secret: &save_secret,
+                now: app.clock.now(),
+                clock: app.clock.clone(),
+            };
+            let lock = worker::poll_lock(app, id);
+            Ok(serde_json::json!(repair::missing_authors(
+                app.store(),
+                &ctx,
+                connector.as_ref(),
+                &lock
+            )?))
         }
         _ => Err(crate::api::unknown(name)),
     }

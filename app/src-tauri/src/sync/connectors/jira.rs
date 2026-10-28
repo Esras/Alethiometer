@@ -153,10 +153,7 @@ impl Jira {
         let jql = format!("({base_jql}) AND updated >= \"{bound}\" ORDER BY updated ASC");
 
         let due_field = due_field(ctx)?;
-        let fields = match due_field {
-            Some(f) => format!("{FIELDS},{f}"),
-            None => FIELDS.to_string(),
-        };
+        let fields = fields_for(due_field);
 
         let mut batch = Batch::default();
         if !me.is_empty() {
@@ -218,8 +215,7 @@ impl Jira {
                 });
                 continue;
             }
-            let path = format!("/rest/api/3/issue/{}?fields={fields}&expand=changelog", urlencode(key));
-            match api.get(&path) {
+            match get_issue(&api, key, &fields) {
                 Ok(issue) => {
                     if let Some(item) = map_issue(&api, &issue, &me, since_for(key), due_field) {
                         batch.items.push(item);
@@ -229,19 +225,35 @@ impl Jira {
                         error: None,
                     });
                 }
-                // Gone, or no longer visible to you: about this issue only.
-                Err(e) if ["Jira 404", "Jira 403"].iter().any(|p| e.to_string().starts_with(p)) => {
-                    batch.streams.push(StreamOutcome {
-                        key: format!("item:{key}"),
-                        error: Some(e.to_string()),
-                    })
-                }
+                Err(e) if about_one_issue(&e) => batch.streams.push(StreamOutcome {
+                    key: format!("item:{key}"),
+                    error: Some(e.to_string()),
+                }),
                 Err(e) => return Err(e),
             }
         }
         batch.cursor = newest.map(Ts::to_db);
         Ok(batch)
     }
+}
+
+fn fields_for(due_field: Option<&str>) -> String {
+    match due_field {
+        Some(f) => format!("{FIELDS},{f}"),
+        None => FIELDS.to_string(),
+    }
+}
+
+fn get_issue(api: &Api, key: &str, fields: &str) -> anyhow::Result<Value> {
+    api.get(&format!(
+        "/rest/api/3/issue/{}?fields={fields}&expand=changelog",
+        urlencode(key)
+    ))
+}
+
+/// Gone, or no longer visible to you: about this issue only.
+fn about_one_issue(e: &anyhow::Error) -> bool {
+    ["Jira 404", "Jira 403"].iter().any(|p| e.to_string().starts_with(p))
 }
 
 impl Connector for Jira {
@@ -255,6 +267,27 @@ impl Connector for Jira {
 
     fn wants_known(&self) -> bool {
         true
+    }
+
+    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
+        let api = Api::new(ctx)?;
+        let me = api
+            .get("/rest/api/3/myself")?
+            .get("accountId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let due_field = due_field(ctx)?;
+        let fields = fields_for(due_field);
+        let mut batch = Batch::default();
+        for key in external_ids {
+            match get_issue(&api, key, &fields) {
+                Ok(issue) => batch.items.extend(map_issue(&api, &issue, &me, None, due_field)),
+                Err(e) if about_one_issue(&e) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(batch)
     }
 
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
@@ -1449,5 +1482,55 @@ mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"me@acme.test:tok"), "bWVAYWNtZS50ZXN0OnRvaw==");
+    }
+
+    #[test]
+    fn repair_applies_an_issue_whose_revision_hasnt_changed() {
+        let db = crate::store::Db::new(crate::db::open_in_memory().unwrap()).unwrap();
+        let updated = "2026-09-27T09:00:00.000+0000";
+        db.legacy()
+            .execute_batch(&format!(
+                "INSERT INTO sources (id, kind, tag, name, cursor) VALUES (1, 'jira', 'work', 'Work Jira', '2026-09-27T09:30:00.000Z');
+                 INSERT INTO items (id, source_id, external_id, kind, title, occurred_at, status, seen, remote_rev)
+                   VALUES (1, 1, 'OPS-7', 'issue', 'OPS-7 · Old', '{updated}', 'done', 1, '{updated}');
+                 INSERT INTO item_messages (item_id, at, author, text, ext_key)
+                   VALUES (1, '2026-09-27T08:00:00.000Z', 'Kim', 'done', 'jira:10001');"
+            ))
+            .unwrap();
+        let http = FakeHttp::default();
+        http.on("GET", "/rest/api/3/myself", 200, MYSELF);
+        http.on("GET", "/rest/api/3/issue/OPS-7", 200, format!(r#"{{"key": "OPS-7", "fields": {{
+            "summary": "Rotate keys", "updated": "{updated}", "created": "2026-09-01T09:00:00.000+0000",
+            "status": {{"name": "Done", "statusCategory": {{"key": "done"}}}},
+            "comment": {{"total": 1, "comments": [{{"id": "10001", "created": "2026-09-27T08:00:00.000+0000",
+              "author": {{"accountId": "acc-kim", "displayName": "Kim"}},
+              "body": {{"type": "doc", "content": [{{"type": "paragraph", "content": [{{"type": "text", "text": "done"}}]}}]}}}}]}}}}}}"#));
+        let mut src = db.read(|r| crate::sync::source(r, 1)).unwrap();
+        src.config = source(None).config;
+        let lock = std::sync::Mutex::new(());
+        let out = with_ctx(&src, &http, |ctx| {
+            crate::sync::repair::missing_authors(&db, ctx, &Jira, &lock)
+        })
+        .unwrap();
+        assert_eq!((out.done, out.stopped), (1, None));
+        let (author, title, seen, rev, cursor): (String, String, bool, String, String) = db
+            .legacy()
+            .query_row(
+                "SELECT m.author_id, i.title, i.seen, i.remote_rev, s.cursor
+                   FROM item_messages m JOIN items i ON i.id = m.item_id JOIN sources s ON s.id = i.source_id",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (author.as_str(), title.as_str(), seen, rev.as_str(), cursor.as_str()),
+            (
+                "acc-kim",
+                "OPS-7 · Rotate keys",
+                true,
+                updated,
+                "2026-09-27T09:30:00.000Z"
+            )
+        );
     }
 }

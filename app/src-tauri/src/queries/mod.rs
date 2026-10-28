@@ -2,6 +2,7 @@
 //! `call(app, name, args)` and a `seed(ctx)` for its sample data.
 
 pub mod categories;
+pub mod consistency;
 pub mod daystrip;
 pub mod ignore;
 pub mod incoming;

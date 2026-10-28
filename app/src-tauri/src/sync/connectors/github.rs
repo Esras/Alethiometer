@@ -312,6 +312,10 @@ impl Connector for GitHub {
     fn send(&self, ctx: &Ctx, op: &str, payload: &Value) -> anyhow::Result<Value> {
         self.send_with(ctx, op, payload, &run_gh(gh_path(ctx)))
     }
+
+    fn refetch(&self, ctx: &Ctx, external_ids: &[String]) -> anyhow::Result<Batch> {
+        self.refetch_with(ctx, &run_gh(gh_path(ctx)), external_ids)
+    }
 }
 
 fn gh_path<'c>(ctx: &'c Ctx) -> Option<&'c str> {
@@ -434,6 +438,33 @@ impl GitHub {
             }
         }
         batch.cursor = newest.map(Ts::to_db);
+        Ok(batch)
+    }
+
+    /// `refetch` with the `gh` runner passed in: every item read by number with all its comments.
+    pub fn refetch_with(&self, ctx: &Ctx, gh: &GhRunner<'_>, external_ids: &[String]) -> anyhow::Result<Batch> {
+        let api = Api::new(ctx, gh)?;
+        let me = api
+            .get("/user")?
+            .get("login")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let epoch = Ts::from_unix_secs(0.0);
+        let mut batch = Batch::default();
+        for ext in external_ids {
+            let Some((repo, number)) = ext.rsplit_once('#') else {
+                continue;
+            };
+            let read = api
+                .get(&format!("/repos/{repo}/issues/{number}"))
+                .and_then(|it| map_item(&api, &it, false, true, true, &me, &|_| epoch));
+            match read {
+                Ok(item) => batch.items.extend(item.map(|i| ItemUpsert { bump: false, ..i })),
+                Err(e) if about_one_item(&e) => {}
+                Err(e) => return Err(e),
+            }
+        }
         Ok(batch)
     }
 

@@ -18,6 +18,7 @@
 pub mod agents;
 pub mod categories;
 pub mod changes;
+pub mod consistency;
 pub mod context;
 pub mod daystrip;
 pub mod embed;
@@ -323,6 +324,7 @@ macro_rules! ports {
 ports!(Reads {
     agents: crate::domain::agents::AgentViews,
     categories: crate::domain::categories::CategoryViews,
+    consistency: crate::domain::consistency::ConsistencyViews,
     context: crate::domain::context::ContextViews,
     day_strip: crate::domain::daystrip::DayStripViews,
     glean: crate::domain::glean::GleanViews,
@@ -348,6 +350,7 @@ ports!(UnitOfWork {
     reads: Reads,
     agents: crate::domain::agents::AgentState,
     categories: crate::domain::categories::Categories,
+    consistency: crate::domain::consistency::Consistency,
     events: crate::domain::daystrip::Events,
     ingest: crate::domain::ingest::Ingest,
     items: crate::domain::items::Items,

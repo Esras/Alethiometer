@@ -39,6 +39,8 @@
   import Switch from '../../lib/ui/Switch.svelte';
   import SlackReview from './SlackReview.svelte';
   import MutedPicker from './MutedPicker.svelte';
+  import { toast } from '../../lib/toast.svelte';
+  import type { Finding, MergedSenders, Refetched } from '../../lib/types';
 
   let page = $state<Page | null>(null);
   let section = $state<Section>('general');
@@ -58,6 +60,11 @@
   let removeArmed = $state<number | null>(null);
   let review = $state<SourceRow | null>(null);
   let mutePick = $state<SourceRow | null>(null);
+  /** Check consistency (Sources): null until checked. */
+  let findings = $state<Finding[] | null>(null);
+  let checking = $state(false);
+  let repairing = $state<string | null>(null);
+  let outcome = $state<string | null>(null);
 
   async function load() {
     page = await loadPage();
@@ -335,6 +342,38 @@
     goSource(page?.sources.length ? Math.max(0, i - 1) : 'add');
   }
 
+  const findingKey = (f: Finding) => `${f.check}:${f.source_id}`;
+
+  async function checkConsistency() {
+    checking = true;
+    try {
+      findings = await call<Finding[]>('consistency.check');
+    } catch (e) {
+      err = String((e as Error).message ?? e);
+    } finally {
+      checking = false;
+    }
+  }
+
+  async function repair(f: Finding) {
+    repairing = findingKey(f);
+    try {
+      if (f.check === 'missing_authors') {
+        const r = await call<Refetched>('sync.repair_authors', { source_id: f.source_id });
+        outcome = `${f.source}: read ${r.done} of ${r.total} items again${r.stopped ? `, stopped: ${r.stopped}` : ''}`;
+      } else {
+        const r = await call<MergedSenders>('consistency.merge_senders');
+        outcome = `Merged ${r.merged} sender${r.merged === 1 ? '' : 's'}${r.refused ? `, left ${r.refused} with a People note` : ''}`;
+      }
+      toast(outcome, true);
+    } catch (e) {
+      toast(e);
+    } finally {
+      repairing = null;
+    }
+    await checkConsistency();
+  }
+
   async function onlyThese(s: SourceRow) {
     try {
       const chans = await call<{ id: string; name: string }[]>('settings.slack_channels', { source: s.status?.id });
@@ -469,6 +508,7 @@
       if (s) startReplace(s);
     } else if (e.key === 'a') goSource('add');
     else if (e.key === 'X' && source) removeSource(source.index);
+    else if (e.key === 'c' && section === 'sources' && !source && !checking && !repairing) checkConsistency();
     else if (e.key === 's' && source?.status)
       call('sync.now', { source_id: source.status.id }).then(load, (x) => (err = String(x.message ?? x)));
     else return false;
@@ -769,6 +809,41 @@
               {/each}
             </div>
           {/each}
+          {#if section === 'sources' && !source}
+            <div class="label glabel">Consistency<span class="gnote">nothing changes until you press Repair</span></div>
+            <div class="card panel">
+              <div class="row">
+                <div class="text">
+                  <div class="lbl">Check consistency</div>
+                  <div class="desc">
+                    {outcome ??
+                      (findings === null
+                        ? 'Looks for rows older versions of the sources left behind.'
+                        : findings.length
+                          ? `${findings.length} finding${findings.length === 1 ? '' : 's'}`
+                          : 'Nothing found.')}
+                  </div>
+                </div>
+                <button class="btn" onclick={checkConsistency} disabled={checking || !!repairing}
+                  >{checking ? 'Checking…' : 'Check'} <kbd>c</kbd></button
+                >
+              </div>
+              {#each findings ?? [] as f (findingKey(f))}
+                <div class="row kind">
+                  <AppIcon source={f.kind} size={16} />
+                  <div class="text">
+                    <div class="lbl">{f.title} <span class="muted tnum">{f.count}</span></div>
+                    <div class="desc">{f.source} · {f.detail.join(' · ')}</div>
+                  </div>
+                  {#if f.repairable}
+                    <button class="btn" onclick={() => repair(f)} disabled={checking || !!repairing}
+                      >{repairing === findingKey(f) ? 'Repairing…' : 'Repair'}</button
+                    >
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
           {#if section === 'ai'}
             <div class="label glabel">
               Local embeddings<span class="gnote">run on this Mac; nothing leaves it</span>
@@ -803,6 +878,7 @@
         <span><kbd>↵</kbd> edit</span><span><kbd>Space</kbd> toggle</span><span><kbd>r</kbd> replace secret</span><span
           ><kbd>a</kbd> add</span
         ><span><kbd>⇧X</kbd> remove</span><span><kbd>s</kbd> sync now</span>
+        {#if !source}<span><kbd>c</kbd> check consistency</span>{/if}
       {:else if section === 'ai'}
         <span><kbd>1–7</kbd> section</span><span><kbd>↵</kbd> edit</span><span><kbd>/</kbd> find</span>
       {:else if section === 'agents'}
