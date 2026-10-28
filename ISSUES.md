@@ -14,11 +14,13 @@ Anthropic sends from `no-reply-<random>@mail.anthropic.com`, a new address on ev
 
 ### People: the same Gmail sender has two rows under two handle formats (found 2026-10-26)
 
-Seven Anthropic addresses each have two person rows: one whose `gmail` handle is the bare address (holds the signals) and one whose handle is the address, a space and the display name, e.g. `no-reply-bnpq\u2026@mail.anthropic.com Anthropic` (no signals). Pairs: 304/131, 308/210, 237/305, 101/306, 246/307, 238/309, 234/310. `handle_person` matches the handle string exactly, so the two formats never meet.
+Seven Anthropic addresses each have two person rows: one whose `gmail` handle is the bare address (holds the signals) and one whose handle is the address, a space and the display name, e.g. `no-reply-bnpq…@mail.anthropic.com Anthropic` (no signals). Pairs: 304/131, 308/210, 237/305, 101/306, 246/307, 238/309, 234/310. `handle_person` matches the handle string exactly, so the two formats never meet.
 
 Cause, from the code's history (2026-10-27): on 2026-09-29 `sender()` changed three times. Before 32b146f (16:18) every sender was its bare address. From 32b146f and d149fb3 a relay sender (`no-reply`, `notification`, `jira@`, Google Groups) became `address name`. From f7de1ea (17:50) `sender()` reads X-Original-From, X-Original-Sender and Reply-To first and returns whatever address they name, bare; only without them does a relay fall back to `address name`. So a relay mail that names its own address in one of those headers is the bare address today, and the same mail read between 16:18 and 17:50 was `address name`. A later poll moving the item's author back to the bare row fits the real store (the named twins hold nothing), but which header these Anthropic mails carry isn't confirmed (needs the raw mail). The root cause stays: `sender()` can still give one relay sender two handle formats.
 
-Repair (2026-10-27): Settings › Sources › Check consistency finds the pairs (a bare address with exactly one `address name` twin) and Repair merges each into the row with more items (the lower id on a tie), handles, accounts, item authors and topic links included. Pairs where either row has a People note are left alone. The `created_at` 2026-10-07 on every row is the migration backfill. Still open: one handle format and a test that both forms yield one person.
+Repair (2026-10-27): Settings › Sources › Check consistency finds the pairs (a bare address with exactly one `address name` twin) and Repair merges each into the row with more items (the lower id on a tie), handles, accounts, item authors and topic links included. Pairs where either row has a People note are left alone. The `created_at` 2026-10-07 on every row is the migration backfill.
+
+Root cause fixed (2026-10-27): a relay address is `address name` whichever header it came in (`sender()` in `gmail.rs`), with a test that the Reply-To and X-Original-From forms match the From form. Senders whose old mail is on the bare row and whose new mail now lands on the named row show up as new pairs for Repair. Left open: whether to close this entry after a Repair on the real store.
 
 ### Checks that fail on `main` (found 2026-10-24)
 
@@ -149,7 +151,7 @@ Built on real data (`app/docs/priorities.md`), but only Taskwarrior's factors co
 
 ### Todos: completing a Jira todo assumes a "Done" transition
 
-`x` on a Jira todo queues `jira.transition` to "Done" (matched by transition name or target status). The DEVOPS project's done status is "Closed", reached only through a couple of intermediate steps, so completing a DEVOPS todo fails in the outbox. Needs a per-project done status and a way to walk the workflow (or open the issue in Jira instead). Creating issues is fine as is.
+`x` on a Jira todo queues `jira.transition` to "Done" (matched by transition name or target status). The DEVOPS project's done status is "Closed", reached only through a couple of intermediate steps, so completing a DEVOPS todo fails in the outbox. Needs a per-project done status and a way to walk the workflow (or open the issue in Jira instead). Creating issues is fine as is. Since 2026-10-27 (migration 0040) a failed or queued close or reopen is deleted once a sync shows the item already in that state, so closing it by hand in Jira clears the failure.
 
 ### Answering (RSVP, Slack reply): unverified against real accounts (2026-10-07)
 

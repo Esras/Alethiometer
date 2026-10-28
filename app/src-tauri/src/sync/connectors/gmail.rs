@@ -397,7 +397,11 @@ fn sender(m: &Value) -> Option<Handle> {
     let person = |(name, email): (String, String)| {
         let display_name = if name.is_empty() { name_from_email(&email) } else { name };
         Handle {
-            handle: email,
+            handle: if relay(&email) {
+                format!("{email} {display_name}")
+            } else {
+                email
+            },
             display_name,
         }
     };
@@ -429,6 +433,9 @@ fn sender(m: &Value) -> Option<Handle> {
         )));
     }
     let p = person((name, email));
+    if relay {
+        return Some(p);
+    }
     Some(Handle {
         handle: format!("{} {}", p.handle, p.display_name),
         display_name: p.display_name,
@@ -980,7 +987,26 @@ mod tests {
             ("From", "'Amazon Web Services' via Devops <devops@acme.com>"),
             ("X-Original-From", "Amazon Web Services <no-reply-aws@amazon.com>"),
         ]);
-        assert_eq!(group, ("no-reply-aws@amazon.com".into(), "Amazon Web Services".into()));
+        assert_eq!(
+            group,
+            (
+                "no-reply-aws@amazon.com Amazon Web Services".into(),
+                "Amazon Web Services".into()
+            )
+        );
+        let direct = with(&[("From", "Amazon Web Services <no-reply-aws@amazon.com>")]);
+        assert_eq!(
+            direct, group,
+            "a relay address is one sender whichever header it came in"
+        );
+        let anthropic = |hs: &[(&str, &str)]| with(hs).0;
+        assert_eq!(
+            anthropic(&[
+                ("From", "Anthropic <no-reply-abc@mail.anthropic.com>"),
+                ("Reply-To", "Anthropic <no-reply-abc@mail.anthropic.com>"),
+            ]),
+            anthropic(&[("From", "Anthropic <no-reply-abc@mail.anthropic.com>")]),
+        );
         let share = with(&[
             (
                 "From",

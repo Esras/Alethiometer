@@ -115,3 +115,51 @@ fn a_note_save_that_went_through_clears_the_earlier_failed_and_queued_saves_of_t
     assert_eq!(crate::store::over(&conn).drop_superseded(5).unwrap(), 2);
     assert_eq!(ids(&conn), [2, 3, 5], "other notes and later saves stay");
 }
+
+#[test]
+fn a_close_or_reopen_the_source_already_shows_leaves_the_outbox() {
+    let write = |id: i64, item: i64, done: bool, state: &str| {
+        format!(
+            "INSERT INTO outbox (id, source_id, op, payload_json, state, item_id) VALUES ({id}, 1, 'jira.transition', '{{\"done\":{done}}}', '{state}', {item});"
+        )
+    };
+    let item = |id: i64, status: &str| {
+        format!(
+            "INSERT INTO items (id, source_id, external_id, kind, title, occurred_at, status) VALUES ({id}, 1, 'OPS-{id}', 'issue', 'OPS-{id}', '2026-10-27T16:00:00.000Z', '{status}');"
+        )
+    };
+    let rows = [
+        "INSERT INTO sources (id, kind, tag, name) VALUES (1, 'jira', 'work', 'Jira');".to_string(),
+        item(1, "done"),
+        item(2, "open"),
+        item(3, "open"),
+        write(1, 1, true, "failed"),
+        write(2, 2, true, "failed"),
+        write(3, 3, true, "pending"),
+        write(4, 1, false, "failed"),
+    ]
+    .concat();
+    let ids = |conn: &Connection| -> Vec<i64> {
+        conn.prepare("SELECT id FROM outbox ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    };
+    let mut conn = open_in_memory_at(39);
+    conn.execute_batch(&rows).unwrap();
+    migrate(&mut conn, MIGRATIONS.len()).unwrap();
+    assert_eq!(ids(&conn), [2, 3, 4], "already closed in Jira, once");
+
+    conn.execute("UPDATE items SET status = 'done' WHERE id = 3", [])
+        .unwrap();
+    assert_eq!(
+        ids(&conn),
+        [2, 4],
+        "a sync bringing the close clears it; the reopen stays"
+    );
+    conn.execute("UPDATE items SET status = 'open' WHERE id = 1", [])
+        .unwrap();
+    assert_eq!(ids(&conn), [2]);
+}
