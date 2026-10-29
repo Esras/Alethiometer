@@ -609,8 +609,10 @@
     };
     flip(on);
     if (on) dismissedRev.set(s.item_id, s.rev);
-    if (on) lastDis = { id: s.item_id, title: s.title, key: selKey };
-    else if (lastDis?.id === s.item_id) lastDis = null;
+    if (on) {
+      lastDis = { id: s.item_id, title: s.title, key: selKey };
+      filed = null;
+    } else if (lastDis?.id === s.item_id) lastDis = null;
     else dismissedRev.delete(s.item_id);
     try {
       const r = await call<{ unread?: string[]; event?: number | null; suggestion?: IgnoreSuggestion | null }>(
@@ -651,6 +653,7 @@
     selItem = s.item_id;
     const key = selKey;
     act('incoming.confirm', { item_id: s.item_id, topic_id: topic, ...saw(s) }, (r) => {
+      lastDis = null;
       filed = {
         text: `Filed to ${topicNamed(topic)}`,
         itemId: s.item_id,
@@ -671,6 +674,7 @@
     selItem = s.item_id;
     const key = selKey;
     act('incoming.wrong', { item_id: s.item_id, topic_id: topic }, (r) => {
+      lastDis = null;
       filed = {
         text: `Not ${topicNamed(topic)}`,
         itemId: s.item_id,
@@ -703,6 +707,7 @@
     const from = topicOf(s);
     const key = selKey;
     act('incoming.move', { item_id: s.item_id, topic_id: topicId, from_topic_id: from, ...saw(s) }, (r) => {
+      lastDis = null;
       filed = {
         text: `Filed to ${topicNamed(topicId)}`,
         itemId: s.item_id,
