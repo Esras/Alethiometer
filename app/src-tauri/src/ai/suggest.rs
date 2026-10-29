@@ -528,6 +528,7 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
             split: vec![],
         });
     }
+    app.store().write(|uow| uow.topics().delete_vacant_auto())?;
     let pending = prepare(app, limit.clamp(1, 50))?;
     let mut out = Outcome {
         status: "ok",
@@ -582,7 +583,12 @@ pub fn suggest_topics(app: &App, deps: &Deps, limit: usize) -> Result<Outcome> {
                         .and_then(|v| v.get("new_topic_category")?.as_str().map(str::to_owned))
                         .filter(|k| crate::queries::categories::exists(uow.reads(), k).unwrap_or(false))
                         .unwrap_or_default();
-                    crate::queries::topics::find_or_create(uow, name, &cat)?
+                    let existed = uow.topics().find_by_name(name)?.is_some();
+                    let id = crate::queries::topics::find_or_create(uow, name, &cat)?;
+                    if !existed {
+                        uow.topics().mark_auto(id)?;
+                    }
+                    id
                 }
             };
             let s = Suggested {

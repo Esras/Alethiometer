@@ -852,6 +852,46 @@ mod tests {
     }
 
     #[test]
+    fn a_proposed_topic_goes_when_its_last_signal_is_dismissed() {
+        let (app, _dir) = app();
+        let (auto, mine) = app
+            .store()
+            .write(|uow| {
+                let a = uow.topics().create("Proposed", "work")?;
+                uow.topics().mark_auto(a)?;
+                Ok((a, uow.topics().create("Mine", "work")?))
+            })
+            .unwrap();
+        let item: i64 = {
+            let conn = app.db();
+            let item = conn
+                .query_row("SELECT id FROM items WHERE seen = 0 LIMIT 1", [], |r| r.get(0))
+                .unwrap();
+            conn.execute(
+                "INSERT INTO topic_links (item_id, topic_id, state) VALUES (?1, ?2, 'suggested')",
+                [item, auto],
+            )
+            .unwrap();
+            item
+        };
+        let sweep = || app.store().write(|uow| uow.topics().delete_vacant_auto()).unwrap();
+        assert_eq!(sweep(), 0);
+        app.db()
+            .execute("UPDATE items SET seen = 1 WHERE id = ?1", [item])
+            .unwrap();
+        assert_eq!(sweep(), 1);
+        let exists = |id: i64| -> bool {
+            app.db()
+                .query_row("SELECT count(*) FROM topics WHERE id = ?1", [id], |r| {
+                    r.get::<_, i64>(0)
+                })
+                .unwrap()
+                == 1
+        };
+        assert!(!exists(auto) && exists(mine));
+    }
+
+    #[test]
     fn merging_moves_everything_appends_the_note_and_deletes_the_topic() {
         let (app, _dir) = app();
         let dd = topic_id(&app, "Datadog renewal");

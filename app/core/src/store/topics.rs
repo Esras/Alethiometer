@@ -186,6 +186,40 @@ impl Topics for Sql<'_> {
         )?)
     }
 
+    fn mark_auto(&self, id: i64) -> Result<()> {
+        self.conn().execute("UPDATE topics SET auto = 1 WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    fn delete_vacant_auto(&self) -> Result<usize> {
+        let c = self.conn();
+        let ids: Vec<i64> = c
+            .prepare_cached(
+                "SELECT t.id FROM topics t
+                  WHERE t.auto = 1 AND t.archived_at IS NULL AND t.obsidian_path IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM topic_links tl JOIN items i ON i.id = tl.item_id
+                                     WHERE tl.topic_id = t.id
+                                       AND (tl.state = 'confirmed' OR (tl.state = 'suggested' AND i.seen = 0)))
+                    AND NOT EXISTS (SELECT 1 FROM topic_people WHERE topic_id = t.id)
+                    AND NOT EXISTS (SELECT 1 FROM topic_repos WHERE topic_id = t.id)
+                    AND NOT EXISTS (SELECT 1 FROM topic_tags WHERE topic_id = t.id)
+                    AND NOT EXISTS (SELECT 1 FROM notes_lines
+                                     WHERE json_extract(target_json, '$.type') = 'topic'
+                                       AND json_extract(target_json, '$.id') = t.id)",
+            )?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for id in &ids {
+            for table in ["topic_links", "search_feedback"] {
+                c.execute(&format!("DELETE FROM {table} WHERE topic_id = ?1"), [id])?;
+            }
+            c.execute("DELETE FROM vec_topics WHERE rowid = ?1", [id])?;
+            c.execute("DELETE FROM embed_meta WHERE kind = 'topic' AND id = ?1", [id])?;
+            c.execute("DELETE FROM topics WHERE id = ?1", [id])?;
+        }
+        Ok(ids.len())
+    }
+
     fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()> {
         self.conn().execute(
             "UPDATE topics SET obsidian_path = ?2 WHERE id = ?1 AND obsidian_path IS NULL",

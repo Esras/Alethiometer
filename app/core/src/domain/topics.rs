@@ -87,6 +87,11 @@ pub trait Topics {
     fn set_archived(&self, id: i64, archived: bool) -> Result<bool>;
     /// Archive every active topic with no confirmed link (suggestions don't count). Returns how many.
     fn archive_empty(&self) -> Result<usize>;
+    /// Mark a topic the AI just proposed: it goes when nothing is left in it (`delete_vacant_auto`).
+    fn mark_auto(&self, id: i64) -> Result<()>;
+    /// Delete every marked, active topic with no note, people, repos, tags or Notes lines, no confirmed link
+    /// (the database clears the mark on the first) and no unseen suggested one. Returns how many.
+    fn delete_vacant_auto(&self) -> Result<usize>;
     /// Record where its note is, unless it already has one.
     fn set_note_path_if_unset(&self, id: i64, path: &str) -> Result<()>;
     /// Items confirmed under the topic.
