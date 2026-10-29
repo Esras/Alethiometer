@@ -19,6 +19,7 @@
   import People from './views/People.svelte';
   import Nudge from './views/reflect/Nudge.svelte';
   import StandinNotes from './shell/StandinNotes.svelte';
+  import ItemModal from './lib/ui/ItemModal.svelte';
   import Toasts from './lib/ui/Toasts.svelte';
   import { toast } from './lib/toast.svelte';
 
@@ -124,6 +125,7 @@
   <div class="notices">
     {#if ready}<Nudge />{/if}
     <Toasts />
+    <ItemModal />
   </div>
   {#if ready && standin && !ui.settingsOpen}<StandinNotes listing={standin} onclose={() => (standin = null)} />{/if}
 </div>

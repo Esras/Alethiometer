@@ -183,7 +183,8 @@ Answer concisely. Light Markdown is fine (short paragraphs, bullet lists, **bold
 If the context doesn't contain the answer, say so plainly instead of guessing. \
 Never draft messages, replies, notes or reflections for the user to send or paste, even if asked; \
 you may say which points they might cover, and they will write it in their own words. \
-When it helps the user find the source, mention it like [item 12].";
+When it helps the user find the source, mention it like [item 12]. \
+If a <conversation> block comes before the question, it holds the earlier turns: the question may refer to them.";
 
 /// Opus 5.5 always thinks (adaptive, effort medium by default) and thinking
 /// counts against this cap. Questions pull context from several sources, so
@@ -204,6 +205,45 @@ pub struct Answer {
 /// Answer a question from local work context. `topic_id` scopes it to a topic;
 /// otherwise (or with `scope: "today"`) it uses today's work calendar and items.
 pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope: Option<&str>) -> Result<Answer> {
+    ask_in(app, deps, question, topic_id, scope, "")
+}
+
+/// The earlier turns the pane sent (`history: [{q, a}]`, oldest first), as a block for the prompt; empty if none.
+pub fn conversation(args: &Value) -> String {
+    let turns: Vec<String> = args
+        .get("history")
+        .and_then(Value::as_array)
+        .map(|h| {
+            h.iter()
+                .filter_map(|t| {
+                    let q = t.get("q")?.as_str()?;
+                    let a = t.get("a")?.as_str()?;
+                    Some(format!(
+                        "User: {}\nAssistant: {}\n",
+                        context::clip(q, 500),
+                        context::clip(a, 1_500)
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let keep = turns.len().saturating_sub(HISTORY_TURNS);
+    if turns.len() == keep {
+        return String::new();
+    }
+    format!("<conversation>\n{}</conversation>\n\n", turns[keep..].concat())
+}
+
+const HISTORY_TURNS: usize = 6;
+
+pub fn ask_in(
+    app: &App,
+    deps: &Deps,
+    question: &str,
+    topic_id: Option<i64>,
+    scope: Option<&str>,
+    history: &str,
+) -> Result<Answer> {
     // Fail closed before reading any work data.
     check(&app.settings().ai, Tier::Large)?;
     let question = question.trim();
@@ -224,7 +264,7 @@ pub fn ask(app: &App, deps: &Deps, question: &str, topic_id: Option<i64>, scope:
         }
     };
     let user = format!(
-        "<context>\n{}\n</context>\n\nQuestion: {}",
+        "<context>\n{}\n</context>\n\n{history}Question: {}",
         ctx.text,
         context::clip(question, QUESTION_CAP)
     );
@@ -238,7 +278,9 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         "ask" => {
             let q = arg_str(args, "question")?;
             let scope = args.get("scope").and_then(Value::as_str);
-            let a = with_live(app, |d| ask(app, d, &q, opt_i64(args, "topic_id"), scope))?;
+            let a = with_live(app, |d| {
+                ask_in(app, d, &q, opt_i64(args, "topic_id"), scope, &conversation(args))
+            })?;
             Ok(json!(a))
         }
         "ask_glean" | "chips" => crate::glean::ask::call(app, name, args),
@@ -318,6 +360,18 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
 
 #[cfg(test)]
 pub mod tests {
+    #[test]
+    fn conversation_keeps_the_last_turns_oldest_first() {
+        use super::*;
+        assert_eq!(conversation(&json!({})), "");
+        let h: Vec<Value> = (0..8)
+            .map(|i| json!({ "q": format!("q{i}"), "a": format!("a{i}") }))
+            .collect();
+        let c = conversation(&json!({ "history": h }));
+        assert!(c.starts_with("<conversation>\nUser: q2\nAssistant: a2\n"));
+        assert!(c.ends_with("User: q7\nAssistant: a7\n</conversation>\n\n"));
+    }
+
     use super::context::tests::{app, plant_personal, topic_id};
     use super::*;
     use crate::settings::Settings;

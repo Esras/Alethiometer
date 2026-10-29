@@ -1,9 +1,10 @@
 <script lang="ts">
   // Small markdown renderer for untrusted text (AI answers, GitHub/Jira bodies). Builds elements, never HTML strings.
   import { openExternal } from '../api';
+  import Rich from './Rich.svelte';
 
   /** `tags`: text after an opening fence may be a language tag. Slack has none, so it's content there. */
-  let { text, tags = true }: { text: string; tags?: boolean } = $props();
+  let { text, tags = true, rich = false }: { text: string; tags?: boolean; rich?: boolean } = $props();
 
   type Block =
     | { kind: 'code'; text: string }
@@ -94,6 +95,7 @@
         href={s.href}
         onclick={(e) => (e.preventDefault(), openExternal(s.href!))}>{s.text}</a
       >
+    {:else if rich}<Rich text={s.text} />
     {:else}{s.text}{/if}
   {/each}
 {/snippet}

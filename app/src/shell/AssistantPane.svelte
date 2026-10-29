@@ -69,16 +69,23 @@
     if (!q || conv.busy) return;
     conv.busy = true;
     note = null;
+    const history = conv.log.flatMap((m) => ((m.a ?? m.reply?.answer) ? [{ q: m.q, a: m.a ?? m.reply!.answer }] : []));
     conv.log.push({ q });
     const i = conv.log.length - 1;
     const topicId = topic?.id ?? null;
     try {
       if (glean) {
-        const r = await call<Reply>('ai.ask_glean', { question: q, topic_id: topicId, off: conv.off, on: conv.on });
+        const r = await call<Reply>('ai.ask_glean', {
+          question: q,
+          topic_id: topicId,
+          off: conv.off,
+          on: conv.on,
+          history,
+        });
         conv.log[i] = { q, reply: r };
         if (conv === c) chips = r.chips;
       } else {
-        const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topicId, scope });
+        const r = await call<{ answer: string }>('ai.ask', { question: q, topic_id: topicId, scope, history });
         conv.log[i] = { q, a: r.answer };
       }
     } catch (err) {
@@ -160,7 +167,7 @@
         <div class="q" class:bubble={glean}>{m.q}</div>
         {#if m.reply}
           <GleanAnswer reply={m.reply} {hoverQuery} {hoverSource} bind:hoverPerson />
-        {:else if m.a}<div class="a"><Markdown text={m.a} /></div>{:else if m.err}<div class="err broken">
+        {:else if m.a}<div class="a"><Markdown text={m.a} rich /></div>{:else if m.err}<div class="err broken">
             <i class="ph ph-warning-circle"></i>{m.err}
           </div>{:else}<div class="a pending">{glean ? 'Searching and reading…' : 'Thinking…'}</div>{/if}
       {/each}
