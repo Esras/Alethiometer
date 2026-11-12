@@ -37,6 +37,7 @@ let turn = 0;
 let used = 18000;
 let mode = 'default';
 let elicits = false;
+let roots = [];
 let running = false;
 const steered = [];
 const MODELS = {
@@ -335,6 +336,10 @@ async function play(text) {
   if (process.env.FAKE_ACP_MODE === 'ask') return ask();
   if (process.env.FAKE_ACP_MODE === 'gate') return gate();
   if (process.env.FAKE_ACP_MODE === 'pigate') return piGate();
+  if (process.env.FAKE_ACP_MODE === 'dirs') {
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `dirs:${roots.join(',')}` } });
+    return 'end_turn';
+  }
   const t = `t${turn}`;
   await chunks(
     'agent_thought_chunk',
@@ -504,17 +509,26 @@ rl.on('line', async (line) => {
       elicits = !!m.params?.clientCapabilities?.elicitation?.form;
       return reply({
         protocolVersion: 1,
-        agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } },
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: {
+            resume: {},
+            list: {},
+            ...(process.env.FAKE_ACP_DIRS === '1' ? { additionalDirectories: {} } : {}),
+          },
+        },
         authMethods: [],
         ...(process.env.FAKE_ACP_STEER === '1' ? { _meta: { steering: { supported: true } } } : {}),
         ...(process.env.FAKE_ACP_NAME ? { agentInfo: { name: process.env.FAKE_ACP_NAME, version: '0.0.0' } } : {}),
       });
     case 'session/new':
       session = `fake-${Date.now().toString(36)}`;
+      roots = m.params.additionalDirectories ?? [];
       return reply({ sessionId: session, modes: MODES, models: MODELS, configOptions: configOptions() });
     case 'session/resume':
     case 'session/load':
       session = m.params.sessionId;
+      roots = m.params.additionalDirectories ?? [];
       return reply({ modes: MODES, models: MODELS, configOptions: configOptions() });
     case 'session/set_model':
       MODELS.currentModelId = m.params.modelId;

@@ -605,6 +605,58 @@ fn a_message_sent_mid_turn_steers_an_agent_that_takes_steering() {
 }
 
 #[test]
+fn more_directories_reach_an_agent_that_takes_them_and_warn_on_one_that_doesnt() {
+    if no_node() {
+        return;
+    }
+    for takes in [true, false] {
+        let data = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let dir = data.path();
+        let mut env = vec![("FAKE_ACP_MODE", "dirs")];
+        if takes {
+            env.push(("FAKE_ACP_DIRS", "1"));
+        }
+        let host = setup(dir, &env);
+        let app = open(dir);
+        let id = alethiometer_lib::agents::call(
+            &app,
+            "start_local",
+            &json!({ "harness": "fake", "cwd": project.path(), "dirs": [other.path(), project.path()], "task": "go" }),
+        )
+        .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let key = format!("s:{id}");
+        wait("the turn to finish", 30, || {
+            let i = app.agents.store.lock();
+            let s = i.sessions.get(&id)?;
+            (s.status == Status::Idle && s.stats.turns == 1).then_some(())
+        });
+        let i = app.agents.store.lock();
+        assert_eq!(
+            i.sessions[&id].dirs,
+            vec![other.path().display().to_string()],
+            "cwd isn't repeated"
+        );
+        let texts: Vec<&str> = i.threads[&key].rows.iter().map(|r| r.text.as_str()).collect();
+        let told = format!("dirs:{}", other.path().display());
+        let warned = texts.iter().any(|t| t.contains("doesn't take more directories"));
+        if takes {
+            assert!(texts.contains(&told.as_str()), "{texts:?}");
+            assert!(!warned);
+        } else {
+            assert!(texts.contains(&"dirs:"), "{texts:?}");
+            assert!(warned, "{texts:?}");
+        }
+        drop(i);
+        stop_host(dir, host);
+    }
+}
+
+#[test]
 fn thinking_is_set_at_start_and_changed_mid_session() {
     if no_node() {
         return;

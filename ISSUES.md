@@ -119,9 +119,9 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 - **The tree behind the confirm** is dimmed by the modal's scrim, not drawn at 32% with the target still lit as in the mock.
 - **Archived search** is a substring scan (ASCII case-insensitive) over every archived row, run 150 ms after each keystroke. It's fine at hundreds of transcripts; past that it wants an FTS table.
 
-### Agents: OpenShell sessions support only one uploaded directory (found 2026-11-08)
+### Agents: more directories per session, the parts left (found 2026-11-08; partly built 2026-11-12)
 
-`NewSandbox.upload` is a single path; `sandbox create` is called with one `--upload`; the session model tracks one `cwd`; Bring Back's three-way sync records one base manifest. OpenShell itself supports `sandbox upload` as a separate command after creation, so additional directories could be uploaded into a running sandbox — Alethiometer just doesn't wire it up. Adding multi-directory support needs: a `Vec<Upload>` in the session/sandbox model (each with its local path and sandbox-side path), a way to call `sandbox upload` on a running session, per-directory base manifests in the sync, and a Bring Back UI that shows which changes are in which directory. The adapter runs in one working directory; the agent would `cd` between repos, or you'd pick a primary.
+Built: a session takes more directories at start (`start_local`'s `dirs`, ACP `additionalDirectories`, `app/docs/agents.md`), a new sandbox uploads each, and Bring back takes them one at a time. Left: a field for them in the New agent form (waiting on its redesign); where a session spanning several repos sits in the tree (user, 2026-11-12: wait for the design pass; for now `cwd` alone decides the project); adding a directory to a running session (user, 2026-11-12: only at start, for now).
 
 ### Agents: OpenShell new-session form needs a chip-based multi-select for directories (found 2026-11-08)
 

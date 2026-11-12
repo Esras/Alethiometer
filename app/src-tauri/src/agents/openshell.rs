@@ -67,6 +67,7 @@ pub struct NewSandbox {
     pub policy: String,
     /// The local directory uploaded into its working directory (`.gitignore` applies).
     pub upload: String,
+    pub more: Vec<String>,
 }
 
 /// `sandbox create`, kept running with no command of its own (a login shell)
@@ -87,6 +88,12 @@ pub fn create_args(n: &NewSandbox) -> Vec<String> {
     }
     a.extend(["--upload".into(), n.upload.clone()]);
     a.extend(["--detach", "--no-auto-providers", "--no-tty", "-o", "json"].map(String::from));
+    a
+}
+
+pub fn upload_args(gateway: &str, name: &str, local: &str) -> Vec<String> {
+    let mut a = gateway_flag(gateway);
+    a.extend(["sandbox", "upload", name, local].map(String::from));
     a
 }
 
@@ -206,24 +213,31 @@ pub fn parse_sandboxes(out: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Create the sandbox and upload the directory; returns where it landed
-/// inside: the sandbox's working directory, then the directory's own name
-/// (OpenShell keeps it, as `cp -r` does). The policy advisor is enabled so
-/// the agent can propose path-scoped network rules instead of only getting
-/// OpenShell's host:port drafts.
-pub fn create(command: &str, n: &NewSandbox) -> Result<String> {
+/// Create the sandbox (policy advisor on) and upload the directories; where each landed, `upload` then `more`.
+pub fn create(command: &str, n: &NewSandbox) -> Result<(String, Vec<String>)> {
     run(command, &create_args(n), CREATE)?;
     enable_policy_advisor(command, &n.gateway, &n.name);
     let home = working_dir(command, &n.gateway, &n.name)?;
-    let base = std::path::Path::new(n.upload.trim_end_matches('/'))
+    let mut more = vec![];
+    for d in &n.more {
+        run(command, &upload_args(&n.gateway, &n.name, d), CREATE)?;
+        more.push(landed(&home, d));
+    }
+    Ok((landed(&home, &n.upload), more))
+}
+
+fn landed(home: &str, local: &str) -> String {
+    match dir_name(local) {
+        "" => home.to_owned(),
+        base => format!("{}/{base}", home.trim_end_matches('/')),
+    }
+}
+
+pub(crate) fn dir_name(local: &str) -> &str {
+    std::path::Path::new(local.trim_end_matches('/'))
         .file_name()
-        .map(|b| b.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    Ok(if base.is_empty() {
-        home
-    } else {
-        format!("{}/{base}", home.trim_end_matches('/'))
-    })
+        .and_then(|b| b.to_str())
+        .unwrap_or_default()
 }
 
 /// The sandbox's working directory, where uploads land.
@@ -637,14 +651,51 @@ pub fn start(app: Arc<App>) {
         .ok();
 }
 
-/// Record what was just uploaded into a new sandbox, the base changes are brought back against.
-pub fn record_upload(app: &App, sb: &Sandbox) -> Result<()> {
-    let m = sync::snapshot(std::path::Path::new(&sb.upload))?;
-    sync::save(&sync::manifest_path(&app.data_dir, sb), &m)
+/// Record what was just uploaded into folder `i` of a new sandbox, the base changes are brought back against.
+pub fn record_upload(app: &App, sb: &Sandbox, i: usize, local: &str) -> Result<()> {
+    let m = sync::snapshot(std::path::Path::new(local))?;
+    sync::save(&sync::manifest_path(&app.data_dir, sb, i), &m)
 }
 
-/// The session's sandbox, if its changes can come back: one Alethiometer made from a directory here.
-fn syncable(app: &App, session: &str) -> Result<(super::model::Session, Sandbox)> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Folder {
+    pub local: String,
+    pub remote: String,
+    pub synced_turns: u64,
+}
+
+pub fn folders(s: &super::model::Session) -> Vec<Folder> {
+    let Some(sb) = s.sandbox.as_ref().filter(|b| !b.upload.is_empty()) else {
+        return vec![];
+    };
+    let first = Folder {
+        local: sb.upload.clone(),
+        remote: s.cwd.clone(),
+        synced_turns: sb.synced_turns,
+    };
+    let more = sb.extra.iter().zip(&s.dirs).map(|(u, d)| Folder {
+        local: u.local.clone(),
+        remote: d.clone(),
+        synced_turns: u.synced_turns,
+    });
+    std::iter::once(first).chain(more).collect()
+}
+
+fn set_synced(s: &mut super::model::Session, i: usize, turns: u64) {
+    if let Some(b) = s.sandbox.as_mut() {
+        match i {
+            0 => b.synced_turns = turns,
+            _ => {
+                if let Some(u) = b.extra.get_mut(i - 1) {
+                    u.synced_turns = turns;
+                }
+            }
+        }
+    }
+}
+
+/// Folder `i` of the session's sandbox, if its changes can come back: one Alethiometer made from directories here.
+fn syncable(app: &App, session: &str, i: usize) -> Result<(super::model::Session, Sandbox, Folder)> {
     let s = app
         .agents
         .store
@@ -659,20 +710,31 @@ fn syncable(app: &App, session: &str) -> Result<(super::model::Session, Sandbox)
             "Only a sandbox made here, from a directory, brings changes back; this one was already there",
         ));
     }
-    if !std::path::Path::new(&sb.upload).is_dir() {
-        return Err(msg(format!("{} isn't here any more", super::acp::tilde(&sb.upload))));
+    let f = folders(&s).into_iter().nth(i).ok_or_else(|| msg("no such folder"))?;
+    if !std::path::Path::new(&f.local).is_dir() {
+        return Err(msg(format!("{} isn't here any more", super::acp::tilde(&f.local))));
     }
-    Ok((s, sb))
+    Ok((s, sb, f))
 }
 
-fn plan_json(sb: &Sandbox, plan: &sync::Plan, ready: bool) -> Value {
-    json!({ "sandbox": sb.name, "local": super::acp::tilde(&sb.upload), "changes": plan.changes, "conflicts": plan.conflicts, "same": plan.same, "ready": ready })
+fn plan_json(s: &super::model::Session, i: usize, plan: &sync::Plan, ready: bool) -> Value {
+    let all: Vec<String> = folders(s).iter().map(|f| super::acp::tilde(&f.local)).collect();
+    json!({
+        "sandbox": s.sandbox.as_ref().map(|b| b.name.clone()).unwrap_or_default(),
+        "folder": i,
+        "folders": all,
+        "local": all.get(i).cloned().unwrap_or_default(),
+        "changes": plan.changes,
+        "conflicts": plan.conflicts,
+        "same": plan.same,
+        "ready": ready,
+    })
 }
 
-/// Download the sandbox's directory and work out what would come back (nothing is touched here yet).
-/// With nothing to bring back and nothing in conflict, the session counts as brought back.
-pub fn preview(app: &App, session: &str) -> Result<Value> {
-    let (s, sb) = syncable(app, session)?;
+/// Download folder `i` from the sandbox and work out what would come back (nothing is touched here yet).
+/// With nothing to bring back and nothing in conflict, the folder counts as brought back.
+pub fn preview(app: &App, session: &str, i: usize) -> Result<Value> {
+    let (s, sb, f) = syncable(app, session, i)?;
     sync::discard(session);
     let dir =
         app.data_dir
@@ -680,9 +742,10 @@ pub fn preview(app: &App, session: &str) -> Result<Value> {
             .join("downloads")
             .join(format!("{}-{}", sb.name, super::acp::now_ms_pub()));
     std::fs::create_dir_all(&dir).map_err(|e| msg(e.to_string()))?;
-    let local = std::path::Path::new(&sb.upload);
-    let planned = download(&app.settings().agents.openshell.command, &sb, &s.cwd, &dir)
-        .and_then(|_| sync::plan(&sync::load(&sync::manifest_path(&app.data_dir, &sb)), local, &dir));
+    let local = std::path::Path::new(&f.local);
+    let path = sync::manifest_path(&app.data_dir, &sb, i);
+    let planned = download(&app.settings().agents.openshell.command, &sb, &f.remote, &dir)
+        .and_then(|_| sync::plan(&sync::load(&path), local, &dir));
     let plan = match planned {
         Ok(p) => p,
         Err(e) => {
@@ -691,46 +754,45 @@ pub fn preview(app: &App, session: &str) -> Result<Value> {
         }
     };
     if !plan.changes.is_empty() {
-        let out = plan_json(&sb, &plan, true);
+        let out = plan_json(&s, i, &plan, true);
         sync::previews().lock().unwrap_or_else(|e| e.into_inner()).insert(
             session.to_owned(),
             sync::Preview {
                 dir,
                 plan,
                 turns: s.stats.turns,
+                folder: i,
             },
         );
         return Ok(out);
     }
     // Nothing to copy: settle what's the same on both sides, and say so.
-    let path = sync::manifest_path(&app.data_dir, &sb);
     let (_, conflicts, next) = sync::apply(&plan, &sync::load(&path), local, &dir, false);
     let _ = std::fs::remove_dir_all(&dir);
     sync::save(&path, &next)?;
     if conflicts.is_empty() {
-        app.agents.store.lock().update_session(session, |x| {
-            if let Some(b) = x.sandbox.as_mut() {
-                b.synced_turns = s.stats.turns;
-            }
-        });
+        app.agents
+            .store
+            .lock()
+            .update_session(session, |x| set_synced(x, i, s.stats.turns));
     }
-    Ok(plan_json(&sb, &plan, false))
+    Ok(plan_json(&s, i, &plan, false))
 }
 
 /// Copy back what the preview listed (with `force`, the conflicts too, the
 /// sandbox's version winning), note it in the session, and drop the download.
 pub fn copy_back(app: &App, session: &str, force: bool) -> Result<Value> {
-    let (_, sb) = syncable(app, session)?;
     let p = sync::previews()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(session)
         .ok_or_else(|| msg("Look at the changes first"))?;
-    let path = sync::manifest_path(&app.data_dir, &sb);
+    let (_, sb, f) = syncable(app, session, p.folder)?;
+    let path = sync::manifest_path(&app.data_dir, &sb, p.folder);
     let (done, conflicts, next) = sync::apply(
         &p.plan,
         &sync::load(&path),
-        std::path::Path::new(&sb.upload),
+        std::path::Path::new(&f.local),
         &p.dir,
         force,
     );
@@ -742,7 +804,7 @@ pub fn copy_back(app: &App, session: &str, force: bool) -> Result<Value> {
         "Brought back {} from sandbox {} into {}",
         files(done.len()),
         sb.name,
-        super::acp::tilde(&sb.upload)
+        super::acp::tilde(&f.local)
     );
     if !conflicts.is_empty() {
         let names: Vec<&str> = conflicts.iter().take(5).map(|c| c.path.as_str()).collect();
@@ -764,11 +826,7 @@ pub fn copy_back(app: &App, session: &str, force: bool) -> Result<Value> {
         },
     );
     if conflicts.is_empty() {
-        i.update_session(session, |x| {
-            if let Some(b) = x.sandbox.as_mut() {
-                b.synced_turns = p.turns;
-            }
-        });
+        i.update_session(session, |x| set_synced(x, p.folder, p.turns));
     }
     Ok(json!({ "applied": done, "conflicts": conflicts }))
 }
@@ -1074,6 +1132,50 @@ mod tests {
             .map(String::from)
             .to_vec(),
             "the active gateway takes no -g"
+        );
+    }
+
+    #[test]
+    fn more_folders_upload_next_to_the_first_and_pair_with_the_sessions_dirs() {
+        assert_eq!(
+            upload_args("", "aleth-1", "/Users/me/src/lib"),
+            ["sandbox", "upload", "aleth-1", "/Users/me/src/lib"]
+        );
+        assert_eq!(landed("/sandbox/", "/Users/me/src/lib/"), "/sandbox/lib");
+        let s = crate::agents::model::Session {
+            cwd: "/sandbox/app".into(),
+            dirs: vec!["/sandbox/lib".into()],
+            sandbox: Some(Sandbox {
+                name: "aleth-1".into(),
+                upload: "/Users/me/src/app".into(),
+                synced_turns: 3,
+                extra: vec![crate::agents::model::Upload {
+                    local: "/Users/me/src/lib".into(),
+                    synced_turns: 1,
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let f = |l: &str, r: &str, n| Folder {
+            local: l.into(),
+            remote: r.into(),
+            synced_turns: n,
+        };
+        assert_eq!(
+            folders(&s),
+            [
+                f("/Users/me/src/app", "/sandbox/app", 3),
+                f("/Users/me/src/lib", "/sandbox/lib", 1)
+            ]
+        );
+        let mut s = s;
+        set_synced(&mut s, 1, 5);
+        assert_eq!(folders(&s)[1].synced_turns, 5);
+        s.sandbox.as_mut().unwrap().upload.clear();
+        assert!(
+            folders(&s).is_empty(),
+            "a sandbox that was already there brings nothing back"
         );
     }
 

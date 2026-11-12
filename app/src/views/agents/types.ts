@@ -88,7 +88,16 @@ export interface Session {
   /** Held back while mid-turn, oldest first; not real rows until sent. */
   queued: { text: string; images?: { data: string; mime: string }[] }[];
   /** Local only: the OpenShell sandbox it runs in (`cwd` is a path inside it). */
-  sandbox?: { gateway: string; name: string; upload: string; allow_all: boolean; synced_turns: number } | null;
+  sandbox?: {
+    gateway: string;
+    name: string;
+    upload: string;
+    allow_all: boolean;
+    synced_turns: number;
+    extra?: { local: string; synced_turns: number }[];
+  } | null;
+  /** ACP `additionalDirectories`, as the agent sees them. */
+  dirs?: string[];
 }
 
 export interface Who {

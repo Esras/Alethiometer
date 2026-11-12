@@ -462,6 +462,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     task: opt(args, "task").unwrap_or("").to_owned(),
                     model: opt(args, "model").map(str::to_owned),
                     thinking: opt(args, "thinking").map(str::to_owned),
+                    dirs: args
+                        .get("dirs")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                        .unwrap_or_default(),
                     sandbox: args
                         .get("sandbox")
                         .filter(|v| v.is_object())
@@ -594,7 +599,11 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         // Where an OpenShell agent can run: the CLI's gateways, and a gateway's sandboxes.
         "openshell_gateways" => openshell::gateways(&app.settings().agents.openshell.command),
         // Bring an agent's changes back out of its sandbox: look (downloads), then copy (or drop the look).
-        "sandbox_changes" => openshell::preview(app, &arg_str(args, "session")?),
+        "sandbox_changes" => openshell::preview(
+            app,
+            &arg_str(args, "session")?,
+            args.get("folder").and_then(Value::as_u64).unwrap_or(0) as usize,
+        ),
         "sandbox_copy_back" => openshell::copy_back(
             app,
             &arg_str(args, "session")?,

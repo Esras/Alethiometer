@@ -126,6 +126,8 @@ pub struct Session {
     /// Local only: the OpenShell sandbox its adapter runs in (`cwd` is then a path inside it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<Sandbox>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dirs: Vec<String>,
 }
 
 /// Where an OpenShell session runs (`agents/openshell.rs`).
@@ -141,8 +143,16 @@ pub struct Sandbox {
     pub allow_all: bool,
     /// `stats.turns` when its changes were last brought back (or found to be none): archiving deletes the sandbox, so turns past it are work that would go with it.
     pub synced_turns: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<Upload>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct Upload {
+    pub local: String,
+    pub synced_turns: u64,
+}
 /// One of direnv's watched files (`.envrc`, `flake.lock`…) as it was.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct EnvWatch {

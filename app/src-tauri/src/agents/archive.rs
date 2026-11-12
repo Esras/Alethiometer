@@ -235,15 +235,21 @@ fn not_done(sessions: &[&Session]) -> Vec<Reason> {
     let remote: Vec<&&Session> = sessions.iter().filter(|s| s.source != "acp").collect();
     let mut out = vec![];
     for s in sessions.iter().filter(|s| s.parent_id.is_none()) {
-        if let Some(sb) = s
-            .sandbox
-            .as_ref()
-            .filter(|b| !b.upload.is_empty() && s.stats.turns > b.synced_turns)
-        {
-            let n = s.stats.turns - sb.synced_turns;
+        let all = super::openshell::folders(s);
+        let behind: Vec<&super::openshell::Folder> = all.iter().filter(|f| s.stats.turns > f.synced_turns).collect();
+        if let (Some(sb), Some(n)) = (
+            s.sandbox.as_ref(),
+            behind.iter().map(|f| s.stats.turns - f.synced_turns).max(),
+        ) {
+            let from = if all.len() > 1 {
+                let names: Vec<&str> = behind.iter().map(|f| super::openshell::dir_name(&f.local)).collect();
+                format!(" from {}", names.join(", "))
+            } else {
+                String::new()
+            };
             out.push(Reason {
                 text: format!(
-                    "{}'s changes in sandbox {} haven't been brought back ({n} turn{} since)",
+                    "{}'s changes in sandbox {}{from} haven't been brought back ({n} turn{} since)",
                     s.name,
                     sb.name,
                     if n == 1 { "" } else { "s" }
@@ -535,6 +541,31 @@ pub fn open(app: &App, id: &str) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::agents::model::{Fact, Facts, Room};
+
+    #[test]
+    fn a_sandbox_folder_not_brought_back_is_named() {
+        let mut s = session("acp-1", "local:1", Status::Idle);
+        s.stats.turns = 4;
+        s.dirs = vec!["/sandbox/lib".into()];
+        s.sandbox = Some(Sandbox {
+            name: "aleth-1".into(),
+            upload: "/Users/me/app".into(),
+            synced_turns: 4,
+            extra: vec![crate::agents::model::Upload {
+                local: "/Users/me/lib".into(),
+                synced_turns: 1,
+            }],
+            ..Default::default()
+        });
+        let r = not_done(&[&s]);
+        assert_eq!(r.len(), 1);
+        assert_eq!(
+            r[0].text,
+            "acp-1's changes in sandbox aleth-1 from lib haven't been brought back (3 turns since)"
+        );
+        s.sandbox.as_mut().unwrap().extra[0].synced_turns = 4;
+        assert!(not_done(&[&s]).is_empty());
+    }
 
     fn session(id: &str, group: &str, status: Status) -> Session {
         let source = if id.starts_with("acp-") { "acp" } else { "remote" };

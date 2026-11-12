@@ -55,7 +55,7 @@ pub struct Plan {
     pub settle: BTreeMap<String, Option<String>>,
 }
 
-pub fn manifest_path(data_dir: &Path, sb: &Sandbox) -> PathBuf {
+pub fn manifest_path(data_dir: &Path, sb: &Sandbox, folder: usize) -> PathBuf {
     let safe = |s: &str| {
         s.chars()
             .map(|c| {
@@ -68,9 +68,14 @@ pub fn manifest_path(data_dir: &Path, sb: &Sandbox) -> PathBuf {
             .collect::<String>()
     };
     data_dir.join("openshell-sync").join(format!(
-        "{}--{}.json",
+        "{}--{}{}.json",
         safe(if sb.gateway.is_empty() { "active" } else { &sb.gateway }),
-        safe(&sb.name)
+        safe(&sb.name),
+        if folder == 0 {
+            String::new()
+        } else {
+            format!("--{folder}")
+        }
     ))
 }
 
@@ -364,6 +369,7 @@ pub struct Preview {
     pub plan: Plan,
     /// The session's turns when it was made, recorded as synced once applied.
     pub turns: u64,
+    pub folder: usize,
 }
 
 pub fn previews() -> &'static Mutex<HashMap<String, Preview>> {
@@ -524,7 +530,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            manifest_path(Path::new("/d"), &sb),
+            manifest_path(Path::new("/d"), &sb, 0),
             Path::new("/d/openshell-sync/my_gw_1--aleth-1.json")
         );
         let active = Sandbox {
@@ -532,8 +538,12 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            manifest_path(Path::new("/d"), &active),
+            manifest_path(Path::new("/d"), &active, 0),
             Path::new("/d/openshell-sync/active--aleth-1.json")
+        );
+        assert_eq!(
+            manifest_path(Path::new("/d"), &active, 2),
+            Path::new("/d/openshell-sync/active--aleth-1--2.json")
         );
     }
 }

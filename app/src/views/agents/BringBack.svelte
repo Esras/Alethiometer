@@ -13,21 +13,39 @@
   let { session }: { session: string } = $props();
 
   type Change = { path: string; what: 'added' | 'modified' | 'deleted' };
-  type Look = { sandbox: string; local: string; changes: Change[]; conflicts: Change[]; same: number; ready: boolean };
+  type Look = {
+    sandbox: string;
+    folder: number;
+    folders: string[];
+    local: string;
+    changes: Change[];
+    conflicts: Change[];
+    same: number;
+    ready: boolean;
+  };
   let look = $state<Look | null>(null);
   let err = $state<string | null>(null);
   let busy = $state(true);
   let done = $state<string | null>(null);
+  let folder = $state(0);
   const s = $derived(ag.tree?.sessions.find((x) => x.id === session));
   const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
   const ICON = { added: 'ph-plus', modified: 'ph-pencil-simple', deleted: 'ph-minus' } as const;
 
-  onMount(() => {
-    call<Look>('agents.sandbox_changes', { session })
+  function load(i: number) {
+    if (look?.ready && !done) call('agents.sandbox_discard', { session }).catch(() => {});
+    folder = i;
+    look = null;
+    err = null;
+    done = null;
+    busy = true;
+    call<Look>('agents.sandbox_changes', { session, folder: i })
       .then((l) => (look = l))
       .catch((e) => (err = String((e as Error).message ?? e)))
       .finally(() => (busy = false));
-  });
+  }
+
+  onMount(() => load(0));
 
   function close() {
     if (look?.ready && !done) call('agents.sandbox_discard', { session }).catch(() => {});
@@ -66,6 +84,15 @@
       <kbd>Esc</kbd>
     </div>
     <div class="body">
+      {#if (s?.sandbox?.extra?.length ?? 0) > 0}
+        <div class="chips" role="radiogroup" aria-label="Folder">
+          {#each [s?.sandbox?.upload ?? '', ...(s?.sandbox?.extra ?? []).map((u) => u.local)] as d, i (i)}
+            <button class="chip" class:on={folder === i} disabled={busy} onclick={() => folder !== i && load(i)}
+              >{d.split('/').filter(Boolean).pop()}</button
+            >
+          {/each}
+        </div>
+      {/if}
       {#if busy && !look}
         <p class="muted">Downloading from the sandbox…</p>
       {:else if look}
@@ -132,6 +159,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
   }
   .body {
     padding: 12px;

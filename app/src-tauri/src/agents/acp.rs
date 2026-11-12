@@ -437,6 +437,7 @@ pub struct StartArgs {
     pub task: String,
     pub model: Option<String>,
     pub thinking: Option<String>,
+    pub dirs: Vec<String>,
     /// Run it in an OpenShell sandbox instead of on this machine.
     pub sandbox: Option<SandboxStart>,
 }
@@ -464,6 +465,35 @@ pub(crate) fn tilde(p: &str) -> String {
         Some(h) if p.starts_with(&h) => format!("~{}", &p[h.len()..]),
         _ => p.to_owned(),
     }
+}
+
+fn more_dirs(cwd: &str, dirs: &[String], upload: bool, in_sandbox: bool) -> Result<Vec<String>> {
+    let mut out: Vec<String> = vec![];
+    for d in dirs.iter().map(|d| d.trim()).filter(|d| !d.is_empty()) {
+        let d = if in_sandbox { d.to_owned() } else { expand_home(d) };
+        if in_sandbox && !d.starts_with('/') {
+            return Err(msg(format!("Give {d} inside the sandbox, from /")));
+        }
+        if !in_sandbox && !std::path::Path::new(&d).is_dir() {
+            return Err(msg(format!("{d} isn't a directory")));
+        }
+        if d != cwd && !out.contains(&d) {
+            out.push(d);
+        }
+    }
+    if upload {
+        let mut names = vec![super::openshell::dir_name(cwd)];
+        for d in &out {
+            let n = super::openshell::dir_name(d);
+            if names.contains(&n) {
+                return Err(msg(format!(
+                    "Two directories named {n} would land in the same place in the sandbox"
+                )));
+            }
+            names.push(n);
+        }
+    }
+    Ok(out)
 }
 
 /// Title and subtitle from the first prompt: its first sentence, then the rest.
@@ -509,11 +539,14 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         upload: if existing.is_some() { String::new() } else { cwd.clone() },
         allow_all: false,
         synced_turns: 0,
+        extra: vec![],
     });
     let cwd = match (&existing, a.sandbox.as_ref()) {
         (Some(_), Some(b)) => b.workdir.trim().to_owned(),
         _ => cwd,
     };
+    let make_new = a.sandbox.is_some() && existing.is_none();
+    let dirs = more_dirs(&cwd, &a.dirs, make_new, existing.is_some())?;
     let place = match &sandbox {
         Some(b) => format!(
             "openshell · {} · {}",
@@ -558,6 +591,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
             })
             .unwrap_or_else(host_label),
         cwd: cwd.clone(),
+        dirs: if make_new { vec![] } else { dirs.clone() },
         project: super::facts::project_name(&project_dir),
         project_dir,
         status: Status::Running,
@@ -582,9 +616,16 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         } else {
             format!("{} · {}", host_label(), tilde(&cwd))
         };
+        let also = match dirs.len() {
+            0 => String::new(),
+            _ => format!(
+                " · also {}",
+                dirs.iter().map(|d| tilde(d)).collect::<Vec<_>>().join(", ")
+            ),
+        };
         i.push_row(
             &session_thread(&id),
-            state_row(&ts, &format!("Session started · {} · {at}", h.label)),
+            state_row(&ts, &format!("Session started · {} · {at}{also}", h.label)),
         );
     }
     let task = a.task.trim().to_owned();
@@ -607,6 +648,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
                 providers: o.providers,
                 policy: o.policy,
                 upload: b.upload.clone(),
+                more: dirs.clone(),
             })
         }
         _ => None,
@@ -670,13 +712,14 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
         state_row(
             &ts,
             &format!(
-                "Creating sandbox {} from {from} · uploading {}",
+                "Creating sandbox {} from {from} · uploading {}{}",
                 n.name,
-                tilde(&n.upload)
+                tilde(&n.upload),
+                n.more.iter().map(|d| format!(", {}", tilde(d))).collect::<String>()
             ),
         ),
     );
-    let workdir = super::openshell::create(&app.settings().agents.openshell.command, n)?;
+    let (workdir, more) = super::openshell::create(&app.settings().agents.openshell.command, n)?;
     // What went in, for bringing changes back (`openshell::sync`).
     let sb = super::model::Sandbox {
         gateway: n.gateway.clone(),
@@ -684,18 +727,38 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
         upload: n.upload.clone(),
         ..Default::default()
     };
-    if let Err(e) = super::openshell::record_upload(app, &sb) {
-        eprintln!("agents: couldn't record what went into sandbox {}: {e}", n.name);
+    for (i, local) in std::iter::once(&n.upload).chain(&n.more).enumerate() {
+        if let Err(e) = super::openshell::record_upload(app, &sb, i, local) {
+            eprintln!(
+                "agents: couldn't record what went into sandbox {} from {local}: {e}",
+                n.name
+            );
+        }
     }
     let ts = now(app);
     let mut i = app.agents.store.lock();
-    i.update_session(id, |s| s.cwd = workdir.clone());
+    i.update_session(id, |s| {
+        s.cwd = workdir.clone();
+        s.dirs = more.clone();
+        if let Some(b) = s.sandbox.as_mut() {
+            b.extra = n
+                .more
+                .iter()
+                .map(|l| super::model::Upload {
+                    local: l.clone(),
+                    synced_turns: 0,
+                })
+                .collect();
+        }
+    });
+    let landed = std::iter::once((&n.upload, &workdir))
+        .chain(n.more.iter().zip(&more))
+        .map(|(l, r)| format!("{} → {r}", tilde(l)))
+        .collect::<Vec<_>>()
+        .join(" · ");
     i.push_row(
         &session_thread(id),
-        state_row(
-            &ts,
-            &format!("Sandbox {} ready · {} → {workdir}", n.name, tilde(&n.upload)),
-        ),
+        state_row(&ts, &format!("Sandbox {} ready · {landed}", n.name)),
     );
     Ok(())
 }
@@ -1013,11 +1076,18 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
     }
 
     let cwd = s.cwd.clone();
+    let roots = caps.pointer("/sessionCapabilities/additionalDirectories").is_some();
+    let open = |mut p: Value| {
+        if roots && !s.dirs.is_empty() {
+            p["additionalDirectories"] = json!(s.dirs);
+        }
+        p
+    };
     let opened = match resume {
         Some(sid) if caps.pointer("/sessionCapabilities/resume").is_some() => conn
             .request(
                 "session/resume",
-                json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }),
+                open(json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] })),
                 Some(CALL_TIMEOUT),
             )
             .map(|v| (sid.to_owned(), v)),
@@ -1025,7 +1095,7 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
             conn.replaying.store(true, Ordering::SeqCst);
             let r = conn.request(
                 "session/load",
-                json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] }),
+                open(json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] })),
                 Some(CALL_TIMEOUT),
             );
             conn.replaying.store(false, Ordering::SeqCst);
@@ -1035,7 +1105,7 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         None => conn
             .request(
                 "session/new",
-                json!({ "cwd": cwd, "mcpServers": [] }),
+                open(json!({ "cwd": cwd, "mcpServers": [] })),
                 Some(CALL_TIMEOUT),
             )
             .and_then(|v| {
@@ -1052,6 +1122,18 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
         e
     })?;
     conn.turn.lock().unwrap_or_else(|e| e.into_inner()).sid = sid.clone();
+    if !roots && !s.dirs.is_empty() && resume.is_none() {
+        app.agents.store.lock().push_row(
+            &session_thread(id),
+            Row {
+                at: now(app),
+                kind: Kind::Notice,
+                label: "warning".into(),
+                text: format!("{} doesn't take more directories; it was told only {}", s.harness, cwd),
+                ..Default::default()
+            },
+        );
+    }
     // In a sandbox, Claude Code decides in its auto mode and other agents ask nothing (`openshell::mode`).
     // Otherwise in-project edits are the agent's call to let through (agents.accept_edits).
     let allow_all = s.sandbox.is_some() && !super::openshell::is_claude(&init);
@@ -3738,6 +3820,32 @@ pub(crate) mod tests {
         );
         let th = r.iter().find(|r| r.kind == Kind::Thinking).unwrap();
         assert!(th.tokens.unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn more_directories_are_checked_before_anything_starts() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let (a, b) = (a.path().display().to_string(), b.path().display().to_string());
+        assert_eq!(
+            more_dirs(&a, &[b.clone(), a.clone(), b.clone(), " ".into()], false, false).unwrap(),
+            vec![b.clone()]
+        );
+        assert!(more_dirs(&a, &["/no/such/dir".into()], false, false).is_err());
+        assert!(more_dirs("/sandbox/app", &["lib".into()], false, true).is_err());
+        assert_eq!(
+            more_dirs("/sandbox/app", &["/sandbox/lib".into()], false, true).unwrap(),
+            vec!["/sandbox/lib"]
+        );
+        let twin = tempfile::tempdir().unwrap();
+        let twin = twin.path().join(std::path::Path::new(&a).file_name().unwrap());
+        std::fs::create_dir(&twin).unwrap();
+        let twin = twin.display().to_string();
+        assert!(
+            more_dirs(&a, &[twin.clone()], true, false).is_err(),
+            "same name in the sandbox"
+        );
+        assert_eq!(more_dirs(&a, &[twin.clone()], false, false).unwrap(), vec![twin]);
     }
 
     #[test]
