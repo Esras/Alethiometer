@@ -1,15 +1,11 @@
-<script lang="ts" module>
-  /** The saved agent picked last, so New agent opens on it again (this run of the app only). */
-  let lastPick = -1;
-</script>
-
 <script lang="ts">
   // New agent (project/new-agent F1–F3; decisions.md › "New agent form and the Agents tree"). Left: the saved
   // agents in the user's order (⌘1–9), and New apart at the bottom (⌘N), a one-off at each field's defaults.
   // Right: one plain form, every option an editable field, least to most specific; a field that doesn't apply
   // is removed. Picking a saved agent fills the form; edits apply to that launch only (a dot on the label, ⌘Z
-  // resets the focused field, and "Save N changes" in the footer writes them back). ⌘, edits the saved list in
-  // the same modal: ⌥↑↓ reorders, ⏎ renames, ⌘D duplicates, ⌫ deletes; those edits are written as you go.
+  // resets the focused field, and "Save N changes" in the footer writes them back; the Task and the session's
+  // name are the launch's and never saved). It always opens on New. ⌘, edits the saved list in the same modal:
+  // ⌥↑↓ reorders, ⏎ renames, ⌘D duplicates, ⌫ deletes; Done (⌘⏎) writes the edits, Esc throws them away.
   // Saved agents live in settings.json (`agents.saved`).
   import { untrack } from 'svelte';
   import { call } from '../../lib/api';
@@ -51,7 +47,11 @@
   let saveChanges = $state(false);
   let saveAs = $state(false);
   let saveName = $state('');
-  let focus = $state<Field | 'list' | 'save' | ''>('task');
+  /** The session's name for this launch (the top line's "as"); empty is `<harness>-<4 hex>`. */
+  let agentName = $state('');
+  /** ⌘,: the list as it was, for Esc. */
+  let before: SavedAgent[] = [];
+  let focus = $state<Field | 'name' | 'list' | 'save' | ''>('task');
   let busy = $state(false);
   let tried = $state(false);
   let recent = $state<{ dir: string; at: string }[]>([]);
@@ -78,12 +78,11 @@
     saved = s;
     recent = d.recent ?? [];
     if (!ctx.length && recent.length) ctx = [recent[0].dir];
-    pickAgent(lastPick < saved.length ? lastPick : -1);
+    pickAgent(-1);
   });
 
   function pickAgent(i: number) {
     pick = i;
-    lastPick = i;
     raw = i >= 0 ? structuredClone($state.snapshot(saved[i])) : blank(harnesses[0]?.key ?? '');
     filled = resolve(raw, ctx, harnesses);
     f = structuredClone($state.snapshot(filled));
@@ -164,7 +163,6 @@
     if (k === 'sandbox') return v.sandbox || 'New sandbox';
     if (k === 'image') return v.image || h?.sandbox_from || "the gateway's default";
     if (k === 'dirs') return chipLabels(v.dirs).join(', ') || 'none';
-    if (k === 'agent_name') return v.agent_name || 'none';
     return v.task ? 'its own task' : 'none';
   }
 
@@ -196,8 +194,8 @@
   function note(k: typeof focus): string {
     const H = h?.label ?? 'the harness';
     switch (k) {
-      case 'agent_name':
-        return `Name · the session's; empty is ${cur?.harness || 'agent'}-<4 hex>`;
+      case 'name':
+        return `Name · the session's, as the tree lists it; empty is ${cur?.harness || 'agent'}-<4 hex>`;
       case 'runs':
         return cur?.runs === 'openshell'
           ? 'Runs · in an OpenShell sandbox, on the default gateway'
@@ -227,7 +225,7 @@
       case 'task':
         return mode === 'manage'
           ? 'Task · filled in on each launch; still editable there'
-          : 'Task · sent as the first message on start';
+          : 'Task · sent as the first message on start; not saved';
       case 'list':
         return mode === 'manage' ? 'Saved · ⏎ renames' : 'Saved · ↑↓ to pick, or ⌘1–9';
       default:
@@ -250,31 +248,33 @@
     e.preventDefault();
   }
 
-  // ⌘, writes as you go.
-  let writeTimer: ReturnType<typeof setTimeout> | null = null;
-  function persist(delay = 400) {
-    if (writeTimer) clearTimeout(writeTimer);
-    const list = $state.snapshot(saved);
-    writeTimer = setTimeout(() => {
-      writeTimer = null;
-      if (list.some((a) => !a.name.trim())) return;
-      call('agents.saved_set', { saved: list }).catch((e) => toast(e));
-    }, delay);
-  }
-  $effect(() => {
-    if (mode !== 'manage') return;
-    JSON.stringify(saved);
-    untrack(() => persist());
-  });
-
   function manage() {
+    before = structuredClone($state.snapshot(saved));
     mode = 'manage';
     msel = Math.max(0, Math.min(pick, saved.length - 1));
     focus = 'list';
     queueMicrotask(() => renameEl?.focus());
   }
+  /** Done: write the list, unless a name is missing. */
   function done() {
-    persist(0);
+    const list = $state.snapshot(saved);
+    const unnamed = list.findIndex((a) => !a.name.trim());
+    if (unnamed >= 0) {
+      msel = unnamed;
+      toast('A saved agent needs a name');
+      queueMicrotask(() => renameEl?.focus());
+      return;
+    }
+    if (JSON.stringify(list) !== JSON.stringify(before))
+      call('agents.saved_set', { saved: list }).catch((e) => toast(e));
+    back();
+  }
+  /** Esc: throw the edits away. */
+  function discard() {
+    saved = before;
+    back();
+  }
+  function back() {
     mode = 'launch';
     pickAgent(Math.min(msel, saved.length - 1));
     queueMicrotask(() => taskEl?.focus());
@@ -326,7 +326,7 @@
         harness: f.harness,
         cwd: ds[0],
         dirs: ds.slice(1),
-        name: f.agent_name,
+        name: agentName,
         task: f.task,
         model: f.model,
         thinking: f.thinking,
@@ -372,7 +372,7 @@
       return true;
     }
     if (mode === 'manage') {
-      if (e.key === 'Escape') return (done(), true);
+      if (e.key === 'Escape') return (discard(), true);
       if (
         e.altKey &&
         (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
@@ -486,17 +486,19 @@
 
       {#if cur}
         <div class="frm">
-          <div class="jn" onfocusin={() => (focus = 'agent_name')}>
+          <div class="jn" onfocusin={() => (focus = 'name')}>
             <span class="t2">Joins</span>
             {#if repos.length}
               <span class="repos" title={dirs.join('\n')}>{repos.join(' & ')}</span>
             {:else}
               <span class="t2">the repos of its directories</span>
             {/if}
-            <span class="t2">as</span>
-            <span class="sm-in"
-              ><input bind:value={cur.agent_name} aria-label="Name" placeholder="{cur.harness || 'agent'}-…" /></span
-            >{#if dot('agent_name')}<span class="md"></span>{/if}
+            {#if mode === 'launch'}
+              <span class="t2">as</span>
+              <span class="sm-in"
+                ><input bind:value={agentName} aria-label="Name" placeholder="{cur.harness || 'agent'}-…" /></span
+              >
+            {/if}
           </div>
 
           <div class="fields">
@@ -692,7 +694,7 @@
             >⏎</kbd
           ><span>rename</span><span class="sep">·</span><kbd>{chord('⌘D', 'Ctrl+D')}</kbd><span>duplicate</span><span
             class="sep">·</span
-          ><kbd>⌫</kbd><span>delete</span>
+          ><kbd>⌫</kbd><span>delete</span><span class="sep">·</span><kbd>Esc</kbd><span>discard</span>
         </span>
       {:else}
         <button class="btn md primary" disabled={busy} onclick={start}>Start<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
@@ -740,6 +742,7 @@
     color: var(--tx-body);
   }
   .top {
+    flex: none;
     display: flex;
     gap: 10px;
     align-items: center;
@@ -764,7 +767,8 @@
   .cols {
     display: flex;
     min-height: 0;
-    flex: 1;
+    flex: 1 1 auto;
+    overflow: hidden;
   }
 
   /* Saved agents */
@@ -1048,7 +1052,9 @@
     color: var(--orange);
   }
 
+  /* The header and footer keep their height when the window is short; the columns scroll instead. */
   .foot {
+    flex: none;
     display: flex;
     gap: 8px;
     align-items: center;
