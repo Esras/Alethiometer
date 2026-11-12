@@ -467,6 +467,15 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                         .and_then(Value::as_array)
                         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                         .unwrap_or_default(),
+                    branches: args
+                        .get("branches")
+                        .and_then(Value::as_object)
+                        .map(|m| {
+                            m.iter()
+                                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     sandbox: args
                         .get("sandbox")
                         .filter(|v| v.is_object())

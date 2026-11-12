@@ -554,6 +554,7 @@ mod tests {
             extra: vec![crate::agents::model::Upload {
                 local: "/Users/me/lib".into(),
                 synced_turns: 1,
+                git: None,
             }],
             ..Default::default()
         });

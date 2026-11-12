@@ -22,6 +22,10 @@
     conflicts: Change[];
     same: number;
     ready: boolean;
+    git?: boolean;
+    branch?: string;
+    from?: string;
+    commits?: { sha: string; subject: string }[];
   };
   let look = $state<Look | null>(null);
   let err = $state<string | null>(null);
@@ -30,6 +34,7 @@
   let folder = $state(0);
   const s = $derived(ag.tree?.sessions.find((x) => x.id === session));
   const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+  const commits = (n: number) => `${n} commit${n === 1 ? '' : 's'}`;
   const ICON = { added: 'ph-plus', modified: 'ph-pencil-simple', deleted: 'ph-minus' } as const;
 
   function load(i: number) {
@@ -56,6 +61,11 @@
     if (!look?.ready || busy || done) return;
     busy = true;
     try {
+      if (look.git) {
+        const r = await call<{ branch: string; commits: number }>('agents.sandbox_copy_back', { session, force });
+        done = `${r.branch} now has the sandbox's work (${commits(r.commits)}). Nothing else here changed.`;
+        return;
+      }
       const r = await call<{ applied: Change[]; conflicts: Change[] }>('agents.sandbox_copy_back', { session, force });
       done = `Brought back ${files(r.applied.length)}${r.conflicts.length ? `; ${files(r.conflicts.length)} left as they are here` : ''}.`;
     } catch (e) {
@@ -102,6 +112,21 @@
           <p class="muted">
             Nothing new to bring back{look.same ? ` (${files(look.same)} already the same here)` : ''}.
           </p>
+        {:else if look.git}
+          <div class="head">
+            {commits(look.commits?.length ?? 0)} for {look.branch}, from {look.from}
+          </div>
+          <div class="list inset">
+            {#each look.commits ?? [] as c (c.sha)}<div class="f">
+                <i class="ph ph-git-commit"></i><span class="p">{c.subject}</span><span class="w">{c.sha}</span>
+              </div>{/each}
+          </div>
+          <div class="head">{files(look.changes.length)} changed</div>
+          <div class="list inset">
+            {#each look.changes as c (c.path)}<div class="f {c.what}">
+                <i class="ph {ICON[c.what]}"></i><span class="p">{c.path}</span><span class="w">{c.what}</span>
+              </div>{/each}
+          </div>
         {:else}
           <div class="head">
             {files(look.changes.length)} to copy back{look.same ? ` · ${look.same} already the same here` : ''}
@@ -128,6 +153,11 @@
     <div class="foot">
       {#if done || !look?.ready}
         <button class="btn md" onclick={close}>Close<kbd>Esc</kbd></button>
+      {:else if look.git}
+        <button class="btn md primary" disabled={busy} onclick={() => copy(false)}
+          >Update {look.branch}<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+        >
+        <button class="btn md" onclick={close}>Cancel<kbd>Esc</kbd></button>
       {:else}
         <button class="btn md primary" disabled={busy} onclick={() => copy(false)}
           >Copy {files(look.changes.length)} back<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button

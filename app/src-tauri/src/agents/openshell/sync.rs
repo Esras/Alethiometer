@@ -370,6 +370,7 @@ pub struct Preview {
     /// The session's turns when it was made, recorded as synced once applied.
     pub turns: u64,
     pub folder: usize,
+    pub tip: Option<String>,
 }
 
 pub fn previews() -> &'static Mutex<HashMap<String, Preview>> {

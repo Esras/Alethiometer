@@ -21,9 +21,10 @@
 //! three-way check against what was uploaded); a sandbox Alethiometer made is
 //! deleted when its session is archived (`openshell.delete_sandbox`, outbox).
 
+pub mod git;
 pub mod sync;
 
-use super::model::{Kind, PermOption, Request, Row, Sandbox, Status};
+use super::model::{GitBase, Kind, PermOption, Request, Row, Sandbox, Status};
 use crate::error::{msg, Result};
 use crate::settings::Harness;
 use crate::state::App;
@@ -68,6 +69,8 @@ pub struct NewSandbox {
     /// The local directory uploaded into its working directory (`.gitignore` applies).
     pub upload: String,
     pub more: Vec<String>,
+    /// Per folder, `upload` first: the branch a git folder is cloned from; None uploads its files.
+    pub branches: Vec<Option<String>>,
 }
 
 /// `sandbox create`, kept running with no command of its own (a login shell)
@@ -86,7 +89,9 @@ pub fn create_args(n: &NewSandbox) -> Vec<String> {
     if !n.policy.is_empty() {
         a.extend(["--policy".into(), super::acp::expand_home(&n.policy)]);
     }
-    a.extend(["--upload".into(), n.upload.clone()]);
+    if n.branches.first().is_none_or(Option::is_none) {
+        a.extend(["--upload".into(), n.upload.clone()]);
+    }
     a.extend(["--detach", "--no-auto-providers", "--no-tty", "-o", "json"].map(String::from));
     a
 }
@@ -214,16 +219,91 @@ pub fn parse_sandboxes(out: &str) -> Vec<Value> {
 }
 
 /// Create the sandbox (policy advisor on) and upload the directories; where each landed, `upload` then `more`.
-pub fn create(command: &str, n: &NewSandbox) -> Result<(String, Vec<String>)> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Landed {
+    pub remote: String,
+    pub git: Option<GitBase>,
+}
+
+pub fn create(command: &str, n: &NewSandbox, scratch: &std::path::Path) -> Result<Vec<Landed>> {
     run(command, &create_args(n), CREATE)?;
     enable_policy_advisor(command, &n.gateway, &n.name);
     let home = working_dir(command, &n.gateway, &n.name)?;
-    let mut more = vec![];
-    for d in &n.more {
-        run(command, &upload_args(&n.gateway, &n.name, d), CREATE)?;
-        more.push(landed(&home, d));
+    let mut out = vec![];
+    for (i, d) in std::iter::once(&n.upload).chain(&n.more).enumerate() {
+        let remote = landed(&home, d);
+        let git = match n.branches.get(i).cloned().flatten() {
+            Some(branch) => Some(clone_into(command, n, d, &branch, &remote, scratch, i)?),
+            None if i > 0 => {
+                run(command, &upload_args(&n.gateway, &n.name, d), CREATE)?;
+                None
+            }
+            None => None,
+        };
+        out.push(Landed { remote, git });
     }
-    Ok((landed(&home, &n.upload), more))
+    Ok(out)
+}
+
+fn clone_into(
+    command: &str,
+    n: &NewSandbox,
+    local: &str,
+    branch: &str,
+    remote: &str,
+    scratch: &std::path::Path,
+    i: usize,
+) -> Result<GitBase> {
+    std::fs::create_dir_all(scratch).map_err(|e| msg(e.to_string()))?;
+    let file = format!("{}-{i}.bundle", n.name);
+    let here = scratch.join(&file);
+    let base = git::bundle(local, branch, &here);
+    let sent = base.and_then(|base| {
+        run(
+            command,
+            &upload_args(&n.gateway, &n.name, &here.display().to_string())
+                .into_iter()
+                .chain(["/tmp/".to_owned()])
+                .collect::<Vec<_>>(),
+            CREATE,
+        )?;
+        Ok(base)
+    });
+    let _ = std::fs::remove_file(&here);
+    let base = sent?;
+    let (name, email) = git::identity(local);
+    sh(
+        command,
+        &n.gateway,
+        &n.name,
+        &git::clone_script(&format!("/tmp/{file}"), remote, branch, &name, &email),
+        CREATE,
+    )?;
+    Ok(GitBase {
+        branch: branch.to_owned(),
+        base: base.clone(),
+        landed: String::new(),
+    })
+}
+
+fn sh(command: &str, gateway: &str, name: &str, script: &str, timeout: Duration) -> Result<String> {
+    let mut a = gateway_flag(gateway);
+    a.extend(
+        [
+            "sandbox",
+            "exec",
+            "-n",
+            name,
+            "--no-tty",
+            "--no-login-shell",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ]
+        .map(String::from),
+    );
+    run(command, &a, timeout)
 }
 
 fn landed(home: &str, local: &str) -> String {
@@ -662,6 +742,7 @@ pub struct Folder {
     pub local: String,
     pub remote: String,
     pub synced_turns: u64,
+    pub git: Option<GitBase>,
 }
 
 pub fn folders(s: &super::model::Session) -> Vec<Folder> {
@@ -672,25 +753,29 @@ pub fn folders(s: &super::model::Session) -> Vec<Folder> {
         local: sb.upload.clone(),
         remote: s.cwd.clone(),
         synced_turns: sb.synced_turns,
+        git: sb.git.clone(),
     };
     let more = sb.extra.iter().zip(&s.dirs).map(|(u, d)| Folder {
         local: u.local.clone(),
         remote: d.clone(),
         synced_turns: u.synced_turns,
+        git: u.git.clone(),
     });
     std::iter::once(first).chain(more).collect()
 }
 
-fn set_synced(s: &mut super::model::Session, i: usize, turns: u64) {
-    if let Some(b) = s.sandbox.as_mut() {
-        match i {
-            0 => b.synced_turns = turns,
-            _ => {
-                if let Some(u) = b.extra.get_mut(i - 1) {
-                    u.synced_turns = turns;
-                }
-            }
-        }
+fn set_synced(s: &mut super::model::Session, i: usize, turns: u64, landed: Option<&str>) {
+    let Some(b) = s.sandbox.as_mut() else { return };
+    let (synced, git) = match i {
+        0 => (&mut b.synced_turns, &mut b.git),
+        _ => match b.extra.get_mut(i - 1) {
+            Some(u) => (&mut u.synced_turns, &mut u.git),
+            None => return,
+        },
+    };
+    *synced = turns;
+    if let (Some(g), Some(l)) = (git.as_mut(), landed) {
+        g.landed = l.to_owned();
     }
 }
 
@@ -742,6 +827,36 @@ pub fn preview(app: &App, session: &str, i: usize) -> Result<Value> {
             .join("downloads")
             .join(format!("{}-{}", sb.name, super::acp::now_ms_pub()));
     std::fs::create_dir_all(&dir).map_err(|e| msg(e.to_string()))?;
+    if f.git.is_some() {
+        let _ = std::fs::remove_dir_all(&dir);
+        let (mut out, tip) = preview_git(&app.settings().agents.openshell.command, &app.data_dir, i, &sb, &f)?;
+        let all: Vec<String> = folders(&s).iter().map(|f| super::acp::tilde(&f.local)).collect();
+        out["sandbox"] = json!(sb.name);
+        out["folder"] = json!(i);
+        out["local"] = json!(all.get(i).cloned().unwrap_or_default());
+        out["folders"] = json!(all);
+        match tip {
+            Some(tip) => {
+                sync::previews().lock().unwrap_or_else(|e| e.into_inner()).insert(
+                    session.to_owned(),
+                    sync::Preview {
+                        dir: Default::default(),
+                        plan: Default::default(),
+                        turns: s.stats.turns,
+                        folder: i,
+                        tip: Some(tip),
+                    },
+                );
+            }
+            None => {
+                app.agents
+                    .store
+                    .lock()
+                    .update_session(session, |x| set_synced(x, i, s.stats.turns, None));
+            }
+        }
+        return Ok(out);
+    }
     let local = std::path::Path::new(&f.local);
     let path = sync::manifest_path(&app.data_dir, &sb, i);
     let planned = download(&app.settings().agents.openshell.command, &sb, &f.remote, &dir)
@@ -762,6 +877,7 @@ pub fn preview(app: &App, session: &str, i: usize) -> Result<Value> {
                 plan,
                 turns: s.stats.turns,
                 folder: i,
+                tip: None,
             },
         );
         return Ok(out);
@@ -774,7 +890,7 @@ pub fn preview(app: &App, session: &str, i: usize) -> Result<Value> {
         app.agents
             .store
             .lock()
-            .update_session(session, |x| set_synced(x, i, s.stats.turns));
+            .update_session(session, |x| set_synced(x, i, s.stats.turns, None));
     }
     Ok(plan_json(&s, i, &plan, false))
 }
@@ -788,6 +904,21 @@ pub fn copy_back(app: &App, session: &str, force: bool) -> Result<Value> {
         .remove(session)
         .ok_or_else(|| msg("Look at the changes first"))?;
     let (_, sb, f) = syncable(app, session, p.folder)?;
+    if let Some(tip) = p.tip.clone() {
+        let (out, text) = copy_git(&sb, &f, &tip)?;
+        let mut i = app.agents.store.lock();
+        i.push_row(
+            &super::session_thread(session),
+            Row {
+                at: super::now(app),
+                kind: Kind::State,
+                text,
+                ..Default::default()
+            },
+        );
+        i.update_session(session, |x| set_synced(x, p.folder, p.turns, Some(&tip)));
+        return Ok(out);
+    }
     let path = sync::manifest_path(&app.data_dir, &sb, p.folder);
     let (done, conflicts, next) = sync::apply(
         &p.plan,
@@ -826,9 +957,88 @@ pub fn copy_back(app: &App, session: &str, force: bool) -> Result<Value> {
         },
     );
     if conflicts.is_empty() {
-        i.update_session(session, |x| set_synced(x, p.folder, p.turns));
+        i.update_session(session, |x| set_synced(x, p.folder, p.turns, None));
     }
     Ok(json!({ "applied": done, "conflicts": conflicts }))
+}
+
+/// The look at a git folder's work, and the tip its branch would move to (None: nothing new).
+fn preview_git(
+    cmd: &str,
+    data_dir: &std::path::Path,
+    i: usize,
+    sb: &Sandbox,
+    f: &Folder,
+) -> Result<(Value, Option<String>)> {
+    let g = f.git.clone().unwrap_or_default();
+    let parent = std::path::Path::new(&f.remote)
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let stash = format!("{}/.alethiometer", parent.trim_end_matches('/'));
+    let remote_bundle = format!("{stash}/back-{i}.bundle");
+    let quote = |s: &str| shlex::try_quote(s).map(|c| c.into_owned()).unwrap_or_default();
+    let script = format!(
+        "mkdir -p {}; {}",
+        quote(&stash),
+        git::back_script(&f.remote, &g.base, &remote_bundle)
+    );
+    let back = sh(cmd, &sb.gateway, &sb.name, &script, QUICK).and_then(|o| git::parse_back(&o))?;
+    let dir =
+        data_dir
+            .join("openshell-sync")
+            .join("downloads")
+            .join(format!("{}-{}", sb.name, super::acp::now_ms_pub()));
+    std::fs::create_dir_all(&dir).map_err(|e| msg(e.to_string()))?;
+    let tip = (|| {
+        if back.bundle.is_some() {
+            download(cmd, sb, &remote_bundle, &dir)?;
+            let _ = sh(
+                cmd,
+                &sb.gateway,
+                &sb.name,
+                &format!("rm -f {}", quote(&remote_bundle)),
+                QUICK,
+            );
+        }
+        git::fetch(&f.local, &dir.join(format!("back-{i}.bundle")), &back)
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    let tree = |c: &str| git::local(&f.local, &["rev-parse", &format!("{c}^{{tree}}")]).ok();
+    let tip = tip?.filter(|t| g.landed.is_empty() || tree(t) != tree(&g.landed));
+    let mut out = json!({
+        "git": true,
+        "branch": git::branch_name(&sb.name, dir_name(&f.local)),
+        "from": g.branch,
+        "commits": [],
+        "changes": [],
+        "conflicts": [],
+        "same": 0,
+        "ready": tip.is_some(),
+    });
+    if let Some(tip) = &tip {
+        let landed =
+            !g.landed.is_empty() && git::local(&f.local, &["merge-base", "--is-ancestor", &g.landed, tip]).is_ok();
+        let since = if landed { &g.landed } else { &g.base };
+        out["commits"] = json!(git::commits(&f.local, since, tip)?);
+        out["changes"] = json!(git::files(&f.local, since, tip)?);
+    }
+    Ok((out, tip))
+}
+
+fn copy_git(sb: &Sandbox, f: &Folder, tip: &str) -> Result<(Value, String)> {
+    let g = f.git.clone().unwrap_or_default();
+    let branch = git::branch_name(&sb.name, dir_name(&f.local));
+    git::land(&f.local, &branch, tip, &g.landed)?;
+    let since = if g.landed.is_empty() { &g.base } else { &g.landed };
+    let n = git::commits(&f.local, since, tip).map(|c| c.len()).unwrap_or(0);
+    let text = format!(
+        "Brought back {n} commit{} from sandbox {} onto {branch} in {}",
+        if n == 1 { "" } else { "s" },
+        sb.name,
+        super::acp::tilde(&f.local)
+    );
+    Ok((json!({ "branch": branch, "commits": n }), text))
 }
 
 /// Claude Code's adapter (claude-agent-acp), from `initialize`'s `agentInfo`.
@@ -1152,6 +1362,7 @@ mod tests {
                 extra: vec![crate::agents::model::Upload {
                     local: "/Users/me/src/lib".into(),
                     synced_turns: 1,
+                    git: None,
                 }],
                 ..Default::default()
             }),
@@ -1161,6 +1372,7 @@ mod tests {
             local: l.into(),
             remote: r.into(),
             synced_turns: n,
+            git: None,
         };
         assert_eq!(
             folders(&s),
@@ -1170,12 +1382,73 @@ mod tests {
             ]
         );
         let mut s = s;
-        set_synced(&mut s, 1, 5);
+        set_synced(&mut s, 1, 5, None);
         assert_eq!(folders(&s)[1].synced_turns, 5);
         s.sandbox.as_mut().unwrap().upload.clear();
         assert!(
             folders(&s).is_empty(),
             "a sandbox that was already there brings nothing back"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a running OpenShell sandbox named in ALETH_LIVE_SANDBOX"]
+    fn a_git_folder_round_trips_through_a_live_sandbox() {
+        let name = std::env::var("ALETH_LIVE_SANDBOX").unwrap();
+        let t = tempfile::tempdir().unwrap();
+        let here = t.path().join("gitlive").display().to_string();
+        std::fs::create_dir_all(&here).unwrap();
+        let g = |a: &[&str]| git::local(&here, a).unwrap();
+        g(&["init", "-q", "-b", "main"]);
+        std::fs::write(format!("{here}/a.txt"), "one\n").unwrap();
+        g(&["add", "."]);
+        g(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "start",
+        ]);
+        let n = NewSandbox {
+            name: name.clone(),
+            upload: here.clone(),
+            ..Default::default()
+        };
+        let home = working_dir("openshell", "", &name).unwrap();
+        let remote = landed(&home, &here);
+        let base = clone_into("openshell", &n, &here, "main", &remote, &t.path().join("b"), 0).unwrap();
+        let sb = Sandbox {
+            name: name.clone(),
+            upload: here.clone(),
+            ..Default::default()
+        };
+        let edit = format!(
+            "cd {remote} && echo two > a.txt && git -c user.name=a -c user.email=a@a commit -qam work && echo three > a.txt && echo n > new.txt"
+        );
+        sh("openshell", "", &name, &edit, QUICK).unwrap();
+        let f = Folder {
+            local: here.clone(),
+            remote: remote.clone(),
+            synced_turns: 0,
+            git: Some(base),
+        };
+        let (look, tip) = preview_git("openshell", t.path(), 0, &sb, &f).unwrap();
+        let _ = sh(
+            "openshell",
+            "",
+            &name,
+            &format!("rm -rf {remote} {home}/.alethiometer"),
+            QUICK,
+        );
+        assert_eq!(look["commits"].as_array().unwrap().len(), 2, "{look}");
+        let (out, _) = copy_git(&sb, &f, &tip.unwrap()).unwrap();
+        assert_eq!(out["commits"], 2);
+        assert_eq!(
+            g(&["show", &format!("{}:a.txt", out["branch"].as_str().unwrap())]),
+            "three"
         );
     }
 
@@ -1212,6 +1485,14 @@ mod tests {
             ]
             .map(String::from)
             .to_vec()
+        );
+        let git = NewSandbox {
+            branches: vec![Some("main".into())],
+            ..n
+        };
+        assert!(
+            !create_args(&git).contains(&"--upload".to_owned()),
+            "a git folder is cloned, not uploaded"
         );
     }
 

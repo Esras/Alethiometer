@@ -145,6 +145,8 @@ pub struct Sandbox {
     pub synced_turns: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<Upload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitBase>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -152,6 +154,17 @@ pub struct Sandbox {
 pub struct Upload {
     pub local: String,
     pub synced_turns: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitBase>,
+}
+
+/// A git folder cloned into the sandbox from `branch` at `base`; `landed` is where Bring back last left its branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct GitBase {
+    pub branch: String,
+    pub base: String,
+    pub landed: String,
 }
 /// One of direnv's watched files (`.envrc`, `flake.lock`…) as it was.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
