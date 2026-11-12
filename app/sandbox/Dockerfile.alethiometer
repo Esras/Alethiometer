@@ -1,0 +1,11 @@
+ARG BASE=localhost/aleth-flake-alethiometer:local
+FROM ${BASE}
+USER 0:0
+COPY . /src
+RUN bash -c '. /etc/profile && export CARGO_HOME=/tmp/cargo \
+ && for d in src-tauri agentd core platform settings; do (cd /src/app/$d && cargo fetch --locked) || exit 1; done \
+ && cd /src/app && npm ci --ignore-scripts --cache /tmp/npm-cache' \
+ && chown -R 1000:1000 /tmp/cargo /tmp/npm-cache && rm -rf /src
+ENV CARGO_HOME=/tmp/cargo CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/tmp/target \
+    npm_config_cache=/tmp/npm-cache npm_config_offline=true
+USER 1000:1000

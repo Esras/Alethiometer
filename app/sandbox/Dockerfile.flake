@@ -1,0 +1,23 @@
+FROM docker.io/nixos/nix:2.35.6
+RUN echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf \
+ && mkdir -p /tmp && chmod 1777 /tmp \
+ && echo 'sandbox:x:1000:1000::/sandbox:/nix/var/nix/profiles/aleth/bin/bash' >> /etc/passwd \
+ && echo 'sandbox:x:1000:' >> /etc/group
+COPY . /src
+RUN nix profile add --profile /nix/var/nix/profiles/aleth --inputs-from /src \
+      nixpkgs#bashInteractive nixpkgs#coreutils nixpkgs#gitMinimal nixpkgs#nodejs_22 nixpkgs#ripgrep nixpkgs#fd \
+      nixpkgs#gnugrep nixpkgs#gnused nixpkgs#findutils nixpkgs#curl nixpkgs#cacert
+ENV PATH=/usr/local/bin:/nix/var/nix/profiles/aleth/bin:/nix/var/nix/profiles/default/bin \
+    SSL_CERT_FILE=/nix/var/nix/profiles/aleth/etc/ssl/certs/ca-bundle.crt \
+    PI_CODING_AGENT_DIR=/tmp/pi
+RUN nix develop /src -c bash -c 'unset HOME PWD OLDPWD SHLVL TMP TMPDIR TEMP TEMPDIR NIX_BUILD_TOP TERM USER LOGNAME HOSTNAME SHELL PRJ_ROOT _; export -p > /etc/devshell.sh' \
+ && printf '%s\n' '. /etc/devshell.sh' 'export PATH="/usr/local/bin:/nix/var/nix/profiles/aleth/bin:$PATH"' > /etc/profile
+RUN npm install -g --prefix /usr/local --ignore-scripts @earendil-works/pi-coding-agent@1.4.0 \
+ && git clone https://github.com/zboerner-qventus/pi-acp.git /tmp/pi-acp && cd /tmp/pi-acp \
+ && git checkout 04f7c639d8f775c1a5cba7cb22433cab5bda12e8 && npm ci && npm install -g --prefix /usr/local "$(npm pack | tail -1)" \
+ && cd / && rm -rf /tmp/pi-acp /root/.npm
+COPY .aleth-sandbox/policy_advisor.md /usr/local/share/openshell/policy_advisor.md
+RUN mkdir -p /tmp/pi \
+ && printf '%s\n' '# OpenShell Sandbox Guidance' '' 'When you see `policy_denied`, do not treat it as final if the user task still needs that request. Read `/usr/local/share/openshell/policy_advisor.md` and use `http://policy.local` to submit the narrowest policy proposal, then wait for approval before retrying.' > /tmp/pi/AGENTS.md \
+ && chown -R 1000:1000 /tmp/pi && rm -rf /src
+USER 1000:1000
