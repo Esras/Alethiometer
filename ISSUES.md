@@ -139,6 +139,18 @@ Fix: enable `agent_policy_proposals_enabled` when creating a sandbox — always 
 
 The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
 
+### Agents: OpenShell drops connections to the model provider (found 2026-11-11)
+
+On an OpenShell Pi session, a turn sometimes ends with no output: right after a prompt, or after a tool call. OpenShell (0.1.7) refused or dropped the connection to Bedrock, and pi saved the reply with `stopReason: "error"`. It doesn't auto-retry either error: pi 1.4.0's retry pattern matches neither `EACCES` nor `ETIMEDOUT`. The sandbox image ran npm's `pi-acp@0.0.34`, which turns that into a plain `end_turn`, so the turn looked as if it had ended with nothing to say. The next prompt got both messages answered at once because pi leaves the errored reply out of the context. The orange dot was the "ended its turn since you looked" mark (`turnEnded`), not Waiting. Alethiometer's send, queue and status paths behaved correctly.
+
+Seen twice on `aleth-bdf8c4b5` (`openshell logs aleth-bdf8c4b5`):
+- 2026-11-11 20:54:02Z: `connect EACCES 198.18.0.7:443`. OpenShell logged `Denied staged transparent connection … transparent TCP mapping is expired` 8 ms after it re-published the DNS mapping for `bedrock-runtime.us-west-2.amazonaws.com`.
+- 2026-11-12 00:32:04Z: `connect ETIMEDOUT 198.18.0.11:443` after 90 s. OpenShell re-published the mapping three times (every 30 s) and logged no `NET:OPEN` at all.
+
+Fixed on our side: `app/sandbox/Dockerfile.pi` now installs the user's pi-acp fork, which reports a provider error as a notice (`Provider error: …`), so the failure shows instead of an empty turn. Rebuild the image and recreate a sandbox to get it. Still open: the drops themselves (an OpenShell bug, to report upstream), and pi not retrying `ETIMEDOUT` (upstream; `EACCES` is usually a permanent denial, so not obviously retryable).
+
+Where to look next time: pi's own session file in the sandbox (`/tmp/pi/sessions/`, since the image sets `PI_CODING_AGENT_DIR=/tmp/pi`; read it with `openshell sandbox exec`) has the error. `openshell logs <name>` has the network decisions. The adapter log's `at_ms` is epoch milliseconds; convert it with `date -r` rather than by hand.
+
 ### AI prices: where they come from (user, 2026-10-02: open, come back to it)
 
 The Settings design (26c) says prices are never typed in: read once a day from the AWS Price List API (`pricing:GetProducts`) and cached. That API needs classic IAM credentials (or an SSO profile) with `pricing:GetProducts`. The Bedrock API key (bearer token) the work Mac uses only works for Bedrock, so it can't call it. Options: AWS's public bulk price file for Bedrock (`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/region_index.json`, no credentials; checked reachable on 2026-10-02), GetProducts with separate IAM credentials, or keep hand-entered prices. Until decided, `ai.prices` stays editable in Settings → AI.
