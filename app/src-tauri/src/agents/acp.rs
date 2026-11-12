@@ -438,6 +438,7 @@ pub struct StartArgs {
     pub model: Option<String>,
     pub thinking: Option<String>,
     pub dirs: Vec<String>,
+    pub branches: std::collections::HashMap<String, String>,
     /// Run it in an OpenShell sandbox instead of on this machine.
     pub sandbox: Option<SandboxStart>,
 }
@@ -465,6 +466,37 @@ pub(crate) fn tilde(p: &str) -> String {
         Some(h) if p.starts_with(&h) => format!("~{}", &p[h.len()..]),
         _ => p.to_owned(),
     }
+}
+
+fn git_branches<'a>(
+    folders: impl Iterator<Item = &'a String>,
+    given: &std::collections::HashMap<String, String>,
+) -> Result<Vec<Option<String>>> {
+    let git = super::openshell::git::local;
+    folders
+        .map(|f| {
+            let asked = given
+                .iter()
+                .find(|(k, _)| expand_home(k.trim()).trim_end_matches('/') == f.trim_end_matches('/'))
+                .map(|(_, b)| b.trim().to_owned())
+                .filter(|b| !b.is_empty());
+            if !super::openshell::git::is_top(f) {
+                return match asked {
+                    Some(_) => Err(msg(format!(
+                        "{} isn't a git repository, so it has no branches",
+                        tilde(f)
+                    ))),
+                    None => Ok(None),
+                };
+            }
+            let b = asked
+                .or_else(|| super::openshell::git::current_branch(f))
+                .ok_or_else(|| msg(format!("{} has no branch checked out; name one", tilde(f))))?;
+            git(f, &["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")])
+                .map_err(|_| msg(format!("{} has no branch {b}", tilde(f))))?;
+            Ok(Some(b))
+        })
+        .collect()
 }
 
 fn more_dirs(cwd: &str, dirs: &[String], upload: bool, in_sandbox: bool) -> Result<Vec<String>> {
@@ -540,6 +572,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         allow_all: false,
         synced_turns: 0,
         extra: vec![],
+        git: None,
     });
     let cwd = match (&existing, a.sandbox.as_ref()) {
         (Some(_), Some(b)) => b.workdir.trim().to_owned(),
@@ -547,6 +580,11 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
     };
     let make_new = a.sandbox.is_some() && existing.is_none();
     let dirs = more_dirs(&cwd, &a.dirs, make_new, existing.is_some())?;
+    let branches = if make_new {
+        git_branches(std::iter::once(&cwd).chain(&dirs), &a.branches)?
+    } else {
+        vec![]
+    };
     let place = match &sandbox {
         Some(b) => format!(
             "openshell · {} · {}",
@@ -649,6 +687,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
                 policy: o.policy,
                 upload: b.upload.clone(),
                 more: dirs.clone(),
+                branches: branches.clone(),
             })
         }
         _ => None,
@@ -719,15 +758,19 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
             ),
         ),
     );
-    let (workdir, more) = super::openshell::create(&app.settings().agents.openshell.command, n)?;
-    // What went in, for bringing changes back (`openshell::sync`).
+    let scratch = app.data_dir.join("openshell-sync").join("bundles");
+    let landed = super::openshell::create(&app.settings().agents.openshell.command, n, &scratch)?;
     let sb = super::model::Sandbox {
         gateway: n.gateway.clone(),
         name: n.name.clone(),
         upload: n.upload.clone(),
         ..Default::default()
     };
-    for (i, local) in std::iter::once(&n.upload).chain(&n.more).enumerate() {
+    let locals: Vec<&String> = std::iter::once(&n.upload).chain(&n.more).collect();
+    for (i, (local, l)) in locals.iter().zip(&landed).enumerate() {
+        if l.git.is_some() {
+            continue;
+        }
         if let Err(e) = super::openshell::record_upload(app, &sb, i, local) {
             eprintln!(
                 "agents: couldn't record what went into sandbox {} from {local}: {e}",
@@ -738,27 +781,34 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
     let ts = now(app);
     let mut i = app.agents.store.lock();
     i.update_session(id, |s| {
-        s.cwd = workdir.clone();
-        s.dirs = more.clone();
+        s.cwd = landed[0].remote.clone();
+        s.dirs = landed[1..].iter().map(|l| l.remote.clone()).collect();
         if let Some(b) = s.sandbox.as_mut() {
+            b.git = landed[0].git.clone();
             b.extra = n
                 .more
                 .iter()
-                .map(|l| super::model::Upload {
-                    local: l.clone(),
+                .zip(&landed[1..])
+                .map(|(local, l)| super::model::Upload {
+                    local: local.clone(),
                     synced_turns: 0,
+                    git: l.git.clone(),
                 })
                 .collect();
         }
     });
-    let landed = std::iter::once((&n.upload, &workdir))
-        .chain(n.more.iter().zip(&more))
-        .map(|(l, r)| format!("{} → {r}", tilde(l)))
+    let text = locals
+        .iter()
+        .zip(&landed)
+        .map(|(local, l)| match &l.git {
+            Some(g) => format!("{} ({}) → {}", tilde(local), g.branch, l.remote),
+            None => format!("{} → {}", tilde(local), l.remote),
+        })
         .collect::<Vec<_>>()
         .join(" · ");
     i.push_row(
         &session_thread(id),
-        state_row(&ts, &format!("Sandbox {} ready · {landed}", n.name)),
+        state_row(&ts, &format!("Sandbox {} ready · {text}", n.name)),
     );
     Ok(())
 }
@@ -3820,6 +3870,46 @@ pub(crate) mod tests {
         );
         let th = r.iter().find(|r| r.kind == Kind::Thinking).unwrap();
         assert!(th.tokens.unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn a_git_folder_goes_in_on_its_branch_and_a_plain_one_as_files() {
+        let repo = tempfile::tempdir().unwrap();
+        let plain = tempfile::tempdir().unwrap();
+        let r = repo.path().display().to_string();
+        let p = plain.path().display().to_string();
+        let git = super::super::openshell::git::local;
+        git(&r, &["init", "-q", "-b", "main"]).unwrap();
+        git(
+            &r,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "x",
+            ],
+        )
+        .unwrap();
+        git(&r, &["branch", "feature"]).unwrap();
+        let none = std::collections::HashMap::new();
+        assert_eq!(
+            git_branches([&r, &p].into_iter().map(|s| s), &none).unwrap(),
+            vec![Some("main".to_owned()), None]
+        );
+        let asked = std::collections::HashMap::from([(r.clone(), "feature".to_owned())]);
+        assert_eq!(
+            git_branches([&r].into_iter(), &asked).unwrap(),
+            vec![Some("feature".to_owned())]
+        );
+        let missing = std::collections::HashMap::from([(r.clone(), "nope".to_owned())]);
+        assert!(git_branches([&r].into_iter(), &missing).is_err());
+        let on_plain = std::collections::HashMap::from([(p.clone(), "main".to_owned())]);
+        assert!(git_branches([&p].into_iter(), &on_plain).is_err());
     }
 
     #[test]
