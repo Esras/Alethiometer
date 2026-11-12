@@ -543,6 +543,68 @@ fn a_message_sent_mid_turn_goes_out_when_the_turn_ends() {
 }
 
 #[test]
+fn a_message_sent_mid_turn_steers_an_agent_that_takes_steering() {
+    if no_node() {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let dir = data.path();
+    let host = setup(
+        dir,
+        &[
+            ("FAKE_ACP_MODE", "stream"),
+            ("FAKE_ACP_CHUNKS", "20"),
+            ("FAKE_ACP_DELAY_MS", "50"),
+            ("FAKE_ACP_STEER", "1"),
+        ],
+    );
+    let app = open(dir);
+    let id = alethiometer_lib::agents::call(
+        &app,
+        "start_local",
+        &json!({ "harness": "fake", "cwd": project.path(), "task": "count" }),
+    )
+    .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let key = format!("s:{id}");
+    let output = |app: &App| -> String {
+        let i = app.agents.store.lock();
+        i.threads
+            .get(&key)
+            .map(|t| t.rows.iter().map(|r| r.text.as_str()).collect())
+            .unwrap_or_default()
+    };
+    wait("the first chunks", 30, || output(&app).contains("t2 ").then_some(()));
+    alethiometer_lib::agents::call(&app, "send", &json!({ "thread": key, "text": "and again" })).unwrap();
+    wait("the turn to finish", 30, || {
+        let i = app.agents.store.lock();
+        let s = i.sessions.get(&id)?;
+        (s.status == Status::Idle && s.stats.turns == 1).then_some(())
+    });
+    assert!(output(&app).contains("steered:and again "), "the running turn got it");
+    let i = app.agents.store.lock();
+    let s = &i.sessions[&id];
+    assert!(s.queued.is_empty(), "not held back");
+    let you: Vec<_> = i.threads[&key]
+        .rows
+        .iter()
+        .filter(|r| r.kind == alethiometer_lib::agents::model::Kind::You)
+        .map(|r| {
+            (
+                r.text.as_str(),
+                r.delivery.as_ref().map(|d| d.state.as_str()).unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(you, vec![("count", "delivered"), ("and again", "delivered")]);
+    drop(i);
+    stop_host(dir, host);
+}
+
+#[test]
 fn thinking_is_set_at_start_and_changed_mid_session() {
     if no_node() {
         return;

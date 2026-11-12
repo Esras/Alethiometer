@@ -168,7 +168,8 @@ fn services_do_not_take_app() {
         "functions with `App` in their signature",
         found,
         &[
-            ("agents/acp.rs", 40),
+            // `steer` (mid-turn `_session/steering`) added 2026-11-07, beside `prompt`.
+            ("agents/acp.rs", 42),
             ("agents/archive.rs", 5),
             ("agents/daemon.rs", 12),
             ("agents/explain.rs", 3),

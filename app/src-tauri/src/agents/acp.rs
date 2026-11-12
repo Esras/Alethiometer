@@ -150,6 +150,9 @@ pub(crate) struct Turn {
     prompts: BTreeMap<u64, u64>,
     #[serde(default)]
     caps: Value,
+    /// The agent takes `_session/steering` (advertised in `initialize`'s top-level `_meta`).
+    #[serde(default)]
+    steer: bool,
     /// The reason you typed with a deny, and whether the option you picked asks for one ("No, provide reason"):
     /// then the agent's follow-up question gets it as its answer. Otherwise it goes out as your next message when the turn ends.
     /// Also the words typed with an ask's free choice ("Type something."), which always asks.
@@ -1002,7 +1005,12 @@ fn connect(app: &Arc<App>, id: &str, resume: Option<&str>) -> Result<Arc<Conn>> 
             msg(if tail.is_empty() { e.to_string() } else { format!("{e} · {tail}") })
         })?;
     let caps = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
-    conn.turn.lock().unwrap_or_else(|e| e.into_inner()).caps = caps.clone();
+    let steer = init.pointer("/_meta/steering/supported").and_then(Value::as_bool) == Some(true);
+    {
+        let mut t = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
+        t.caps = caps.clone();
+        t.steer = steer;
+    }
 
     let cwd = s.cwd.clone();
     let opened = match resume {
@@ -2973,12 +2981,7 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
     save_turn(app, conn, None);
     drop(gate);
     let sid = conn.sid();
-    let mut blocks = vec![json!({ "type": "text", "text": text })];
-    blocks.extend(
-        images
-            .iter()
-            .map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })),
-    );
+    let blocks = prompt_blocks(&text, &images);
     let sent = conn.write(&json!({ "jsonrpc": "2.0", "id": rpc, "method": "session/prompt", "params": { "sessionId": sid, "prompt": blocks } }));
     if let Err(e) = sent {
         // Not under the gate here (it was dropped before writing).
@@ -2986,6 +2989,48 @@ fn prompt(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<
             run_after(app, &id, after);
         }
     }
+}
+
+fn prompt_blocks(text: &str, images: &[RowImage]) -> Vec<Value> {
+    let mut blocks = vec![json!({ "type": "text", "text": text })];
+    blocks.extend(
+        images
+            .iter()
+            .map(|im| json!({ "type": "image", "data": im.data, "mimeType": im.mime })),
+    );
+    blocks
+}
+
+/// Send into the running turn (`_session/steering`); a prompt instead if the turn ended before it arrived.
+fn steer(app: &Arc<App>, conn: &Arc<Conn>, row: u64, text: String, images: Vec<RowImage>) {
+    let params = json!({
+        "sessionId": conn.sid(),
+        "prompt": prompt_blocks(&text, &images),
+        "_meta": { "steering": { "idleBehavior": "promptRequired" } },
+    });
+    let res = conn.request("_session/steering", params, Some(CALL_TIMEOUT));
+    if matches!(&res, Ok(v) if v.get("outcome").and_then(Value::as_str) == Some("promptRequired")) {
+        return prompt(app, conn, row, text, images);
+    }
+    let ts = now(app);
+    app.agents
+        .store
+        .lock()
+        .update_row(&session_thread(&conn.session), row, |r| {
+            if let Some(d) = r.delivery.as_mut() {
+                match &res {
+                    Ok(_) => {
+                        d.state = "delivered".into();
+                        d.delivered_at = ts.clone();
+                        d.count = 1;
+                    }
+                    Err(e) => {
+                        d.state = "failed".into();
+                        d.reason = e.to_string();
+                    }
+                }
+            }
+        });
 }
 
 /// A prompt's answer: the turn is over (or failed). What follows (sending a
@@ -3109,8 +3154,23 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
         // Checked and queued under the turn lock: `finish_prompt` takes it to decide what follows a turn, so a turn can't end between the two and leave this message queued with nothing to send it.
         let turn = conn.turn.lock().unwrap_or_else(|e| e.into_inner());
         if !turn.prompts.is_empty() {
-            queue_message(app, id, text, images);
-            drop(turn);
+            let held = app
+                .agents
+                .store
+                .lock()
+                .sessions
+                .get(id)
+                .is_some_and(|s| !s.queued.is_empty());
+            if turn.steer && !held {
+                drop(turn);
+                let arc = app.arc().ok_or_else(|| msg("not ready"))?;
+                let row = push_you(app, id, text, false, images.clone());
+                let text = text.to_owned();
+                std::thread::spawn(move || steer(&arc, &conn, row, text, images));
+            } else {
+                queue_message(app, id, text, images);
+                drop(turn);
+            }
         } else {
             drop(turn);
             let arc = app.arc().ok_or_else(|| msg("not ready"))?;

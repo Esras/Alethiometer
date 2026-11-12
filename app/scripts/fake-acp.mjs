@@ -37,6 +37,8 @@ let turn = 0;
 let used = 18000;
 let mode = 'default';
 let elicits = false;
+let running = false;
+const steered = [];
 const MODELS = {
   currentModelId: 'claude-sonnet-4-6',
   availableModels: [
@@ -131,6 +133,8 @@ async function stream() {
   const n = Number(process.env.FAKE_ACP_CHUNKS ?? 60);
   const delay = Number(process.env.FAKE_ACP_DELAY_MS ?? 50);
   for (let i = 1; i <= n && !cancelled; i++) {
+    for (const s of steered.splice(0))
+      update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `steered:${s} ` } });
     update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `t${i} ` } });
     await new Promise((r) => setTimeout(r, delay));
   }
@@ -502,6 +506,7 @@ rl.on('line', async (line) => {
         protocolVersion: 1,
         agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, list: {} } },
         authMethods: [],
+        ...(process.env.FAKE_ACP_STEER === '1' ? { _meta: { steering: { supported: true } } } : {}),
         ...(process.env.FAKE_ACP_NAME ? { agentInfo: { name: process.env.FAKE_ACP_NAME, version: '0.0.0' } } : {}),
       });
     case 'session/new':
@@ -526,9 +531,18 @@ rl.on('line', async (line) => {
       return reply({});
     case 'session/prompt': {
       const text = (m.params.prompt ?? []).map((b) => b.text ?? '').join('');
+      running = true;
       const stopReason = await play(text);
+      running = false;
       return reply({ stopReason });
     }
+    // FAKE_ACP_STEER=1: pi-acp's mid-turn steering; stream mode echoes each as "steered:<text>".
+    case '_session/steering':
+      if (process.env.FAKE_ACP_STEER !== '1')
+        return send({ id: m.id, error: { code: -32601, message: `${m.method} not supported` } });
+      if (!running) return reply({ outcome: 'promptRequired', reason: 'noRunningTurn' });
+      steered.push((m.params.prompt ?? []).map((b) => b.text ?? '').join(''));
+      return reply({ outcome: 'injected' });
     case 'session/cancel':
       cancelled = true;
       for (const [id, resolve] of waiting) {
