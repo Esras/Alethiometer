@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Z1 · A saved agent, picked</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:620px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>Z1 · Saved agents.</b> The left panel is the agents you’ve saved, in your order. Picking one fills the start block. Changes apply to this launch only; a checkbox to save them back appears once something differs. Joins sits in the right pane and defaults to the group you pressed <span class="kbd">n</span> in.</p>
+
+<div class="pane float" role="dialog" aria-label="New agent">
+<div class="top"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="4"></circle><path d="M3 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v6M16 11h6"></path></svg><span class="t">New agent</span><span class="kbd ml">Esc</span></div>
+<div style="display:flex;min-height:0">
+<div class="sv" role="listbox" aria-label="Saved agents">
+<span class="lab gh">Saved<span class="r">⌘, edit</span></span>
+<button class="rc cur" role="option" aria-selected="true"><span class="n">1</span><span class="a nm">Sandbox Pi</span><span class="b">Pi · Opus 4.5 · new sandbox</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">2</span><span class="a nm">Local Claude</span><span class="b">Claude Code · Sonnet 4.5 · local</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">3</span><span class="a nm">Reviewer</span><span class="b">Claude Code · Opus 4.5 · message set</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">4</span><span class="a nm">Tokens</span><span class="b">Pi · design-tokens · high</span></button>
+<button class="rc nw" role="option" aria-selected="false"><span class="n">N</span><span class="a">New</span><span class="b">one-off; not saved</span></button>
+</div>
+
+<div class="mainp">
+<div class="jn"><span class="lab">Joins</span><span style="color:var(--tx-label)">alethiometer ›</span><button class="pick" aria-haspopup="listbox">Settings polish<svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button><span class="lab" style="margin-left:auto">as</span><span class="sm-in"><input aria-label="Name" value="pi-steer"></span></div>
+<div class="blk" role="group" aria-label="Launch settings">
+<span class="hd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg>start <span style="color:var(--tx-body)">Sandbox Pi</span><span style="margin-left:auto;color:var(--aqua)">1 changed</span></span>
+<span>harness <button class="ed">Pi</button> · model <button class="ed">Opus 4.5</button> · thinking <button class="ed chgd">high</button><span class="was">medium</span></span>
+<span>in <button class="ed">new sandbox</button> on <button class="ed">local</button> · image <button class="ed">aleth-pi:local</button></span>
+<span>upload <button class="ed">alethiometer</button> <button class="ed">pi-acp</button> <button class="ed" style="color:var(--tx-label)">+ dir</button></span>
+</div>
+<textarea class="f" rows="4" aria-label="First message" placeholder="First message…">Wire the steering notices from the pi-acp fork into the Agents transcript.</textarea>
+<label class="chk"><input type="checkbox"><span>Save thinking high to Sandbox Pi</span></label>
+</div>
+</div>
+<div class="foot"><button class="btn p">Start<span class="kbd">⌘⏎</span></button><button class="btn">Cancel<span class="kbd">Esc</span></button><span class="cmd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg><span>openshell -g local sandbox create --upload ~/src/alethiometer +1</span></span></div>
+</div>
+
+<div class="keys"><span class="kbd">⌘1–9</span><span>saved agent</span><span class="sep">·</span><span class="kbd">⌘N</span><span>New</span><span class="sep">·</span><span class="kbd">⌘Z</span><span>on a value: back to the saved one</span><span class="sep">·</span><span>the message keeps focus throughout</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

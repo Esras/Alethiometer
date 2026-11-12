@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>F1 · Saved agent, plain form</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:640px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>F1 · A saved agent, as a form.</b> The top line names the repos it will be listed under, which follow Directories, and its name. Everything below is a labelled field, and every field is editable. Picking a saved agent fills the fields. A dot on a label means it differs from the saved agent.</p>
+
+<div class="pane float" role="dialog" aria-label="New agent">
+<div class="top"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="4"></circle><path d="M3 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v6M16 11h6"></path></svg><span class="t">New agent</span><span class="kbd ml">Esc</span></div>
+<div style="display:flex;min-height:0">
+<div class="sv n2" role="listbox" aria-label="Saved agents">
+<span class="lab gh">Saved<span class="r">⌘, edit</span></span>
+<button class="rc cur" role="option" aria-selected="true"><span class="n">1</span><span class="a nm">Sandbox Pi</span><span class="b">Pi · OpenShell</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">2</span><span class="a nm">Local Claude</span><span class="b">Claude Code · local</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">3</span><span class="a nm">Reviewer</span><span class="b">Claude Code · local</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">4</span><span class="a nm">Tokens</span><span class="b">Pi · OpenShell</span></button>
+<button class="rc nw" role="option" aria-selected="false"><span class="n">N</span><span class="a">New</span><span class="b">one-off; not saved</span></button>
+</div>
+
+<div class="frm">
+<div class="jn"><span class="t2">Joins</span><span style="color:var(--tx-body)">alethiometer &amp; pi-acp</span><span class="t2">as</span><span class="sm-in"><input aria-label="Name" value="pi-steer" style="width:110px"></span></div>
+
+<div class="fields">
+
+<span class="lab">Runs</span>
+<span class="chips" role="radiogroup" aria-label="Where it runs"><button class="chip" role="radio" aria-checked="false">Local</button><button class="chip on" role="radio" aria-checked="true">OpenShell</button></span>
+
+<span class="lab">Sandbox</span>
+<button class="in" aria-haspopup="listbox" aria-label="Sandbox"><span class="v">New sandbox</span><svg class="ph ph-caret-down" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+
+<span class="lab">Harness</span>
+<span class="chips" role="radiogroup" aria-label="Harness"><button class="chip on" role="radio" aria-checked="true">Pi</button><button class="chip" role="radio" aria-checked="false">Claude Code</button></span>
+
+<span class="lab">Model<span class="md" aria-hidden="true"></span></span>
+<div class="two-in mt"><button class="in" aria-haspopup="listbox" aria-label="Model"><span class="v">Opus 4.5</span><svg class="ph ph-caret-down" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button><button class="in f" aria-haspopup="listbox" aria-label="Thinking"><span class="v">high</span><svg class="ph ph-caret-down" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button></div>
+
+<span class="lab">Image</span>
+<span class="in"><input aria-label="Image" value="localhost/aleth-pi:local"></span>
+
+<span class="lab">Directories</span>
+<div class="dirs" role="group" aria-label="Directories"><span class="dir">alethiometer<button class="x" aria-label="Remove alethiometer"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir">pi-acp<button class="x" aria-label="Remove pi-acp"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><input aria-label="Add a directory" placeholder="add…" style="min-width:50px"></div>
+
+<span class="lab" style="align-self:start;padding-top:6px">Task</span>
+<textarea rows="3" aria-label="Task" placeholder="What should it do?">Wire the steering notices from the pi-acp fork into the Agents transcript.</textarea>
+</div>
+<div class="hint"><span>Thinking</span><span class="sep">·</span><span>Sandbox Pi has medium</span><span class="kbd">⌘Z</span><span>reset</span></div>
+</div>
+</div>
+<div class="foot"><button class="btn p">Start<span class="kbd">⌘⏎</span></button><button class="btn">Cancel<span class="kbd">Esc</span></button><label class="chk" style="margin-left:auto"><input type="checkbox"><span>Save 1 change to Sandbox Pi</span></label></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

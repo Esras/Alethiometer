@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wireframe: Joins beside Start</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./wf.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+</style>
+</helmet>
+<div class="wf" style="width:780px;height:600px">
+<div class="cap"><b>W1 · Joins beside Start.</b> Every input sits in one block, top to bottom. Where it lands is the last thing you read, right where you confirm.</div>
+<div class="m">
+<div class="hd"><span class="ico"></span><span class="ttl">New agent</span><span class="chips" style="margin-left:auto" role="radiogroup" aria-label="Where it runs"><button class="chip" role="radio" aria-checked="false">Local</button><button class="chip on" role="radio" aria-checked="true">OpenShell</button></span><span class="tok">Esc</span></div>
+<div class="bd">
+<textarea class="ta" aria-label="Task" placeholder="Task: what should it do?"></textarea>
+<div class="grid">
+<label class="lbl" for="w1-name">Name</label><input id="w1-name" class="box" placeholder="pi-…" style="width:220px">
+<span class="lbl">Directories</span><div class="box"><span class="tok">alethiometer ×</span><span class="tok">pi-acp ×</span><span class="muted">add a path…</span></div>
+<span class="lbl">Agent</span><div class="row"><span class="chips"><button class="chip on">Pi</button><button class="chip">Claude Code</button></span><button class="box sel grow">model</button><button class="box sel">thinking medium</button></div>
+<span class="lbl">Sandbox</span><div class="row"><button class="box sel grow">gateway</button><button class="box sel grow">new sandbox</button><input class="box grow" aria-label="Image" placeholder="image"></div>
+</div>
+<div class="hint">hint line: the focused field’s note</div>
+</div>
+<div class="ro"><span class="tag">Joins</span><span>alethiometer ›</span><button class="box sel" style="height:22px;width:170px">Settings polish</button><span class="dot"></span>planner<span class="dot"></span>claude-7c1<span class="dot new"></span>pi-…</div>
+<div class="ft"><button class="btn p">Start agent ⌘⏎</button><button class="btn">Cancel</button><span class="cmdx"></span></div>
+</div>
+<div class="notes">
+<div><span class="nb">1</span><span>Name is a plain field in the grid again, first after the task.</span></div>
+<div><span class="nb">2</span><span>The Joins band keeps its group picker: the one input there, and the last choice before Start.</span></div>
+<div><span class="nb">3</span><span>Same row count as 3c, plus Name. Joins still shows the new agent’s name as you type it.</span></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":600}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wireframe: repos in the header</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./wf.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+</style>
+</helmet>
+<div class="wf" style="width:780px;height:600px">
+<div class="cap"><b>W5 · W2’s sentence, without the picker.</b> The header reads “New agent <i>name</i> joins <i>alethiometer &amp; pi-acp</i>”, and Directories, which decides that, is the first row under it.</div>
+<div class="m">
+<div class="hd"><span class="ico"></span><span class="ttl">New agent</span><input class="box" aria-label="Name" placeholder="pi-…" style="width:140px"><span class="muted">joins</span><span style="color:#fbf1c7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">alethiometer &amp; pi-acp</span><span class="muted" style="white-space:nowrap">· with planner, claude-7c1</span><span class="tok" style="margin-left:auto">Esc</span></div>
+<div class="bd">
+<div class="grid">
+<span class="lbl">Directories</span><div class="box"><span class="tok">alethiometer ×</span><span class="tok">pi-acp ×</span><span class="muted">add a path…</span></div>
+</div>
+<textarea class="ta" aria-label="Task" placeholder="Task: what should it do?"></textarea>
+<div class="grid">
+<span class="lbl">Agent</span><div class="row"><span class="chips"><button class="chip on">Pi</button><button class="chip">Claude Code</button></span><button class="box sel grow">model</button><button class="box sel">thinking medium</button></div>
+<span class="lbl">Runs</span><div class="row"><span class="chips" role="radiogroup" aria-label="Where it runs"><button class="chip" role="radio" aria-checked="false">Local</button><button class="chip on" role="radio" aria-checked="true">OpenShell</button></span><button class="box sel grow">gateway</button><button class="box sel grow">new sandbox</button><input class="box grow" aria-label="Image" placeholder="image"></div>
+</div>
+<div class="hint">hint line: the focused field’s note</div>
+</div>
+<div class="ft"><button class="btn p">Start agent ⌘⏎</button><button class="btn">Cancel</button><span class="cmdx"></span></div>
+</div>
+<div class="notes">
+<div><span class="nb">1</span><span>No band at all: the shortest of the set. The read-only part is the end of the title, not a block between fields.</span></div>
+<div><span class="nb">2</span><span>Directories moves above Task so the chips sit right under the repos they produce. Focus still starts in Task.</span></div>
+<div><span class="nb">3</span><span>Long repo lists ellipsize in the header (full list in the tooltip); “with …” drops first when it’s tight. With no directory yet it reads “joins …”.</span></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":600}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+/* Alethiometer — generated from tokens.json */
+:root, [data-theme="dark"] {
+  --bg-app: #1d2021; /* App ground: window, tab body, inset fills (command blocks, facts box, thread panel). */
+  --bg-panel: #282828; /* Raised panels, inputs, choice cards, segmented control, search field. */
+  --bg-head: #32302f; /* Panel header bars, title-bar rule, selected transcript row, key-cap fill. */
+  --border: #3c3836; /* Default 1px border on panels, inputs and cards; tree divider; tab badge fill. */
+  --border-strong: #504945; /* Outlined buttons, chips, accented panels, scrollbar thumb; hover border on cards. */
+  --tx-title: #fbf1c7; /* Titles, your own messages, questions and names in cards. 14.5:1 on bg-app, 11.6:1 on bg-head. */
+  --tx-body: #ebdbb2; /* Default body text and an agent's text on bg-app / bg-panel. 12:1 on bg-app. */
+  --tx-2: #d5c4a1; /* Secondary text: panel header labels, text inside message boxes, button labels. 7.6:1 on bg-head. */
+  --tx-muted: #bdae93; /* Muted text: outlined button labels, countdown pill, hub lines. 6:1 on bg-head. */
+  --tx-muted-2: #a89984; /* Second muted step: counts, carets, inactive tabs, chip text. 4.7:1 on bg-head. */
+  --tx-label: #928374; /* Uppercase section labels, meta lines, key hints, mono status line. 4.47:1 on bg-app and 4.02:1 on bg-panel: just under 4.5:1 in the source; kept exact. */
+  --tx-disabled: #665c54; /* Disabled text, timestamps, the → arrow and '· type' in transcript headers. 2.5:1 on bg-app: decorative/low-priority only, below text contrast in the source. */
+  --aqua: #8ec07c; /* The one interface-state colour: selection edge, active-tab underline, primary outlines, focus ring, running dot, segmented 'on' fill (bg-app text on it, 7.8:1). */
+  --aqua-tint: rgba(142, 192, 124, 0.1); /* Selected-row fill (.sel), primary button hover, active settings cog. */
+  --aqua-tint-soft: rgba(142, 192, 124, 0.06); /* Softer selection wash where aqua-tint is too loud. */
+  --aqua-fill: rgba(142, 192, 124, 0.14); /* Fill of the primary button in agent cards (Allow once, Send answer, Retry now). Literal in ApprovalCard/AskCard/RowView. */
+  --hover-tint: rgba(235, 219, 178, 0.05); /* Hover wash on outlined buttons and icon buttons. Literal in app.css .btn:hover and TabBar. */
+  --red: #fb4934; /* Alerts, overdue dates (text only), failed marks, delegated ▲ glyph, countdown under 2 min. 4.8:1 on bg-app, 4.3:1 on bg-panel. */
+  --green: #b8bb26; /* Done check, +added lines, countdown above 15 min, Jobs category. */
+  --yellow: #fabd2f; /* Work topics, deferred delivery, Hub notices, countdown 5-15 min. */
+  --blue: #83a598; /* Personal/Life category, [] do glyph. */
+  --purple: #d3869b; /* Self-holds on the work calendar (lunch, walk). */
+  --orange: #fe8019; /* Countdown 2-5 min and warning states only; 'needs you' default. Never a category. */
+  --pill-red-fill: rgba(251, 73, 52, 0.16); /* Fill of .pill.red (text red). */
+  --pill-yellow-fill: rgba(250, 189, 47, 0.16); /* Fill of .pill.yellow (text yellow). */
+  --pill-green-fill: rgba(184, 187, 38, 0.16); /* Fill of .pill.green (text green). */
+  --cat-work: var(--yellow); /* Category 'Important · Work': default from settings.json, injected at startup as --cat-work. User-editable; always one of the kitty palette. */
+  --cat-life: var(--blue); /* Category 'Personal · Life': default from settings.json, injected at startup as --cat-life. User-editable; always one of the kitty palette. */
+  --cat-jobs: var(--green); /* Category 'Jobs': default from settings.json, injected at startup as --cat-jobs. User-editable; always one of the kitty palette. */
+  --cat-self: var(--purple); /* Category 'Self-hold': default from settings.json, injected at startup as --cat-self. User-editable; always one of the kitty palette. */
+  --cat-alert: var(--red); /* Category 'Alerts': default from settings.json, injected at startup as --cat-alert. User-editable; always one of the kitty palette. */
+  --you-border: #504945; /* Agents: border of your own message box (setting agents.colors.you). */
+  --you-fill: rgb(49, 48, 47); /* Agents: fill of your message box, you-border mixed 40% over bg-app (look.ts mix()). */
+  --tool: #8a9a5b; /* Agents: tool-call icon and tool name (olive). 5.4:1 on bg-app. */
+  --tool-fill: rgba(138, 154, 91, 0.1); /* Agents: tool-call box fill. */
+  --tool-border: rgba(138, 154, 91, 0.45); /* Agents: tool-call box border. */
+  --msg: #9a9fd6; /* Agents: agent↔agent, room and subagent messages; @mentions (periwinkle). */
+  --msg-fill: rgba(154, 159, 214, 0.1); /* Agents: message box fill. */
+  --msg-border: rgba(154, 159, 214, 0.45); /* Agents: message box border. */
+  --hub: var(--yellow); /* Agents: Hub notices (loop cap, rate limit). */
+  --hub-fill: rgba(250, 189, 47, 0.09); /* Agents: Hub notice box fill. */
+  --hub-border: rgba(250, 189, 47, 0.45); /* Agents: Hub notice box border. */
+  --need: var(--orange); /* Agents: needs you, asks and approvals: icon, waiting text, selected option border. */
+  --need-fill: rgba(254, 128, 25, 0.1); /* Agents: ask/approval row box fill; unreachable delivery. */
+  --need-border: rgba(254, 128, 25, 0.6); /* Agents: ask/approval row box border. */
+  --need-soft: rgba(254, 128, 25, 0.07); /* Agents: pinned AskCard / ApprovalCard fill. */
+  --need-soft-border: rgba(254, 128, 25, 0.45); /* Agents: pinned AskCard / ApprovalCard border. */
+  --fail-fill: rgba(251, 73, 52, 0.09); /* Agents: failed delivery box fill. */
+  --fail-border: rgba(251, 73, 52, 0.5); /* Agents: failed delivery box border. */
+  --thinking: #7c6f64; /* Agents: thinking-row brain icon (literal in RowView). Icon only; 3.4:1 on bg-app. */
+  --result-failed: #d97a6c; /* Agents: a failed tool result's mono text (literal in RowView). */
+  --agent-sky: #7fb3d5; /* Agents: name palette colour 1 of 5 (agents.names.palette); an agent's name takes one unique within its group. */
+  --agent-green: #b8bb26; /* Agents: name palette colour 2 of 5 (agents.names.palette); an agent's name takes one unique within its group. */
+  --agent-lavender: #b9a6e0; /* Agents: name palette colour 3 of 5 (agents.names.palette); an agent's name takes one unique within its group. */
+  --agent-aqua: #8ec07c; /* Agents: name palette colour 4 of 5 (agents.names.palette); an agent's name takes one unique within its group. */
+  --agent-rose: #e5a8a0; /* Agents: name palette colour 5 of 5 (agents.names.palette); an agent's name takes one unique within its group. */
+  --route-glean: #9a9df5; /* Search facet: Glean route chip (lavender from its icon); the Local route uses aqua. */
+  --sel-edge: inset -2px 0 0 #8ec07c; /* .sel: aqua right edge on a selected row (Incoming, Priorities). */
+  --tab-underline: inset 0 -2px 0 #8ec07c; /* Active tab underline. */
+  --panel-accent: inset 3px 0 0 #8ec07c; /* Panel with accent: aqua left edge (Upcoming when something is soon). */
+  --popover: 0 8px 24px rgba(0, 0, 0, 0.45); /* Pickers and popovers (Person, Category, Notes pickers). */
+  --modal: 0 24px 64px rgba(0, 0, 0, 0.55); /* New agent modal over a rgba(15,16,18,.68) scrim. */
+}
+:root {
+  --space-2: 2px; /* Observed: tab-to-tab gap, tight icon gaps. */
+  --space-4: 4px; /* Observed (29× gap): icon-to-text in small chips. */
+  --space-6: 6px; /* Observed (66× gap): chip and row-internal gaps; transcript row gap. */
+  --space-8: 8px; /* Observed (75× gap, the most common): button content, header items, card buttons. */
+  --space-10: 10px; /* Observed (57× gap): card header items, choice grid, tab padding; box bleed into the margin. */
+  --space-12: 12px; /* Observed: card and panel side padding (7px 12px headers), right-cluster gap. */
+  --space-14: 14px; /* Observed: tab bar and facet bar side padding. */
+  --space-16: 16px; /* Observed: thread panel margin, wider section gaps. */
+  --r-block: 4px; /* Declared: small blocks, key caps, app-icon tiles. */
+  --r-input: 6px; /* Declared: buttons, inputs, segmented control, choice cards. */
+  --r-box: 7px; /* Observed literal: transcript message boxes, facts box, joins block. */
+  --r-panel: 8px; /* Declared: panels, pinned cards, thread panel. */
+  --r-pill: 9px; /* Observed literal: reason/weight pills. */
+  --r-modal: 10px; /* Observed literal: New agent modal. */
+  --r-full: 999px; /* Observed literal: facet chips. */
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --text-title: 500 19px/1.4 var(--font-ui); /* Agent pane title (1.4615rem), tx-title. */
+  --text-question: 400 14px/1.5 var(--font-ui); /* The question in an AskCard (1.077rem), tx-title. */
+  --text-reading: 400 13.5px/1.55 var(--font-ui); /* Messages, notes, drafts and answers: calc(--fs-read - .5px); --fs-read follows reading_font_size (default 14). */
+  --text-body: 400 13px/1.4 var(--font-ui); /* Root size (ui_font_size, default 13): lists and rows. Every interface size is rem off this. */
+  --text-tab: 400 12.5px/1.4 var(--font-ui); /* Tab bar (0.9615rem), tool names and detail. */
+  --text-control: 400 12px/1.4 var(--font-ui); /* Buttons, segmented control, search field, countdown pill (0.9231rem): the most-used size. */
+  --text-small: 400 11.5px/1.4 var(--font-ui); /* Secondary notes, right-aligned hints (0.8846rem). */
+  --text-panel-head: 400 11px/1.4 var(--font-ui); /* Panel header label (0.8462rem), uppercase, tx-2. */
+  --text-label: 400 10.5px/1.4 var(--font-ui); /* The .label class (0.8077rem): uppercase section labels in tx-label; also badges and pills. */
+  --text-mono-head: 400 12px/20px var(--font-mono); /* Transcript row header and command blocks (0.923rem/20px). */
+  --text-mono-detail: 400 11.5px/20px var(--font-mono); /* Tool results, state lines, facts box (0.885rem). */
+  --text-mono-meta: 400 11px/1.4 var(--font-mono); /* Times, delivery marks, status line, key-cap letters (0.846rem). */
+  --text-mono-key: 400 10.5px/1.4 var(--font-mono); /* Key hints inside buttons (0.808rem), tx-label. */
+}
+.title {
+  font-family: var(--font-ui);
+  font-size: 19px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.question {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.reading {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.tab {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.control {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.small {
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.panel-head {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+.label {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+}
+.mono-head {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.mono-detail {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 20px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.mono-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.mono-key {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+}

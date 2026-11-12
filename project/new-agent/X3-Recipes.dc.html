@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>X3 · Recent launches as recipes</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:640px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>X3 · Pick, don’t fill.</b> You launch the same few shapes of agent over and over. New agent opens on a list of them: your recent launches, deduped, and the agents running now. ⌘ and a number picks one; only the task is left to type.</p>
+
+<div class="pane float" role="dialog" aria-label="New agent">
+<div class="top"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="4"></circle><path d="M3 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v6M16 11h6"></path></svg><span class="t">New agent</span><span class="kbd ml">Esc</span></div>
+<div class="two">
+<div class="lst" role="listbox" aria-label="Start from">
+<span class="lab gh">Recent</span>
+<button class="rc cur" role="option" aria-selected="true"><span class="n">1</span><span class="a">Pi in a sandbox</span><span class="b">alethiometer · pi-acp · Opus 4.5</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">2</span><span class="a">Claude Code, local</span><span class="b">alethiometer · Sonnet 4.5</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">3</span><span class="a">Pi in a sandbox</span><span class="b">design-tokens · Opus 4.5 · high</span></button>
+<span class="lab gh">Like a running agent</span>
+<button class="rc" role="option" aria-selected="false"><span class="n">4</span><span class="a"><span style="color:var(--agent-sky)">planner</span></span><span class="b">Claude Code · local · alethiometer</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">5</span><span class="a"><span style="color:var(--agent-lavender)">claude-7c1</span></span><span class="b">Claude Code · aleth-7c1 sandbox</span></button>
+<span class="lab gh">Other</span>
+<button class="rc" role="option" aria-selected="false"><span class="n">0</span><span class="a">Blank</span><span class="b">every field, nothing carried over</span></button>
+</div>
+<div class="pv">
+<textarea class="f" rows="4" aria-label="Task" placeholder="What should it do?">Wire the steering notices from the pi-acp fork into the Agents transcript.</textarea>
+<div class="kv">
+<span class="d">dirs</span><span>alethiometer, pi-acp</span>
+<span class="d">agent</span><span>Pi · Opus 4.5 · medium</span>
+<span class="d">runs</span><span>OpenShell · new sandbox · local</span>
+<span class="d">joins</span><span>Settings polish</span>
+<span class="d">name</span><span class="chg">pi-2 <span style="color:var(--tx-label)">(pi-1 is taken)</span></span>
+</div>
+<div class="hint" style="margin:0"><span class="kbd">⌘E</span><span>edit these before starting</span><span class="sep">·</span><span class="kbd">⌘P</span><span>pin, so it stays at the top</span></div>
+</div>
+</div>
+<div class="foot"><button class="btn p">Start agent<span class="kbd">⌘⏎</span></button><button class="btn">Cancel<span class="kbd">Esc</span></button><span class="cmd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg><span>openshell -g local sandbox create --upload ~/src/alethiometer +1</span></span></div>
+</div>
+
+<div class="keys"><span class="kbd">⌘1–9</span><span>pick, so digits still type into the task</span><span class="sep">·</span><span class="kbd">↑ ↓</span><span>move; the task keeps focus</span><span class="sep">·</span><span class="kbd">⌘0</span><span>blank form</span></div>
+<p class="fn"><b>What it changes:</b> no recipe editor to build. A recipe is a past launch minus its task and name; pinning is the only management. Rows 4–5 cover “one more like that one”, and choosing a running agent’s sandbox is how you’d reach the existing-sandbox case (3d).</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

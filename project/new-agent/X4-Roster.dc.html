@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>X4 · A draft row in the roster</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:620px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>X4 · No modal.</b> <span class="kbd">n</span> in the Agents panel adds a dashed member to the group you’re in, and its pane opens on the right like any agent’s. The settings are the transcript’s first block. You edit them in place, and after ⌘⏎ that block stays as the record of how it was started.</p>
+
+<div class="pane">
+<div class="rost">
+<div class="side">
+<div class="grp"><span class="lab">alethiometer</span><span class="g">Settings polish</span><span class="s">Ship Settings; no overlaps</span></div>
+<div class="mb"><span class="run"></span><span style="color:var(--agent-sky)">planner</span><span class="l">editing SettingsPane.tsx</span></div>
+<div class="mb"><span class="idle"></span><span style="color:var(--agent-lavender)">claude-7c1</span><span class="l">waiting on planner</span></div>
+<div class="mb draft"><span class="ring"></span><input aria-label="Name" value="pi-steer"><span class="l" style="color:var(--aqua);opacity:.8">draft · not started</span></div>
+<div class="grp" style="padding-top:16px"><span class="lab">design-tokens</span><span class="g" style="font-weight:400;color:var(--tx-body)">Hub palette export</span></div>
+<div class="mb"><span class="idle"></span><span style="color:var(--agent-rose)">pi-tok</span><span class="l">done 20m ago</span></div>
+<div class="addm"><span class="kbd">n</span><span>new agent here</span><span class="kbd">⇧N</span><span>in a new group</span></div>
+</div>
+
+<div class="tr">
+<div class="row"><span class="ring"></span><span style="color:var(--aqua);font:500 14px var(--font-ui)">pi-steer</span><span class="note" style="margin-left:8px">draft</span><button class="btn p r">Start<span class="kbd">⌘⏎</span></button></div>
+<div class="blk f" role="group" aria-label="Launch settings">
+<span class="hd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg>start</span>
+<span>harness <button class="ed">Pi</button> · model <button class="ed">Opus 4.5</button> · thinking <button class="ed">medium</button></span>
+<span>in <button class="ed f">new sandbox</button> on <button class="ed">local</button> · image <button class="ed">aleth-pi:local</button></span>
+<span>upload <button class="ed">alethiometer</button> <button class="ed">pi-acp</button> <button class="ed" style="color:var(--tx-label)">+ dir</button></span>
+</div>
+<textarea class="f" rows="4" aria-label="First message" placeholder="First message…">Wire the steering notices from the pi-acp fork into the Agents transcript.</textarea>
+<span class="ghost">Its transcript starts here. planner and claude-7c1 can see it once it runs.</span>
+<div class="hint" style="margin:0"><span class="kbd">⇥</span><span>through the underlined values</span><span class="sep">·</span><span class="kbd">⏎</span><span>opens one</span><span class="sep">·</span><span class="kbd">⌫</span><span>on an empty draft removes it</span></div>
+</div>
+</div>
+</div>
+
+<p class="fn"><b>What it changes:</b> the group is wherever you pressed <span class="kbd">n</span>, so Joins needs no control. A draft can sit unstarted while you look at the others’ transcripts. The start block reads like the command it will run, so the footer command preview goes. <b>Open:</b> whether a draft survives an app restart.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

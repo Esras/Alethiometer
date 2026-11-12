@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Z2 · New, a one-off</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:620px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>Z2 · New.</b> A one-off that isn’t one of the saved agents. It starts from the app’s defaults, not from your last launch, so every value is open and nothing is struck. It isn’t saved unless you tick the box. If you do, a name field appears and it saves when the agent starts.</p>
+
+<div class="pane float" role="dialog" aria-label="New agent">
+<div class="top"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="4"></circle><path d="M3 20c0-3.5 3-6 7-6s7 2.5 7 6M19 8v6M16 11h6"></path></svg><span class="t">New agent</span><span class="kbd ml">Esc</span></div>
+<div style="display:flex;min-height:0">
+<div class="sv" role="listbox" aria-label="Saved agents">
+<span class="lab gh">Saved<span class="r">⌘, edit</span></span>
+<button class="rc" role="option" aria-selected="false"><span class="n">1</span><span class="a nm">Sandbox Pi</span><span class="b">Pi · Opus 4.5 · new sandbox</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">2</span><span class="a nm">Local Claude</span><span class="b">Claude Code · Sonnet 4.5 · local</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">3</span><span class="a nm">Reviewer</span><span class="b">Claude Code · Opus 4.5 · message set</span></button>
+<button class="rc" role="option" aria-selected="false"><span class="n">4</span><span class="a nm">Tokens</span><span class="b">Pi · design-tokens · high</span></button>
+<button class="rc nw cur" role="option" aria-selected="true"><span class="n">N</span><span class="a">New</span><span class="b">one-off; not saved</span></button>
+</div>
+
+<div class="mainp">
+<div class="jn"><span class="lab">Joins</span><span style="color:var(--tx-label)">alethiometer ›</span><button class="pick" aria-haspopup="listbox">Settings polish<svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button><span class="lab" style="margin-left:auto">as</span><span class="sm-in"><input aria-label="Name" placeholder="claude-…"></span></div>
+<div class="blk f" role="group" aria-label="Launch settings">
+<span class="hd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg>start <span style="color:var(--tx-body)">new</span><span style="margin-left:auto">from app defaults</span></span>
+<span>harness <button class="ed">Claude Code</button> · model <button class="ed">default</button> · thinking <button class="ed">default</button></span>
+<span>in <button class="ed f">local</button></span>
+<span>directory <button class="ed">~/src/alethiometer</button> <button class="ed" style="color:var(--tx-label)">+ dir</button></span>
+</div>
+<textarea class="f" rows="4" aria-label="First message" placeholder="First message…"></textarea>
+<label class="chk"><input type="checkbox"><span>Save as a saved agent</span></label>
+</div>
+</div>
+<div class="foot"><button class="btn p">Start<span class="kbd">⌘⏎</span></button><button class="btn">Cancel<span class="kbd">Esc</span></button><span class="cmd"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l5 5-5 5M12 18h8"></path></svg><span>claude-code-acp --cwd ~/src/alethiometer</span></span></div>
+</div>
+
+<div class="states" style="gap:10px;padding:12px 16px">
+<span class="lab">Ticked</span>
+<div class="row" style="flex-wrap:wrap;gap:8px 12px"><label class="chk"><input type="checkbox" checked><span>Save as</span></label><span class="sm-in f"><input aria-label="Saved agent name" value="Local Claude, tokens"></span><label class="chk"><input type="checkbox"><span>with this message</span></label><span class="note" style="margin-left:auto">saves on Start as ⌘5</span></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

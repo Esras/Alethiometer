@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>X6 · Fork a running agent</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+<link rel="stylesheet" href="./ex.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na ex" style="width:780px;height:660px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex">
+<p class="cap"><b>X6 · Fork, don’t configure.</b> The agent you want often already exists: it’s the one whose transcript you’re reading. Select a row and press <span class="kbd">f</span>. The new agent copies the parent’s harness, model and directories and gets its context up to that row. The only choices left are how much context and which workspace.</p>
+
+<div class="pane">
+<div class="phd"><span style="color:var(--agent-sky);text-transform:none;letter-spacing:0;font-size:12.5px">planner</span><span class="r">Claude Code · local · ~/src/alethiometer</span></div>
+<div class="tx">
+<div class="tl"><span class="w">14:02</span><span>Read the pi-acp fork. Steering arrives as <span style="font-family:var(--mono)">session/update</span> with kind <span style="font-family:var(--mono)">notice</span>; we drop it in <span style="font-family:var(--mono)">RowView</span>.</span></div>
+<div class="tl"><span class="w">14:03</span><span class="tool">Read src/agents/RowView.tsx</span></div>
+<div class="tl" style="background:var(--aqua-tint-soft);box-shadow:var(--sel-edge);margin:0 -14px;padding:2px 14px"><span class="w">14:05</span><span>Two jobs here: render notices in the transcript, and give them the hub colours from design-tokens. I’ll start on the renderer.</span></div>
+<div class="cut">fork from here</div>
+<div class="tl dim"><span class="w">14:06</span><span class="tool">Edit src/agents/RowView.tsx</span></div>
+</div>
+
+<div class="fork" role="group" aria-label="Fork planner">
+<div class="fields">
+<span class="lab">Context</span><span class="seg" role="radiogroup" aria-label="Context"><button role="radio" aria-checked="false">full, to 14:05</button><button class="on" role="radio" aria-checked="true">summary</button><button role="radio" aria-checked="false">none</button></span>
+<span class="lab">Workspace</span><span class="seg" role="radiogroup" aria-label="Workspace"><button role="radio" aria-checked="false">same checkout</button><button class="on" role="radio" aria-checked="true">new worktree</button><button role="radio" aria-checked="false">sandbox</button></span>
+</div>
+<textarea class="f" rows="2" aria-label="Task for the fork">Take the hub colours half: pull them from design-tokens into the notice style. planner keeps the renderer.</textarea>
+<div class="row"><button class="btn p">Fork as planner-2<span class="kbd">⌘⏎</span></button><button class="btn">Cancel<span class="kbd">Esc</span></button><span class="r note">joins Settings polish, beside planner</span></div>
+</div>
+</div>
+
+<p class="fn"><b>What it changes:</b> splitting work is the common case once a group has a planner, and this makes it one key. “Same checkout” puts two agents in one directory; “new worktree” is the safe default for a local parent, and for a sandboxed parent the same three choices would be share, copy or fresh upload. <b>Unchecked:</b> full context needs the harness to load or replay a session over ACP; summary works anywhere, since it’s only a first message.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":660}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

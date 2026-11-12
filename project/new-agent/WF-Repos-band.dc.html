@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wireframe: repos band beside Start</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./wf.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+</style>
+</helmet>
+<div class="wf" style="width:780px;height:720px">
+<div class="cap"><b>W4 · W2’s rows, W1’s band.</b> No groups: the agent joins the repos its directories are in, so Joins is read-only and follows the chips. It sits last, right above Start.</div>
+<div class="m">
+<div class="hd"><span class="ico"></span><span class="ttl">New agent</span><input class="box" aria-label="Name" placeholder="pi-…" style="width:170px"><span class="tok" style="margin-left:auto">Esc</span></div>
+<div class="bd">
+<textarea class="ta" aria-label="Task" placeholder="Task: what should it do?"></textarea>
+<div class="grid">
+<span class="lbl">Directories</span><div class="box"><span class="tok">alethiometer ×</span><span class="tok">pi-acp ×</span><span class="muted">add a path…</span></div>
+<span class="lbl">Agent</span><div class="row"><span class="chips"><button class="chip on">Pi</button><button class="chip">Claude Code</button></span><button class="box sel grow">model</button><button class="box sel">thinking medium</button></div>
+<span class="lbl">Runs</span><div class="row"><span class="chips" role="radiogroup" aria-label="Where it runs"><button class="chip" role="radio" aria-checked="false">Local</button><button class="chip on" role="radio" aria-checked="true">OpenShell</button></span><button class="box sel grow">gateway</button><button class="box sel grow">new sandbox</button><input class="box grow" aria-label="Image" placeholder="image"></div>
+</div>
+<div class="hint">hint line: the focused field’s note</div>
+</div>
+<div class="ro"><span class="tag">Joins</span><span style="color:#fbf1c7">alethiometer &amp; pi-acp</span><span class="dot"></span>planner<span class="dot"></span>claude-7c1<span class="dot new"></span>pi-…</div>
+<div class="ft"><button class="btn p">Start agent ⌘⏎</button><button class="btn">Cancel</button><span class="cmdx"></span></div>
+</div>
+<div class="notes">
+<div><span class="nb">1</span><span>Name sits by the title (W2), with no group after it. Runs is W2’s merged row; Local hides the sandbox boxes.</span></div>
+<div><span class="nb">2</span><span>The band is W1’s, minus the picker: nothing in it is a control, and there’s nothing between it and Start.</span></div>
+<div><span class="nb">3</span><span>How the band reads as the chips change:</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px;margin-left:24px">
+<div class="ro" style="border-radius:4px"><span class="tag">Joins</span><span class="muted">no directory yet</span></div>
+<div class="ro" style="border-radius:4px"><span class="tag">Joins</span><span style="color:#fbf1c7">alethiometer</span><span class="dot"></span>planner<span class="dot new"></span>pi-…</div>
+<div class="ro" style="border-radius:4px"><span class="tag">Joins</span><span style="color:#fbf1c7">alethiometer &amp; pi-acp &amp; design-tokens</span><span class="muted">new: no agent has these three</span><span class="dot new"></span>pi-…</div>
+<div class="ro" style="border-radius:4px"><span class="tag">Joins</span><span style="color:#fbf1c7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px">alethiometer &amp; pi-acp &amp; design-tokens &amp; fixtures-gen &amp; openshell-policies</span><span class="dot new"></span>pi-…</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

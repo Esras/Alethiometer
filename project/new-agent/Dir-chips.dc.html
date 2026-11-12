@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Directories field, states</title>
+<script src="../support.js"></script>
+<link rel="stylesheet" href="ds/alethiometer/tokens.css">
+<link rel="stylesheet" href="./na.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0f1012}
+a{color:#8ec07c}a:hover{color:#b8bb26}
+</style>
+</helmet>
+<div class="na" style="width:780px;height:560px;box-sizing:border-box;padding:20px;background:#0f1012;display:flex;justify-content:center;align-items:flex-start">
+<div class="states">
+
+<div class="st"><div class="d"><b>Empty</b>Start says what’s missing only after you try.</div><div class="w"><div class="dirs" role="group" aria-label="Directories, empty"><input aria-label="Add a directory" placeholder="add a path…"><button class="ib" aria-label="Browse for a directory"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg></button></div></div></div>
+
+<div class="st" style="min-height:178px"><div class="d"><b>Typing</b>Matches from recent directories, the typed part brighter. ⏎ or Tab adds the path; the field stays open for the next.</div><div class="w"><div class="dirs f" role="group" aria-label="Directories, typing"><span class="dir">alethiometer<button class="x" aria-label="Remove alethiometer"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><input aria-label="Add a directory" value="~/src/fix"><button class="ib" aria-label="Browse for a directory"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg></button></div>
+<div class="pop" role="listbox" aria-label="Recent directories" style="top:36px;left:110px;width:300px"><button class="o cur" role="option" aria-selected="true"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span><b>~/src/fix</b>tures-gen</span><span class="r">2d</span></button><button class="o" role="option" aria-selected="false"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span><b>~/src/fix</b>-ics-tz</span><span class="r">3w</span></button><span class="div"></span><button class="o" role="option" aria-selected="false"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg><span>Browse…</span><span class="r"><span class="kbd">⌘O</span></span></button></div></div></div>
+
+<div class="st"><div class="d"><b>Not there</b>A path that doesn’t exist stays a chip, marked, so you can fix or remove it.</div><div class="w"><div class="dirs" role="group" aria-label="Directories, one missing"><span class="dir">alethiometer<button class="x" aria-label="Remove alethiometer"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir bad cur"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>old-scion<button class="x" aria-label="Remove old-scion"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><input aria-label="Add a directory" placeholder="add a path…"><button class="ib" aria-label="Browse for a directory"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg></button></div><div class="hint warn"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg><span>~/src/old-scion isn’t there</span></div></div></div>
+
+<div class="st"><div class="d"><b>Same name twice</b>Uploads land by folder name, so two app folders would collide.</div><div class="w"><div class="dirs" role="group" aria-label="Directories, name clash"><span class="dir">alethiometer<button class="x" aria-label="Remove alethiometer"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir bad" title="~/src/miao/app"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>miao/app<button class="x" aria-label="Remove miao/app"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir bad cur" title="~/src/glean-kit/app"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>glean-kit/app<button class="x" aria-label="Remove glean-kit/app"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><input aria-label="Add a directory" placeholder="add a path…"><button class="ib" aria-label="Browse for a directory"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg></button></div><div class="hint warn"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg><span>both would upload to /sandbox/app; rename one or remove it</span></div></div></div>
+
+<div class="st"><div class="d"><b>Many</b>The field wraps; the rows below move down rather than the chips scrolling.</div><div class="w"><div class="dirs" role="group" aria-label="Directories, many"><span class="dir">alethiometer<button class="x" aria-label="Remove alethiometer"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir">pi-acp<button class="x" aria-label="Remove pi-acp"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir">design-tokens<button class="x" aria-label="Remove design-tokens"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir">fixtures-gen<button class="x" aria-label="Remove fixtures-gen"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><span class="dir">openshell-policies<button class="x" aria-label="Remove openshell-policies"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span><input aria-label="Add a directory" placeholder="add a path…"><button class="ib" aria-label="Browse for a directory"><svg class="ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v2"></path><path d="M3 19l3-8h16l-3 8z"></path></svg></button></div></div></div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
