@@ -1669,8 +1669,8 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
 
 /// A system notification for something waiting on you (not from tests).
 fn alert(app: &App, title: &str, body: &str) {
-    if !cfg!(test) {
-        app.platform.notify(title, body);
+    if let Some(h) = app.hooks.get() {
+        (h.notify)(title, body);
     }
 }
 

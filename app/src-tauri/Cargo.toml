@@ -22,13 +22,15 @@ path = "src/bin/devserver.rs"
 
 [features]
 default = ["desktop"]
-desktop = ["dep:tauri", "dep:tauri-build"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-notification"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [], optional = true }
 
 [dependencies]
 tauri = { version = "2.12", features = [], optional = true }
+# System notifications posted by the app itself, so a click reaches it.
+tauri-plugin-notification = { version = "2.8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 rusqlite = { version = "0.40", features = ["bundled", "chrono", "jiff", "hooks"] }

@@ -42,6 +42,7 @@ mod desktop {
         let core = app.clone();
         let on_exit = app.clone();
         tauri::Builder::default()
+            .plugin(tauri_plugin_notification::init())
             .setup(move |a| {
                 use tauri::Manager;
                 if let Some(w) = a.get_webview_window("main") {
@@ -50,6 +51,16 @@ mod desktop {
                 // Settings apply live: zoom in place, restart when a setting can't.
                 let zoom = a.handle().clone();
                 let restart = a.handle().clone();
+                let notify = a.handle().clone();
+                let front = a.handle().clone();
+                use tauri_plugin_notification::NotificationExt;
+                let _ = a.notification().on_action(move |_| {
+                    if let Some(w) = front.get_webview_window("main") {
+                        let _ = w.unminimize();
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
                 let _ = core.hooks.set(crate::state::Hooks {
                     set_zoom: Arc::new(move |z| {
                         if let Some(w) = zoom.get_webview_window("main") {
@@ -57,6 +68,11 @@ mod desktop {
                         }
                     }),
                     restart: Arc::new(move || restart.restart()),
+                    notify: Arc::new(move |title, body| {
+                        if let Err(e) = notify.notification().builder().title(title).body(body).show() {
+                            eprintln!("notification: {e}");
+                        }
+                    }),
                 });
                 Ok(())
             })

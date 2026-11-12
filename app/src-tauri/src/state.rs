@@ -14,6 +14,8 @@ pub struct Hooks {
     pub set_zoom: Arc<dyn Fn(f64) + Send + Sync>,
     /// Restart the whole app (a setting that can't apply live).
     pub restart: Arc<dyn Fn() + Send + Sync>,
+    /// A system notification (title, body); clicking it brings the window forward.
+    pub notify: Arc<dyn Fn(&str, &str) + Send + Sync>,
 }
 
 pub struct App {

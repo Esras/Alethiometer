@@ -207,7 +207,7 @@ A topic or Reflect page open on screen shows a note edited in Obsidian when the 
 
 - **Stale suggested links.** On the Mac's database 3,277 `suggested` links sit on items already seen (agent approvals, Gmail, Slack). Incoming ignores them, but Search and the day strip count anything not `wrong`. Whether triage should clear the links it didn't pick is undecided.
 - **Agent diffs** come from ACP `diff` content blocks; Claude Code sends them, whether pi-acp does for a write is unchecked.
-- **Notifications** use `osascript display notification` (banner shows under Script Editor's name, no setting to turn off, nothing on Linux/Windows). A real plugin and a setting are the next step; the Reflect nudge's `notify_persistent` is still a stub.
+- **Notifications** go through `tauri-plugin-notification`; clicking one brings the main window forward, not to the agent that's waiting. Under `tauri dev` macOS shows them as Terminal's (the plugin's dev fallback). No setting to turn them off; the Reflect nudge's `notify_persistent` is still a stub.
 - **Esc in a topic losing the index's place:** changed to save scroll as it happens (the old save read the element after it was unmounted). A guess at the cause; confirm on screen.
 - **Not looked at in the window:** thread indent, the undo-after-leaving banner, the Reflect ask thread (its height is unbounded), the chronology hint bar and Space/g/G.
 - `npx tauri dev` doesn't rebuild on edits under `app/core` or `app/platform` alone; touch a file in `src-tauri`.
