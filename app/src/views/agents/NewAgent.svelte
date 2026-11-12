@@ -227,7 +227,9 @@
           ? 'Task · filled in on each launch; still editable there'
           : 'Task · sent as the first message on start; not saved';
       case 'list':
-        return mode === 'manage' ? 'Saved · ⏎ renames' : 'Saved · ↑↓ to pick, or ⌘1–9';
+        return mode === 'manage'
+          ? `Saved · ⏎ renames; the order sets ${chord('⌘1–9', 'Ctrl+1–9')}`
+          : `Saved · ↑↓ to pick, or ${chord('⌘1–9', 'Ctrl+1–9')}`;
       default:
         return '';
     }
@@ -504,7 +506,7 @@
           <div class="fields">
             {#if cli || cur.runs === 'openshell'}
               <span class="lab label"
-                >Runs{#if dot('runs')}<span class="md"></span>{/if}</span
+                >Runs{#if dot('runs')}<span class="chg"></span>{/if}</span
               >
               <span
                 class="chips"
@@ -530,7 +532,7 @@
 
             {#if applies(cur, 'sandbox')}
               <span class="lab label"
-                >Sandbox{#if dot('sandbox')}<span class="md"></span>{/if}</span
+                >Sandbox{#if dot('sandbox')}<span class="chg"></span>{/if}</span
               >
               <span class="input" onfocusin={() => (focus = 'sandbox')}>
                 <select bind:value={cur.sandbox} aria-label="Sandbox">
@@ -545,7 +547,7 @@
             {/if}
 
             <span class="lab label"
-              >Harness{#if dot('harness')}<span class="md"></span>{/if}</span
+              >Harness{#if dot('harness')}<span class="chg"></span>{/if}</span
             >
             <span
               class="chips"
@@ -569,7 +571,7 @@
             </span>
 
             <span class="lab label"
-              >Model{#if dot('model') || dot('thinking')}<span class="md"></span>{/if}</span
+              >Model{#if dot('model') || dot('thinking')}<span class="chg"></span>{/if}</span
             >
             <span class="two">
               <span class="input" onfocusin={() => (focus = 'model')}>
@@ -617,7 +619,7 @@
             {#if applies(cur, 'image')}
               {@const flag = imageFlag(cur, harnesses)}
               <span class="lab label" class:warn={!!flag}
-                >Image{#if flag}<i class="ph ph-warning" title={flag}></i>{:else if dot('image')}<span class="md"
+                >Image{#if flag}<i class="ph ph-warning" title={flag}></i>{:else if dot('image')}<span class="chg"
                   ></span>{/if}</span
               >
               <span class="input" class:bad={!!flag} onfocusin={() => (focus = 'image')}
@@ -634,7 +636,7 @@
             {/if}
 
             <span class="lab label"
-              >Directories{#if dot('dirs')}<span class="md"></span>{/if}</span
+              >Directories{#if dot('dirs')}<span class="chg"></span>{/if}</span
             >
             <Dirs
               bind:dirs={cur.dirs}
@@ -646,7 +648,7 @@
             />
 
             <span class="lab label top-lab"
-              >Task{#if dot('task')}<span class="md"></span>{/if}</span
+              >Task{#if dot('task')}<span class="chg"></span>{/if}</span
             >
             {#if mode === 'launch'}
               <textarea
@@ -666,15 +668,15 @@
                 onfocus={() => (focus = 'task')}
               ></textarea>
             {/if}
-          </div>
-          <div class="hint" class:warn={hint?.warn}>
-            {#if hint?.text}
-              {@const [head, ...rest] = hint.text.split(' · ')}
-              {#if rest.length}<span>{head}</span><span class="sep">·</span><span>{rest.join(' · ')}</span>{:else}<span
-                  >{head}</span
-                >{/if}
-              {#if hint.reset}<kbd>{chord('⌘Z', 'Ctrl+Z')}</kbd><span>reset</span>{/if}
-            {/if}
+            <span></span>
+            <div class="hint" class:warn={hint?.warn}>
+              {#if hint?.text}
+                {@const [head, ...rest] = hint.text.split(' · ')}
+                {#if rest.length}<span>{head}</span><span class="sep">·</span><span>{rest.join(' · ')}</span
+                  >{:else}<span>{head}</span>{/if}
+                {#if hint.reset}<kbd>{chord('⌘Z', 'Ctrl+Z')}</kbd><span>reset</span>{/if}
+              {/if}
+            </div>
           </div>
         </div>
       {:else}
@@ -690,11 +692,11 @@
       {#if mode === 'manage'}
         <button class="btn md primary" onclick={done}>Done<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
         <span class="keys">
-          <kbd>⌥↑</kbd><kbd>⌥↓</kbd><span>reorder; sets {chord('⌘1–9', 'Ctrl+1–9')}</span><span class="sep">·</span><kbd
-            >⏎</kbd
-          ><span>rename</span><span class="sep">·</span><kbd>{chord('⌘D', 'Ctrl+D')}</kbd><span>duplicate</span><span
-            class="sep">·</span
-          ><kbd>⌫</kbd><span>delete</span><span class="sep">·</span><kbd>Esc</kbd><span>discard</span>
+          <kbd>⌥↑↓</kbd><span>reorder</span><span class="sep">·</span><kbd>⏎</kbd><span>rename</span><span class="sep"
+            >·</span
+          ><kbd>{chord('⌘D', 'Ctrl+D')}</kbd><span>duplicate</span><span class="sep">·</span><kbd>⌫</kbd><span
+            >delete</span
+          ><span class="sep">·</span><kbd>Esc</kbd><span>discard</span>
         </span>
       {:else}
         <button class="btn md primary" disabled={busy} onclick={start}>Start<kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button>
@@ -894,7 +896,7 @@
     border: 0;
     outline: 0;
     padding: 0;
-    font: 0.923rem var(--font-mono);
+    font: 0.923rem/16px var(--font-mono);
     color: var(--tx-body);
     width: 150px;
     min-width: 0;
@@ -944,7 +946,8 @@
   }
   .fields {
     display: grid;
-    grid-template-columns: 74px minmax(0, 1fr);
+    /* Labels as wide as the widest (Directories), however the font sets it. */
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: 8px 10px;
     align-items: center;
   }
@@ -961,7 +964,9 @@
     align-self: start;
     padding-top: 6px;
   }
-  .md {
+  /* The changed-field dot. Not `.md`: that is the global button size, and Svelte scopes this rule to the
+     component, so the footer's `btn md` buttons took it (they became small green ovals). */
+  .chg {
     display: inline-block;
     width: 6px;
     height: 6px;
@@ -1000,7 +1005,7 @@
     border: 0;
     outline: none;
     padding: 0;
-    font: 0.9615rem var(--font-mono);
+    font: 0.9615rem/18px var(--font-mono);
     color: var(--tx-body);
   }
   .input select option {
@@ -1040,7 +1045,7 @@
     gap: 6px 10px;
     align-items: center;
     flex-wrap: wrap;
-    margin: -6px 0 0 84px;
+    margin-top: -4px;
     font: 0.846rem/1.6 var(--font-mono);
     color: var(--tx-muted-2);
     min-height: 18px;

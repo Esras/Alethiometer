@@ -158,7 +158,7 @@
     border: 0;
     outline: 0;
     padding: 0 6px;
-    font: 0.9615rem var(--font-mono);
+    font: 0.9615rem/18px var(--font-mono);
     color: var(--tx-body);
   }
   .dirs input::placeholder {
