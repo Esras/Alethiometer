@@ -208,9 +208,12 @@ pub fn parse_sandboxes(out: &str) -> Vec<Value> {
 
 /// Create the sandbox and upload the directory; returns where it landed
 /// inside: the sandbox's working directory, then the directory's own name
-/// (OpenShell keeps it, as `cp -r` does).
+/// (OpenShell keeps it, as `cp -r` does). The policy advisor is enabled so
+/// the agent can propose path-scoped network rules instead of only getting
+/// OpenShell's host:port drafts.
 pub fn create(command: &str, n: &NewSandbox) -> Result<String> {
     run(command, &create_args(n), CREATE)?;
+    enable_policy_advisor(command, &n.gateway, &n.name);
     let home = working_dir(command, &n.gateway, &n.name)?;
     let base = std::path::Path::new(n.upload.trim_end_matches('/'))
         .file_name()
@@ -245,6 +248,30 @@ fn working_dir(command: &str, gateway: &str, name: &str) -> Result<String> {
         .rfind(|l| l.starts_with('/'))
         .map(str::to_owned)
         .ok_or_else(|| msg("couldn't tell the sandbox's working directory"))
+}
+
+/// Enable the policy advisor on the sandbox so the agent can propose
+/// path-scoped network rules (method, path, protocol) instead of only getting
+/// OpenShell's automatic host:port drafts. Approval stays manual (the default).
+/// A failure here is logged but not fatal: the sandbox still works, just with
+/// coarser rules.
+fn enable_policy_advisor(command: &str, gateway: &str, name: &str) {
+    let mut a = gateway_flag(gateway);
+    a.extend(
+        [
+            "settings",
+            "set",
+            name,
+            "--key",
+            "agent_policy_proposals_enabled",
+            "--value",
+            "true",
+        ]
+        .map(String::from),
+    );
+    if let Err(e) = run(command, &a, QUICK) {
+        eprintln!("agents: couldn't enable the policy advisor on {name}: {e}");
+    }
 }
 
 /// Start the sandbox if it was stopped (a no-op when it's running), before the adapter is started in it again.
@@ -368,12 +395,18 @@ fn rule_request(session: &str, chunk: &str) -> String {
 
 /// A drafted rule as an approval in its session: Approve or Reject, nothing parsed or explained.
 pub fn rule_as_request(session: &str, sb: &Sandbox, cwd: &str, r: &Rule, at: &str) -> Request {
-    let what = if r.endpoints.is_empty() {
-        r.rule.clone()
-    } else {
+    // Show the full rule name/text (which carries path and method detail from
+    // agent proposals) as the primary line. The endpoints summary (host:port)
+    // goes into the message body as context.
+    let what = if r.rule.is_empty() {
         r.endpoints.clone()
+    } else {
+        r.rule.clone()
     };
     let mut message = vec![];
+    if !r.endpoints.is_empty() && !r.rule.is_empty() {
+        message.push(format!("endpoints: {}", r.endpoints));
+    }
     if !r.binary.is_empty() || !r.binaries.is_empty() {
         message.push(format!(
             "from {}",
@@ -968,8 +1001,12 @@ mod tests {
         let req = rule_as_request("acp-1", &sb, "/sandbox/app", &rules[1], "2026-10-08T05:40:00Z");
         assert_eq!(req.id, "osr:acp-1:c-7f2");
         assert_eq!(req.kind, "approval");
-        assert_eq!(req.command, "pypi.org:443 [L7 rest, GET /simple/**]");
+        // The rule name is the primary line; endpoints go into the message.
+        assert_eq!(req.command, "allow-pypi");
         assert_eq!(req.tag, "network · flagged");
+        assert!(req
+            .message
+            .contains("endpoints: pypi.org:443 [L7 rest, GET /simple/**]"));
         assert!(req.message.contains("security: grants a new host with credentials"));
         assert_eq!(
             req.options

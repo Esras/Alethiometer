@@ -119,6 +119,22 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 - **The tree behind the confirm** is dimmed by the modal's scrim, not drawn at 32% with the target still lit as in the mock.
 - **Archived search** is a substring scan (ASCII case-insensitive) over every archived row, run 150 ms after each keystroke. It's fine at hundreds of transcripts; past that it wants an FTS table.
 
+### Agents: OpenShell sessions support only one uploaded directory (found 2026-11-08)
+
+`NewSandbox.upload` is a single path; `sandbox create` is called with one `--upload`; the session model tracks one `cwd`; Bring Back's three-way sync records one base manifest. OpenShell itself supports `sandbox upload` as a separate command after creation, so additional directories could be uploaded into a running sandbox — Alethiometer just doesn't wire it up. Adding multi-directory support needs: a `Vec<Upload>` in the session/sandbox model (each with its local path and sandbox-side path), a way to call `sandbox upload` on a running session, per-directory base manifests in the sync, and a Bring Back UI that shows which changes are in which directory. The adapter runs in one working directory; the agent would `cd` between repos, or you'd pick a primary.
+
+### Agents: OpenShell new-session form needs a chip-based multi-select for directories (found 2026-11-08)
+
+The form's `cwd` field is a single text input. Replace it with a chip-based multi-select: typing a path and pressing Enter/Tab converts it to a chip (showing the directory basename, full path in a tooltip, × to remove); the field stays active for the next entry. A browse button opens the native directory picker and adds a chip. Works for single-directory sessions too (one chip) and extends naturally to the multi-upload feature above.
+
+### Agents: OpenShell network rules shown as host-level because the policy advisor is off (found 2026-11-08)
+
+OpenShell has two kinds of network proposals: its own automatic drafts (host:port only, always on) and agent proposals via the policy advisor (scoped to method, path, protocol — e.g. `PUT /repos/org/repo/contents/docs/**`). Alethiometer never enables the policy advisor: it doesn't pass `--approval-mode auto` at `sandbox create`, doesn't set `agent_policy_proposals_enabled` on the gateway or sandbox, and doesn't reference the `policy.local` API the advisor exposes inside the sandbox. So agents can't propose path-level rules and only OpenShell's coarse host:port drafts appear.
+
+On another system where the advisor is enabled, path-level rules appear as expected.
+
+Fix: enable `agent_policy_proposals_enabled` when creating a sandbox — always on, not a setting (user, 2026-11-08: local gateway, one machine, no multi-tenant concern; approval stays manual). Also review `rule_as_request` in `openshell.rs`, which prefers `r.endpoints` (the host:port summary) over `r.rule` (the full rule text with paths) when both are present — agent proposals would have richer `Rule` output that gets hidden. The `parse_rules` parser's fixed label set (`_ => {}` catch-all) may also drop fields that agent proposals add. Note: Miao has its own permission system; if Miao integration lands, its network rules won't go through OpenShell's advisor.
+
 ### Agents: unverified against real agents
 
 The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.

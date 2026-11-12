@@ -25,7 +25,7 @@ Slack and Gmail can only be tested with fixtures outside the user's Mac.
 
 **Also open:**
 
-- **Agents:** first real runs on the Mac (Claude Code via claude-agent-acp, Pi via pi-acp; Node 22+; `npm run agentd` builds the agent host, `npm run build:mac` bundles it), whether the work Mac's endpoint policy tolerates the long-lived agent host. Not built: group rename/delete, native ACP subagent sessions. Projects, per-project Unsorted, moving local sessions (`m`, drag) built 2026-10-09 (`app/docs/agents.md` › Tree); not yet tried in the real window.
+- **Agents:** first real runs on the Mac (Claude Code via claude-agent-acp, Pi via pi-acp; Node 22+; `npm run agentd` builds the agent host, `npm run build:mac` bundles it), whether the work Mac's endpoint policy tolerates the long-lived agent host. Not built: group rename/delete, native ACP subagent sessions, **multi-directory OpenShell sessions** (ISSUES.md, 2026-11-08: upload additional repos into a running sandbox; chip-based directory picker in the new-session form). Projects, per-project Unsorted, moving local sessions (`m`, drag) built 2026-10-09 (`app/docs/agents.md` › Tree); not yet tried in the real window.
 
 - **Miao client: not started.** Scion was removed 2026-11-07 (`app/docs/decisions.md`); Miao (`~/Programming/Miao`) replaces it as the remote agent source, polled over its HTTP API with Okta PKCE login. The model types and the remote-only paths it will feed are listed in `app/docs/agents.md` (top).
 
