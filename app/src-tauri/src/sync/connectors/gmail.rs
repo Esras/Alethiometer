@@ -553,16 +553,22 @@ fn tidy(s: &str) -> String {
     out.join("\n").trim().to_string()
 }
 
-/// Cut at the quoted reply ("On … wrote:", "> …", Outlook's original message).
+/// Cut at the quoted reply ("On … wrote:", Outlook's original message), then a trailing "> …" run.
 fn unquote(s: &str) -> String {
     let re = regex::Regex::new(
-        r"(?m)^>|^On [^\n]*(\n[^\n]*)?wrote:[ \t]*$|^-{2,} ?Original Message ?-{2,}|^From: [^\n]*\n(Sent|Date): ",
+        r"(?m)^On [^\n]*(\n[^\n]*)?wrote:[ \t]*$|^-{2,} ?Original Message ?-{2,}|^From: [^\n]*\n(Sent|Date): ",
     )
     .expect("static regex");
-    match re.find(s) {
-        Some(m) if !s[..m.start()].trim().is_empty() => s[..m.start()].trim().to_string(),
-        _ => s.to_string(),
-    }
+    let s = match re.find(s) {
+        Some(m) if !s[..m.start()].trim().is_empty() => &s[..m.start()],
+        _ => s,
+    };
+    let lines: Vec<&str> = s.lines().collect();
+    let end = lines
+        .iter()
+        .rposition(|l| !l.trim().is_empty() && !l.starts_with('>'))
+        .map_or(lines.len(), |i| i + 1);
+    lines[..end].join("\n").trim().to_string()
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -1046,6 +1052,20 @@ mod tests {
             "ravi@acme.com",
             "a person's own address stays theirs"
         );
+    }
+
+    #[test]
+    fn inline_replies_keep_the_quotes_they_answer() {
+        let inline = "Hi Support,\n\n> Update the department\nWe did, same issue.\n\n> Try SCIM\nNext week.\n\nThanks!\n\nOn Wed, Nov 4, 2026 at 12:14 PM Okta <s@okta.com> wrote:\n\n> Alan, thanks";
+        assert_eq!(
+            unquote(inline),
+            "Hi Support,\n\n> Update the department\nWe did, same issue.\n\n> Try SCIM\nNext week.\n\nThanks!"
+        );
+        assert_eq!(
+            unquote("See below:\n>>>\nPasted reply\n\n> old\n> older"),
+            "See below:\n>>>\nPasted reply"
+        );
+        assert_eq!(unquote("> only a quote"), "> only a quote");
     }
 
     #[test]
