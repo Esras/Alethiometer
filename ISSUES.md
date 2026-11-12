@@ -133,6 +133,10 @@ OpenShell has two kinds of network proposals: its own drafts (host:port only, al
 
 Approving a rule reloads the policy, and OpenShell closes every open connection, the model's own stream included (`L7 tunnel closed before inspection because policy changed`; an OpenShell bug to report). pi records it as `aborted`; the pi-acp fork now continues the turn (at most twice), with a "Connection dropped" notice.
 
+### Agents: a long OpenShell Pi session runs out of connections (found 2026-11-12; patched in the images)
+
+pi 1.4.0 makes a new Bedrock client for every model call (earendil-works/pi#11527), and with `AWS_BEDROCK_FORCE_HTTP1=1` each left a keep-alive connection open. OpenShell allows a sandbox 96 at once (NVIDIA/OpenShell#5486); past that, new connections wait silently and pi fails with `connect ETIMEDOUT` after 90 s, every call (`relay streams exhausted … limit=96` in `openshell logs`). Both sandbox images patch pi at build time (`sandbox/patches/pi-bedrock-no-keepalive.mjs`, which fails the build if pi's code changes): its HTTP/1 handler doesn't keep connections alive. Checked live: one connection open during a five-call turn. Drop the patch once #11527 is fixed.
+
 ### Agents: unverified against real agents
 
 The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.

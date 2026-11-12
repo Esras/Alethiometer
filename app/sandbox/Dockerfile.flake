@@ -6,7 +6,8 @@ RUN echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf \
 COPY . /src
 RUN nix profile add --profile /nix/var/nix/profiles/aleth --inputs-from /src \
       nixpkgs#bashInteractive nixpkgs#coreutils nixpkgs#gitMinimal nixpkgs#nodejs_22 nixpkgs#ripgrep nixpkgs#fd \
-      nixpkgs#gnugrep nixpkgs#gnused nixpkgs#findutils nixpkgs#curl nixpkgs#cacert
+      nixpkgs#gnugrep nixpkgs#gnused nixpkgs#findutils nixpkgs#curl nixpkgs#cacert \
+ && mkdir -p /usr/local/bin && cp -L /nix/var/nix/profiles/aleth/bin/node /usr/local/bin/node
 ENV PATH=/usr/local/bin:/nix/var/nix/profiles/aleth/bin:/nix/var/nix/profiles/default/bin \
     SSL_CERT_FILE=/nix/var/nix/profiles/aleth/etc/ssl/certs/ca-bundle.crt \
     PI_CODING_AGENT_DIR=/tmp/pi
@@ -16,6 +17,9 @@ RUN npm install -g --prefix /usr/local --ignore-scripts @earendil-works/pi-codin
  && git clone https://github.com/zboerner-qventus/pi-acp.git /tmp/pi-acp && cd /tmp/pi-acp \
  && git checkout 04f7c639d8f775c1a5cba7cb22433cab5bda12e8 && npm ci && npm install -g --prefix /usr/local "$(npm pack | tail -1)" \
  && cd / && rm -rf /tmp/pi-acp /root/.npm
+# PATCH, until earendil-works/pi#11527: each Bedrock call left a keep-alive connection open, and OpenShell allows 96.
+COPY .aleth-sandbox/pi-bedrock-no-keepalive.mjs /tmp/
+RUN node /tmp/pi-bedrock-no-keepalive.mjs /usr/local/lib/node_modules/@earendil-works/pi-coding-agent && rm /tmp/pi-bedrock-no-keepalive.mjs
 COPY .aleth-sandbox/policy_advisor.md /usr/local/share/openshell/policy_advisor.md
 RUN mkdir -p /tmp/pi \
  && printf '%s\n' '# OpenShell Sandbox Guidance' '' 'When you see `policy_denied`, do not treat it as final if the user task still needs that request. Read `/usr/local/share/openshell/policy_advisor.md` and use `http://policy.local` to submit the narrowest policy proposal, then wait for approval before retrying.' > /tmp/pi/AGENTS.md \
