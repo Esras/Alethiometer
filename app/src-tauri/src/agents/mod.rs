@@ -15,7 +15,6 @@ pub mod archive;
 pub mod daemon;
 pub mod explain;
 pub mod facts;
-pub mod guess;
 pub mod incoming;
 pub use crate::domain::agents::model;
 pub mod openshell;
@@ -219,146 +218,90 @@ fn session_of(app: &App, id: &str) -> Result<Session> {
         .ok_or_else(|| msg(format!("no agent session '{id}'")))
 }
 
-/// Where a local session's project is looked up: the folder uploaded into its sandbox, else its directory.
-fn local_folder(s: &Session) -> &str {
+/// The folders a local session works in, on this machine when it has them: what was uploaded into its
+/// sandbox (the first, then the more directories), else its directory and its more directories.
+pub(crate) fn local_folders(s: &Session) -> Vec<String> {
     match &s.sandbox {
-        Some(b) if !b.upload.is_empty() => &b.upload,
-        _ => &s.cwd,
+        Some(b) if !b.upload.is_empty() => std::iter::once(b.upload.clone())
+            .chain(b.extra.iter().map(|u| u.local.clone()))
+            .collect(),
+        _ => std::iter::once(s.cwd.clone()).chain(s.dirs.iter().cloned()).collect(),
     }
 }
 
-/// Check a local session of `project_dir` can go in `group`; a group with no project yet takes this one.
-pub(crate) fn claim_group(i: &mut store::Inner, group: &str, project_dir: &str) -> Result<()> {
-    let mut g = i.groups.get(group).cloned().ok_or_else(|| msg("no such group"))?;
-    if g.project_dir.is_empty() {
-        g.project = facts::project_name(project_dir);
-        g.project_dir = project_dir.to_owned();
-        i.put_group(g);
-    } else if g.project_dir != project_dir {
-        return Err(msg(format!(
-            "{} is in {}, not {}",
-            g.name,
-            g.project,
-            facts::project_name(project_dir)
-        )));
+/// The set of repos `folders` are in (`facts::project_dir`), in their order, without repeats. Runs git.
+pub(crate) fn repos_of<'a>(folders: impl IntoIterator<Item = &'a String>) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for f in folders.into_iter().filter(|f| !f.is_empty()) {
+        let d = facts::project_dir(f);
+        if !out.contains(&d) {
+            out.push(d);
+        }
     }
-    Ok(())
+    out
 }
 
-/// File a top-level local session (and its subagents) under a group of its project, or `None` for Unsorted.
-fn move_session(
-    agents: &store::Store,
-    db: &crate::store::Db,
-    palette: usize,
-    id: &str,
-    group: Option<String>,
-) -> Result<()> {
-    let s = agents
-        .lock()
-        .sessions
-        .get(id)
-        .cloned()
-        .ok_or_else(|| msg(format!("no agent session '{id}'")))?;
-    if s.parent_id.is_some() {
-        return Err(msg("A subagent moves with its parent"));
-    }
-    if let Some(g) = &group {
-        claim_group(&mut agents.lock(), g, &s.project_dir)?;
-    }
-    let color = store::color_for(db, group.as_deref().unwrap_or("unsorted"), id, palette)?;
-    let mut i = agents.lock();
-    let mut ids = vec![id.to_owned()];
-    let mut k = 0;
-    while k < ids.len() {
-        let parent = ids[k].clone();
-        ids.extend(
-            i.sessions
-                .values()
-                .filter(|c| c.parent_id.as_deref() == Some(&parent))
-                .map(|c| c.id.clone()),
-        );
-        k += 1;
-    }
-    for sid in &ids {
-        i.update_session(sid, |x| {
-            x.group_id = group.clone();
-            x.guess = None;
-            if x.id == id {
-                x.color = color;
-            }
-        });
-    }
-    Ok(())
+/// One key per set of repos, whatever their order: the tree heading, and the scope agent colours are unique in.
+pub(crate) fn repo_set_key(repos: &[String]) -> String {
+    let mut r: Vec<&str> = repos.iter().map(String::as_str).collect();
+    r.sort_unstable();
+    r.dedup();
+    r.join("\n")
 }
 
-/// Give sessions and groups stored before projects existed their project; git runs outside the store's lock.
+/// At startup: local groups are gone (user, 2026-11-12), so their sessions go to their repos; and sessions
+/// stored before repo sets get theirs. Git runs outside the store's lock.
 fn settle_projects(agents: &store::Store) {
     let folders: std::collections::BTreeSet<String> = agents
         .lock()
         .sessions
         .values()
-        .filter(|s| s.source == "acp" && s.project_dir.is_empty() && !s.cwd.is_empty())
-        .map(|s| local_folder(s).to_owned())
+        .filter(|s| s.source == "acp" && s.repos.is_empty() && !s.cwd.is_empty())
+        .flat_map(local_folders)
+        .filter(|f| !f.is_empty())
         .collect();
     let dirs = folders
         .into_iter()
-        .map(|f| (f.clone(), facts::project_dir(&f)))
+        .map(|f| {
+            let d = facts::project_dir(&f);
+            (f, d)
+        })
         .collect();
     assign_projects(&mut agents.lock(), &dirs);
 }
 
-/// Fill in projects (`dirs`: folder to project folder); groups follow their sessions, misfits go to Unsorted.
+/// Drop every local group (their sessions are then listed by repo set) and fill in each local session's
+/// project and repos from `dirs` (folder to project folder).
 fn assign_projects(i: &mut store::Inner, dirs: &std::collections::HashMap<String, String>) {
+    let local: Vec<String> = i
+        .groups
+        .values()
+        .filter(|g| g.source == "acp")
+        .map(|g| g.id.clone())
+        .collect();
+    for id in &local {
+        i.remove_group(id);
+    }
     let ids: Vec<String> = i.sessions.keys().cloned().collect();
     for id in &ids {
         i.update_session(id, |s| {
-            if s.source != "acp" || !s.project_dir.is_empty() {
+            if s.source != "acp" || !s.repos.is_empty() {
                 return;
             }
-            if let Some(d) = dirs.get(local_folder(s)) {
-                s.project = facts::project_name(d);
-                s.project_dir = d.clone();
+            let mut repos: Vec<String> = vec![];
+            for f in local_folders(s) {
+                if let Some(d) = dirs.get(&f) {
+                    if !repos.contains(d) {
+                        repos.push(d.clone());
+                    }
+                }
             }
-        });
-    }
-    let empty: Vec<Group> = i
-        .groups
-        .values()
-        .filter(|g| g.source == "acp" && g.project_dir.is_empty())
-        .cloned()
-        .collect();
-    for mut g in empty {
-        let mut n = std::collections::BTreeMap::<&str, usize>::new();
-        for s in i.sessions.values() {
-            if s.parent_id.is_none() && s.group_id.as_deref() == Some(&g.id) && !s.project_dir.is_empty() {
-                *n.entry(&s.project_dir).or_default() += 1;
+            let Some(first) = repos.first() else { return };
+            if s.project_dir.is_empty() {
+                s.project = facts::project_name(first);
+                s.project_dir = first.clone();
             }
-        }
-        let Some(dir) = n
-            .iter()
-            .max_by_key(|(d, c)| (**c, std::cmp::Reverse(**d)))
-            .map(|(d, _)| d.to_string())
-        else {
-            continue;
-        };
-        g.project = facts::project_name(&dir);
-        g.project_dir = dir;
-        i.put_group(g);
-    }
-    let misfits: Vec<String> = i
-        .sessions
-        .values()
-        .filter(|s| s.source == "acp" && s.parent_id.is_none() && !s.project_dir.is_empty())
-        .filter(|s| {
-            let g = s.group_id.as_ref().and_then(|g| i.groups.get(g));
-            g.is_some_and(|g| g.source == "acp" && !g.project_dir.is_empty() && g.project_dir != s.project_dir)
-        })
-        .map(|s| s.id.clone())
-        .collect();
-    for id in &misfits {
-        i.update_session(id, |s| {
-            s.group_id = None;
-            s.guess = None;
+            s.repos = repos;
         });
     }
 }
@@ -458,7 +401,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
                     harness: arg_str(args, "harness")?,
                     cwd: arg_str(args, "cwd")?,
                     name: opt(args, "name").map(str::to_owned),
-                    group_id: opt(args, "group").map(str::to_owned),
                     task: opt(args, "task").unwrap_or("").to_owned(),
                     model: opt(args, "model").map(str::to_owned),
                     thinking: opt(args, "thinking").map(str::to_owned),
@@ -518,66 +460,56 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "archived" => archive::search(app, args.get("q").and_then(Value::as_str).unwrap_or("")),
         "archived_open" => archive::open(app, &arg_str(args, "id")?),
-        "group_create" => {
-            let name = arg_str(args, "name")?;
-            let session = opt(args, "session").map(|id| session_of(app, id)).transpose()?;
-            let project_dir = match &session {
-                Some(s) => s.project_dir.clone(),
-                None => facts::project_dir(&acp::expand_home(&arg_str(args, "cwd")?)),
-            };
-            let id = format!("local:{}", next_local_id(app));
-            app.agents.store.lock().put_group(Group {
-                id: id.clone(),
-                source: "acp".into(),
-                project: facts::project_name(&project_dir),
-                project_dir,
-                name: name.trim().into(),
-                goal: opt(args, "goal").unwrap_or("").trim().into(),
-                host: acp::host_label(),
-                room: None,
-                created_at: now(app),
-            });
-            if let Some(s) = session {
-                let palette = app.settings().agents.names.palette.len();
-                move_session(&app.agents.store, app.store(), palette, &s.id, Some(id.clone()))?;
-            }
-            Ok(json!({ "id": id }))
-        }
         "project_of" => {
             let dir = facts::project_dir(&acp::expand_home(&arg_str(args, "cwd")?));
             Ok(json!({ "project": facts::project_name(&dir), "project_dir": dir }))
         }
-        "group_update" => {
-            let id = arg_str(args, "group")?;
-            let mut i = app.agents.store.lock();
-            let mut g = i.groups.get(&id).cloned().ok_or_else(|| msg("no such group"))?;
-            if let Some(n) = opt(args, "name") {
-                g.name = n.trim().into();
+        // The New agent form's Directories: whether each is there, and the repo it's in (for the top line).
+        "dir_info" => {
+            let dirs: Vec<String> = args
+                .get("dirs")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            Ok(json!(dirs
+                .iter()
+                .map(|d| {
+                    let path = acp::expand_home(d.trim());
+                    let exists = std::path::Path::new(&path).is_dir();
+                    let repo = if exists {
+                        facts::project_dir(&path)
+                    } else {
+                        String::new()
+                    };
+                    json!({
+                        "dir": d,
+                        "exists": exists,
+                        "name": openshell::dir_name(&path),
+                        "project": if exists { facts::project_name(&repo) } else { String::new() },
+                        "project_dir": repo,
+                    })
+                })
+                .collect::<Vec<_>>()))
+        }
+        // Replace the saved agents (the New agent form's list) in settings.json.
+        "saved" => Ok(json!(app.settings().agents.saved)),
+        "saved_set" => {
+            let saved = args
+                .get("saved")
+                .filter(|v| v.is_array())
+                .cloned()
+                .ok_or_else(|| msg("saved: a list"))?;
+            let list: Vec<crate::settings::SavedAgent> = serde_json::from_value(saved.clone())?;
+            if let Some(a) = list.iter().find(|a| a.name.trim().is_empty()) {
+                return Err(msg(format!("A saved agent needs a name ({} has none)", a.harness)));
             }
-            if let Some(goal) = args.get("goal").and_then(Value::as_str) {
-                g.goal = goal.trim().into();
-            }
-            i.put_group(g);
-            Ok(json!({ "ok": true }))
-        }
-        "group_delete" => {
-            app.agents.store.lock().remove_group(&arg_str(args, "group")?);
-            Ok(json!({ "ok": true }))
-        }
-        // File a local session under a group (or back to Unsorted).
-        "move" => {
-            let palette = app.settings().agents.names.palette.len();
-            let (id, group) = (arg_str(args, "session")?, opt(args, "group").map(str::to_owned));
-            move_session(&app.agents.store, app.store(), palette, &id, group)?;
-            Ok(json!({ "ok": true }))
-        }
-        "guess_dismiss" => {
-            let id = arg_str(args, "session")?;
-            app.agents.store.lock().update_session(&id, |s| {
-                if let Some(g) = &mut s.guess {
-                    g.group_id.clear();
-                }
-            });
+            crate::settings::live::patch(
+                app,
+                &[crate::settings::live::Edit::Set(
+                    vec!["agents".into(), "saved".into()],
+                    saved,
+                )],
+            )?;
             Ok(json!({ "ok": true }))
         }
         "explain" => {
@@ -627,7 +559,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             opt(args, "gateway").unwrap_or(""),
         ),
         "models" => acp::models(app, &arg_str(args, "harness")?, opt(args, "cwd").unwrap_or("")),
-        "dirs" => Ok(json!({ "dirs": acp::recent_dirs(app) })),
+        "dirs" => {
+            let r = acp::recent_dirs(app);
+            Ok(json!({
+                "dirs": r.iter().map(|(d, _)| d).collect::<Vec<_>>(),
+                "recent": r.iter().map(|(d, at)| json!({ "dir": d, "at": at })).collect::<Vec<_>>(),
+            }))
+        }
         // Stop every local agent (Quit no longer does).
         "stop_all" => Ok(json!({ "stopped": acp::stop_all(app) })),
         // Restart the agent host on the newest build (stops every local agent).
@@ -640,63 +578,92 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
     }
 }
 
-fn next_local_id(app: &App) -> u64 {
-    next_id(&app.agents.store.lock())
-}
-
-fn next_id(i: &store::Inner) -> u64 {
-    i.groups
-        .keys()
-        .chain(i.archived.iter())
-        .filter_map(|k| k.strip_prefix("local:")?.parse::<u64>().ok())
-        .max()
-        .unwrap_or(0)
-        + 1
-}
-
 #[cfg(test)]
-mod next_id_tests {
-    #[test]
-    fn archived_ids_are_not_reused() {
-        let mut i = super::store::Inner::default();
-        i.archived.insert("local:5".into());
-        assert_eq!(super::next_id(&i), 6);
-    }
+mod project_tests {
+    use super::model::{Group, Sandbox, Session, Upload};
 
     #[test]
-    fn old_groups_take_their_sessions_project_and_misfits_go_to_unsorted() {
-        use super::model::{Group, Session};
+    fn local_groups_are_dropped_and_their_sessions_listed_by_repo_set() {
         let mut i = super::store::Inner::default();
-        i.put_group(Group {
-            id: "local:1".into(),
-            source: "acp".into(),
-            project: "jolly".into(),
-            ..Default::default()
-        });
-        let s = |id: &str, cwd: &str| Session {
+        for (id, source) in [("local:1", "acp"), ("miao:c1", "miao")] {
+            i.put_group(Group {
+                id: id.into(),
+                source: source.into(),
+                ..Default::default()
+            });
+        }
+        let s = |id: &str, cwd: &str, dirs: &[&str]| Session {
             id: id.into(),
             source: "acp".into(),
             group_id: Some("local:1".into()),
             cwd: cwd.into(),
+            dirs: dirs.iter().map(|d| d.to_string()).collect(),
             ..Default::default()
         };
-        i.put_session(s("acp-1", "/r/aleth/.claude/worktrees/jolly"));
-        i.put_session(s("acp-2", "/r/aleth/app"));
-        i.put_session(s("acp-3", "/r/k8s"));
+        i.put_session(s("acp-1", "/r/aleth/.claude/worktrees/jolly", &[]));
+        i.put_session(s("acp-2", "/r/aleth/app", &["/r/pi-acp", "/r/aleth/core"]));
+        i.put_session(Session {
+            sandbox: Some(Sandbox {
+                upload: "/r/k8s".into(),
+                extra: vec![Upload {
+                    local: "/r/aleth".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..s("acp-3", "/sandbox/k8s", &[])
+        });
         let dirs = [
             ("/r/aleth/.claude/worktrees/jolly", "/r/aleth"),
             ("/r/aleth/app", "/r/aleth"),
+            ("/r/aleth/core", "/r/aleth"),
+            ("/r/aleth", "/r/aleth"),
+            ("/r/pi-acp", "/r/pi-acp"),
             ("/r/k8s", "/r/k8s"),
         ]
         .into_iter()
         .map(|(a, b)| (a.to_owned(), b.to_owned()))
         .collect();
         super::assign_projects(&mut i, &dirs);
-        let g = &i.groups["local:1"];
-        assert_eq!((g.project.as_str(), g.project_dir.as_str()), ("aleth", "/r/aleth"));
-        assert_eq!(i.sessions["acp-1"].group_id.as_deref(), Some("local:1"));
+        assert!(!i.groups.contains_key("local:1"));
+        assert!(i.groups.contains_key("miao:c1"), "a remote group stays");
+        assert!(i.sessions.values().all(|s| s.group_id.is_none()));
+        assert_eq!(i.sessions["acp-1"].repos, ["/r/aleth"]);
+        assert_eq!(i.sessions["acp-2"].repos, ["/r/aleth", "/r/pi-acp"]);
         assert_eq!(i.sessions["acp-2"].project, "aleth");
-        assert_eq!(i.sessions["acp-3"].group_id, None);
+        assert_eq!(i.sessions["acp-3"].repos, ["/r/k8s", "/r/aleth"]);
         assert_eq!(i.sessions["acp-3"].project_dir, "/r/k8s");
+    }
+
+    #[test]
+    fn a_repo_set_is_the_same_set_in_any_order() {
+        let k = |r: &[&str]| super::repo_set_key(&r.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(k(&["/r/b", "/r/a"]), k(&["/r/a", "/r/b"]));
+        assert_ne!(k(&["/r/a"]), k(&["/r/a", "/r/b"]));
+    }
+}
+
+#[cfg(test)]
+mod saved_tests {
+    use serde_json::json;
+
+    #[test]
+    fn saved_agents_are_kept_in_settings_json_in_their_order() {
+        let (app, dir) = crate::ai::context::tests::app();
+        std::fs::write(dir.path().join("settings.json"), "{}").unwrap();
+        let list = json!([
+            { "name": "Sandbox Pi", "runs": "openshell", "harness": "pi", "dirs": ["~/src/a", "~/src/b"] },
+            { "name": "Reviewer", "runs": "local", "harness": "claude", "task": "Review the diff." },
+        ]);
+        super::call(&app, "saved_set", &json!({ "saved": list })).unwrap();
+        let back = super::call(&app, "saved", &json!({})).unwrap();
+        assert_eq!(back[0]["name"], "Sandbox Pi");
+        assert_eq!(back[0]["dirs"], json!(["~/src/a", "~/src/b"]));
+        assert_eq!(back[1]["task"], "Review the diff.");
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap()).unwrap();
+        assert_eq!(file["agents"]["saved"][1]["name"], "Reviewer");
+        let unnamed = json!({ "saved": [{ "name": " ", "harness": "pi" }] });
+        assert!(super::call(&app, "saved_set", &unnamed).is_err());
     }
 }

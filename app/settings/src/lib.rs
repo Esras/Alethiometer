@@ -313,6 +313,34 @@ pub struct AgentsSettings {
     pub colors: AgentColors,
     pub names: AgentNames,
     pub boxes: AgentBoxes,
+    /// The New agent form's saved agents, in the user's order (⌘1–9 picks the first nine).
+    /// Edited in the form (⌘,), not in Settings.
+    #[schemars(extend("x-hidden" = true))]
+    pub saved: Vec<SavedAgent>,
+}
+
+/// A saved agent: the New agent form's fields, filled in when it's picked. An empty field takes its
+/// value from wherever New agent is opened (`dirs`: the repo it's opened from; `task`: typed each time)
+/// or from the harness (`model`, `thinking`, `image`: its defaults).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[serde(default)]
+pub struct SavedAgent {
+    /// The name in the list.
+    pub name: String,
+    /// `local` or `openshell`.
+    pub runs: String,
+    /// An existing sandbox's name; empty makes a new one (OpenShell only).
+    pub sandbox: String,
+    /// A harness key (`agents.harnesses[].key`).
+    pub harness: String,
+    pub model: String,
+    pub thinking: String,
+    /// A new sandbox's image; empty is the harness's `openshell.from`.
+    pub image: String,
+    pub dirs: Vec<String>,
+    pub task: String,
+    /// The session's name; empty is `<harness>-<4 hex>`.
+    pub agent_name: String,
 }
 
 /// A local agent launched over ACP (stdio). `command` is looked up on the login shell's PATH.
@@ -468,6 +496,7 @@ impl Default for AgentsSettings {
             colors: AgentColors::default(),
             names: AgentNames::default(),
             boxes: AgentBoxes::default(),
+            saved: vec![],
         }
     }
 }
