@@ -29,12 +29,6 @@ fn the_real_configs_validate() {
     validate("obsidian", &json!({ "vault": "/v", "write_mode": "file" })).unwrap();
     validate("protoncal", &json!({ "urls": ["https://calendar.proton.me/x"] })).unwrap();
     validate("glean", &json!({ "server_url": "https://acme-be.glean.com" })).unwrap();
-    validate(
-        "scion",
-        &json!({ "hub_url": "https://hub.example.com", "projects": ["ingest-svc"] }),
-    )
-    .unwrap();
-    assert!(validate("scion", &json!({ "hub_url": "http://hub" })).is_err());
     validate("slack", &json!({ "someday_key": 1 })).expect("unknown keys are allowed");
     let e = validate("slack", &json!({ "lookback_hours": "lots" }))
         .unwrap_err()

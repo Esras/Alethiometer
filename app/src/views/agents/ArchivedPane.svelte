@@ -19,7 +19,7 @@
   const title = $derived(isGroup ? d.goal || `#${d.room?.name ?? d.name}` : d.title || d.name || '');
   const where = $derived(
     isGroup
-      ? [d.room ? `${d.room.hub || 'Scion Hub'} · project ${d.project}` : d.project, d.room ? 'group thread' : 'group']
+      ? [d.room ? `${d.room.hub || it.source} · project ${d.project}` : d.project, d.room ? 'group thread' : 'group']
           .filter(Boolean)
           .join(' · ')
       : (d.context ?? ''),
@@ -35,7 +35,7 @@
         ],
   );
   const kept = $derived(
-    `${it.source === 'scion' ? 'Agents deleted on the Hub. ' : ''}${a.kept.messages} message${a.kept.messages === 1 ? '' : 's'} and ${a.kept.transcripts} transcript${a.kept.transcripts === 1 ? '' : 's'} kept.`,
+    `${a.kept.messages} message${a.kept.messages === 1 ? '' : 's'} and ${a.kept.transcripts} transcript${a.kept.transcripts === 1 ? '' : 's'} kept.`,
   );
 
   let stream = $state<HTMLDivElement>();

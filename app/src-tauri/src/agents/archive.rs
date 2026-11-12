@@ -9,7 +9,6 @@ use crate::time::Ts;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-pub const DELETE_OP: &str = "scion.delete_agent";
 const NUDGE_SNOOZE_DAYS: i64 = 7;
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -27,8 +26,7 @@ pub struct Plan {
     pub reasons: Vec<Reason>,
     /// Blocked: how many members are still going.
     pub going: usize,
-    /// Hub agents deleted, local sessions stopped, OpenShell sandboxes deleted.
-    pub hub: usize,
+    /// Local sessions stopped, OpenShell sandboxes deleted.
     pub local: usize,
     pub sandboxes: usize,
     #[serde(skip)]
@@ -180,7 +178,6 @@ pub fn plan(i: &Inner, target: &str) -> Result<Plan> {
         rows,
         reasons,
         going,
-        hub: archived.iter().filter(|s| s.source == "scion").count(),
         local: archived.iter().filter(|s| s.source == "acp").count(),
         sandboxes: doomed.len(),
         doomed,
@@ -231,11 +228,11 @@ fn doomed(i: &Inner, archived: &[&Session]) -> Vec<Sandbox> {
     out
 }
 
-/// Why stopped Scion agents aren't done, and sandboxed work that hasn't been
+/// Why stopped remote agents aren't done, and sandboxed work that hasn't been
 /// brought back (its sandbox goes); other local sessions lose nothing and
 /// have no reliable "done" yet (ISSUES.md).
 fn not_done(sessions: &[&Session]) -> Vec<Reason> {
-    let scion: Vec<&&Session> = sessions.iter().filter(|s| s.source == "scion").collect();
+    let remote: Vec<&&Session> = sessions.iter().filter(|s| s.source != "acp").collect();
     let mut out = vec![];
     for s in sessions.iter().filter(|s| s.parent_id.is_none()) {
         if let Some(sb) = s
@@ -255,7 +252,7 @@ fn not_done(sessions: &[&Session]) -> Vec<Reason> {
             });
         }
     }
-    for s in &scion {
+    for s in &remote {
         if let Some(n) = s
             .facts
             .branch
@@ -271,7 +268,7 @@ fn not_done(sessions: &[&Session]) -> Vec<Reason> {
         }
     }
     let mut seen = std::collections::HashSet::new();
-    for s in &scion {
+    for s in &remote {
         if let Some(p) = s
             .facts
             .pr
@@ -284,7 +281,7 @@ fn not_done(sessions: &[&Session]) -> Vec<Reason> {
             });
         }
     }
-    for s in &scion {
+    for s in &remote {
         if let Some(t) = s
             .facts
             .ticket
@@ -302,7 +299,7 @@ fn not_done(sessions: &[&Session]) -> Vec<Reason> {
             });
         }
     }
-    for s in &scion {
+    for s in &remote {
         match s.status {
             Status::Failed => out.push(Reason {
                 text: format!("{} failed", s.name),
@@ -345,7 +342,7 @@ pub fn archive(app: &App, target: &str, force: bool) -> Result<Value> {
     let cli = app.settings().agents.openshell.command.clone();
     app.agents
         .store
-        .archive(app.store(), &groups, &p.sessions, app.clock.now(), |uow, items| {
+        .archive(app.store(), &groups, &p.sessions, app.clock.now(), |uow, _| {
             if !p.doomed.is_empty() {
                 let source = super::incoming::source_id(uow)?;
                 for sb in &p.doomed {
@@ -358,35 +355,21 @@ pub fn archive(app: &App, target: &str, force: bool) -> Result<Value> {
                     )?;
                 }
             }
-            for a in items.iter().filter(|a| a.kind == "session" && a.source == "scion") {
-                let s: Session = serde_json::from_str(&a.data).map_err(|e| msg(e.to_string()))?;
-                let hub =
-                    a.id.strip_prefix("scion:")
-                        .and_then(|r| r.split_once(':'))
-                        .map(|(h, _)| h)
-                        .unwrap_or_default();
-                let source = uow
-                    .reads()
-                    .sources()
-                    .find("scion", hub)?
-                    .ok_or_else(|| msg(format!("Scion Hub '{hub}' isn't a source any more")))?;
-                crate::outbox::request(uow, source, DELETE_OP, &json!({ "agent": s.ext, "name": s.name }), None)?;
-            }
             Ok(())
         })?;
-    if p.hub > 0 || p.sandboxes > 0 {
+    if p.sandboxes > 0 {
         crate::outbox::wake();
     }
-    Ok(json!({ "ok": true, "hub": p.hub, "local": p.local, "sandboxes": p.sandboxes }))
+    Ok(json!({ "ok": true, "local": p.local, "sandboxes": p.sandboxes }))
 }
 
 fn agents(n: usize) -> String {
     format!("{n} agent{}", if n == 1 { "" } else { "s" })
 }
 
-/// The done nudge (01): a Scion group whose sessions all completed and whose PR merged (or ticket is Done).
+/// The done nudge (01): a remote group whose sessions all completed and whose PR merged (or ticket is Done).
 pub fn nudge(i: &Inner, g: &Group, now: Ts) -> Option<String> {
-    if g.source != "scion" || i.snoozed.get(&g.id).is_some_and(|until| *until > now) {
+    if g.source == "acp" || i.snoozed.get(&g.id).is_some_and(|until| *until > now) {
         return None;
     }
     let members: Vec<&Session> = i
@@ -420,17 +403,14 @@ pub fn snooze(app: &App, group: &str) -> Result<()> {
     Ok(())
 }
 
-/// Count the failed deletes (Hub agents, sandboxes) again (after a send, and at startup).
+/// Count the failed sandbox deletes again (after a send, and at startup).
 pub fn refresh_failed(app: &App) {
-    let Ok(n) = app
-        .store()
-        .read(|r| Ok(r.outbox().failed(DELETE_OP)? + r.outbox().failed(super::openshell::DELETE_OP)?))
-    else {
+    let Ok(n) = app.store().read(|r| r.outbox().failed(super::openshell::DELETE_OP)) else {
         return;
     };
     let mut i = app.agents.store.lock();
-    if i.hub_failed != n {
-        i.hub_failed = n;
+    if i.deletes_failed != n {
+        i.deletes_failed = n;
         i.touch_tree();
     }
 }
@@ -557,7 +537,7 @@ mod tests {
     use crate::agents::model::{Fact, Facts, Room};
 
     fn session(id: &str, group: &str, status: Status) -> Session {
-        let source = if id.starts_with("acp-") { "acp" } else { "scion" };
+        let source = if id.starts_with("acp-") { "acp" } else { "remote" };
         let at = "2026-10-03T09:00:00.000Z".to_owned();
         Session {
             id: id.into(),
@@ -573,7 +553,7 @@ mod tests {
 
     fn inner() -> Inner {
         let mut i = Inner::default();
-        let g = "scion:h:p:c1";
+        let g = "remote:c1";
         let room = Room {
             id: "c1".into(),
             name: "webhooks".into(),
@@ -581,23 +561,23 @@ mod tests {
         };
         i.put_group(Group {
             id: g.into(),
-            source: "scion".into(),
+            source: "remote".into(),
             project: "ingest-svc".into(),
             name: "Webhooks".into(),
             room: Some(room),
             ..Default::default()
         });
-        i.put_session(session("scion:h:planner", g, Status::Running));
-        i.put_session(session("scion:h:schema-diff", g, Status::Done));
+        i.put_session(session("remote:planner", g, Status::Running));
+        i.put_session(session("remote:schema-diff", g, Status::Done));
         i
     }
 
     #[test]
     fn a_done_session_archives_alone_and_the_group_stays() {
         let i = inner();
-        let p = plan(&i, "s:scion:h:schema-diff").unwrap();
-        assert_eq!((p.state, p.kind, p.hub), ("ok", "session", 1));
-        assert_eq!(p.sessions, vec!["scion:h:schema-diff"]);
+        let p = plan(&i, "s:remote:schema-diff").unwrap();
+        assert_eq!((p.state, p.kind, p.local), ("ok", "session", 0));
+        assert_eq!(p.sessions, vec!["remote:schema-diff"]);
         assert_eq!(p.group, None);
         let tags: Vec<(&str, &str)> = p.rows.iter().map(|r| (r.name.as_str(), r.tag)).collect();
         assert_eq!(
@@ -614,7 +594,7 @@ mod tests {
     #[test]
     fn a_group_with_a_member_running_cant_be_archived() {
         let i = inner();
-        for target in ["g:scion:h:p:c1", "r:c1"] {
+        for target in ["g:remote:c1", "r:c1"] {
             let p = plan(&i, target).unwrap();
             assert_eq!((p.state, p.going), ("blocked", 1), "{target}");
             let tags: Vec<&str> = p.rows.iter().map(|r| r.tag).collect();
@@ -623,9 +603,9 @@ mod tests {
     }
 
     #[test]
-    fn a_stopped_scion_group_lists_why_it_isnt_done() {
+    fn a_stopped_remote_group_lists_why_it_isnt_done() {
         let mut i = inner();
-        i.update_session("scion:h:planner", |s| {
+        i.update_session("remote:planner", |s| {
             s.status = Status::Done;
             s.facts = Facts {
                 branch: Some(Fact {
@@ -645,8 +625,8 @@ mod tests {
                 ..Default::default()
             };
         });
-        i.update_session("scion:h:schema-diff", |s| s.status = Status::Failed);
-        let p = plan(&i, "g:scion:h:p:c1").unwrap();
+        i.update_session("remote:schema-diff", |s| s.status = Status::Failed);
+        let p = plan(&i, "g:remote:c1").unwrap();
         assert_eq!(p.state, "not_done");
         let why: Vec<&str> = p.reasons.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(
@@ -658,7 +638,7 @@ mod tests {
                 "schema-diff failed"
             ]
         );
-        assert_eq!(p.group.as_deref(), Some("scion:h:p:c1"));
+        assert_eq!(p.group.as_deref(), Some("remote:c1"));
         assert_eq!(p.sessions.len(), 2);
     }
 
@@ -678,12 +658,12 @@ mod tests {
     #[test]
     fn the_nudge_needs_every_session_completed_and_the_pr_merged() {
         let mut i = inner();
-        let g = i.groups["scion:h:p:c1"].clone();
+        let g = i.groups["remote:c1"].clone();
         let now = crate::time::t("2026-10-03T12:00:00");
         assert_eq!(nudge(&i, &g, now), None);
-        i.update_session("scion:h:planner", |s| s.status = Status::Done);
+        i.update_session("remote:planner", |s| s.status = Status::Done);
         assert_eq!(nudge(&i, &g, now), None, "no PR or ticket says it's done");
-        i.update_session("scion:h:planner", |s| {
+        i.update_session("remote:planner", |s| {
             s.facts.pr = Some(Fact {
                 label: "#208".into(),
                 detail: "merged".into(),
@@ -720,23 +700,17 @@ mod tests {
             dir.path(),
         )
         .unwrap();
-        let cfg = json!({ "hub_url": "http://hub.test", "token_secret": "scion.token" }).to_string();
-        app.store()
-            .write(|uow| uow.sources().register("scion", "h", "work", &cfg, true))
-            .unwrap();
-        app.platform.secret_set("scion.token", "scion_pat_test").unwrap();
         (app, dir)
     }
 
     #[test]
-    fn archiving_a_scion_session_keeps_its_thread_and_deletes_it_on_the_hub() {
+    fn archiving_a_session_keeps_its_thread_and_it_doesnt_come_back() {
         let (app, _d) = app();
         {
             let mut i = app.agents.store.lock();
             *i = inner();
-            i.update_session("scion:h:schema-diff", |s| s.ext = "a-77".into());
             i.set_rows(
-                "s:scion:h:schema-diff",
+                "s:remote:schema-diff",
                 vec![Row {
                     ext: "m1".into(),
                     text: "Three deliveries reached us only after a retry.".into(),
@@ -744,66 +718,26 @@ mod tests {
                 }],
             );
         }
-        archive(&app, "s:scion:h:schema-diff", false).unwrap();
+        archive(&app, "s:remote:schema-diff", false).unwrap();
         {
             let mut i = app.agents.store.lock();
-            assert!(!i.sessions.contains_key("scion:h:schema-diff"));
-            assert!(i.sessions.contains_key("scion:h:planner"), "the group stays");
-            i.put_session(session("scion:h:schema-diff", "scion:h:p:c1", Status::Done));
+            assert!(!i.sessions.contains_key("remote:schema-diff"));
+            assert!(i.sessions.contains_key("remote:planner"), "the group stays");
+            i.put_session(session("remote:schema-diff", "remote:c1", Status::Done));
             assert!(
-                !i.sessions.contains_key("scion:h:schema-diff"),
-                "the Hub listing it again doesn't bring it back"
+                !i.sessions.contains_key("remote:schema-diff"),
+                "its source listing it again doesn't bring it back"
             );
         }
         let found = search(&app, "RETRY").unwrap();
-        assert_eq!(found["items"][0]["id"], "scion:h:schema-diff");
+        assert_eq!(found["items"][0]["id"], "remote:schema-diff");
         assert_eq!(found["items"][0]["group"], "Webhooks");
         assert_eq!(
             found["items"][0]["line"],
             "Three deliveries reached us only after a retry."
         );
-        let opened = open(&app, "scion:h:schema-diff").unwrap();
+        let opened = open(&app, "remote:schema-diff").unwrap();
         assert_eq!(opened["rows"].as_array().unwrap().len(), 1);
-
-        let http = crate::sync::http::FakeHttp::default();
-        http.on(
-            "DELETE",
-            "/api/v1/agents/a-77",
-            404,
-            r#"{"error":{"code":"not_found","message":"gone"}}"#,
-        );
-        assert!(crate::outbox::process_one(&app, &http).unwrap());
-        assert_eq!(http.requests()[0].0, "DELETE");
-        let rows = app
-            .store()
-            .read(|r| {
-                r.outbox()
-                    .recent(app.clock.now() - jiff::SignedDuration::from_hours(1), 10)
-            })
-            .unwrap();
-        assert_eq!(
-            (rows[0].op.as_str(), rows[0].state.as_str()),
-            (DELETE_OP, "confirmed"),
-            "already gone counts as deleted"
-        );
-    }
-
-    #[test]
-    fn a_failed_hub_delete_leaves_it_archived_and_is_counted() {
-        let (app, _d) = app();
-        *app.agents.store.lock() = inner();
-        archive(&app, "s:scion:h:schema-diff", false).unwrap();
-        let http = crate::sync::http::FakeHttp::default();
-        http.on(
-            "DELETE",
-            "/api/v1/agents/",
-            502,
-            r#"{"error":{"code":"runtime_error","message":"broker down"}}"#,
-        );
-        crate::outbox::process_one(&app, &http).unwrap();
-        let i = app.agents.store.lock();
-        assert_eq!(i.hub_failed, 1);
-        assert!(i.archived.contains("scion:h:schema-diff"));
     }
 
     #[test]
@@ -835,9 +769,9 @@ mod tests {
     fn a_running_session_is_refused_at_archive_time() {
         let (app, _d) = app();
         *app.agents.store.lock() = inner();
-        let e = archive(&app, "s:scion:h:planner", true).unwrap_err().to_string();
+        let e = archive(&app, "s:remote:planner", true).unwrap_err().to_string();
         assert!(e.contains("Stop it"), "{e}");
-        assert!(app.agents.store.lock().sessions.contains_key("scion:h:planner"));
+        assert!(app.agents.store.lock().sessions.contains_key("remote:planner"));
     }
 
     #[test]
@@ -852,16 +786,16 @@ mod tests {
         let signals = || app.store().read(|r| r.agents().signals(sid)).unwrap();
         assert!(signals()
             .iter()
-            .any(|s| s.external_id == "done:scion:h:schema-diff" && !s.seen));
-        archive(&app, "s:scion:h:schema-diff", false).unwrap();
+            .any(|s| s.external_id == "done:remote:schema-diff" && !s.seen));
+        archive(&app, "s:remote:schema-diff", false).unwrap();
         crate::agents::incoming::sync(&app).unwrap();
         assert!(signals()
             .iter()
-            .any(|s| s.external_id == "done:scion:h:schema-diff" && s.seen && s.auto_seen));
+            .any(|s| s.external_id == "done:remote:schema-diff" && s.seen && s.auto_seen));
     }
 
     #[test]
-    fn a_hub_poll_racing_the_archive_cant_bring_the_session_back() {
+    fn a_remote_listing_racing_the_archive_cant_bring_the_session_back() {
         let (app, _d) = app();
         *app.agents.store.lock() = inner();
         let stop = std::sync::atomic::AtomicBool::new(false);
@@ -869,9 +803,9 @@ mod tests {
             t.spawn(|| {
                 while !stop.load(std::sync::atomic::Ordering::SeqCst) {
                     let mut i = app.agents.store.lock();
-                    i.put_session(session("scion:h:schema-diff", "scion:h:p:c1", Status::Done));
+                    i.put_session(session("remote:schema-diff", "remote:c1", Status::Done));
                     i.set_rows(
-                        "s:scion:h:schema-diff",
+                        "s:remote:schema-diff",
                         vec![Row {
                             ext: "m1".into(),
                             text: "hi".into(),
@@ -880,12 +814,12 @@ mod tests {
                     );
                 }
             });
-            archive(&app, "s:scion:h:schema-diff", false).unwrap();
+            archive(&app, "s:remote:schema-diff", false).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(20));
             stop.store(true, std::sync::atomic::Ordering::SeqCst);
         });
         let i = app.agents.store.lock();
-        assert!(!i.sessions.contains_key("scion:h:schema-diff"));
-        assert!(!i.threads.contains_key("s:scion:h:schema-diff"));
+        assert!(!i.sessions.contains_key("remote:schema-diff"));
+        assert!(!i.threads.contains_key("s:remote:schema-diff"));
     }
 }

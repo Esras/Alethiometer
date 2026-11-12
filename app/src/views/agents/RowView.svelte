@@ -18,7 +18,6 @@
     earlier = 0,
     nested = false,
     waiting = false,
-    onDelivery,
     onToggle,
     nameColor,
   }: {
@@ -29,7 +28,6 @@
     earlier?: number;
     nested?: boolean;
     waiting?: boolean;
-    onDelivery?: (action: string) => void;
     onToggle?: () => void;
     /** Settings preview: colours from the page being edited. */
     nameColor?: (w: Who | null | undefined) => string;
@@ -64,7 +62,7 @@
         return 'b-tool';
       case 'message':
         return 'b-msg';
-      case 'hub':
+      case 'notice':
         return 'b-hub';
       case 'ask':
         // Answered: no longer waiting on you.
@@ -84,7 +82,7 @@
     tool: 'ph-wrench',
     message: 'ph-arrows-left-right',
     state: 'ph-swap',
-    hub: 'ph-info',
+    notice: 'ph-info',
     ask: 'ph-question',
     approval: 'ph-shield-warning',
     failed: 'ph-x-circle',
@@ -165,12 +163,15 @@
         </div>
       </div>
     </div>
-  {:else if row.kind === 'hub'}
+  {:else if row.kind === 'notice'}
     <div class="g">
-      <i class="ph {ICON.hub} ic" style:color="var(--hub)"></i>
+      <i class="ph {ICON.notice} ic" style:color="var(--hub)"></i>
       <div class="mid">
         <div class="head line hubline">
-          <span class="line-text"><span style:color="var(--hub)">Hub</span> · {row.text}</span>
+          <span class="line-text"
+            >{#if row.label}<span style:color="var(--hub)">{row.label}</span> ·
+            {/if}{row.text}</span
+          >
           <span class="right"><span class="time" title={clockFull(row.at)}>{hm(row.at)}</span></span>
         </div>
       </div>
@@ -297,25 +298,10 @@
         {#if d && loud}
           <div class="grid">
             <span class="gk">why</span><span
-              >{d.reason || (loud === 'unreach' ? 'the agent isn’t running' : 'the Hub refused it')}</span
+              >{d.reason || (loud === 'unreach' ? 'the agent isn’t running' : 'it was refused')}</span
             >
-            {#if loud === 'unreach'}<span class="gk">options</span><span
-                >starting it again runs a fresh session with this as its task</span
-              >
-            {:else if d.retry_at}<span class="gk">next</span><span>retrying at {hm(d.retry_at)}</span>{/if}
-          </div>
-          <div class="acts">
-            {#if loud === 'unreach'}
-              <button class="btn primary" onclick={() => onDelivery?.('start_and_send')}
-                ><kbd>⏎</kbd>Start it again and send</button
-              >
-              <button class="btn" onclick={() => onDelivery?.('forward')}><kbd>F</kbd>Send to another agent</button>
-              <button class="btn" onclick={() => onDelivery?.('discard')}><kbd>Esc</kbd>Discard</button>
-            {:else}
-              <button class="btn primary" onclick={() => onDelivery?.('retry')}><kbd>⏎</kbd>Retry now</button>
-              <button class="btn" onclick={() => onDelivery?.('edit')}><kbd>E</kbd>Edit</button>
-              <button class="btn" onclick={() => onDelivery?.('cancel')}><kbd>Esc</kbd>Cancel</button>
-            {/if}
+            {#if loud === 'fail' && d.retry_at}<span class="gk">next</span><span>retrying at {hm(d.retry_at)}</span
+              >{/if}
           </div>
         {:else if sel && d && (d.state === 'deferred' || d.seen_by.length)}
           <div class="grid">
@@ -611,11 +597,5 @@
   }
   .gk {
     color: var(--tx-disabled);
-  }
-  .acts {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 8px;
   }
 </style>

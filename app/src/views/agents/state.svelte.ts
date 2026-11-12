@@ -19,9 +19,7 @@ export type Node =
   | { type: 'archived-label'; key: string; label: string; project: boolean }
   | { type: 'archived'; key: string; item: ArchivedItem };
 
-export type Form =
-  | { kind: 'scion'; group: string; room: string | null }
-  | { kind: 'local'; group: string | null; openshell?: boolean; cwd?: string };
+export type Form = { kind: 'local'; group: string | null; openshell?: boolean; cwd?: string };
 
 export const ag = $state({
   tree: null as Tree | null,
@@ -153,29 +151,14 @@ export function openThread(key: string) {
     ag.rowSel = null;
     ag.tab = 'transcript';
     ag.replying = null;
-    if (ag.form && !formFits(key)) ag.form = null;
+    ag.form = null;
     poll();
   }
 }
 
-/** Open the new-agent form for a Hub project's group, or a local one (`null`), on this machine or in an OpenShell sandbox. */
-export function openForm(g: Group | null, localGroup: string | null = null, openshell = false, cwd?: string) {
-  if (g?.source === 'scion') {
-    if (g.room) {
-      ag.sel = `r:${g.room.id}`;
-      openThread(`r:${g.room.id}`);
-    }
-    ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null };
-  } else {
-    ag.form = { kind: 'local', group: localGroup, openshell, cwd };
-  }
-}
-
-function formFits(key: string): boolean {
-  const f = ag.form;
-  if (!f) return false;
-  if (f.kind === 'scion') return f.room ? key === `r:${f.room}` : false;
-  return false;
+/** Open the new-agent form for a local group (`null`: Unsorted), on this machine or in an OpenShell sandbox. */
+export function openForm(group: string | null = null, openshell = false, cwd?: string) {
+  ag.form = { kind: 'local', group, openshell, cwd };
 }
 
 export function setTab(tab: 'transcript' | 'messages') {
@@ -228,14 +211,14 @@ function matches(s: Session, q: string): boolean {
   return [s.name, s.title, s.cwd, s.harness, s.model].some((x) => x?.toLowerCase().includes(q));
 }
 
-/** Which project a group or session sits under: a local folder, or a Hub's project. */
+/** Which project a group or session sits under: a local folder, or a remote source's project. */
 export function projectKey(x: Group | Session): string {
   if (x.source === 'acp') return `acp:${x.project_dir || x.project}`;
   const g = 'room' in x ? x : groupById(x.group_id);
-  return g ? `scion:${g.id.split(':').slice(1, 3).join(':')}` : `scion:${x.project}`;
+  return `${x.source}:${(g ?? x).project}`;
 }
 
-const projectLabel = (x: Group | Session) => x.project || (x.source === 'acp' ? 'local' : 'scion');
+const projectLabel = (x: Group | Session) => x.project || (x.source === 'acp' ? 'local' : x.source);
 
 /** The tree key of the group a local session is in: its group, or its project's Unsorted. */
 export function homeKey(s: Session): string {
@@ -330,7 +313,7 @@ export function nodes(): Node[] {
     let project: string | null = null;
     let group: string | null = null;
     for (const h of [...ag.hits].sort((a, b) => a.project.localeCompare(b.project))) {
-      const p = h.project || (h.group ? (h.source === 'acp' ? 'local' : 'scion') : 'Unsorted');
+      const p = h.project || (h.group ? (h.source === 'acp' ? 'local' : h.source) : 'Unsorted');
       if (p !== project) {
         out.push({ type: 'archived-label', key: `ap:${p}:${h.id}`, label: p, project: true });
         project = p;
@@ -411,11 +394,7 @@ export function confirmArchive(force: boolean) {
   const p = ag.plan;
   if (!p || p.state === 'blocked' || (p.state === 'not_done') !== force) return;
   ag.plan = null;
-  const label = p.hub
-    ? `deleting ${p.hub} agent${p.hub === 1 ? '' : 's'}`
-    : p.sandboxes
-      ? `deleting ${p.sandboxes} sandbox${p.sandboxes === 1 ? '' : 'es'}`
-      : 'archiving';
+  const label = p.sandboxes ? `deleting ${p.sandboxes} sandbox${p.sandboxes === 1 ? '' : 'es'}` : 'archiving';
   ag.pending = [...ag.pending, { target: p.target, until: Date.now() + UNDO_MS, force, label }];
   setTimeout(() => commitArchive(p.target), UNDO_MS);
 }

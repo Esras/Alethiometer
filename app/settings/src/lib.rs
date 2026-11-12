@@ -53,7 +53,7 @@ impl JsonSchema for Categories {
 /// Keychain (or `secrets.json` on Linux).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SourceConfig {
-    /// slack, gmail, gcal, jira, github, obsidian, protoncal, glean or scion.
+    /// slack, gmail, gcal, jira, github, obsidian, protoncal or glean.
     pub kind: String,
     #[schemars(extend("x-label" = "Name", "x-group" = "identity"))]
     pub name: String,
@@ -378,7 +378,7 @@ pub struct AgentColors {
     /// Subagents, DMs between agents, and room mentions.
     #[schemars(extend("x-group" = "Message colors", "x-label" = "Messages", "x-widget" = "swatches", "x-presets" = ["#9a9fd6", "#d3869b", "#c78bc4", "#83a598", "#76b0a8"]))]
     pub message: String,
-    #[schemars(extend("x-group" = "Message colors", "x-label" = "Hub", "x-widget" = "swatches", "x-presets" = ["#fabd2f", "#e3b778", "#928374"]))]
+    #[schemars(extend("x-group" = "Message colors", "x-label" = "Notice", "x-widget" = "swatches", "x-presets" = ["#fabd2f", "#e3b778", "#928374"]))]
     pub hub: String,
     /// Asks and approvals.
     #[schemars(extend("x-group" = "Message colors", "x-label" = "Needs you", "x-widget" = "swatches", "x-presets" = ["#fe8019", "#fb4934"]))]
@@ -400,7 +400,7 @@ impl Default for AgentColors {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(default)]
 pub struct AgentNames {
-    /// Agent: one colour per agent. Template: one per Scion template.
+    /// Agent: one colour per agent. Template: one per harness.
     #[schemars(extend("x-group" = "Agent names", "x-label" = "Color names by", "x-enum" = ["agent", "template", "off"], "x-widget" = "segmented"))]
     pub color_by: String,
     /// Unique within a group, reused across groups.

@@ -150,9 +150,22 @@ pub fn parse(v: &Value) -> Result<Settings> {
 }
 
 /// One-time cleanups of the file, run before it's first read:
-/// `life_calendars` moves into the protoncal source's `urls`.
+/// `life_calendars` moves into the protoncal source's `urls`; Scion sources are dropped (old file kept).
 pub fn migrate_file(path: &Path) -> Result<()> {
     let mut v = read_file(path)?;
+    let scion = v.get_mut("sources").and_then(Value::as_array_mut).map_or(0, |list| {
+        let before = list.len();
+        list.retain(|s| s.get("kind").and_then(Value::as_str) != Some("scion"));
+        before - list.len()
+    });
+    if scion > 0 {
+        let keep = path.with_file_name("settings.before-scion.json");
+        std::fs::copy(path, &keep).map_err(|e| msg(format!("couldn't write {}: {e}", keep.display())))?;
+        eprintln!(
+            "settings.json: removed {scion} Scion source(s); the old file is {}",
+            keep.display()
+        );
+    }
     let links: Vec<Value> = v
         .get("life_calendars")
         .and_then(Value::as_array)
@@ -164,7 +177,7 @@ pub fn migrate_file(path: &Path) -> Result<()> {
         })
         .unwrap_or_default();
     if links.is_empty() {
-        return Ok(());
+        return if scion > 0 { write_file(path, &v) } else { Ok(()) };
     }
     let sources = v
         .as_object_mut()
@@ -442,11 +455,11 @@ fn apply(app: &App, new: Settings) -> State {
     } else if restart {
         "Saved · restart Alethiometer to apply".to_string()
     } else if !restarted.is_empty() {
-        // Glean is search-only and Scion re-reads its config: nothing to reconnect.
+        // Glean is search-only: nothing to reconnect.
         let search_only = new
             .sources
             .iter()
-            .filter(|s| s.kind == "glean" || s.kind == "scion")
+            .filter(|s| s.kind == "glean")
             .map(|s| &s.name)
             .collect::<Vec<_>>();
         let verb = if restarted.iter().all(|n| search_only.contains(&n)) {
@@ -825,5 +838,20 @@ mod tests {
         migrate_file(&p).unwrap();
         let again: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(again, v, "runs once");
+    }
+
+    #[test]
+    fn scion_sources_are_dropped_and_the_old_file_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("settings.json");
+        let old = json!({ "sources": [{ "kind": "scion", "name": "Hub" }, { "kind": "slack", "name": "Work" }] });
+        std::fs::write(&p, old.to_string()).unwrap();
+        migrate_file(&p).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["sources"], json!([{ "kind": "slack", "name": "Work" }]));
+        let kept: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.path().join("settings.before-scion.json")).unwrap())
+                .unwrap();
+        assert_eq!(kept, old);
     }
 }

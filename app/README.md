@@ -24,7 +24,7 @@ All five views run against the real SQLite schema. With `demo_data: true` (the d
 | Settings modal (⌘,), live reload of settings.json, typed source configs | done. See `docs/settings.md` |
 | Local embeddings (bge-small, tract, sqlite-vec) | done, model downloads on first run; untested with the real model. See `docs/ai.md` |
 | Glean (search-only): ⌘K and Search view routes, Assistant with Glean | done against recorded responses; untested live. See `docs/sources/glean.md` |
-| Agents tab (Agents Final 01–08): local ACP sessions (Claude Code, Pi), Scion Hub rooms and agents, approvals with a shell parse, Settings › Agents | local sessions tested against a scripted ACP agent and recorded claude-agent-acp traffic; Scion built from its source, never run against a Hub. See `docs/agents.md` |
+| Agents tab (Agents Final 01–08): local ACP sessions (Claude Code, Pi), approvals with a shell parse, Settings › Agents | local sessions tested against a scripted ACP agent and recorded claude-agent-acp traffic; Scion removed 2026-11-07, Miao client not started. See `docs/agents.md` |
 
 ## Run it
 

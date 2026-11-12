@@ -1,11 +1,9 @@
 //! Agents tab (design "Agents Final" 01–08, `app/docs/agents.md`): coding-agent
-//! sessions from two kinds of source in one tree.
+//! sessions in one tree.
 //!
 //! - Local ACP sessions (`acp`): Alethiometer is the ACP client and launches the
 //!   agent itself. It only sees sessions it started. Local sessions can't
 //!   take part in rooms, and nothing here builds a channel between them.
-//! - Scion agents (`scion`): Alethiometer is a Hub client. Rooms, DMs and
-//!   delivery states all come from the Hub; there's no messaging layer here.
 //! - OpenShell (`openshell`): a local ACP session whose adapter runs in an
 //!   OpenShell sandbox, on a local or remote gateway.
 //!
@@ -21,7 +19,6 @@ pub mod guess;
 pub mod incoming;
 pub use crate::domain::agents::model;
 pub mod openshell;
-pub mod scion;
 pub mod shell;
 pub mod store;
 
@@ -37,14 +34,12 @@ pub struct Agents {
     pub store: store::Store,
     pub acp: acp::Host,
     pub daemon: daemon::Daemon,
-    pub scion: scion::Hubs,
     /// The last set of signals written, so an unchanged store writes nothing.
     pub incoming_print: std::sync::Mutex<String>,
     pub incoming_guess: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
-/// Load local state, then keep it flushed, follow the agent host, and keep
-/// the Scion Hubs connected.
+/// Load local state, then keep it flushed and follow the agent host.
 pub fn start(app: Arc<App>) {
     if let Err(e) = app.agents.store.load(app.store()) {
         eprintln!("agents: couldn't load sessions: {e}");
@@ -86,8 +81,7 @@ pub fn start(app: Arc<App>) {
     archive::refresh_failed(&app);
     daemon::start(app.clone());
     incoming::start(app.clone());
-    openshell::start(app.clone());
-    scion::start(app);
+    openshell::start(app);
 }
 
 /// The app is quitting: write what's pending. Local agents keep running in
@@ -129,7 +123,7 @@ fn tree(app: &App) -> Value {
         "requests": requests,
         "counts": { "running": count(Status::Running), "waiting": count(Status::Waiting), "failed": count(Status::Failed) },
         "nudges": nudges,
-        "hub_failed": i.hub_failed,
+        "deletes_failed": i.deletes_failed,
         "harnesses": app.settings().agents.harnesses.iter().map(|h| {
             let (cmd, args, _) = openshell::adapter(h);
             json!({
@@ -141,7 +135,6 @@ fn tree(app: &App) -> Value {
                 "sandbox_from": h.openshell.as_ref().map(|o| o.from.clone()).unwrap_or_default(),
             })
         }).collect::<Vec<_>>(),
-        "hubs": scion::hubs(app),
         "openshell": openshell::cli(&app.settings().agents.openshell.command).is_some(),
         "agentd": daemon::status(app),
         "host": acp::host_label(),
@@ -190,7 +183,7 @@ fn messages_view(i: &store::Inner, id: &str) -> Vec<Row> {
         .map(|r| format!("r:{}", r.id));
     if let Some(room) = room.and_then(|k| i.threads.get(&k)) {
         let mut next = 1_000_000;
-        // The agent's own thread may already hold the same message (same Hub id).
+        // The agent's own thread may already hold the same message (same agent-side id).
         // Mention copies carry their own ids, so the time and text match too.
         let seen: std::collections::HashSet<String> = out
             .iter()
@@ -237,9 +230,6 @@ fn local_folder(s: &Session) -> &str {
 /// Check a local session of `project_dir` can go in `group`; a group with no project yet takes this one.
 pub(crate) fn claim_group(i: &mut store::Inner, group: &str, project_dir: &str) -> Result<()> {
     let mut g = i.groups.get(group).cloned().ok_or_else(|| msg("no such group"))?;
-    if g.source != "acp" {
-        return Err(msg("Scion agents belong to their Hub group"));
-    }
     if g.project_dir.is_empty() {
         g.project = facts::project_name(project_dir);
         g.project_dir = project_dir.to_owned();
@@ -263,9 +253,6 @@ fn move_session(
     id: &str,
     group: Option<String>,
 ) -> Result<()> {
-    if !id.starts_with("acp-") {
-        return Err(msg("Scion agents belong to their Hub group"));
-    }
     let s = agents
         .lock()
         .sessions
@@ -412,7 +399,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "ok": true }))
         }
         "thread" => thread(app, &arg_str(args, "key")?, 0, opt(args, "tab").unwrap_or("transcript")),
-        // Message a session or a room. `to` addresses one room member (@).
+        // Message a session.
         "send" => {
             let key = arg_str(args, "thread")?;
             let text = arg_str(args, "text")?;
@@ -428,24 +415,14 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             if text.trim().is_empty() && images.is_empty() {
                 return Err(msg("Write a message first"));
             }
-            match key.strip_prefix("s:") {
-                Some(id) if id.starts_with("acp-") => acp::send(app, id, &text, images)?,
-                _ => {
-                    if !images.is_empty() {
-                        return Err(msg("Images aren't supported on Scion yet"));
-                    }
-                    scion::send(app, &key, &text, opt(args, "to"))?
-                }
-            }
+            let id = key
+                .strip_prefix("s:")
+                .ok_or_else(|| msg("Only a session takes messages"))?;
+            acp::send(app, id, &text, images)?;
             Ok(json!({ "ok": true }))
         }
         "interrupt" => {
-            let id = arg_str(args, "session")?;
-            if id.starts_with("acp-") {
-                acp::interrupt(app, &id)?
-            } else {
-                scion::interrupt(app, &id)?
-            }
+            acp::interrupt(app, &arg_str(args, "session")?)?;
             Ok(json!({ "ok": true }))
         }
         "send_queued" => {
@@ -465,18 +442,13 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         // Ask: a choice (1–3) or a written reply.
         "answer" => {
-            let req = arg_str(args, "request")?;
-            if req.starts_with("acp-") {
-                acp::answer(
-                    app,
-                    &req,
-                    opt(args, "choice"),
-                    opt(args, "text"),
-                    args.get("content").filter(|c| c.is_object()).cloned(),
-                )?;
-            } else {
-                scion::answer(app, &req, &arg_str(args, "text")?)?;
-            }
+            acp::answer(
+                app,
+                &arg_str(args, "request")?,
+                opt(args, "choice"),
+                opt(args, "text"),
+                args.get("content").filter(|c| c.is_object()).cloned(),
+            )?;
             Ok(json!({ "ok": true }))
         }
         "start_local" => {
@@ -507,22 +479,12 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             acp::set_thinking(app, &arg_str(args, "session")?, &arg_str(args, "value")?)?;
             Ok(json!({ "ok": true }))
         }
-        "start_scion" => Ok(json!({ "id": scion::start_agent(app, args)? })),
-        "catalog" => scion::catalog(app, &arg_str(args, "group")?),
         "stop" => {
-            let id = arg_str(args, "session")?;
-            if id.starts_with("acp-") {
-                acp::stop(app, &id);
-            } else {
-                scion::stop(app, &id)?;
-            }
+            acp::stop(app, &arg_str(args, "session")?);
             Ok(json!({ "ok": true }))
         }
         "remove" => {
             let id = arg_str(args, "session")?;
-            if !id.starts_with("acp-") {
-                return Err(msg("Scion agents are removed on the Hub"));
-            }
             acp::stop(app, &id);
             app.agents.store.lock().remove_session(&id);
             Ok(json!({ "ok": true }))
@@ -575,9 +537,6 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             let id = arg_str(args, "group")?;
             let mut i = app.agents.store.lock();
             let mut g = i.groups.get(&id).cloned().ok_or_else(|| msg("no such group"))?;
-            if g.source != "acp" {
-                return Err(msg("Scion groups are edited on the Hub"));
-            }
             if let Some(n) = opt(args, "name") {
                 g.name = n.trim().into();
             }
@@ -588,11 +547,7 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             Ok(json!({ "ok": true }))
         }
         "group_delete" => {
-            let id = arg_str(args, "group")?;
-            if !id.starts_with("local:") {
-                return Err(msg("Scion groups are removed on the Hub"));
-            }
-            app.agents.store.lock().remove_group(&id);
+            app.agents.store.lock().remove_group(&arg_str(args, "group")?);
             Ok(json!({ "ok": true }))
         }
         // File a local session under a group (or back to Unsorted).
@@ -619,54 +574,20 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
             facts::refresh(app, &arg_str(args, "session")?);
             Ok(json!({ "ok": true }))
         }
-        // Retry, forward or discard an undelivered message (08).
-        "delivery" => scion::delivery(
-            app,
-            &arg_str(args, "thread")?,
-            args.get("row").and_then(Value::as_u64).unwrap_or(0),
-            &arg_str(args, "action")?,
-            opt(args, "to"),
-        ),
-        // Open in Zed / on the Hub / a terminal attached to the session.
+        // Open in Zed, or a terminal in the session's directory (or its sandbox).
         "open" => {
-            let id = arg_str(args, "session")?;
-            let how = opt(args, "how").unwrap_or("app");
-            let s = session_of(app, &id).or_else(|_| {
-                // A room: Open on Hub.
-                let i = app.agents.store.lock();
-                i.groups
-                    .values()
-                    .find_map(|g| {
-                        g.room
-                            .as_ref()
-                            .filter(|r| format!("r:{}", r.id) == id)
-                            .map(|r| Session {
-                                url: r.url.clone(),
-                                source: "scion".into(),
-                                ..Default::default()
-                            })
-                    })
-                    .ok_or_else(|| msg("nothing to open"))
-            })?;
-            if let Some(sb) = s.sandbox.as_ref().filter(|_| s.source == "acp") {
-                // No editor reaches into a sandbox: both open a shell in it.
+            let s = session_of(app, &arg_str(args, "session")?)?;
+            if let Some(sb) = &s.sandbox {
                 let line = openshell::terminal_command(&app.settings().agents.openshell.command, sb, &s.cwd);
                 app.platform
                     .open_terminal("", Some(&line))
                     .map_err(|e| msg(e.to_string()))?;
-                return Ok(json!({ "ok": true }));
-            }
-            match (s.source.as_str(), how) {
-                ("acp", "terminal") => app
-                    .platform
+            } else if opt(args, "how") == Some("terminal") {
+                app.platform
                     .open_terminal(&s.cwd, None)
-                    .map_err(|e| msg(e.to_string()))?,
-                ("acp", _) => acp::open_in_editor(app, &s.cwd)?,
-                (_, "terminal") => app
-                    .platform
-                    .open_terminal("", Some(&scion::attach_command(&s)))
-                    .map_err(|e| msg(e.to_string()))?,
-                _ => app.platform.open_url(&s.url).map_err(|e| msg(e.to_string()))?,
+                    .map_err(|e| msg(e.to_string()))?;
+            } else {
+                acp::open_in_editor(app, &s.cwd)?;
             }
             Ok(json!({ "ok": true }))
         }

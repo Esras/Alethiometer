@@ -13,14 +13,12 @@
     session,
     group,
     el = $bindable(),
-    onNewAgent,
     onOpen,
   }: {
     thread: string;
     session?: Session;
     group?: Group;
     el?: HTMLTextAreaElement;
-    onNewAgent?: () => void;
     onOpen: (how: 'app' | 'terminal') => void;
   } = $props();
 
@@ -94,7 +92,7 @@
     }
   }
 
-  // Local sessions only: ACP's image prompt capability isn't wired for Scion.
+  // Local sessions only: images go as ACP image content blocks.
   function onPaste(e: ClipboardEvent) {
     if (!isLocal) return;
     const files = [...(e.clipboardData?.items ?? [])]
@@ -199,7 +197,6 @@
       ></textarea>
     </div>
     {#if room && !text}<span class="hint-at">@ to address one member</span>{/if}
-    {#if session?.source === 'scion' && !text}<span class="hint-at">sent through Scion</span>{/if}
     <kbd class="send-key">{chord('⌘⏎', 'Ctrl+⏎')}</kbd>
     {#if options.length}
       <div class="pop popover flush" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
@@ -211,9 +208,6 @@
       </div>
     {/if}
   </label>
-  {#if room}
-    <button class="btn" onclick={onNewAgent}><i class="ph ph-user-plus"></i>Agent<kbd>N</kbd></button>
-  {/if}
   {#if session?.source === 'acp' && session.live && hasQueued}
     <button class="btn primary" onclick={() => act('send_queued', { session: session.id })}
       ><i class="ph ph-fast-forward"></i>Send now<kbd>{chord('⌘↵', 'Ctrl+↵')}</kbd></button
@@ -231,9 +225,7 @@
       onclick={() => act('stop', { session: session.id })}><i class="ph ph-stop"></i>Stop</button
     >
   {/if}
-  {#if room || session?.source === 'scion'}
-    <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open on Hub</button>
-  {:else if session && !session.sandbox}
+  {#if session?.source === 'acp' && !session.sandbox}
     <button class="btn" onclick={() => onOpen('app')}><i class="ph ph-arrow-square-out"></i>Open in Zed</button>
   {:else if session?.sandbox?.upload && !session.parent_id}
     <button
@@ -242,11 +234,9 @@
       onclick={() => (ag.bringBack = session.id)}><i class="ph ph-download-simple"></i>Bring back</button
     >
   {/if}
-  {#if !room && (session?.source === 'scion' || session?.sandbox)}
-    <button
-      class="btn icon"
-      title={session?.sandbox ? 'A shell in its sandbox' : 'Terminal attached to this session'}
-      onclick={() => onOpen('terminal')}><i class="ph ph-terminal-window"></i></button
+  {#if session?.sandbox}
+    <button class="btn icon" title="A shell in its sandbox" onclick={() => onOpen('terminal')}
+      ><i class="ph ph-terminal-window"></i></button
     >
   {/if}
 </div>

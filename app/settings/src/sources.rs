@@ -44,7 +44,6 @@ pub const KINDS: &[(&str, &str)] = &[
     ("obsidian", "Obsidian vault"),
     ("protoncal", "Proton Calendar · personal"),
     ("glean", "Glean"),
-    ("scion", "Scion Hub"),
 ];
 
 /// Chat sources: conversations of messages, read as runs that triage closes,
@@ -460,51 +459,6 @@ impl GleanConfig {
     }
 }
 
-/// A Scion Hub (`app/docs/agents.md`): its agents and group threads show in
-/// the Agents tab. Never synced into Incoming.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(default)]
-pub struct ScionConfig {
-    /// The Hub's API, e.g. https://scion-hub.example.com
-    #[schemars(extend("x-group" = "identity", "x-label" = "Hub"))]
-    pub hub_url: String,
-    /// The Hub's web UI, for Open on Hub. Empty uses the API address.
-    #[schemars(extend("x-group" = "identity", "x-label" = "Web UI", "x-advanced" = true))]
-    pub web_url: String,
-    /// A user access token (scion_pat_…).
-    #[schemars(extend("x-group" = "secrets", "x-label" = "Access token", "x-secret" = true))]
-    pub token_secret: String,
-    /// Empty shows every project you can see.
-    #[schemars(extend("x-group" = "reads", "x-label" = "Projects", "x-widget" = "list"))]
-    pub projects: Vec<String>,
-    #[schemars(extend("x-group" = "limits", "x-label" = "Messages per thread", "x-step" = 50, "x-min" = 50))]
-    pub max_messages: i64,
-    #[schemars(extend("x-group" = "limits", "x-label" = "Timeout", "x-unit" = "s", "x-min" = 1, "x-max" = 60))]
-    pub timeout_secs: i64,
-}
-
-impl Default for ScionConfig {
-    fn default() -> Self {
-        ScionConfig {
-            hub_url: String::new(),
-            web_url: String::new(),
-            token_secret: "scion.token".into(),
-            projects: vec![],
-            max_messages: 300,
-            timeout_secs: 10,
-        }
-    }
-}
-
-impl ScionConfig {
-    pub fn from_json(v: &Value) -> anyhow::Result<ScionConfig> {
-        if v.is_null() {
-            return Ok(ScionConfig::default());
-        }
-        Ok(serde_json::from_value(v.clone())?)
-    }
-}
-
 /// One secret a source uses, for the Secrets card.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SecretSlot {
@@ -567,13 +521,6 @@ pub fn secrets(kind: &str, config: &Value) -> Vec<SecretSlot> {
             get("token_secret", "glean.token"),
             "API token",
             "Glean API token with search scope",
-            false,
-            false,
-        )],
-        "scion" => vec![slot(
-            get("token_secret", "scion.token"),
-            "Access token",
-            "scion_pat_…",
             false,
             false,
         )],
@@ -675,16 +622,6 @@ pub fn validate(kind: &str, config: &Value) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        "scion" => {
-            let c: ScionConfig = serde_json::from_value(config.clone()).map_err(|e| anyhow::anyhow!("config: {e}"))?;
-            let loopback = ["http://127.0.0.1", "http://localhost"]
-                .iter()
-                .any(|p| c.hub_url.starts_with(p));
-            if !c.hub_url.is_empty() && !c.hub_url.starts_with("https://") && !loopback {
-                anyhow::bail!("config.hub_url must start with https://");
-            }
-            Ok(())
-        }
         other => anyhow::bail!("unknown source kind '{other}'"),
     }
 }
@@ -702,7 +639,6 @@ pub fn defaults(kind: &str) -> Option<Value> {
             "obsidian" => serde_json::to_value(ObsidianConfig::default()),
             "protoncal" => serde_json::to_value(ProtoncalConfig::default()),
             "glean" => serde_json::to_value(GleanConfig::default()),
-            "scion" => serde_json::to_value(ScionConfig::default()),
             _ => return None,
         }
         .ok()?,
@@ -724,7 +660,6 @@ pub fn schemas() -> serde_json::Map<String, Value> {
     m.insert("obsidian".into(), s::<ObsidianConfig>());
     m.insert("protoncal".into(), s::<ProtoncalConfig>());
     m.insert("glean".into(), s::<GleanConfig>());
-    m.insert("scion".into(), s::<ScionConfig>());
     m
 }
 

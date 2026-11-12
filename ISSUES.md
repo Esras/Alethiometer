@@ -78,7 +78,7 @@ Windows type-checks (all targets, Tauri on) but nothing has been built or run on
 - "this Mac" in Settings › LLM Providers and the Notes margin.
 - **Local agents on Windows** (agent host on AF_UNIX + job objects, `docs/agents.md` › Agent host): run `cargo test` in `app/agentd` (`kill_ends_the_agents_job_and_nothing_else` is Windows-only) and `app/src-tauri` (`tests/agents_restart.rs` now runs there, with node), then a real Claude Code and Pi session. Things only a Windows run can show: whether `npx.cmd` starts the adapters with their arguments (Rust refuses batch-file arguments it can't quote safely); whether the host survives the app's job object (`spawn_detached` breaks away only when the job allows it; otherwise closing the terminal that ran `npx tauri dev` may end it); that `alethiometer-agentd.exe` lands next to the installed app; that swapping in a new build (moving the running `.exe` aside to `.old`) works. Claude Code on Windows wants Git Bash.
 - The approval card's Parsed panel reads commands as bash with POSIX paths: a `C:\…` working directory is one path segment, the "outside the repo" check only knows `/` and `~`, and `node_modules/.bin` lists `.cmd`/`.ps1` twins. It only explains; it gates nothing.
-- Open in a terminal gives a cmd window; OpenShell and Scion attach lines are POSIX-quoted (both out of scope on Windows, user 2026-10-14). Open in Zed needs `zed` on the PATH.
+- Open in a terminal gives a cmd window; OpenShell shell lines are POSIX-quoted (out of scope on Windows, user 2026-10-14). Open in Zed needs `zed` on the PATH.
 
 ### Agents: OpenShell sandboxes, what's left (2026-10-08)
 
@@ -108,22 +108,20 @@ Running a harness somewhere other than the host, e.g. the user's podman `claude-
 
 `views/agents/Tree.svelte` starts `now` at `Date.now()` without `ui.info.clock_offset_ms`; the 1 s interval adds it. So with a fake or offset clock, ages read one value (e.g. "5d") until the first tick and another ("6d") after. Found by the ui-diff sharding work (2026-10-06), where a shot racing that tick split the two sides; the scenes now wait past it. Not fixed: the fix is one line, but it needs a test.
 
-### Agents: the attach terminal needs `x-terminal-emulator` on Linux (2026-10-08)
+### Agents: the sandbox terminal needs `x-terminal-emulator` on Linux (2026-10-08)
 
-`Platform::open_terminal` (`app/src-tauri/src/platform.rs`) runs `x-terminal-emulator`, which only Debian-family distros have; on Fedora the Scion attach button fails with "No such file or directory". Fix when Scion is used from Linux: try `$TERMINAL`, `xdg-terminal-exec`, then known terminals. The button is now hidden for local sessions and rooms, which have nothing to attach to; the backend's `("acp", "terminal")` arm in `agents/mod.rs` is unreachable from the UI.
+`Platform::open_terminal` (`app/src-tauri/src/platform.rs`) runs `x-terminal-emulator`, which only Debian-family distros have; on Fedora the sandbox shell button fails with "No such file or directory". Fix when it's used from Linux: try `$TERMINAL`, `xdg-terminal-exec`, then known terminals. The button shows only for sandboxed sessions; `agents.open` with `how: terminal` for a plain local session is unreachable from the UI.
 
 ### Agents: archiving, what's left (2026-10-05)
 
 - **No "done" for local sessions** (user: allowed to archive half-done work, but there aren't enough signals yet). A local session goes idle after every turn and never reaches completed, so local groups get no done nudge and their confirm never shows Not done. Candidates: a merged PR or Done ticket on every member, a clean tree with nothing unpushed, the agent saying it finished.
-- **Unpushed commits on Scion:** the Hub's agent record has no ahead/behind count, so the "N unpushed commits" line only appears when the session's branch fact has one (a git checkout on this machine). Scion agents usually have none, so a clone with unpushed work can be deleted with no warning beyond the other Not done lines.
-- **The Scion group thread after its agents are deleted** is left as it is on the Hub (the design's open question).
 - **An archive still in its 10 s undo window when the app quits doesn't happen.** The window is kept in the UI, and the archive is only written when it ends.
 - **The tree behind the confirm** is dimmed by the modal's scrim, not drawn at 32% with the target still lit as in the mock.
 - **Archived search** is a substring scan (ASCII case-insensitive) over every archived row, run 150 ms after each keystroke. It's fine at hundreds of transcripts; past that it wants an FTS table.
 
-### Agents: unverified against real agents and a live Scion Hub
+### Agents: unverified against real agents
 
-The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. The Scion client was checked against the sandbox Hub on 2026-10-06; what was confirmed and what's left is in `app/docs/agents.md` ("Checked against a live Hub"). The New agent form can't set a model or env, so an agent that talks to agentgateway needs a template that sets `ANTHROPIC_BASE_URL`. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
+The ACP client is tested against recorded claude-agent-acp traffic and a scripted stand-in (`app/scripts/fake-acp.mjs`); it has never driven a real Claude Code or Pi session. Claude's cost is read as a running total from `usage_update` (unverified), and the cache state is an estimate.
 
 ### AI prices: where they come from (user, 2026-10-02: open, come back to it)
 

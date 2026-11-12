@@ -23,7 +23,7 @@ pub struct App {
     pub hooks: OnceLock<Hooks>,
     /// Local embeddings (`embed`): the model once loaded, and its status.
     pub embed: crate::embed::Engine,
-    /// Agents tab: sessions, transcripts, local agent processes, Scion Hubs.
+    /// Agents tab: sessions, transcripts, local agent processes.
     pub agents: crate::agents::Agents,
     /// One sync worker per source (`sync::worker`).
     pub workers: crate::sync::worker::Workers,

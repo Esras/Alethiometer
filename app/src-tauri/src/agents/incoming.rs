@@ -3,8 +3,8 @@
 //! What an agent needs from you, or has for you, becomes a signal of a
 //! built-in `agents` source, so it's filed under topics, confirmed, moved and
 //! dismissed like any other. Waiting on you: an approval or ask, a message
-//! that wasn't delivered, a session that failed. Not waiting: a Scion message
-//! to you, the end of each local turn, a Scion agent that finished.
+//! that wasn't delivered, a session that failed. Not waiting: a remote agent's message
+//! to you, the end of each local turn, a remote agent that finished.
 //! Subagents never show up by themselves.
 //!
 //! The store is the truth: `sync` turns it into items and marks the ones that
@@ -212,7 +212,7 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
                     .join(" · ");
                 out.push(x);
             }
-            Status::Done if s.source == "scion" => {
+            Status::Done if s.source != "acp" => {
                 let mut x = sig(
                     s,
                     format!("done:{}", s.id),
@@ -265,10 +265,10 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
         }
     }
 
-    // Scion: messages to you since your last word, and messages the Hub didn't deliver.
+    // Rooms and remote sessions: messages to you since your last word, and messages that weren't delivered.
     for (key, t) in &i.threads {
         let room = key.starts_with("r:");
-        if !room && !key.starts_with("s:scion:") {
+        if key.starts_with("s:acp-") {
             continue;
         }
         let last_you = t.rows.iter().rposition(|r| r.kind == Kind::You);
@@ -326,7 +326,7 @@ pub fn signals(i: &Inner) -> (Vec<Sig>, HashSet<String>) {
                 format!(
                     "Failed. {}{}",
                     if d.reason.is_empty() {
-                        "The Hub refused it."
+                        "It was refused."
                     } else {
                         d.reason.as_str()
                     },
@@ -556,7 +556,7 @@ pub fn start(app: std::sync::Arc<App>) {
     std::thread::Builder::new()
         .name("agents-incoming".into())
         .spawn(move || {
-            // Let restored sessions and the first Hub poll land before judging what's resolved.
+            // Let restored sessions land before judging what's resolved.
             std::thread::sleep(std::time::Duration::from_secs(5));
             let mut seen_rev = u64::MAX;
             loop {
@@ -729,6 +729,41 @@ mod tests {
     }
 
     #[test]
+    fn a_remote_agents_message_to_you_and_an_undelivered_one_are_signals() {
+        let (app, _d) = app();
+        session(&app, "remote:a", "remote");
+        let row = |kind: Kind, ext: &str| Row {
+            at: crate::time::t("2026-10-03T10:00:00").to_db(),
+            kind,
+            ext: ext.into(),
+            text: ext.into(),
+            ..Default::default()
+        };
+        app.agents.store.lock().push_row(
+            "s:remote:a",
+            Row {
+                who: Some(Who::you()),
+                delivery: Some(crate::agents::model::Delivery {
+                    state: "unreachable".into(),
+                    ..Default::default()
+                }),
+                ..row(Kind::You, "m1")
+            },
+        );
+        app.agents.store.lock().push_row(
+            "s:remote:a",
+            Row {
+                who: Some(Who::agent("remote:a-name", Some("remote:a".into()))),
+                to: Some(Who::you()),
+                ..row(Kind::Message, "m2")
+            },
+        );
+        sync(&app).unwrap();
+        assert_eq!(seen(&app, "undelivered:s:remote:a:m1"), Some((0, 0)));
+        assert_eq!(seen(&app, "wrote:s:remote:a:m2"), Some((0, 0)));
+    }
+
+    #[test]
     fn a_ticket_files_it_under_the_tickets_topic() {
         let (app, _d) = app();
         let conn = app.db();
@@ -752,18 +787,18 @@ mod tests {
         )
         .unwrap();
         drop(conn);
-        session(&app, "scion:h:a", "scion");
-        app.agents.store.lock().update_session("scion:h:a", |s| {
+        session(&app, "remote:a", "remote");
+        app.agents.store.lock().update_session("remote:a", |s| {
             s.facts.ticket = Some(Fact {
                 label: "ING-31".into(),
                 ..Default::default()
             })
         });
-        approval(&app, "scion:h:a");
+        approval(&app, "remote:a");
         sync(&app).unwrap();
         let linked: (i64, String) = app
             .db()
-            .query_row("SELECT tl.topic_id, tl.state FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE i.external_id = 'req:scion:h:a:7'", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT tl.topic_id, tl.state FROM topic_links tl JOIN items i ON i.id = tl.item_id WHERE i.external_id = 'req:remote:a:7'", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
         assert_eq!(linked, (topic, "suggested".into()));
         let q = crate::queries::incoming::queue(&crate::store::over(&app.db()), &app.clock).unwrap();

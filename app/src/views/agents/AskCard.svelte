@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A pinned ask: a Scion input-needed, or an ACP elicitation (Claude Code's
+  // A pinned ask: a remote agent's question, or an ACP elicitation (Claude Code's
   // AskUserQuestion, pi's questions). The question, its choices as option
   // cards (number keys), Write a reply… (R, typed in the card as a deny reason
   // is in ApprovalCard) and Later (Esc). An elicitation

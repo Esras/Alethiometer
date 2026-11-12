@@ -535,8 +535,8 @@ pub fn start_source(app: std::sync::Arc<App>, id: i64) {
             .sources
             .iter()
             .find(|s| s.kind == source.kind && s.name == source.name)?;
-        // Glean is search-only: queried on demand, never polled. Scion Hubs feed the Agents tab (`agents::scion`).
-        if !cfg.enabled || cfg.kind == "glean" || cfg.kind == "scion" {
+        // Glean is search-only: queried on demand, never polled.
+        if !cfg.enabled || cfg.kind == "glean" {
             return None;
         }
         let every = std::time::Duration::from_secs(cfg.poll_secs.max(30));
@@ -583,13 +583,13 @@ pub struct SourceStatus {
 
 pub fn route(name: &str) -> Option<crate::api::Route> {
     match name {
-        // Scion Hubs and agents show their state in the Agents tab, not here.
+        // Agent signals show their state in the Agents tab, not here.
         "status" => Some(crate::api::Route::Read(|r, _, _| {
             let rows: Vec<SourceStatus> = r
                 .sources()
                 .all()?
                 .into_iter()
-                .filter(|s| s.kind != "scion" && s.kind != "agents")
+                .filter(|s| s.kind != "agents")
                 .map(|s| -> Result<SourceStatus> {
                     Ok(SourceStatus {
                         failing: r.sources().failing_streams(s.id)?,

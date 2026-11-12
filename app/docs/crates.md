@@ -40,7 +40,7 @@ Text scans over production code (everything before a file's first `#[cfg(test)] 
 - `no_sql_outside_store`: SQL only in `core/src/store/` (all four crates scanned).
 - `nothing_else_reads_local_time`: only `Clock` reads the local time.
 - `services_do_not_take_app`: no `App` in a function signature outside `api.rs`, `state.rs`, `lib.rs`, `main.rs`, `bin/`. About 270 signatures are allowlisted, over half in `agents`.
-- `connectors_do_not_reach_into_services`: `sync/connectors/**` may not import `queries`, `state`, `agents`, `ai`. Allowlist: the `agents` and `scion` connectors (outbox adapters for the agents module), and `App` in `gcal/oauth`, `obsidian`, `slack/socket`.
+- `connectors_do_not_reach_into_services`: `sync/connectors/**` may not import `queries`, `state`, `agents`, `ai`. Allowlist: the `agents` connector (the outbox adapter for the agents module), and `App` in `gcal/oauth`, `obsidian`, `slack/socket`.
 - `queries_do_not_call_sync_ai_or_agents`: allowlist is empty.
 
 When you fix one, lower its list; the failure message prints the new counts.

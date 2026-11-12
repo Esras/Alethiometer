@@ -2,7 +2,7 @@
 //! against. Local groups, sessions and transcripts are written to SQLite by
 //! `flush` (once a second from `agents::start`), not on every streamed chunk,
 //! so a busy agent doesn't contend for the one database connection.
-//! Scion state isn't stored: it comes back from the Hub.
+//! Remote state isn't stored: it comes back from its source.
 
 use super::model::{Group, Request, Row, Session};
 use crate::domain::agents::Archived;
@@ -46,12 +46,12 @@ pub struct Inner {
     dirty_rows: HashSet<(String, u64)>,
     gone_groups: HashSet<String>,
     gone_sessions: HashSet<String>,
-    /// Archived groups and sessions, never put back in the tree (the Hub lists an agent until its delete goes out).
+    /// Archived groups and sessions, never put back in the tree (a remote source may list one again).
     pub archived: HashSet<String>,
     /// Done nudges put off with Not now, until when.
     pub snoozed: HashMap<String, Ts>,
-    /// Hub deletes that failed and wait for a retry (⌘R).
-    pub hub_failed: usize,
+    /// Sandbox deletes that failed and wait for a retry (⌘R).
+    pub deletes_failed: usize,
 }
 
 #[derive(Default)]
@@ -62,7 +62,7 @@ pub struct Thread {
     pub loaded: bool,
 }
 
-/// Local state goes to the database; Scion's doesn't.
+/// Local state goes to the database; a remote source's doesn't.
 fn stored(id: &str) -> bool {
     id.starts_with("acp-") || id.starts_with("local:") || id.starts_with("s:acp-")
 }
@@ -212,7 +212,7 @@ impl Inner {
         self.threads.get(key)?.rows.iter().rev().find(|r| f(r))
     }
 
-    /// Replace a thread's rows wholesale (a Scion conversation re-read from the Hub).
+    /// Replace a thread's rows wholesale (a remote conversation re-read from its source).
     /// Rows keep their ids when `ext` matches, so the UI's selection survives.
     pub fn set_rows(&mut self, key: &str, rows: Vec<Row>) {
         if key.strip_prefix("s:").is_some_and(|id| self.archived.contains(id)) {
@@ -729,14 +729,14 @@ mod tests {
     }
 
     #[test]
-    fn scion_state_is_not_stored() {
+    fn remote_state_is_not_stored() {
         let c = conn();
         let s = Store::default();
         s.lock().put_session(Session {
-            id: "scion:hub:a1".into(),
+            id: "remote:a1".into(),
             ..Default::default()
         });
-        s.lock().push_row("s:scion:hub:a1", Row::default());
+        s.lock().push_row("s:remote:a1", Row::default());
         s.flush(&c).unwrap();
         let n: i64 = c
             .legacy()

@@ -1,6 +1,6 @@
 <script lang="ts">
   // Agents (design "Agents Final" 01–08, app/docs/agents.md): local ACP
-  // sessions and Scion agents in one tree, a thread on the right.
+  // sessions in one tree, a thread on the right.
   // ⏎ goes in, Esc comes out, Tab cycles tree → thread → composer.
   import { isTyping, mod, useKeys } from '../lib/keys.svelte';
   import type ApprovalCard from './agents/ApprovalCard.svelte';
@@ -8,7 +8,6 @@
   import { items } from './agents/items';
   import Keys from './agents/Keys.svelte';
   import NewLocal from './agents/NewLocal.svelte';
-  import NewScion from './agents/NewScion.svelte';
   import { lookVars } from './agents/look';
   import Pane from './agents/Pane.svelte';
   import ArchiveModal from './agents/ArchiveModal.svelte';
@@ -105,7 +104,7 @@
     const { group, session } = threadOf(sel.startsWith('g:') ? null : sel);
     const gid = sel.startsWith('g:') ? sel.slice(2) : (group?.id ?? session?.group_id ?? null);
     const g = ag.tree?.groups.find((x) => x.id === gid);
-    openForm(g ?? null, gid, false, startDir(g, sel, session));
+    openForm(gid, false, startDir(g, sel, session));
     ag.zone = 'thread';
   }
 
@@ -167,24 +166,14 @@
     navigator.clipboard?.writeText(t);
   }
 
+  const remote = () => {
+    const s = threadOf(ag.open).session;
+    return !!s && s.source !== 'acp';
+  };
+
   function interrupt() {
     const { session } = threadOf(ag.open);
     if (session) act('interrupt', { session: session.id }).catch(() => {});
-  }
-
-  function deliveryKey(e: KeyboardEvent): boolean {
-    const r = selectedItem()?.row;
-    const st = r?.delivery?.state;
-    if (!r || (st !== 'unreachable' && st !== 'failed') || !ag.open) return false;
-    const map: Record<string, string> =
-      st === 'unreachable'
-        ? { Enter: 'start_and_send', f: 'forward', Escape: 'discard' }
-        : { Enter: 'retry', e: 'edit', Escape: 'cancel' };
-    const action = map[e.key];
-    if (!action) return false;
-    if (action === 'edit') ag.drafts[ag.open] = r.text;
-    act('delivery', { thread: ag.open, row: r.id, action }).catch(() => {});
-    return true;
   }
 
   useKeys((e) => {
@@ -220,7 +209,6 @@
       if (req.kind === 'ask' && /^[1-9]$/.test(k) && ask?.choose(k)) return true;
       if (req.kind === 'ask' && k === 'r' && ask) return (ask.reply(), true);
     }
-    if (ag.zone === 'thread' && deliveryKey(e)) return true;
     if (k === 'u' && undoArchive()) return true;
     if (k === 'Escape' && ag.archived) {
       closeArchived();
@@ -273,8 +261,8 @@
       else if (k === 'Enter') reply();
       else if (k === 'c') copyRow();
       else if (k === 'g') pane?.latest();
-      else if (k === 't' && threadOf(ag.open).session?.source === 'scion') setTab('transcript');
-      else if (k === 'm' && threadOf(ag.open).session?.source === 'scion') setTab('messages');
+      else if (k === 't' && remote()) setTab('transcript');
+      else if (k === 'm' && remote()) setTab('messages');
       else return false;
       return true;
     }
@@ -292,9 +280,7 @@
   {#if ag.keys}<Keys />{/if}
   {#if ag.plan}<ArchiveModal plan={ag.plan} />{/if}
   {#if ag.bringBack}<BringBack session={ag.bringBack} />{/if}
-  {#if ag.form?.kind === 'scion'}
-    <NewScion group={ag.form.group} room={ag.form.room} onClose={closeForm} />
-  {:else if ag.form?.kind === 'local'}
+  {#if ag.form?.kind === 'local'}
     <NewLocal group={ag.form.group} onClose={closeForm} />
   {/if}
 </div>

@@ -126,10 +126,7 @@ const scenes = {
   // Not Developer (7): it shows each dev server's own data directory.
   'settings-find': ['Control+,', '/', { type: 'font' }],
   // Popover
-  // The Composer's menu is the @ completion in a Scion room, so this scene needs
-  // the fake hub (docs/agents.md) as a scion source on both dev servers.
   'daystrip-popover': [{ exact: 'Life' }],
-  'composer-menu': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'Tab', 'Tab', { type: '@' }],
   // Small moves
   'incoming-split-dismissed': ['j', 's', 'd'],
   // Picker
@@ -178,8 +175,8 @@ const scenes = {
   // Surfaces
   // Popovers, modals and insets (decision 5) that no scene above reaches: the topic
   // picker where it isn't docked (the palette's ⌘T, a new todo's Topic field), the
-  // Topics index's docked picker and the topic page's category picker, the New agent
-  // modal for a Scion room (it has the instructions inset), and an approval's command
+  // Topics index's docked picker and the topic page's category picker,
+  // and an approval's command
   // block in Incoming. Not covered: the Nudge toast (it shows near the end of the
   // day, the clock is at 10:52) and Slack review (it needs a Slack source).
   'palette-link-topic': ['Control+k', { type: 'acme' }, 'ArrowDown', 'Alt+a', 'Control+t'],
@@ -187,13 +184,12 @@ const scenes = {
   'topics-index-merge-picker': ['Control+3', 'm'],
   'topic-page-catpicker': ['Control+3', 'Enter', 'c'],
   'incoming-agents-command': [{ exact: 'Agents waiting' }, { clickText: 'needs approval' }],
-  'agents-new-scion': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'n'],
   // Colours
   // Error lines (decision 11): the assistant's failed ask is red (the dev server's
   // Bedrock rejects the keys, so the AI can't be reached); a todo's bad estimate is
   // orange (it needs you). Not covered: the countdown's red (at 10:52 the next block is
   // 7 minutes away, so the ladder reads yellow before and after), the Agents tree's host
-  // line and Scion hub error, a failing source in the sync popover (the sample data has
+  // line, a failing source in the sync popover (the sample data has
   // none) and Notes' margin states.
   'assistant-ask-failed': [
     'Control+i',
@@ -227,12 +223,10 @@ const scenes = {
   'empty-topic-page': ['Control+3', 'j', 'j', 'j', 'j', 'j', 'j', 'Enter'],
   'empty-reflect-day': [{ tab: 'Reflect' }, '[', 'T', 'D'],
   // People and reach-ins (decision 2, Phase 0-2 leftovers): Marco has no People note, so
-  // his signal shows the New person strip; New agent on a Scion hub marks a name already
-  // in the project ("planner") as taken. Not covered: Topics' People panel with an
+  // his signal shows the New person strip. Not covered: Topics' People panel with an
   // unknown person who has an account (the sample data gives Marco none; checked by
   // patching the topic's response), and Glean's avatars (parked).
   'incoming-new-person': ['Enter'],
-  'agents-new-scion-taken': [{ tab: 'Agents' }, { exact: 'migration', nth: 1 }, 'n', { type: 'planner' }],
   // A pi-style gate on a long multi-line command (the fakepi agent): the approval keeps
   // the transcript's room, shows only the gate's `rule *` and scrolls Parsed and Explained
   // separately. The same at 1760×800 (VIEWPORT), where the card must shrink.

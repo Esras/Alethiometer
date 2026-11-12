@@ -12,16 +12,11 @@
   const blocked = $derived(plan.state === 'blocked');
   const notDone = $derived(plan.state === 'not_done');
   const whole = $derived(plan.kind === 'group');
-  const agents = $derived(plan.hub + plan.local);
+  const agents = $derived(plan.rows.filter((r) => r.kind === 'session' && r.lit).length);
   const n = (k: number, one: string, many: string) => (k === 1 ? one : many.replace('#', String(k)));
-  const unpushed = $derived(plan.reasons.some((r) => r.note === 'lost with its clone'));
 
   const consequence = $derived.by(() => {
     const parts: string[] = [];
-    if (plan.hub)
-      parts.push(
-        `${n(plan.hub, whole ? '1 agent and its clone' : 'Its agent and clone', '# agents and their clones')} will be deleted on the Hub${unpushed ? ', with the unpushed commits' : ''}.`,
-      );
     if (plan.sandboxes)
       parts.push(
         `${n(plan.sandboxes, 'Its OpenShell sandbox', '# OpenShell sandboxes')} will be deleted, with ${plan.sandboxes === 1 ? 'its' : 'their'} files.`,

@@ -31,7 +31,7 @@
   const s = $derived(t.session);
   const g = $derived(t.group);
   const isRoom = $derived(!!key?.startsWith('r:'));
-  const kind = $derived<'local' | 'scion' | 'room'>(isRoom ? 'room' : s?.source === 'scion' ? 'scion' : 'local');
+  const kind = $derived<'local' | 'remote' | 'room'>(isRoom ? 'room' : s && s.source !== 'acp' ? 'remote' : 'local');
   const lk = $derived(look());
   const req = $derived(pinned(key));
   const list = $derived<Item[]>(items(ag.rows, ag.hidden, ag.expanded, lk.boxes.fold_pairs));
@@ -117,18 +117,8 @@
   const waitingRows = $derived(new Set((ag.tree?.requests ?? []).map((r) => r.id)));
   const messageCount = $derived(ag.tab === 'messages' ? ag.rows.length : 0);
 
-  function delivery(rowId: number, action: string) {
-    if (!key) return;
-    if (action === 'edit') {
-      const row = ag.rows.find((r) => r.id === rowId);
-      if (row) ag.drafts[key] = row.text;
-    }
-    act('delivery', { thread: key, row: rowId, action }).catch(() => {});
-  }
-
   function open(how: 'app' | 'terminal') {
-    const id = isRoom ? key : s?.id;
-    if (id) act('open', { session: id, how }).catch(() => {});
+    if (s) act('open', { session: s.id, how }).catch(() => {});
   }
 </script>
 
@@ -151,7 +141,7 @@
               style:color={agentColor(lk, s)}>{s.name}</span
             >{/if}
           <span class="c"
-            >{isRoom ? `${g?.room?.hub ?? 'Scion Hub'} · project ${g?.project} · group thread` : s?.context}</span
+            >{isRoom ? `${g?.room?.hub || g?.source} · project ${g?.project} · group thread` : s?.context}</span
           >
         </div>
         <div class="pane-title title">{title}</div>
@@ -177,7 +167,7 @@
     </div>
 
     <div class="panel">
-      {#if kind === 'scion' && ag.tab === 'messages'}
+      {#if kind === 'remote' && ag.tab === 'messages'}
         <div class="tabs">
           <button class="tab" onclick={() => setTab('transcript')}
             >Transcript<span class="n">{s?.stats.turns ?? 0} turns</span></button
@@ -194,7 +184,7 @@
               ><i class="ph {c.icon}" style:color={c.color}></i>{c.label}</button
             >
           {/each}
-          {#if kind === 'scion'}<button class="chip plain" onclick={() => setTab('messages')}
+          {#if kind === 'remote'}<button class="chip plain" onclick={() => setTab('messages')}
               >Messages tab<kbd>M</kbd></button
             >{/if}
           <button class="follow" class:paused={!following} onclick={latest}>
@@ -230,7 +220,6 @@
                   open={ag.expanded.has(`row:${it.row.id}`)}
                   earlier={it.run ? it.run.length - 1 : 0}
                   waiting={!!it.row.request && waitingRows.has(it.row.request)}
-                  onDelivery={(a) => delivery(it.row.id, a)}
                   onToggle={() => toggleRow(it.row.id)}
                 />
               </div>
@@ -249,14 +238,7 @@
         {/if}
         {#if key}
           {#key key}
-            <Composer
-              bind:el={composerEl}
-              thread={key}
-              session={s}
-              group={g}
-              onOpen={open}
-              onNewAgent={() => g && (ag.form = { kind: 'scion', group: g.id, room: g.room?.id ?? null })}
-            />
+            <Composer bind:el={composerEl} thread={key} session={s} group={g} onOpen={open} />
           {/key}
         {/if}
         {#if ag.error}<div class="err">{ag.error}</div>{/if}

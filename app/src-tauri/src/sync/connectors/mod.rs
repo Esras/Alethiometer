@@ -9,7 +9,6 @@ pub mod jira;
 pub mod oauth;
 pub mod obsidian;
 pub mod protoncal;
-pub mod scion;
 pub mod slack;
 pub mod teams;
 
@@ -25,7 +24,6 @@ pub fn for_kind(kind: &str) -> Option<Box<dyn Connector>> {
         "github" => Box::new(github::GitHub),
         "obsidian" => Box::new(obsidian::Obsidian),
         "protoncal" => Box::new(protoncal::ProtonCalendar),
-        "scion" => Box::new(scion::Scion),
         "agents" => Box::new(agents::Agents),
         _ => return None,
     })

@@ -10,18 +10,16 @@
 # Then: node scripts/ui-diff.mjs [scene…]
 #
 # usage: [UI_DIFF_SHARDS=n] scripts/ui-diff.sh [ref]     (default HEAD; "stop" stops this slot)
-# Both sides also get a fake Scion Hub (scripts/fake-scion-hub.mjs, one shared:
-# no scene posts to it) as a source, so Scion rooms and the composer's @ menu show.
 # UI_DIFF_SLOT=n runs a separate copy (ports and folder of its own), so several
 # checkouts or worktrees can diff at once. Slot 0: B 1420, A 1430, servers
-# 1421/1422, hub 1423. Slot n: B 1600+10n, A +1, servers +2/+3, hub +4.
+# 1421/1422. Slot n: B 1600+10n, A +1, servers +2/+3.
 #
 # UI_DIFF_SHARDS=n (1 to 9; default: one fewer than the cores, at most 2) starts n
 # such pairs for the slot, so that ui-diff.mjs can shoot its scenes in n parallel
 # chunks. Shard 0 is the pair above, on exactly those ports. Shard s>=1 of slot n:
 #   B 2000+100n+10s, A +1, servers +2/+3
 # (slot 0, shard 1: 2010-2013; slot 1, shard 2: 2120-2123), a range that no slot's
-# own ports reach. The hub is one per slot.
+# own ports reach.
 # Each shard has its own sample data (data-a, data-b; data-a-s, data-b-s for shard s),
 # logs, agents and Vite cache directory (a config file per shard and side: two Vite
 # servers on one cache directory serve blank pages). The ref's worktree ($WORK/base) is
@@ -50,14 +48,13 @@ shard_ports() {
     echo "$((1600 + 10 * SLOT)) $((1601 + 10 * SLOT)) $((1602 + 10 * SLOT)) $((1603 + 10 * SLOT))"
   fi
 }
-if [ "$SLOT" = 0 ]; then HUB=1423; else HUB=$((1604 + 10 * SLOT)); fi
 WORK=${UI_DIFF_DIR:-${TMPDIR:-/tmp}/alethiometer-ui-diff}/$SLOT
 # The main checkout (this may be a worktree): its build and node_modules are shared.
 MAIN=$(dirname "$(git -C "$APP" rev-parse --path-format=absolute --git-common-dir)")/app
 BIN="$MAIN/src-tauri/target/debug/devserver"
 
 stop() {
-  local ports=("$HUB/tcp") s p
+  local ports=() s p
   for s in 0 1 2 3 4 5 6 7 8 9; do
     for p in $(shard_ports "$s"); do ports+=("$p/tcp"); done
   done
@@ -104,13 +101,7 @@ fi
 export ALETHIOMETER_FAKE_NOW=10:52
 rm -rf "$WORK"/data-* "$WORK/shards"
 mkdir -p "$WORK/proj"
-# Detached (own session, no inherited stdin/stdout), so they outlive this script.
-setsid -f node "$MAIN/scripts/fake-scion-hub.mjs" "$HUB" < /dev/null > "$WORK/hub.log" 2>&1
-
-# The hub as a Scion source on both sides (any token will do).
-call() { curl -sf -o /dev/null -X POST -H 'X-Alethiometer: 1' "http://127.0.0.1:$1/call/$2" -d "$3"; }
-
-# Shard $1: its two dev servers with fresh data, its two Vite servers, the hub source
+# Shard $1: its two dev servers with fresh data, its two Vite servers
 # and the three agents. Run in the background, one per shard.
 start_shard() {
   local s=$1 suf="" conf=vite.ui-diff.config.ts cache=.vite-ui-diff
@@ -154,11 +145,6 @@ JSON
   done
 
   local port
-  for port in "$DA" "$DB"; do
-    call "$port" settings.patch "{\"edits\":[{\"op\":\"push\",\"path\":[\"sources\"],\"value\":{\"kind\":\"scion\",\"name\":\"hub\",\"tag\":\"work\",\"config\":{\"hub_url\":\"http://127.0.0.1:$HUB\"}}}]}"
-    call "$port" settings.secret_set '{"name":"scion.token","value":"ui-diff"}'
-  done
-  sleep 4
 
   # The same agents on both sides, one after the other: lists sort by when an
   # agent started asking, so a race would order them differently on each side.

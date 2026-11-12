@@ -131,7 +131,6 @@ pub const SAFE_TO_RESEND: &[&str] = &[
     "obsidian.replace",
     "obsidian.merge_notes",
     "obsidian.toggle_task",
-    "scion.delete_agent",
     "openshell.delete_sandbox",
 ];
 
@@ -199,7 +198,7 @@ pub fn process_one(app: &App, http: &dyn http::Http) -> Result<bool> {
     if result.is_ok() && source.kind == "obsidian" {
         crate::live::Live::vault_changed(app);
     }
-    if row.op == crate::agents::archive::DELETE_OP || row.op == crate::agents::openshell::DELETE_OP {
+    if row.op == crate::agents::openshell::DELETE_OP {
         crate::agents::archive::refresh_failed(app);
     }
     Ok(true)

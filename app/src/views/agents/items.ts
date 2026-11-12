@@ -8,7 +8,7 @@ export type Item = { key: string; row: Row; run?: Row[]; folded?: boolean };
 
 /** Legend chips per thread kind: label, the kinds it filters, icon, box class. */
 export const LEGEND: Record<
-  'local' | 'scion' | 'room',
+  'local' | 'remote' | 'room',
   { label: string; kinds: string[]; icon: string; box: string; color: string }[]
 > = {
   local: [
@@ -27,7 +27,7 @@ export const LEGEND: Record<
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
     { label: 'Approvals', kinds: ['approval'], icon: 'ph-shield-warning', box: 'need', color: 'var(--need)' },
   ],
-  scion: [
+  remote: [
     { label: 'You', kinds: ['you'], icon: 'ph-user', box: 'you', color: '#ebdbb2' },
     { label: 'Output', kinds: ['output'], icon: 'ph-text-align-left', box: '', color: 'var(--tx-2)' },
     { label: 'Thinking', kinds: ['thinking'], icon: 'ph-brain', box: '', color: '#7c6f64' },
@@ -41,14 +41,14 @@ export const LEGEND: Record<
     },
     { label: 'Messages', kinds: ['message'], icon: 'ph-arrows-left-right', box: 'msg', color: 'var(--msg)' },
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
-    { label: 'Hub', kinds: ['hub'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
+    { label: 'Notice', kinds: ['notice'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
     { label: 'Asks', kinds: ['ask', 'approval'], icon: 'ph-question', box: 'need', color: 'var(--need)' },
   ],
   room: [
     { label: 'You', kinds: ['you'], icon: 'ph-user', box: 'you', color: '#ebdbb2' },
     { label: 'Messages', kinds: ['message'], icon: 'ph-arrows-left-right', box: 'msg', color: 'var(--msg)' },
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
-    { label: 'Hub', kinds: ['hub'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
+    { label: 'Notice', kinds: ['notice'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
     { label: 'Asks', kinds: ['ask'], icon: 'ph-question', box: 'need', color: 'var(--need)' },
   ],
 };

@@ -1,7 +1,8 @@
 // Shapes from src-tauri/src/agents/model.rs (snake_case on purpose).
 
 export type Status = 'running' | 'waiting' | 'idle' | 'done' | 'failed';
-export type Kind = 'you' | 'output' | 'thinking' | 'tool' | 'message' | 'state' | 'hub' | 'ask' | 'approval' | 'failed';
+export type Kind =
+  'you' | 'output' | 'thinking' | 'tool' | 'message' | 'state' | 'notice' | 'ask' | 'approval' | 'failed';
 
 export interface Room {
   id: string;
@@ -20,9 +21,10 @@ export interface Room {
 
 export interface Group {
   id: string;
-  source: 'acp' | 'scion';
+  /** `acp`, or a remote source's kind. */
+  source: string;
   project: string;
-  /** A local group's project folder; empty for Scion. */
+  /** A local group's project folder; empty for remote ones. */
   project_dir: string;
   name: string;
   goal: string;
@@ -49,7 +51,7 @@ export interface Session {
   seen_turns?: number | null;
   /** A file its direnv environment came from has changed since it started. */
   env_changed?: boolean;
-  source: 'acp' | 'scion';
+  source: string;
   group_id: string | null;
   parent_id: string | null;
   name: string;
@@ -211,7 +213,6 @@ export interface Tree {
   }[];
   /** The OpenShell CLI is on the PATH: agents can run in its sandboxes. */
   openshell: boolean;
-  hubs: { source: string; name: string; url: string; state: string; error: string }[];
   host: string;
   /** The agent host (app/agentd) local agents run in. */
   agentd: {
@@ -224,8 +225,8 @@ export interface Tree {
   };
   /** Done nudges by group id: "completed, #208 merged". */
   nudges: Record<string, string>;
-  /** Hub deletes that failed after archiving (retried with ⌘R). */
-  hub_failed: number;
+  /** Sandbox deletes that failed after archiving (retried with ⌘R). */
+  deletes_failed: number;
 }
 
 /** What archiving a row would do (agents.archive_plan). */
@@ -247,7 +248,6 @@ export interface Plan {
   }[];
   reasons: { text: string; note: string }[];
   going: number;
-  hub: number;
   /** OpenShell sandboxes it deletes (ones Alethiometer made that nothing else runs in). */
   sandboxes: number;
   local: number;
@@ -257,7 +257,7 @@ export interface Plan {
 export interface ArchivedItem {
   id: string;
   kind: 'group' | 'session';
-  source: 'acp' | 'scion';
+  source: string;
   project: string;
   group: string;
   group_id: string | null;

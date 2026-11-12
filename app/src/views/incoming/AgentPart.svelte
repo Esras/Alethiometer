@@ -8,7 +8,6 @@
   import { chord, mod } from '../../lib/keys.svelte';
   import { fieldsLine, splitMessage } from '../agents/approvalMessage';
   import Panels from '../agents/Panels.svelte';
-  import { ag } from '../agents/state.svelte';
   import type { Request, Session } from '../agents/types';
   import type { AgentInfo, Signal } from './types';
   import { toast } from '../../lib/toast.svelte';
@@ -30,12 +29,11 @@
   const a = $derived(s.agent as AgentInfo);
   const req = $derived(a.request ? live?.requests.find((r) => r.id === a.request) : undefined);
   const session = $derived(live?.sessions.find((x) => x.id === a.session));
-  let writing = $state<'reply' | 'deny' | 'forward' | null>(null);
+  let writing = $state<'reply' | 'deny' | null>(null);
   let text = $state('');
   let denyWith = $state<string | null>(null);
-  let to = $state('');
   let busy = false;
-  let box = $state<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>();
+  let box = $state<HTMLTextAreaElement | HTMLInputElement>();
 
   const hm = () => clockHM(ui.nowMs);
 
@@ -53,28 +51,14 @@
     }
   }
 
-  async function write(kind: 'reply' | 'deny' | 'forward') {
+  async function write(kind: 'reply' | 'deny') {
     writing = kind;
     text = '';
     await tick();
     box?.focus();
   }
 
-  const delivery = (action: string, label: string, extra: Record<string, unknown> = {}) =>
-    run('delivery', { thread: a.thread, row: a.row, action, ...extra }, label);
   const thread = $derived(a.thread ?? `s:${a.session}`);
-  // Who else could take an undelivered message: the group's other running Scion agents.
-  const others = $derived(
-    (live?.sessions ?? []).filter(
-      (x) =>
-        x.id !== a.session &&
-        x.source === 'scion' &&
-        !x.parent_id &&
-        x.group_id === session?.group_id &&
-        x.status !== 'done' &&
-        x.status !== 'failed',
-    ),
-  );
 
   const answers = $derived.by<Answer[]>(() => {
     switch (a.kind) {
@@ -104,41 +88,14 @@
             ),
         }));
       case 'undelivered':
-        return [
-          {
-            key: '1',
-            label: 'Start it again and send',
-            primary: true,
-            run: () => delivery('start_and_send', 'Started again and sent'),
-          },
-          { key: '2', label: 'Send to another agent', run: () => write('forward') },
-          { key: '3', label: 'Discard', run: () => delivery('discard', 'Discarded') },
-        ];
       case 'failed_delivery':
-        return [
-          { key: '1', label: 'Retry', primary: true, run: () => delivery('retry', 'Retried') },
-          {
-            key: '2',
-            label: 'Edit',
-            run: () => {
-              // As in Agents: the text goes back to the composer, then the message is cancelled.
-              if (a.thread) ag.drafts[a.thread] = s.messages.at(-1)?.text ?? '';
-              delivery('edit', 'Back in the composer').then(onOpen);
-            },
-          },
-          { key: '3', label: 'Cancel', run: () => delivery('cancel', 'Cancelled') },
-        ];
+        return [{ key: '1', label: 'Open in Agents', primary: true, run: onOpen }];
       case 'failed':
         return [
           { key: '1', label: 'Open in Agents', primary: true, run: onOpen },
           {
             key: '2',
-            label:
-              session?.source === 'scion'
-                ? 'Open on Hub'
-                : session?.sandbox
-                  ? 'Open a shell in its sandbox'
-                  : 'Open in Zed',
+            label: session?.sandbox ? 'Open a shell in its sandbox' : 'Open in Zed',
             run: () => call('agents.open', { session: a.session, how: 'app' }),
           },
         ];
@@ -168,10 +125,6 @@
   function send() {
     const t = text.trim();
     if (writing === 'deny') return run('respond', { request: req!.id, option: denyWith, reason: t }, 'Denied');
-    if (writing === 'forward')
-      return (
-        to && delivery('forward', `Sent to ${live?.sessions.find((x) => x.id === to)?.name ?? 'another agent'}`, { to })
-      );
     if (!t) return;
     if (a.kind === 'ask') return run('answer', { request: req!.id, text: t }, 'Replied');
     return run('send', { thread, text: t }, 'Replied');
@@ -219,13 +172,7 @@
 
   {#if writing}
     <div class="write">
-      {#if writing === 'forward'}
-        <select class="input" bind:this={box} bind:value={to} onkeydown={onKey}>
-          <option value="">Send to…</option>
-          {#each others as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
-        </select>
-        {#if !others.length}<span class="note">No other running agent in this group.</span>{/if}
-      {:else if writing === 'deny'}
+      {#if writing === 'deny'}
         <input
           class="input"
           bind:this={box}
@@ -339,8 +286,7 @@
     align-items: center;
   }
   .write textarea,
-  .write input,
-  .write select {
+  .write input {
     flex: 1;
     min-width: 0;
     width: auto;

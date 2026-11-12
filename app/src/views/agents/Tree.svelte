@@ -50,8 +50,7 @@
     return null;
   }
 
-  const hostClass = (g: Group) =>
-    g.source === 'acp' ? 'local' : g.host.toLowerCase().startsWith('scion') ? 'scion' : 'other';
+  const hostClass = (g: Group) => (g.source === 'acp' ? 'local' : 'other');
 
   function needLine(r: Request): { verb: string; verbClass: string; text: string } {
     if (r.kind === 'ask') {
@@ -231,10 +230,6 @@
     >
   </div>
 
-  {#each (ag.tree?.hubs ?? []).filter((h) => h.state === 'error') as h (h.source)}
-    <div class="hub-err" title={h.error}><i class="ph ph-plugs"></i>Scion · {h.name}: {h.error}</div>
-  {/each}
-
   {#if requests.length}
     <div class="needs">
       <div class="needs-head label">
@@ -366,7 +361,7 @@
     {:else}
       <div class="empty-pane">
         {#if ag.filter}{archived.length ? 'Nothing live matches.' : `Nothing matches "${ag.filter}".`}{:else}No sessions
-          yet. <button class="link-act" onclick={onNew}>Start one</button> (n), or add a Scion Hub in Settings › Sources.{/if}
+          yet. <button class="link-act" onclick={onNew}>Start one</button> (n).{/if}
       </div>
     {/each}
     {#if archived.length}
@@ -471,10 +466,10 @@
     </div>
   {/if}
 
-  {#if (ag.tree?.hub_failed ?? 0) > 0}
+  {#if (ag.tree?.deletes_failed ?? 0) > 0}
     <div class="hostline bad">
       <i class="ph ph-warning-circle"></i><span class="err broken"
-        >{ag.tree?.hub_failed} Hub or sandbox delete{ag.tree?.hub_failed === 1 ? '' : 's'} failed · retry with {chord(
+        >{ag.tree?.deletes_failed} sandbox delete{ag.tree?.deletes_failed === 1 ? '' : 's'} failed · retry with {chord(
           '⌘R',
           'Ctrl+R',
         )} in the sync status</span
@@ -737,9 +732,6 @@
     color: var(--tx-muted-2);
     white-space: nowrap;
   }
-  .host.scion {
-    color: var(--blue);
-  }
   .host.other {
     color: #9a9fd6;
   }
@@ -848,25 +840,6 @@
     font-size: 0.923rem;
     line-height: 1.5;
     text-align: left;
-  }
-  .hub-err {
-    flex: none;
-    margin: 0 10px 6px;
-    padding: 5px 10px;
-    border-radius: var(--radius-md);
-    border: 1px solid color-mix(in srgb, var(--status-broken) 45%, transparent);
-    background: color-mix(in srgb, var(--status-broken) 7%, transparent);
-    color: var(--tx-2);
-    font-size: 0.923rem;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .hub-err i {
-    color: var(--status-broken);
   }
   .slot {
     display: flex;

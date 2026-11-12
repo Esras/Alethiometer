@@ -1,6 +1,6 @@
 <script lang="ts">
   // Sessions: harness, model, host; then context, cache, turns, elapsed,
-  // cost. Rooms: Hub, thread id, mode; then loop cap, messages, live, ? keys.
+  // cost. Rooms: where it runs, thread id, mode; then loop cap, messages, live, ? keys.
   import { act, ag } from './state.svelte';
   import type { Group, Session } from './types';
   import StatusMark from '../../lib/ui/StatusMark.svelte';

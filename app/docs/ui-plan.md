@@ -31,7 +31,7 @@ Paths are under `app/src/`. "→" is the target class or component.
 - **Diffs are exact,** with Chromium's deterministic raster and transitions off. A 0.01 alpha change to one token shows up as thousands of pixels.
 - **Not covered:**
   - Settings › Developer, which shows each server's data directory;
-  - anything the sample data can't produce: Scion rooms, a Glean answer, Slack review, todos.
+  - anything the sample data can't produce: rooms (no remote source yet), a Glean answer, Slack review, todos.
 
 ## Phase 0 and Phase 1 · done (2026-10-05)
 

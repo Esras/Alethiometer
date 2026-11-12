@@ -1,5 +1,5 @@
 //! The pane header's facts box: ticket, PR, branch and todo for a session.
-//! The branch comes from git in the session's directory (or the Scion agent's
+//! The branch comes from git in the session's directory (or the session's own
 //! branch); the ticket is a Jira key in the branch, title or first prompt; the
 //! PR is a GitHub item for that branch or key; the todo is one naming the key.
 
@@ -53,10 +53,8 @@ pub fn ticket_key(branch: &str, texts: &[&str]) -> Option<String> {
 }
 
 /// Branch and how far ahead of its upstream (or origin's default) it is.
-pub fn branch_fact(cwd: &str, branch: Option<&str>) -> Option<Fact> {
-    let name = branch
-        .map(str::to_owned)
-        .or_else(|| git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]))?;
+pub fn branch_fact(cwd: &str) -> Option<Fact> {
+    let name = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     if name == "HEAD" {
         return None;
     }
@@ -167,13 +165,7 @@ pub fn refresh(app: &App, id: &str) {
             .find_row(&super::session_thread(&id), |r| r.kind == super::model::Kind::You)
             .map(|r| r.text.clone())
             .unwrap_or_default();
-        let scion_branch = s
-            .facts
-            .branch
-            .as_ref()
-            .filter(|_| s.source == "scion")
-            .map(|b| b.label.clone());
-        let branch = branch_fact(&s.cwd, scion_branch.as_deref()).or(s.facts.branch.clone());
+        let branch = branch_fact(&s.cwd).or(s.facts.branch.clone());
         let key = ticket_key(
             branch.as_ref().map_or("", |b| b.label.as_str()),
             &[&s.title, &first_prompt],

@@ -1,5 +1,5 @@
 //! What the Agents tab shows, the same for both sources: groups and sessions
-//! for the tree, rows for a thread (a session's transcript or a Scion room),
+//! for the tree, rows for a thread (a session's transcript or a room),
 //! and the requests pinned above the composer (approvals, asks).
 //!
 //! A thread is keyed `s:<session id>` or `r:<room id>`.
@@ -18,24 +18,23 @@ pub enum Status {
     Failed,
 }
 
-/// A group in the tree: a local group you made, or a Scion group thread's
-/// agents. Sessions with no group are Unsorted.
+/// A group in the tree: a local group you made, or a remote source's agents. Ungrouped is Unsorted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Group {
-    /// `local:<n>` or `scion:<hub source>:<project id>:<conversation id or "agents">`.
+    /// `local:<n>`, or `<source>:…` for a remote source.
     pub id: String,
-    /// `acp` or `scion`.
+    /// `acp`, or the remote source's kind.
     pub source: String,
-    /// The label above the group: the repo for local groups, the Scion project.
+    /// The label above the group: the repo for local groups, the remote project.
     pub project: String,
-    /// A local group's project folder (`facts::project_dir`); empty for Scion.
+    /// A local group's project folder (`facts::project_dir`); empty for remote ones.
     #[serde(default)]
     pub project_dir: String,
     pub name: String,
     pub goal: String,
-    /// Host tag: "laptop", "Scion · gcp-1".
+    /// Host tag: "laptop", or where a remote source runs it.
     pub host: String,
-    /// A Scion group thread, shown as the group's first row.
+    /// A remote group's channel, shown as the group's first row.
     pub room: Option<Room>,
     pub created_at: String,
 }
@@ -48,7 +47,7 @@ pub struct Room {
     pub members: usize,
     pub unread: usize,
     pub active_at: String,
-    /// Status line: Hub, thread id, mode, loop cap, message count.
+    /// Status line: where it runs, thread id, mode, loop cap, message count.
     pub hub: String,
     pub thread_ref: String,
     pub mode: String,
@@ -60,14 +59,14 @@ pub struct Room {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Session {
-    /// `acp-<hex>` or `scion:<hub source>:<agent id>`.
+    /// `acp-<hex>`, or `<source>:…` for a remote source.
     pub id: String,
     pub source: String,
     pub group_id: Option<String>,
     /// A subagent sits under its parent, indented.
     pub parent_id: Option<String>,
     pub name: String,
-    /// Settings harness key (local) or Scion template name: what `names.color_by = template` colours by.
+    /// Settings harness key (local) or remote template name: what `names.color_by = template` colours by.
     pub template: String,
     /// "Claude Code", "Pi".
     pub harness: String,
@@ -84,7 +83,7 @@ pub struct Session {
     /// Pane header title and subtitle.
     pub title: String,
     pub subtitle: String,
-    /// Context line under the name: "Scion Hub · project ingest-svc".
+    /// Context line under the name: "project ingest-svc".
     pub context: String,
     pub created_at: String,
     pub active_at: String,
@@ -92,15 +91,15 @@ pub struct Session {
     pub color: usize,
     pub stats: Stats,
     pub facts: Facts,
-    /// A process (local) or Hub agent is attached and can take a message now.
+    /// A process (local) or remote agent is attached and can take a message now.
     pub live: bool,
     /// Why it isn't live, when it should be ("pi-acp not found", "not signed in").
     pub problem: String,
     /// Unsorted only: the AI's guess at a group.
     pub guess: Option<Guess>,
-    /// Open on Hub / in Zed.
+    /// The session's page at its source.
     pub url: String,
-    /// Agent-side id: the ACP sessionId (to resume or load), the Scion agent id.
+    /// Agent-side id: the ACP sessionId (to resume or load), or the remote agent id.
     #[serde(default)]
     pub ext: String,
     /// Composer queue: held back while mid-turn, oldest first; not real rows until sent.
@@ -230,8 +229,9 @@ pub enum Kind {
     Message,
     /// Started, running → completed, joined.
     State,
-    /// Hub notice (loop cap, rate limit).
-    Hub,
+    /// A notice from whatever runs the agent (harness, adapter): retries, provider errors.
+    #[serde(alias = "hub")]
+    Notice,
     /// Needs you: a question.
     Ask,
     /// Needs you: a tool waiting for approval.
@@ -271,7 +271,7 @@ pub struct Row {
     pub tokens: Option<u64>,
     /// Still streaming.
     pub open: bool,
-    /// Agent-side id (ACP toolCallId, Scion message id) for updates in place.
+    /// Agent-side id (ACP toolCallId, a remote message id) for updates in place.
     #[serde(default)]
     pub ext: String,
 }
@@ -346,9 +346,9 @@ pub struct Delivery {
     pub count: usize,
     pub at: String,
     pub delivered_at: String,
-    /// Why (failed: the Hub's reason; deferred: "handler was mid-turn").
+    /// Why (failed: the source's reason; deferred: "handler was mid-turn").
     pub reason: String,
-    /// Failed: when the Hub retries next.
+    /// Failed: when the source retries next.
     pub retry_at: String,
     pub seen_by: Vec<String>,
 }
@@ -469,4 +469,14 @@ pub struct Check {
     /// true = ok (green check), false = warning (yellow).
     pub ok: bool,
     pub text: String,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn stored_hub_rows_load_as_notices() {
+        let k: super::Kind = serde_json::from_str("\"hub\"").unwrap();
+        assert_eq!(k, super::Kind::Notice);
+        assert_eq!(serde_json::to_string(&k).unwrap(), "\"notice\"");
+    }
 }
