@@ -34,6 +34,7 @@ The app was built from a Claude Design handoff, which stays in the repo as the r
 
 - **`project/design_handoff_helm/README.md`** is the spec. Its "Files" section says which mock IDs are current.
 - **`project/*.dc.html`** are the HTML mocks: explorations by round (rounds 1–6 are superseded), Agents, Glean and the day strip.
+- **`project/new-agent/`** holds the final boards of the New agent form redesign (F1–F3, plus the Directories field's states), with PNGs. Its README says how to read them.
 - **`chats/`** holds the design conversations. Read them for intent: they show where the user landed, not only what was drawn.
 - **`project/fixtures/fake-account.json`** (also `fake-account.js`, which sets `window.FAKE_ACCOUNT`) is invented data at the density of the user's real account, for populating mocks. Read its `about` field for what it models and `shape` for the measured numbers. Use it instead of a handful of hand-made rows, and show the density rather than trimming it to fit. It is large: query it with `jq` or grep. Regenerate with `node app/scripts/gen-fake-account.mjs`.
 

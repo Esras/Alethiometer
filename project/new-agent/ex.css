@@ -1,0 +1,49 @@
+/* New agent form (F1–F3): styles on top of na.css. Colours are the Alethiometer tokens. */
+.ex { flex-direction: column; gap: 14px; align-items: center; }
+.ex .cap { margin: 0; width: 740px; font: 13px/1.45 var(--font-ui); color: var(--tx-2); }
+.ex .cap b { color: var(--tx-title); font-weight: 500; }
+
+.ex .pane { position: relative; width: 740px; box-sizing: border-box; border-radius: 8px; background: var(--bg-panel); border: 1px solid var(--border-strong); color: var(--tx-body); font: 13px/1.4 var(--font-ui); display: flex; flex-direction: column; }
+.ex .pane.float { box-shadow: var(--modal); border-radius: 10px; }
+
+/* Rows */
+.ex .row { display: flex; gap: 8px; align-items: center; }
+
+/* Saved agents list */
+.ex .rc { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 10px; padding: 7px 14px; text-align: left; }
+.ex .rc .n { grid-row: span 2; font: 11px/18px var(--mono); color: var(--tx-label); text-align: center; border: 1px solid var(--border-strong); border-radius: 2px; height: 18px; box-sizing: border-box; }
+.ex .rc .a { color: var(--tx-title); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex .rc .b { font: 11px var(--mono); color: var(--tx-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex .rc.cur { background: var(--aqua-tint); box-shadow: var(--sel-edge); }
+.ex .rc.cur .n { border-color: var(--aqua); color: var(--aqua); }
+
+/* Saved agents panel, edit mode, small controls */
+.ex .sv { width: 250px; flex: none; border-right: 1px solid var(--border); padding: 6px 0; display: flex; flex-direction: column; }
+.ex .sv .gh { padding: 8px 14px 4px; display: flex; align-items: center; }
+.ex .sv .gh .r { margin-left: auto; letter-spacing: 0; text-transform: none; font: 11px var(--mono); color: var(--tx-label); }
+.ex .rc .nm { color: var(--tx-title); }
+.ex .rc.nw { margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+.ex .rc.nw .n { border-style: dashed; }
+.ex .rc.nw .a { color: var(--tx-body); }
+.ex .rc .hdl { grid-row: span 2; color: var(--tx-disabled); font-size: 13px; align-self: center; }
+.ex .rc .act { display: flex; gap: 4px; }
+.ex .ibs { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; color: var(--tx-muted-2); font-size: 12px; }
+.ex .ibs:hover { background: var(--hover-tint); }
+.ex .jn { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+.ex .chk { display: inline-flex; gap: 8px; align-items: center; font: 12px var(--font-ui); color: var(--tx-2); }
+.ex .chk input { accent-color: #8ec07c; width: 14px; height: 14px; margin: 0; }
+.ex .sm-in { display: inline-flex; align-items: center; height: 24px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--bg-app); }
+.ex .sm-in input { background: none; border: 0; outline: 0; padding: 0; font: 12px var(--mono); color: var(--tx-body); width: 150px; }
+.ex .sm-in input::placeholder { color: var(--tx-disabled); }
+.ex .sm-in.f { border-color: var(--aqua); }
+
+/* The form */
+.ex .sv.n2 { width: 214px; }
+.ex .frm { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.ex .frm .fields { grid-template-columns: 74px minmax(0, 1fr); }
+.ex .frm .hint { margin-left: 84px; }
+.ex .frm .jn { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.ex .frm .jn .t2 { color: var(--tx-label); }
+.ex .md { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--aqua); margin-left: 6px; vertical-align: 1px; }
+.ex .two-in { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; min-width: 0; }
+.ex .two-in.mt { grid-template-columns: minmax(0, 1fr) 96px; }
