@@ -25,38 +25,47 @@ describe('ag.error', () => {
 });
 
 describe('nodes', () => {
-  it('groups by project, Unsorted last in each, and a drag adds an empty Unsorted to its own project only', () => {
-    const g = (id: string, dir: string) => ({ id, source: 'acp', project: dir.slice(3), project_dir: dir, name: id });
-    const s = (id: string, group: string | null, dir: string) => ({
+  it('lists local sessions once, under the exact set of repos, in any order; remote groups stay', () => {
+    const s = (id: string, repos: string[], parent: string | null = null) => ({
       id,
       source: 'acp',
-      group_id: group,
-      parent_id: null,
+      group_id: null,
+      parent_id: parent,
       name: id,
-      cwd: dir,
-      project_dir: dir,
-      project: dir.slice(3),
+      cwd: repos[0],
+      project_dir: repos[0],
+      project: repos[0].slice(3),
+      repos,
     });
     ag.filter = '';
     ag.tree = {
-      groups: [g('local:1', '/r/aleth'), g('local:2', '/r/k8s')],
-      sessions: [s('a', 'local:1', '/r/aleth'), s('b', null, '/r/aleth'), s('c', 'local:2', '/r/k8s')],
+      groups: [
+        { id: 'miao:c1', source: 'miao', project: 'checkout', project_dir: '', name: 'c1', goal: '', room: null },
+      ],
+      sessions: [
+        s('a', ['/r/aleth']),
+        s('b', ['/r/aleth', '/r/pi-acp']),
+        s('c', ['/r/pi-acp', '/r/aleth']),
+        s('d', ['/r/aleth']),
+        s('b~1', ['/r/aleth', '/r/pi-acp'], 'b'),
+        { ...s('m', ['/x']), source: 'miao', group_id: 'miao:c1' },
+      ],
       requests: [],
     } as never;
     const shape = () => nodes().map((n) => n.key);
     expect(shape()).toEqual([
+      'p:miao:checkout',
+      'g:miao:c1',
+      's:m',
       'p:acp:/r/aleth',
-      'g:local:1',
       's:a',
-      'u:acp:/r/aleth',
+      's:d',
+      'p:acp:/r/aleth\n/r/pi-acp',
       's:b',
-      'p:acp:/r/k8s',
-      'g:local:2',
+      's:b~1',
       's:c',
     ]);
-    ag.drag = { session: 'c', project: 'acp:/r/k8s' };
-    expect(shape().slice(-2)).toEqual(['s:c', 'u:acp:/r/k8s']);
-    expect(shape().filter((k) => k.startsWith('u:'))).toHaveLength(2);
-    ag.drag = null;
+    const head = nodes().find((n) => n.key === 'p:acp:/r/aleth\n/r/pi-acp');
+    expect(head?.type === 'project' && head.label).toBe('aleth & pi-acp');
   });
 });

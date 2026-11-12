@@ -3,8 +3,6 @@
   import { agentColor } from './look';
   import { popover } from '../../lib/ui/popover';
   import { chord } from '../../lib/keys.svelte';
-  import Dock from '../../lib/ui/Dock.svelte';
-  import GroupPicker from './GroupPicker.svelte';
   import {
     act,
     ag,
@@ -12,15 +10,14 @@
     archivable,
     askArchive,
     groupById,
-    homeKey,
     look,
-    moveTo,
     nodes,
     openArchived,
     openThread,
     pendingFor,
-    projectKey,
+    reposOf,
     searchArchived,
+    setLabel,
     sessionById,
     turnEnded,
     type Node,
@@ -106,8 +103,8 @@
 
   function click(n: Node) {
     ag.sel = n.key;
-    if (n.type === 'group' || n.type === 'unsorted') {
-      const k = n.type === 'group' ? n.group.id : n.key;
+    if (n.type === 'group') {
+      const k = n.group.id;
       if (ag.folded.has(k)) ag.folded.delete(k);
       else ag.folded.add(k);
       ag.folded = new Set(ag.folded);
@@ -115,56 +112,6 @@
     }
     openThread(n.key);
     ag.zone = 'tree';
-  }
-
-  // Drag a top-level local session onto another group of its project (pointer events, as SourcesPanel's edge).
-  let over = $state<string | null>(null);
-  let ghost = $state<{ x: number; y: number; name: string } | null>(null);
-  const root = (s: Session) => {
-    let r = s;
-    for (let p = sessionById(r.parent_id); p; p = sessionById(p.parent_id)) r = p;
-    return r;
-  };
-  function dropKey(n: Node): string | null {
-    const d = ag.drag;
-    if (!d) return null;
-    if (n.type === 'group') return n.group.source === 'acp' && projectKey(n.group) === d.project ? n.key : null;
-    if (n.type === 'unsorted') return n.project === d.project ? n.key : null;
-    if (n.type === 'session' && n.s.source === 'acp' && projectKey(root(n.s)) === d.project) return homeKey(root(n.s));
-    return null;
-  }
-  function grab(e: PointerEvent, s: Session) {
-    if (e.button !== 0 || s.source !== 'acp' || s.parent_id) return;
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    const move = (m: PointerEvent) => {
-      if (!ag.drag) {
-        if (Math.hypot(m.clientX - x0, m.clientY - y0) < 5) return;
-        ag.drag = { session: s.id, project: projectKey(s) };
-        ag.menu = null;
-      }
-      ghost = { x: m.clientX, y: m.clientY, name: s.name };
-      over = document.elementFromPoint(m.clientX, m.clientY)?.closest<HTMLElement>('[data-drop]')?.dataset.drop ?? null;
-    };
-    const end = (drop: boolean) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('keydown', key, true);
-      if (ag.drag && drop && over) moveTo(s.id, over.startsWith('g:') ? over.slice(2) : null);
-      ag.drag = null;
-      over = null;
-      ghost = null;
-    };
-    const up = () => end(true);
-    const key = (k: KeyboardEvent) => {
-      if (k.key !== 'Escape' || !ag.drag) return;
-      k.preventDefault();
-      k.stopPropagation();
-      end(false);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('keydown', key, true);
   }
 
   const host = $derived(ag.tree?.agentd);
@@ -194,7 +141,6 @@
 <div
   class="tree"
   class:focus={ag.zone === 'tree'}
-  class:dragging={!!ag.drag}
   role="presentation"
   onmousedown={(e) => {
     ag.zone = 'tree';
@@ -254,30 +200,9 @@
     {#each list as n, idx (n.key)}
       {@const fr = framed(n)}
       {@const pend = pendingOf(n)}
-      {@const dk = dropKey(n)}
-      <div
-        class="slot"
-        class:framed={fr}
-        class:ftop={fr && n.type === 'group'}
-        class:pending={!!pend}
-        class:drop={!!dk && dk === over}
-        data-drop={dk}
-      >
+      <div class="slot" class:framed={fr} class:ftop={fr && n.type === 'group'} class:pending={!!pend}>
         {#if n.type === 'project'}
-          <div class="project label">{n.label}</div>
-        {:else if n.type === 'unsorted'}
-          {@const f = folded(n.sessions)}
-          <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)}>
-            <i class="ph {n.open ? 'ph-caret-down' : 'ph-caret-right'} caret"></i>
-            <span class="gname"><span class="name unsorted">Unsorted</span></span>
-            <span class="gright">
-              {#if !n.open && f}
-                <span class="fold" class:red={f.status === 'failed'}
-                  ><StatusMark status={f.status} size={7} />{f.n}</span
-                >
-              {/if}
-            </span>
-          </button>
+          <div class="project label" title={n.title}>{n.label}</div>
         {:else if n.type === 'group'}
           {@const f = folded(n.sessions)}
           <button class="group" class:sel={ag.sel === n.key} onclick={() => click(n)} oncontextmenu={(e) => menu(e, n)}>
@@ -314,9 +239,6 @@
             class="row"
             class:sel={ag.sel === n.key}
             class:sub={n.depth > 0}
-            class:loose={n.unsorted}
-            class:lifted={ag.drag?.session === s.id}
-            onpointerdown={(e) => grab(e, s)}
             onclick={() => click(n)}
             oncontextmenu={(e) => menu(e, n)}
             style:--indent="{14 * n.depth}px"
@@ -328,9 +250,7 @@
             <span
               class="name"
               title={turnEnded(s) ? 'Ended its turn since you looked' : undefined}
-              style:color={agentColor(look(), s)}
-              >{s.name}{#if n.unsorted && s.cwd}<span class="cwd">{s.cwd.replace(/^\/(Users|home)\/[^/]+/, '~')}</span
-                >{/if}</span
+              style:color={agentColor(look(), s)}>{s.name}</span
             >
             {#if pend && pend.target === n.key}
               <span class="undo-note wide">{pend.label} in {secs(pend.until)}s · <kbd>u</kbd> undo</span>
@@ -340,13 +260,6 @@
               <span class="age" class:orange={s.status === 'waiting' || turnEnded(s)}>{age(s.active_at, now)}</span>
             {/if}
           </button>
-          {#if n.unsorted && s.guess?.group_id}
-            <div class="guess">
-              Looks like <span class="where">{s.guess.label}</span>
-              <button class="move" onclick={() => moveTo(s.id, s.guess!.group_id)}>Move</button>
-              <button onclick={() => act('guess_dismiss', { session: s.id })}>Not this</button>
-            </div>
-          {/if}
         {/if}
       </div>
       {#if lastInFrame(idx)}
@@ -407,18 +320,6 @@
     {/if}
   </div>
 
-  {#if ag.moving}
-    <Dock under=".tree .row.sel">
-      <GroupPicker session={ag.moving} onclose={() => (ag.moving = null)} />
-    </Dock>
-  {/if}
-
-  {#if ghost}
-    <div class="ghost" style:left="{ghost.x + 12}px" style:top="{ghost.y + 8}px">
-      <i class="ph ph-arrow-bend-down-right"></i>{ghost.name}
-    </div>
-  {/if}
-
   {#if ag.menu && menuNode}
     {@const k = ag.menu?.key ?? ''}
     {@const s = menuNode?.type === 'session' ? menuNode.s : undefined}
@@ -452,10 +353,9 @@
           >Stop<kbd>{chord('⌘.', 'Ctrl+.')}</kbd></button
         >
       {/if}
-      {#if s && s.source === 'acp' && !s.parent_id}
-        <button role="menuitem" onclick={() => run(() => (ag.moving = s.id))}>Move to group…<kbd>m</kbd></button>
-      {/if}
-      {#if menuGroup}
+      {#if s?.source === 'acp'}
+        <button role="menuitem" onclick={() => run(onNew)}>New agent in {setLabel(reposOf(s))}<kbd>n</kbd></button>
+      {:else if menuGroup}
         <button role="menuitem" onclick={() => run(onNew)}>New agent in {menuGroup.name}<kbd>n</kbd></button>
       {/if}
       <div class="divider"></div>
@@ -652,35 +552,6 @@
   .slot:first-child .project {
     padding-top: 10px;
   }
-  .slot.drop {
-    background: var(--aqua-tint);
-  }
-  .tree.dragging {
-    cursor: grabbing;
-    user-select: none;
-  }
-  .tree.dragging .row.lifted {
-    opacity: 0.5;
-  }
-  .ghost {
-    position: fixed;
-    z-index: 60;
-    pointer-events: none;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 3px 8px;
-    border: 1px solid var(--aqua-line);
-    border-radius: var(--radius-sm);
-    background: var(--bg-head);
-    color: var(--tx-title);
-  }
-  .ghost i {
-    color: var(--aqua);
-  }
-  .name.unsorted {
-    color: var(--tx-muted);
-  }
   .group {
     width: 100%;
     text-align: left;
@@ -748,10 +619,6 @@
   .row.sub {
     grid-template-columns: calc(30px + var(--indent)) minmax(0, 1fr) 90px 52px 30px;
   }
-  .row.loose {
-    padding: var(--row-pad-compact) 14px;
-    min-height: var(--row-min-compact);
-  }
   .group:hover,
   .row:hover {
     background: var(--row-hover);
@@ -788,11 +655,6 @@
   .row .name.room {
     color: var(--tx-body);
   }
-  .cwd {
-    font: 0.885rem var(--font-mono);
-    color: var(--tx-disabled);
-    margin-left: 6px;
-  }
   .mono {
     font: 0.885rem var(--font-mono);
     color: var(--tx-muted-2);
@@ -816,23 +678,6 @@
   }
   .age.orange {
     color: var(--status-attention);
-  }
-  .guess {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 2px 14px 0 50px;
-    font-size: 0.923rem;
-    color: var(--tx-label);
-  }
-  .guess .where {
-    color: var(--tx-2);
-  }
-  .guess .move {
-    color: var(--aqua);
-  }
-  .guess button:hover {
-    text-decoration: underline;
   }
   .empty-pane {
     display: block;

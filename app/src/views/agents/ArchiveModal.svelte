@@ -1,4 +1,5 @@
 <script lang="ts">
+  import './form.css';
   // The archive confirm (Agents Archive 02): the tree as archiving will change it.
   import { chord, mod } from '../../lib/keys.svelte';
   import Modal from '../../lib/ui/Modal.svelte';
