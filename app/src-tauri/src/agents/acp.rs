@@ -698,6 +698,11 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
                 upload: b.upload.clone(),
                 more: dirs.clone(),
                 branches: branches.clone(),
+                prompt: super::openshell::prompt_file(
+                    h,
+                    |v| std::env::var(v).ok(),
+                    &dirs::home_dir().map(|d| d.display().to_string()).unwrap_or_default(),
+                ),
             })
         }
         _ => None,
@@ -768,7 +773,23 @@ fn make_sandbox(app: &App, id: &str, n: &super::openshell::NewSandbox) -> Result
         ),
     );
     let scratch = app.data_dir.join("openshell-sync").join("bundles");
-    let landed = super::openshell::create(&app.settings().agents.openshell.command, n, &scratch)?;
+    let command = app.settings().agents.openshell.command.clone();
+    let landed = super::openshell::create(&command, n, &scratch)?;
+    // The harness's global instructions; the sandbox works without them, so a failure is only noted.
+    if let Some(p) = &n.prompt {
+        let note = match super::openshell::install_prompt(&command, n, p, &scratch) {
+            Ok(Some(at)) => Some(format!("Added {} to the sandbox at {at}", tilde(&p.local))),
+            Ok(None) => None,
+            Err(e) => Some(format!("Couldn't add {} to the sandbox · {e}", tilde(&p.local))),
+        };
+        if let Some(note) = note {
+            let ts = now(app);
+            app.agents
+                .store
+                .lock()
+                .push_row(&session_thread(id), state_row(&ts, &note));
+        }
+    }
     let sb = super::model::Sandbox {
         gateway: n.gateway.clone(),
         name: n.name.clone(),

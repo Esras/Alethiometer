@@ -130,6 +130,10 @@ if (group === 'gateway' && cmd === 'list') {
   } else {
     const workdir = flag('--workdir');
     const env = { ...process.env };
+    // The sandbox is its own home, as a real one is: nothing run in it writes to yours (a harness's config dir).
+    env.HOME = box(name);
+    delete env.PI_CODING_AGENT_DIR;
+    delete env.CLAUDE_CONFIG_DIR;
     for (const kv of all('--env')) {
       const i = kv.indexOf('=');
       env[kv.slice(0, i)] = kv.slice(i + 1);

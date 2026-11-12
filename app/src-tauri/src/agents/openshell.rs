@@ -71,6 +71,85 @@ pub struct NewSandbox {
     pub more: Vec<String>,
     /// Per folder, `upload` first: the branch a git folder is cloned from; None uploads its files.
     pub branches: Vec<Option<String>>,
+    /// The harness's global instructions file, to put in the sandbox (`prompt_file`).
+    pub prompt: Option<PromptFile>,
+}
+
+/// A harness's own global instructions file: where it is here, and where the harness reads it in the
+/// sandbox (a shell expression, since that depends on the image's environment). A new sandbox gets the
+/// file from this machine, with whatever the image already had there (its OpenShell guidance) after it
+/// (user, 2026-11-13: the harness's own file, nothing else from its config directory).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PromptFile {
+    pub local: String,
+    pub remote: String,
+}
+
+/// Which harness `h` is, for its prompt file: by key, else by the adapter it runs.
+pub fn prompt_file(h: &Harness, env: impl Fn(&str) -> Option<String>, home: &str) -> Option<PromptFile> {
+    let (cmd, args, _) = adapter(h);
+    let line = format!("{} {} {cmd} {}", h.command, h.args.join(" "), args.join(" "));
+    let dir = |var: &str, default: &str| {
+        env(var)
+            .filter(|d| !d.trim().is_empty())
+            .map(|d| super::acp::expand_home(&d))
+            .unwrap_or_else(|| format!("{}/{default}", home.trim_end_matches('/')))
+    };
+    if h.key == "pi" || line.contains("pi-acp") {
+        return Some(PromptFile {
+            local: format!("{}/AGENTS.md", dir("PI_CODING_AGENT_DIR", ".pi/agent")),
+            remote: "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/AGENTS.md".into(),
+        });
+    }
+    if h.key == "claude" || line.contains("claude-agent-acp") {
+        return Some(PromptFile {
+            local: format!("{}/CLAUDE.md", dir("CLAUDE_CONFIG_DIR", ".claude")),
+            remote: "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md".into(),
+        });
+    }
+    None
+}
+
+/// The script that puts the uploaded `/tmp/<file>` in place at `remote`, keeping what the image had there below it.
+pub fn prompt_script(file: &str, remote: &str) -> String {
+    format!(
+        "set -e; t=\"{remote}\"; mkdir -p \"$(dirname \"$t\")\"; \
+         {{ cat '/tmp/{file}'; if [ -s \"$t\" ]; then printf '\\n\\n'; cat \"$t\"; fi; }} > \"$t.aleth\"; \
+         mv \"$t.aleth\" \"$t\"; rm -f '/tmp/{file}'; printf '%s\\n' \"$t\""
+    )
+}
+
+/// Upload the harness's prompt file into a new sandbox. `Ok(None)` when there's none here; else where it went.
+pub fn install_prompt(
+    command: &str,
+    n: &NewSandbox,
+    p: &PromptFile,
+    scratch: &std::path::Path,
+) -> Result<Option<String>> {
+    // Read through a symlink (home-manager keeps these in the Nix store).
+    let Ok(text) = std::fs::read_to_string(&p.local) else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(scratch).map_err(|e| msg(e.to_string()))?;
+    let file = format!("{}-prompt.md", n.name);
+    let here = scratch.join(&file);
+    std::fs::write(&here, text).map_err(|e| msg(e.to_string()))?;
+    let sent = run(
+        command,
+        &upload_args(&n.gateway, &n.name, &here.display().to_string())
+            .into_iter()
+            .chain(["/tmp/".to_owned()])
+            .collect::<Vec<_>>(),
+        QUICK,
+    );
+    let _ = std::fs::remove_file(&here);
+    sent?;
+    let out = sh(command, &n.gateway, &n.name, &prompt_script(&file, &p.remote), QUICK)?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .rfind(|l| l.starts_with('/'))
+        .map(str::to_owned))
 }
 
 /// `sandbox create`, kept running with no command of its own (a login shell)
@@ -1544,5 +1623,83 @@ mod tests {
             ]
         );
         assert!(parse_sandboxes("No sandboxes found.").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    fn harness(key: &str, args: &[&str]) -> Harness {
+        Harness {
+            key: key.into(),
+            label: key.into(),
+            command: "npx".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: Default::default(),
+            cache_ttl_min: None,
+            openshell: None,
+        }
+    }
+
+    #[test]
+    fn each_harness_brings_its_own_file() {
+        let none = |_: &str| None;
+        let pi = prompt_file(&harness("pi", &["-y", "pi-acp"]), none, "/home/u").unwrap();
+        assert_eq!(pi.local, "/home/u/.pi/agent/AGENTS.md");
+        assert!(pi.remote.contains("PI_CODING_AGENT_DIR"));
+        let c = prompt_file(
+            &harness("cc", &["@agentclientprotocol/claude-agent-acp"]),
+            none,
+            "/home/u",
+        )
+        .unwrap();
+        assert_eq!(c.local, "/home/u/.claude/CLAUDE.md");
+        let env = |v: &str| (v == "PI_CODING_AGENT_DIR").then(|| "/cfg/pi".to_owned());
+        assert_eq!(
+            prompt_file(&harness("pi", &[]), env, "/home/u").unwrap().local,
+            "/cfg/pi/AGENTS.md"
+        );
+        assert_eq!(prompt_file(&harness("codex", &["codex-acp"]), none, "/home/u"), None);
+    }
+
+    #[test]
+    fn the_file_goes_first_and_the_images_guidance_stays_below_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = dir.path().join("pi");
+        std::fs::create_dir_all(&agent).unwrap();
+        std::fs::write(agent.join("AGENTS.md"), "# OpenShell Sandbox Guidance\n").unwrap();
+        let file = format!("aleth-test-{}-prompt.md", std::process::id());
+        std::fs::write(format!("/tmp/{file}"), "# Mine\nUse jj, it's \"fine\".\n").unwrap();
+        let remote = "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/AGENTS.md";
+        let run = |home: &std::path::Path, pi: Option<&std::path::Path>| {
+            let mut c = Command::new("sh");
+            c.args(["-c", &prompt_script(&file, remote)])
+                .env("HOME", home)
+                .env_remove("PI_CODING_AGENT_DIR");
+            if let Some(p) = pi {
+                c.env("PI_CODING_AGENT_DIR", p);
+            }
+            let out = c.output().unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8(out.stdout).unwrap()
+        };
+        let at = run(dir.path(), Some(&agent));
+        assert_eq!(at.trim(), agent.join("AGENTS.md").display().to_string());
+        assert_eq!(
+            std::fs::read_to_string(agent.join("AGENTS.md")).unwrap(),
+            "# Mine\nUse jj, it's \"fine\".\n\n\n# OpenShell Sandbox Guidance\n"
+        );
+        assert!(
+            !std::path::Path::new(&format!("/tmp/{file}")).exists(),
+            "the upload is removed"
+        );
+        // No file in the image yet: it's made, in the harness's default place.
+        std::fs::write(format!("/tmp/{file}"), "# Mine\n").unwrap();
+        run(dir.path(), None);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".pi/agent/AGENTS.md")).unwrap(),
+            "# Mine\n"
+        );
     }
 }
