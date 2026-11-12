@@ -321,7 +321,8 @@ pub struct AgentsSettings {
 
 /// A saved agent: the New agent form's fields, filled in when it's picked. An empty field takes its
 /// value from wherever New agent is opened (`dirs`: the repo it's opened from; `task`: typed each time)
-/// or from the harness (`model`, `thinking`, `image`: its defaults).
+/// or from the harness (`model`, `thinking`, `image`: its defaults). The session's name isn't saved: it's
+/// the launch's.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 #[serde(default)]
 pub struct SavedAgent {
@@ -339,8 +340,6 @@ pub struct SavedAgent {
     pub image: String,
     pub dirs: Vec<String>,
     pub task: String,
-    /// The session's name; empty is `<harness>-<4 hex>`.
-    pub agent_name: String,
 }
 
 /// A local agent launched over ACP (stdio). `command` is looked up on the login shell's PATH.

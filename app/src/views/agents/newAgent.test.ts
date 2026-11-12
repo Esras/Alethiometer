@@ -25,10 +25,13 @@ describe('a saved agent in the form', () => {
     expect(out.dirs).toEqual(['/r/aleth', '/r/pi-acp']);
   });
 
-  it("doesn't count a task or name typed for a saved agent that leaves them to each launch", () => {
-    const r = { ...raw, task: '' };
-    const base = resolve(r, [], H);
-    expect(changed(r, base, { ...base, task: 'Do this', agent_name: 'x' })).toEqual([]);
+  it('never counts the task typed for a launch, nor saves it', () => {
+    for (const r of [raw, { ...raw, task: '' }]) {
+      const base = resolve(r, [], H);
+      const f = { ...base, task: 'Do this instead' };
+      expect(changed(r, base, f)).toEqual([]);
+      expect(merged(r, base, f).task).toBe(r.task);
+    }
   });
 
   it("doesn't count a field the form removed", () => {

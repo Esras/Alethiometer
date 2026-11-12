@@ -317,5 +317,4 @@ export interface SavedAgent {
   image: string;
   dirs: string[];
   task: string;
-  agent_name: string;
 }

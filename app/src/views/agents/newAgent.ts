@@ -6,21 +6,10 @@ import type { SavedAgent } from './types';
 
 export type Field = Exclude<keyof SavedAgent, 'name'>;
 
-/** Least to most specific, as the form lists them; the session name is the top line's. */
-export const FIELDS: Field[] = [
-  'agent_name',
-  'runs',
-  'sandbox',
-  'harness',
-  'model',
-  'thinking',
-  'image',
-  'dirs',
-  'task',
-];
+/** Least to most specific, as the form lists them. The session's name (the top line's) isn't one: it's per launch. */
+export const FIELDS: Field[] = ['runs', 'sandbox', 'harness', 'model', 'thinking', 'image', 'dirs', 'task'];
 
 export const LABEL: Record<Field, string> = {
-  agent_name: 'Name',
   runs: 'Runs',
   sandbox: 'Sandbox',
   harness: 'Harness',
@@ -45,7 +34,6 @@ export function blank(harness: string, name = ''): SavedAgent {
     image: '',
     dirs: [],
     task: '',
-    agent_name: '',
   };
 }
 
@@ -68,11 +56,11 @@ export function applies(f: SavedAgent, k: Field): boolean {
   return true;
 }
 
-/** Fields that differ from what the saved agent filled in. A field the saved agent leaves empty to be
- *  typed each time (Task, the session name) isn't a change to save. */
+/** Fields that differ from what the saved agent filled in. The Task typed for a launch is never one: a saved
+ *  agent's task is set in ⌘, only (user, 2026-11-13). */
 export function changed(raw: SavedAgent, base: SavedAgent, f: SavedAgent): Field[] {
   return FIELDS.filter((k) => {
-    if ((k === 'task' || k === 'agent_name') && !raw[k]) return false;
+    if (k === 'task') return false;
     if (!applies(f, k)) return false;
     return !same(f[k], base[k]);
   });
