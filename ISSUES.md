@@ -127,13 +127,11 @@ Built: a session takes more directories at start (`start_local`'s `dirs`, ACP `a
 
 The form's `cwd` field is a single text input. Replace it with a chip-based multi-select: typing a path and pressing Enter/Tab converts it to a chip (showing the directory basename, full path in a tooltip, × to remove); the field stays active for the next entry. A browse button opens the native directory picker and adds a chip. Works for single-directory sessions too (one chip) and extends naturally to the multi-upload feature above.
 
-### Agents: OpenShell network rules shown as host-level because the policy advisor is off (found 2026-11-08)
+### Agents: OpenShell path-scoped network rules, what's left (found 2026-11-08; partly fixed 2026-11-12)
 
-OpenShell has two kinds of network proposals: its own automatic drafts (host:port only, always on) and agent proposals via the policy advisor (scoped to method, path, protocol — e.g. `PUT /repos/org/repo/contents/docs/**`). Alethiometer never enables the policy advisor: it doesn't pass `--approval-mode auto` at `sandbox create`, doesn't set `agent_policy_proposals_enabled` on the gateway or sandbox, and doesn't reference the `policy.local` API the advisor exposes inside the sandbox. So agents can't propose path-level rules and only OpenShell's coarse host:port drafts appear.
+OpenShell has two kinds of network proposals: its own drafts (host:port only, always on) and the agent's, through the policy advisor (`http://policy.local`, scoped to method and path). Done: a new sandbox gets `agent_policy_proposals_enabled` (user, 2026-11-08: always on, approval stays manual), and a rule's approval leads with the rule's text. On the podman gateway the supervisor runs unprivileged and can't install its guide (`Failed to install sandbox agent skill on toggle-on error=Permission denied`), and `/AGENTS.md` isn't readable there anyway, so `sandbox/Dockerfile.pi` ships OpenShell 0.1.7's `policy_advisor.md` under `/usr/local/share/openshell/` and points Pi at it from its global `AGENTS.md` (an OpenShell bug to report). Left: seeing a model actually propose a path-scoped rule, and checking `parse_rules` keeps the fields agent proposals add (its `_ => {}` drops unknown labels).
 
-On another system where the advisor is enabled, path-level rules appear as expected.
-
-Fix: enable `agent_policy_proposals_enabled` when creating a sandbox — always on, not a setting (user, 2026-11-08: local gateway, one machine, no multi-tenant concern; approval stays manual). Also review `rule_as_request` in `openshell.rs`, which prefers `r.endpoints` (the host:port summary) over `r.rule` (the full rule text with paths) when both are present — agent proposals would have richer `Rule` output that gets hidden. The `parse_rules` parser's fixed label set (`_ => {}` catch-all) may also drop fields that agent proposals add. Note: Miao has its own permission system; if Miao integration lands, its network rules won't go through OpenShell's advisor.
+Approving a rule reloads the policy, and OpenShell closes every open connection, the model's own stream included (`L7 tunnel closed before inspection because policy changed`; an OpenShell bug to report). pi records it as `aborted`; the pi-acp fork now continues the turn (at most twice), with a "Connection dropped" notice.
 
 ### Agents: unverified against real agents
 
