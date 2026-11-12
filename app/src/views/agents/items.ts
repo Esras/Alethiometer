@@ -25,6 +25,7 @@ export const LEGEND: Record<
     },
     { label: 'Messages', kinds: ['message'], icon: 'ph-arrows-left-right', box: 'msg', color: 'var(--msg)' },
     { label: 'State', kinds: ['state'], icon: 'ph-swap', box: '', color: 'var(--tx-label)' },
+    { label: 'Notice', kinds: ['notice'], icon: 'ph-info', box: 'hub', color: 'var(--hub)' },
     { label: 'Approvals', kinds: ['approval'], icon: 'ph-shield-warning', box: 'need', color: 'var(--need)' },
   ],
   remote: [

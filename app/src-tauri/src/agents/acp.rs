@@ -1541,6 +1541,26 @@ pub(crate) fn apply(app: &App, session: &str, turn: &mut Turn, u: &Value, ts: &s
                 return;
             }
             let (key, _) = target(turn, session, u);
+            if let Some(n) = u.pointer("/_meta/piAcp/notify") {
+                let mut i = store.lock();
+                for k in [Kind::Output, Kind::Thinking] {
+                    if let Some(id) = turn.open.remove(&open_key(&key, k)) {
+                        i.update_row(&key, id, |r| r.open = false);
+                    }
+                }
+                let level = n.get("level").and_then(Value::as_str).filter(|l| *l != "info");
+                i.push_row(
+                    &key,
+                    Row {
+                        at: ts.into(),
+                        kind: Kind::Notice,
+                        label: level.unwrap_or_default().into(),
+                        text: text.into(),
+                        ..Default::default()
+                    },
+                );
+                return;
+            }
             let k = if kind == "agent_message_chunk" {
                 Kind::Output
             } else {
@@ -3658,6 +3678,38 @@ pub(crate) mod tests {
         );
         let th = r.iter().find(|r| r.kind == Kind::Thinking).unwrap();
         assert!(th.tokens.unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn a_pi_acp_notice_is_its_own_row_between_the_agents_words() {
+        let (app, _d) = app();
+        let id = session(&app);
+        let mut turn = Turn::default();
+        let chunk = |text: &str, meta: Value| json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text }, "_meta": meta });
+        let warn = json!({ "piAcp": { "notify": { "level": "warning", "source": "cacheMiss" } } });
+        for u in [
+            chunk("Looking", Value::Null),
+            chunk("Cache miss after 10m idle: 50k tokens re-billed (~$0.17)", warn),
+            chunk(" at it", Value::Null),
+        ] {
+            apply(&app, &id, &mut turn, &u, "2026-11-07T10:41:00");
+        }
+        let r: Vec<_> = rows(&app, &session_thread(&id))
+            .into_iter()
+            .map(|r| (r.kind, r.label, r.text))
+            .collect();
+        assert_eq!(
+            r,
+            vec![
+                (Kind::Output, "output".to_owned(), "Looking".to_owned()),
+                (
+                    Kind::Notice,
+                    "warning".to_owned(),
+                    "Cache miss after 10m idle: 50k tokens re-billed (~$0.17)".to_owned()
+                ),
+                (Kind::Output, "output".to_owned(), " at it".to_owned()),
+            ]
+        );
     }
 
     #[test]
