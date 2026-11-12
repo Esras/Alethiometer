@@ -10,16 +10,16 @@ import type { ArchivedItem, ArchivedOpen, Group, Kind, Plan, Request, Row, Sessi
 
 export type Zone = 'tree' | 'thread' | 'composer';
 export type Node =
-  | { type: 'project'; key: string; label: string }
+  | { type: 'project'; key: string; label: string; title?: string; repos?: string[] }
   | { type: 'group'; key: string; group: Group; open: boolean; sessions: Session[] }
   | { type: 'room'; key: string; group: Group }
-  | { type: 'session'; key: string; s: Session; depth: number; unsorted: boolean }
-  | { type: 'unsorted'; key: string; project: string; open: boolean; sessions: Session[] }
+  | { type: 'session'; key: string; s: Session; depth: number }
   | { type: 'archived-head'; key: string; groups: number; sessions: number; total: number }
   | { type: 'archived-label'; key: string; label: string; project: boolean }
   | { type: 'archived'; key: string; item: ArchivedItem };
 
-export type Form = { kind: 'local'; group: string | null; openshell?: boolean; cwd?: string };
+/** The New agent form, opened from `dirs`: the repos of the row it was opened from (empty: none picked). */
+export type Form = { kind: 'local'; dirs: string[] };
 
 export const ag = $state({
   tree: null as Tree | null,
@@ -62,10 +62,6 @@ export const ag = $state({
   pending: [] as Pending[],
   /** The right-click menu (05). */
   menu: null as { key: string; x: number; y: number } | null,
-  /** The session the move picker (m) is open for. */
-  moving: null as string | null,
-  /** A local session being dragged to another group, and its project's key. */
-  drag: null as { session: string; project: string } | null,
 });
 
 /** A local session that ended a turn since you looked (the core keeps the count, so the tab badge sees it too). */
@@ -156,9 +152,9 @@ export function openThread(key: string) {
   }
 }
 
-/** Open the new-agent form for a local group (`null`: Unsorted), on this machine or in an OpenShell sandbox. */
-export function openForm(group: string | null = null, openshell = false, cwd?: string) {
-  ag.form = { kind: 'local', group, openshell, cwd };
+/** Open the New agent form; `dirs` is where it was opened from, what an empty Directories field means. */
+export function openForm(dirs: string[] = []) {
+  ag.form = { kind: 'local', dirs };
 }
 
 export function setTab(tab: 'transcript' | 'messages') {
@@ -211,29 +207,33 @@ function matches(s: Session, q: string): boolean {
   return [s.name, s.title, s.cwd, s.harness, s.model].some((x) => x?.toLowerCase().includes(q));
 }
 
-/** Which project a group or session sits under: a local folder, or a remote source's project. */
+/** The repos a local session is listed under: its set, else its project. */
+export function reposOf(s: Session): string[] {
+  if (s.repos?.length) return s.repos;
+  return s.project_dir ? [s.project_dir] : [];
+}
+
+/** One key per set of repos, whatever their order (as the core's `repo_set_key`). */
+export const setKey = (repos: string[]) => [...new Set(repos)].sort().join('\n');
+
+const base = (d: string) => d.replace(/\/+$/, '').split('/').pop() || d;
+
+/** A set of repos as a heading reads: "alethiometer & pi-acp". */
+export const setLabel = (repos: string[]) => repos.map(base).join(' & ') || 'local';
+
+/** Which heading a group or session sits under: a local session's set of repos, or a remote source's project. */
 export function projectKey(x: Group | Session): string {
+  if (x.source === 'acp' && !('room' in x)) return `acp:${setKey(reposOf(x as Session))}`;
   if (x.source === 'acp') return `acp:${x.project_dir || x.project}`;
   const g = 'room' in x ? x : groupById(x.group_id);
   return `${x.source}:${(g ?? x).project}`;
 }
 
-const projectLabel = (x: Group | Session) => x.project || (x.source === 'acp' ? 'local' : x.source);
-
-/** The tree key of the group a local session is in: its group, or its project's Unsorted. */
-export function homeKey(s: Session): string {
-  return groupById(s.group_id) ? `g:${s.group_id}` : `u:${projectKey(s)}`;
-}
-
-/** File a local session under a group of its project (`null`: Unsorted), opening the group it lands in. */
-export function moveTo(session: string, group: string | null) {
-  const s = sessionById(session);
-  if (!s || (groupById(s.group_id) ? s.group_id : null) === group) return;
-  if (ag.folded.delete(group ?? `u:${projectKey(s)}`)) ag.folded = new Set(ag.folded);
-  act('move', { session, group: group ?? '' }).catch(() => {});
-}
-
-/** The tree as a flat list of rows, for drawing and for j/k: project, then its groups, then its Unsorted. */
+/**
+ * The tree as a flat list of rows, for drawing and for j/k. Local sessions are listed once, under the exact
+ * set of repos their directories are in (decisions.md, 2026-11-12); a remote source's under its project, then
+ * its groups (with their room).
+ */
 export function nodes(): Node[] {
   const t = ag.tree;
   if (!t) return [];
@@ -245,12 +245,9 @@ export function nodes(): Node[] {
       if (depth < 3) kids(c, depth + 1, list);
     }
   };
-  const known = (id: string | null) => (id && t.groups.some((g) => g.id === id) ? id : null);
-  const ordered = (group: string | null, project?: string) => {
+  const withKids = (tops: Session[]) => {
     const list: Session[] = [];
-    for (const s of t.sessions.filter(
-      (s) => known(s.group_id) === group && !s.parent_id && (project === undefined || projectKey(s) === project),
-    )) {
+    for (const s of tops) {
       list.push(s);
       kids(s, 1, list);
     }
@@ -265,17 +262,29 @@ export function nodes(): Node[] {
     }
     return d;
   };
-  const projects = new Map<string, string>();
-  for (const x of [...t.groups, ...ordered(null)])
-    if (!projects.has(projectKey(x))) projects.set(projectKey(x), projectLabel(x));
-  for (const [pk, label] of projects) {
+  const row = (s: Session): Node => ({ type: 'session', key: `s:${s.id}`, s, depth: depth(s) });
+  const known = (id: string | null) => (id && t.groups.some((g) => g.id === id) ? id : null);
+  const tops = t.sessions.filter((s) => !s.parent_id);
+
+  // Headings in order of their first session (groups first for a remote project).
+  const heads = new Map<string, { label: string; title?: string; repos?: string[] }>();
+  for (const g of t.groups) if (!heads.has(projectKey(g))) heads.set(projectKey(g), { label: g.project || g.source });
+  for (const s of tops) {
+    const k = projectKey(s);
+    if (heads.has(k)) continue;
+    if (s.source === 'acp') {
+      const repos = reposOf(s);
+      heads.set(k, { label: setLabel(repos), title: repos.join('\n'), repos });
+    } else heads.set(k, { label: s.project || s.source });
+  }
+  for (const [pk, h] of heads) {
     let headed = false;
     const head = () => {
-      if (!headed) out.push({ type: 'project', key: `p:${pk}`, label });
+      if (!headed) out.push({ type: 'project', key: `p:${pk}`, ...h });
       headed = true;
     };
     for (const g of t.groups.filter((g) => projectKey(g) === pk)) {
-      const sessions = ordered(g.id);
+      const sessions = withKids(tops.filter((s) => s.group_id === g.id));
       const hit =
         !q ||
         g.name.toLowerCase().includes(q) ||
@@ -287,19 +296,14 @@ export function nodes(): Node[] {
       out.push({ type: 'group', key: `g:${g.id}`, group: g, open, sessions });
       if (!open) continue;
       if (g.room) out.push({ type: 'room', key: `r:${g.room.id}`, group: g });
-      for (const s of sessions)
-        if (!q || matches(s, q) || g.name.toLowerCase().includes(q))
-          out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: false });
+      for (const s of sessions) if (!q || matches(s, q) || g.name.toLowerCase().includes(q)) out.push(row(s));
     }
-    const loose = ordered(null, pk).filter((s) => !q || matches(s, q));
-    const dragTarget = ag.drag?.project === pk && !!known(sessionById(ag.drag.session)?.group_id ?? null);
-    if (!loose.length && !dragTarget) continue;
+    const loose = withKids(tops.filter((s) => !known(s.group_id) && projectKey(s) === pk)).filter(
+      (s) => !q || matches(s, q),
+    );
+    if (!loose.length) continue;
     head();
-    const key = `u:${pk}`;
-    const open = !ag.folded.has(key) || !!q;
-    out.push({ type: 'unsorted', key, project: pk, open, sessions: loose });
-    if (open)
-      for (const s of loose) out.push({ type: 'session', key: `s:${s.id}`, s, depth: depth(s), unsorted: true });
+    for (const s of loose) out.push(row(s));
   }
   if (q && ag.hits.length) {
     const groups = ag.hits.filter((h) => h.kind === 'group').length;
@@ -331,7 +335,7 @@ export function nodes(): Node[] {
 
 /** Nodes j/k can land on. */
 export const selectable = (n: Node) =>
-  n.type === 'group' || n.type === 'unsorted' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
+  n.type === 'group' || n.type === 'room' || n.type === 'session' || n.type === 'archived';
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 

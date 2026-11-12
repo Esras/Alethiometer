@@ -61,9 +61,11 @@ export interface Session {
   thinking?: ConfigChoice | null;
   host: string;
   cwd: string;
-  /** Local only: the project folder and its label. */
+  /** Local only: the project folder of its first directory, and its label. */
   project_dir: string;
   project: string;
+  /** Local only: the repos its directories are in, its own first; the tree lists it under this set. */
+  repos?: string[];
   status: Status;
   title: string;
   subtitle: string;
@@ -82,7 +84,6 @@ export interface Session {
   facts: { ticket: Fact | null; pr: Fact | null; branch: Fact | null; todo: Fact | null };
   live: boolean;
   problem: string;
-  guess: { group_id: string; label: string } | null;
   url: string;
   ext: string;
   /** Held back while mid-turn, oldest first; not real rows until sent. */
@@ -303,4 +304,18 @@ export interface AgentsLook {
   colors: { you: string; tool: string; message: string; hub: string; needs_you: string };
   names: { color_by: 'agent' | 'template' | 'off'; palette: string[]; self_in_transcript: boolean };
   boxes: { strength: 'subtle' | 'normal' | 'strong'; fold_pairs: boolean };
+}
+
+/** A saved agent (settings.json `agents.saved`): the New agent form's fields. Empty takes the default. */
+export interface SavedAgent {
+  name: string;
+  runs: 'local' | 'openshell' | '';
+  sandbox: string;
+  harness: string;
+  model: string;
+  thinking: string;
+  image: string;
+  dirs: string[];
+  task: string;
+  agent_name: string;
 }

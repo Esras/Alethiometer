@@ -433,7 +433,6 @@ pub struct StartArgs {
     pub harness: String,
     pub cwd: String,
     pub name: Option<String>,
-    pub group_id: Option<String>,
     pub task: String,
     pub model: Option<String>,
     pub thinking: Option<String>,
@@ -603,18 +602,28 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         .filter(|n| !n.trim().is_empty())
         .map(|n| n.trim().to_owned())
         .unwrap_or_else(|| format!("{}-{}", h.key, &id[4..8]));
-    let group_key = a.group_id.clone().unwrap_or_else(|| "unsorted".into());
-    let project_dir = super::facts::project_dir(&cwd);
-    if let Some(g) = &a.group_id {
-        super::claim_group(&mut app.agents.store.lock(), g, &project_dir)?;
-    }
-    let color = super::store::color_for(app.store(), &group_key, &id, settings.agents.names.palette.len())?;
+    // Listed under the set of repos its directories are in (on this machine: what a new sandbox uploads).
+    let folders: Vec<String> = match &sandbox {
+        Some(b) if !b.upload.is_empty() => std::iter::once(b.upload.clone()).chain(dirs.iter().cloned()).collect(),
+        _ => std::iter::once(cwd.clone()).chain(dirs.iter().cloned()).collect(),
+    };
+    let repos = super::repos_of(&folders);
+    let project_dir = repos
+        .first()
+        .cloned()
+        .unwrap_or_else(|| super::facts::project_dir(&cwd));
+    let color = super::store::color_for(
+        app.store(),
+        &super::repo_set_key(&repos),
+        &id,
+        settings.agents.names.palette.len(),
+    )?;
     let (title, subtitle) = title_from(&a.task);
     let ts = now(app);
     let s = Session {
         id: id.clone(),
         source: "acp".into(),
-        group_id: a.group_id.clone(),
+        group_id: None,
         name,
         template: h.key.clone(),
         harness: h.label.clone(),
@@ -631,6 +640,7 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
         cwd: cwd.clone(),
         dirs: if make_new { vec![] } else { dirs.clone() },
         project: super::facts::project_name(&project_dir),
+        repos,
         project_dir,
         status: Status::Running,
         title,
@@ -733,7 +743,6 @@ pub fn start_session(app: &App, a: &StartArgs) -> Result<String> {
             Err(e) => fail(&arc, &sid, &e),
         }
         super::facts::refresh(&arc, &sid);
-        super::guess::suggest(&arc, &sid);
     });
     Ok(id)
 }
@@ -2177,8 +2186,8 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
                 "{session}~{}",
                 call.trim_start_matches("toolu_").chars().take(8).collect::<String>()
             );
-            let group = parent.group_id.clone().unwrap_or_else(|| "unsorted".into());
-            let color = super::store::color_for(app.store(), &group, &child, app.settings().agents.names.palette.len())
+            let scope = super::repo_set_key(&parent.repos);
+            let color = super::store::color_for(app.store(), &scope, &child, app.settings().agents.names.palette.len())
                 .unwrap_or(0);
             let mut i = store.lock();
             i.put_session(Session {
@@ -2199,6 +2208,9 @@ fn subagent_update(app: &App, session: &str, turn: &mut Turn, call: &str, u: &Va
                 color,
                 live: true,
                 sandbox: parent.sandbox.clone(),
+                project: parent.project.clone(),
+                project_dir: parent.project_dir.clone(),
+                repos: parent.repos.clone(),
                 ..Default::default()
             });
             let row = Row {
@@ -3478,8 +3490,8 @@ pub fn open_in_editor(app: &App, cwd: &str) -> Result<()> {
         .map_err(|e| msg(format!("couldn't open Zed: {e}")))
 }
 
-/// Directories of earlier sessions, newest first, for the new-session form.
-pub fn recent_dirs(app: &App) -> Vec<String> {
+/// Directories local sessions started in, on this machine, newest first, with when each was last active.
+pub fn recent_dirs(app: &App) -> Vec<(String, String)> {
     let i = app.agents.store.lock();
     let mut s: Vec<&Session> = i
         .sessions
@@ -3487,12 +3499,17 @@ pub fn recent_dirs(app: &App) -> Vec<String> {
         .filter(|s| s.source == "acp" && s.parent_id.is_none())
         .collect();
     s.sort_by(|a, b| b.active_at.cmp(&a.active_at));
-    let mut out: Vec<String> = vec![];
+    let mut out: Vec<(String, String)> = vec![];
     for x in s {
-        // A sandboxed session's directory is inside its sandbox; the one it was uploaded from is this machine's.
-        let d = tilde(x.sandbox.as_ref().map(|b| b.upload.as_str()).unwrap_or(&x.cwd));
-        if !d.is_empty() && !out.contains(&d) {
-            out.push(d);
+        // A sandboxed session's directories are inside its sandbox; the ones it was uploaded from are this machine's.
+        for d in super::local_folders(x) {
+            if x.sandbox.as_ref().is_some_and(|b| b.upload.is_empty()) {
+                continue;
+            }
+            let d = tilde(&d);
+            if !d.is_empty() && !out.iter().any(|(o, _)| *o == d) {
+                out.push((d, x.active_at.clone()));
+            }
         }
     }
     out

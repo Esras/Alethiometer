@@ -1,4 +1,4 @@
-/* The new-agent forms (05): replaces the composer while open. Plain CSS, so
+/* The agent modals (archive confirm, Bring back). Plain CSS, so
    global: everything is under .agent-form (TodoForm's .form used to pick it up). */
 .agent-form {
   display: flex;

@@ -74,7 +74,7 @@ pub struct Session {
     pub model: String,
     pub host: String,
     pub cwd: String,
-    /// Local only: the project folder (`facts::project_dir`) and its label.
+    /// Local only: the project folder (`facts::project_dir`) of its first directory and its label.
     #[serde(default)]
     pub project_dir: String,
     #[serde(default)]
@@ -95,8 +95,6 @@ pub struct Session {
     pub live: bool,
     /// Why it isn't live, when it should be ("pi-acp not found", "not signed in").
     pub problem: String,
-    /// Unsorted only: the AI's guess at a group.
-    pub guess: Option<Guess>,
     /// The session's page at its source.
     pub url: String,
     /// Agent-side id: the ACP sessionId (to resume or load), or the remote agent id.
@@ -128,6 +126,10 @@ pub struct Session {
     pub sandbox: Option<Sandbox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dirs: Vec<String>,
+    /// Local only: the project folder of each of its directories (`facts::project_dir`), its own first,
+    /// without repeats. The tree lists the session under this set of repos.
+    #[serde(default)]
+    pub repos: Vec<String>,
 }
 
 /// Where an OpenShell session runs (`agents/openshell.rs`).
@@ -228,13 +230,6 @@ pub struct Fact {
     /// A ticket in Jira's done category, a merged PR.
     #[serde(default)]
     pub done: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct Guess {
-    pub group_id: String,
-    /// "alethiometer › Agents tab".
-    pub label: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]

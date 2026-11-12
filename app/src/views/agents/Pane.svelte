@@ -127,7 +127,7 @@
     <div class="empty-pane hello">
       <i class="ph ph-robot"></i>
       <p>Open a session or room from the tree, or start a local session.</p>
-      <button class="btn md primary" onclick={() => (ag.form = { kind: 'local', group: null })}
+      <button class="btn md primary" onclick={() => (ag.form = { kind: 'local', dirs: [] })}
         ><i class="ph ph-plus"></i>New agent<kbd>N</kbd></button
       >
     </div>

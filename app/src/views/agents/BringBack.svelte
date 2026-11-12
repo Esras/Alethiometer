@@ -1,4 +1,5 @@
 <script lang="ts">
+  import './form.css';
   // Bring an OpenShell agent's changes back into the directory its sandbox
   // was made from (agents/openshell/sync.rs): the sandbox's directory is
   // downloaded and compared with what was uploaded and what's here now. Only
