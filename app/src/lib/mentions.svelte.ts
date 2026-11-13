@@ -5,6 +5,12 @@ import type { PersonHit } from './people';
 export const viewing = $state<{ id: number | null }>({ id: null });
 
 let people = $state<PersonHit[]>([]);
+
+/** Every person with a People note (loaded once, on first use). */
+export function peopleList(): PersonHit[] {
+  load();
+  return people;
+}
 let loading = false;
 
 function load() {

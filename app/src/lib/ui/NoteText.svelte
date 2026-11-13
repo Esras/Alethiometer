@@ -2,8 +2,12 @@
   // Obsidian-flavored markdown display, colored like the gruvbox Obsidian theme
   // (headings, bold/italic, code, strike, ==highlight==, [[wikilinks]], [links](url),
   // checkboxes, quotes, lists, ``` fences, --- rules). Read-only; editing happens
-  // in Obsidian or the textarea (never a whole-file rewrite).
+  // in Obsidian or the textarea (never a whole-file rewrite). A wikilink to a People note
+  // ([[People/Kim Lee]], or [[Kim Lee]]) shows as the person's PersonPill.
   import { openExternal } from '../api';
+  import { peopleList } from '../mentions.svelte';
+  import { personOf, wikilink } from '../personLinks';
+  import PersonPill from './PersonPill.svelte';
 
   let { text }: { text: string } = $props();
 
@@ -107,7 +111,12 @@
 
 {#snippet inline(p: Part)}
   {#if p.kind === 'box'}<span class="box">{p.t}</span>
-  {:else if p.kind === 'wikilink'}<span class="wikilink">{p.t}</span>
+  {:else if p.kind === 'wikilink'}{@const l = wikilink(p.t)}{@const who = personOf(
+      l.target,
+      peopleList(),
+    )}{#if who}<PersonPill who={{ color: who.color, known: true }} name={l.shown} title={p.t} />{:else}<span
+        class="wikilink">{p.t}</span
+      >{/if}
   {:else if p.kind === 'link'}<button class="link" onclick={() => p.url && openExternal(p.url)}>{p.t}</button>
   {:else if p.kind === 'code'}<code class="inline-code">{p.t}</code>
   {:else if p.kind === 'bold'}<b class="bold">{p.t}</b>
