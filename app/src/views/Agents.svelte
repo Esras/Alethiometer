@@ -234,7 +234,10 @@
       else if (k === 'h' || k === 'ArrowLeft') fold(false);
       else if (k === 'l' || k === 'ArrowRight') fold(true);
       else if (k === 'a' && ag.sel && !ag.sel.startsWith('a:')) askArchive(ag.sel);
-      else if (k === 'Enter') {
+      else if (k === 'r' && ag.sel?.startsWith('s:')) {
+        openThread(ag.sel);
+        ag.renaming = true;
+      } else if (k === 'Enter') {
         if (ag.sel?.startsWith('a:')) openArchived(ag.sel.slice(2));
         else if (ag.sel?.startsWith('g:')) fold(ag.folded.has(ag.sel.slice(2)));
         else if (ag.sel) {

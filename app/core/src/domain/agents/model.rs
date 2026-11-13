@@ -83,6 +83,10 @@ pub struct Session {
     /// Pane header title and subtitle.
     pub title: String,
     pub subtitle: String,
+    /// Who wrote the title: empty for the first prompt's own words, "ai" for the small model after the first
+    /// turn, "you" for a rename (never replaced).
+    #[serde(default)]
+    pub title_by: String,
     /// Context line under the name: "project ingest-svc".
     pub context: String,
     pub created_at: String,
