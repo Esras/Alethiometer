@@ -1,9 +1,18 @@
 <script lang="ts">
   // A row's text: Markdown when it has blocks (agents write Markdown), else one
-  // paragraph with `code` and @mentions picked out.
+  // paragraph with `code` and @mentions picked out. Your own rows keep their indentation (`keepIndent`).
   import Markdown from '../../lib/ui/Markdown.svelte';
+  import { keepIndent } from './keepIndent';
 
-  let { text, tone = 'agent' }: { text: string; tone?: 'you' | 'agent' | 'boxed' } = $props();
+  let {
+    text,
+    tone = 'agent',
+    asTyped = false,
+  }: {
+    text: string;
+    tone?: 'you' | 'agent' | 'boxed';
+    /** Your own message: keep its indentation. */ asTyped?: boolean;
+  } = $props();
 
   const blocky = $derived(/\n\s*\n|^\s*([-*+]|\d+[.)])\s|^\s*```|^#{1,6}\s/m.test(text));
   const parts = $derived(text.split(/(`[^`\n]+`|@[\w.-]+)/g).filter((p) => p !== ''));
@@ -11,7 +20,7 @@
 
 <div class="body {tone}">
   {#if blocky}
-    <Markdown {text} />
+    <Markdown text={asTyped ? keepIndent(text) : text} />
   {:else}
     {#each parts as p, i (i)}
       {#if p.startsWith('`') && p.endsWith('`') && p.length > 1}<code>{p.slice(1, -1)}</code>

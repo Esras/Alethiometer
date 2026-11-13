@@ -296,6 +296,7 @@
         {@render header(whoTo, r)}
         {#if row.text}<Body
             text={row.text}
+            asTyped={row.kind === 'you'}
             tone={row.kind === 'you' || row.kind === 'ask'
               ? 'you'
               : row.kind === 'message' && !nested
