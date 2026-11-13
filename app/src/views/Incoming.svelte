@@ -53,7 +53,7 @@
   import { nextKey, putBack, stillDismissed } from './incoming/nextKey';
   import type { Bodies, IgnoreSuggestion, Message, Queue, QueueKey, Signal } from './incoming/types';
   import TodoForm from './todos/TodoForm.svelte';
-  import type { Draft, JiraTarget, TodosData } from './todos/types';
+  import type { Draft, JiraTarget } from './todos/types';
 
   // Fixed app order so each app's group always sits in the same place.
   const APP_ORDER = ['slack', 'teams', 'gmail', 'gcal', 'jira', 'github', 'agents', 'obsidian', 'sheets', 'notion'];
@@ -68,7 +68,8 @@
   let fullContext = $state<Set<number>>(new Set());
   let todoFor = $state<number | null>(null);
   let jira = $state<JiraTarget | null>(null);
-  call<TodosData>('todos.list').then((d) => (jira = d.jira));
+  // Live: a project set in Settings › Sources applies to the next held todo, without a restart.
+  $effect(() => liveQuery<JiraTarget | null>('todos.jira_target', {}, (t) => (jira = t)));
   let picking = $state(false);
   // Split review (15g/15h) open on this item. Until it closes the row stays put
   // and the family's other parts stay out of the list (`holdReview`): the split

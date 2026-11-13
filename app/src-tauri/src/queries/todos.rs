@@ -124,6 +124,8 @@ pub fn route(name: &str) -> Option<Route> {
             }
             Ok(json!({ "todos": todos, "jira": jira_target(r)? }))
         }),
+        // Where a new Jira todo goes, alone: Incoming's held-todo form keeps it live, so a project set in Settings applies at once.
+        "jira_target" => Route::Read(|r, _, _| Ok(json!(jira_target(r)?))),
         "schedule" => Route::Write(|uow, _, args| {
             let day = args
                 .get("sched")
@@ -476,6 +478,32 @@ mod tests {
     }
     use crate::settings::Settings;
 
+    /// Setting the Jira source's `create_project` in Settings re-registers the source; the live target Incoming's
+    /// held-todo form reads follows it, without a restart.
+    #[test]
+    fn the_jira_target_follows_the_sources_settings_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::from_parts(crate::db::open_in_memory().unwrap(), Settings::default(), dir.path()).unwrap();
+        let name: String = app
+            .db()
+            .query_row("SELECT name FROM sources WHERE kind = 'jira'", [], |r| r.get(0))
+            .unwrap();
+        let sub = crate::live::subscribe(&app, "c1", "todos.jira_target", json!({})).unwrap();
+        assert_eq!(sub["result"], Value::Null, "no project yet");
+        let cfg = crate::settings::SourceConfig {
+            kind: "jira".into(),
+            tag: "work".into(),
+            name,
+            enabled: true,
+            poll_secs: 60,
+            config: json!({ "create_project": "PLAT" }),
+        };
+        app.store().write(|uow| crate::sync::register(uow, &[cfg])).unwrap();
+        let tables = app.store().changes().take(std::time::Duration::ZERO);
+        assert!(crate::live::rerun_now(&app, &tables) >= 1, "the target re-ran");
+        let w = crate::live::wait(&app, "c1", sub["seq"].as_u64().unwrap(), &[], std::time::Duration::ZERO);
+        assert_eq!(w["changed"][0]["result"]["project"], "PLAT");
+    }
     /// Confirm files the signal and makes its held todo in one unit of work:
     /// a todo that can't be made leaves the signal exactly as it was.
     #[test]
