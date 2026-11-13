@@ -197,7 +197,14 @@
       ></textarea>
     </div>
     {#if room && !text}<span class="hint-at">@ to address one member</span>{/if}
-    <kbd class="send-key">{chord('⌘⏎', 'Ctrl+⏎')}</kbd>
+    <!-- The hint is the send button too; mousedown keeps the caret in the box. -->
+    <button
+      class="send-key"
+      title="Send"
+      disabled={busy}
+      onmousedown={(e) => e.preventDefault()}
+      onclick={(e) => (e.preventDefault(), send())}><kbd>{chord('⌘⏎', 'Ctrl+⏎')}</kbd></button
+    >
     {#if options.length}
       <div class="pop popover flush" use:popover={{ onclose: () => (dismissed = true), trigger: el }}>
         {#each options as s, i (s.id)}
@@ -337,6 +344,14 @@
   .send-key {
     margin-left: auto;
     margin-bottom: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .send-key:hover kbd {
+    border-color: var(--aqua);
+    color: var(--tx-title);
   }
   .btn {
     border-radius: var(--radius-md);
