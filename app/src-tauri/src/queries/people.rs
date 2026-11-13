@@ -458,6 +458,20 @@ pub struct Account {
     pub id: String,
 }
 
+/// A person named in a message's text, resolved: `text` is exactly what the message holds there (`<@U123>`,
+/// `@Kim Lee`, `@kimlee`), `name` what to show instead, `who` their colour and People note, as for authors.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Mention {
+    pub text: String,
+    pub name: String,
+    pub who: Who,
+}
+
+static SLACK_MENTION: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"<@([A-Z0-9]+)(?:\|[^>]*)?>").unwrap());
+static GITHUB_MENTION: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"(?:^|[^\w@/])(@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})))\b").unwrap());
+
 pub struct Resolver {
     by_account: HashMap<(String, String), i64>,
     /// Source profiles: (kind, account) → (real name, email).
@@ -611,6 +625,100 @@ impl Resolver {
 
     pub fn is_known(&self, kind: &str, account: &str) -> bool {
         self.person_of(kind, account).is_some()
+    }
+
+    /// The people a message's text names, each once, in a source's own mention form: Slack's `<@U123>`
+    /// (a user id; shown by the People note's name, else the Slack profile's), GitHub's `@login` and Jira's
+    /// `@Display Name` (only when it's someone with a People note, or you). Anything else is left as text.
+    pub fn mentions(&self, source_kind: &str, text: &str) -> Vec<Mention> {
+        let mut out: Vec<Mention> = vec![];
+        let mut add = |m: Mention| {
+            if !out.iter().any(|o| o.text == m.text) {
+                out.push(m);
+            }
+        };
+        match source_kind {
+            "slack" => {
+                for c in SLACK_MENTION.captures_iter(text) {
+                    let id = &c[1];
+                    let who = self.who("slack", Some(id), "");
+                    let name = who
+                        .name
+                        .clone()
+                        .or_else(|| self.profile_name("slack", id).map(str::to_owned));
+                    if let Some(name) = name {
+                        add(Mention {
+                            text: c[0].to_owned(),
+                            name,
+                            who,
+                        });
+                    }
+                }
+            }
+            "github" => {
+                for c in GITHUB_MENTION.captures_iter(text) {
+                    let who = self.who("github", Some(&c[2]), "");
+                    let name = if who.me { self.my_name() } else { who.name.clone() };
+                    if let Some(name) = name.filter(|_| who.known) {
+                        add(Mention {
+                            text: c[1].to_owned(),
+                            name,
+                            who,
+                        });
+                    }
+                }
+            }
+            "jira" => {
+                let lower = text.to_lowercase();
+                let mut names: Vec<(&String, &i64)> = self.by_name.iter().collect();
+                names.sort_by_key(|(n, _)| std::cmp::Reverse(n.len()));
+                // Spans a longer name already took: "@Jordan" inside "@Jordan Lee" is that one.
+                let mut taken: Vec<(usize, usize)> = vec![];
+                for (n, id) in names {
+                    let Some(p) = self.people.get(id) else { continue };
+                    let token = format!("@{n}");
+                    let mut from = 0;
+                    while let Some(at) = lower[from..].find(&token).map(|i| i + from) {
+                        let end = at + token.len();
+                        from = end;
+                        // A whole name: not the start of a longer word.
+                        if lower[end..].chars().next().is_some_and(|c| c.is_alphanumeric()) {
+                            continue;
+                        }
+                        if taken.iter().any(|&(a, b)| at < b && a < end) {
+                            continue;
+                        }
+                        taken.push((at, end));
+                        // Lowercasing can change byte lengths; take the original only where it lines up.
+                        let Some(orig) = text.get(at..end).filter(|o| o.to_lowercase() == token) else {
+                            continue;
+                        };
+                        let who = Who {
+                            color: p.color,
+                            known: true,
+                            me: false,
+                            person_id: Some(p.id),
+                            name: Some(p.name.clone()),
+                            account: None,
+                        };
+                        add(Mention {
+                            text: orig.to_owned(),
+                            name: p.name.clone(),
+                            who,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+
+    /// Your name, from a People note or a source profile of one of your accounts.
+    fn my_name(&self) -> Option<String> {
+        self.me
+            .iter()
+            .find_map(|(k, a)| self.profile_name(k, a).map(str::to_owned))
     }
 
     /// The author of a message (`author_id` as the source stores it) or of an item (its handle).
@@ -1318,6 +1426,64 @@ mod tests {
         std::fs::write(vault.join(PEOPLE_DIR).join(format!("{name}.md")), text).unwrap();
     }
 
+    #[test]
+    fn mentions_resolve_to_people_in_each_sources_own_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = dir.path();
+        let conn = db();
+        write(
+            v,
+            "Jordan Lee",
+            "---\naliases: [Jordan]\nslack: U0JORDAN\ngithub: jlee\n---\n",
+        );
+        scan(&conn, v).unwrap();
+        conn.execute(
+            "INSERT INTO account_profiles (kind, account, real_name) VALUES ('slack', 'U0PAT', 'Pat Kim'), ('slack', 'U0ME', 'Zach B')",
+            [],
+        )
+        .unwrap();
+        let r = Resolver::load(&crate::store::over(&conn), &PeopleSettings::default()).unwrap();
+        let shown = |source: &str, text: &str| -> Vec<(String, String, bool)> {
+            r.mentions(source, text)
+                .into_iter()
+                .map(|m| (m.text, m.name, m.who.known))
+                .collect()
+        };
+        let own = |t: &str, n: &str, k: bool| (t.to_owned(), n.to_owned(), k);
+
+        // Slack: a People note's name; else the Slack profile's (not known); you by your profile; an id nobody knows stays text.
+        assert_eq!(
+            shown(
+                "slack",
+                "ping <@U0JORDAN> and <@U0PAT|pat>, cc <@U0ME> <@U0NOBODY> <@U0JORDAN>"
+            ),
+            [
+                own("<@U0JORDAN>", "Jordan Lee", true),
+                own("<@U0PAT|pat>", "Pat Kim", false),
+                own("<@U0ME>", "Zach B", true)
+            ]
+        );
+        // GitHub: only logins of people with a note (or you); emails and paths aren't mentions.
+        assert_eq!(
+            shown(
+                "github",
+                "@jlee can you look? cc @someone, mail jlee@work.com, see org/@jlee"
+            ),
+            [own("@jlee", "Jordan Lee", true)]
+        );
+        // Jira: "@Display Name" as ADF renders it, matched to a note's name or alias, whole names only.
+        assert_eq!(
+            shown("jira", "Thanks @jordan lee! and @Jordan, not @Jordanna"),
+            [
+                own("@jordan lee", "Jordan Lee", true),
+                own("@Jordan", "Jordan Lee", true)
+            ]
+        );
+        assert!(
+            shown("gmail", "@jlee <@U0JORDAN>").is_empty(),
+            "other sources aren't read for mentions"
+        );
+    }
     #[test]
     fn scan_matches_authors_and_follows_note_edits() {
         let dir = tempfile::tempdir().unwrap();

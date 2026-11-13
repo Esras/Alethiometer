@@ -11,6 +11,8 @@ export interface Message {
   text: string;
   /** Person colour and People note (16c, 17a). */
   who: Who;
+  /** People its text names (`people::Mention`), shown as pills. */
+  mentions?: import('../../lib/mentionMarks').Mention[];
   /** Another part of this split came in just before this message (⋯). */
   gap?: boolean;
   /** The split part holding it (`incoming.family` only). */
