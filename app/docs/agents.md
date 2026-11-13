@@ -143,9 +143,9 @@ Rows follow the row grammar (icon column coloured by kind, mono header, body). A
 |---|---|
 | Everywhere | `⌘K` search, `/` filter sessions, `g i` / `g a`, `⌘.` interrupt, `?` keys |
 | Tree | `j`/`k`, `h`/`l` fold or open a remote group, `⏎` open, `n` new session (its Directories default to the selected row's repos), `a` archive, `u` undo an archive (10 s) |
-| Thread | `j`/`k`, `e` fold/open, `⏎` reply (`@name` in a room) or open a tool call, `c` copy, `g` latest, `t`/`m` tabs |
+| Thread | `j`/`k`, `e` fold/open, `⏎` reply (`@name` in a room) or open a tool call, `c` copy (a response as its Markdown; also a Copy button on the row), `g` latest, `t`/`m` tabs, `⌘+`/`⌘−` transcript size, `⌘0` back to 1 (also while typing; `agents.transcript_zoom`, a CSS zoom on the rows, saved 400 ms after the last key) |
 | Needs you | `o` `s` `a` `d`, `1`–`3` pick an answer, `r` write a reply, `Esc` later |
-| Composer | `⌘⏎` send, `@` address one member (rooms), `↑` bring back your last message, `Esc` back |
+| Composer | `⌘⏎` send (the hint is a button too), `@` address one member (rooms), `↑` bring back your last message, `Esc` back |
 | Archive confirm | `⌘⏎` archive, `⌘⌫` archive anyway (not done), `Esc` cancel |
 | Archived (read-only) | `⌘G` / `⇧⌘G` next or previous match, `Esc` back |
 
@@ -153,7 +153,7 @@ Single-letter keys are off while typing.
 
 ## Settings › Agents
 
-Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept_edits` (not in OpenShell sandboxes); `agents.colors.you|tool|message|hub|needs_you` (`hub` colours notices) (presets, `←`/`→`); `agents.names.color_by` (agent, template, off) and `agents.names.palette` (unique within a tree heading, reused across headings, assigned in order of creation and kept in `agent_colors`); `agents.names.self_in_transcript`; `agents.boxes.strength` (subtle .07/.35, normal .10/.45, strong .14/.6) and `agents.boxes.fold_pairs`. `⌫` resets a row. A harness's sandbox Policy file and Environment are rows under "<harness> in OpenShell"; the rest of `agents.harnesses`, and `agents.openshell`, are settings.json only.
+Section 6 (Developer is 7). A live preview, then one row per key: `agents.accept_edits` (not in OpenShell sandboxes); `agents.transcript_zoom` (Transcript size); `agents.colors.you|tool|message|hub|needs_you` (`hub` colours notices) (presets, `←`/`→`); `agents.names.color_by` (agent, template, off) and `agents.names.palette` (unique within a tree heading, reused across headings, assigned in order of creation and kept in `agent_colors`); `agents.names.self_in_transcript`; `agents.boxes.strength` (subtle .07/.35, normal .10/.45, strong .14/.6) and `agents.boxes.fold_pairs`. `⌫` resets a row. A harness's sandbox Policy file and Environment are rows under "<harness> in OpenShell"; the rest of `agents.harnesses`, and `agents.openshell`, are settings.json only.
 
 ## Development
 

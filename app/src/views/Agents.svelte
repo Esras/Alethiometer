@@ -34,6 +34,8 @@
     undoArchive,
   } from './agents/state.svelte';
   import Tree from './agents/Tree.svelte';
+  import { zoomKey } from './agents/zoom';
+  import { zoom } from './agents/zoom.svelte';
 
   $effect(() => {
     startPolling();
@@ -171,6 +173,12 @@
     }
     if (mod(e) && e.key.toLowerCase() === 'g' && ag.archived) {
       archivedPane?.nextMatch(e.shiftKey ? -1 : 1);
+      return true;
+    }
+    // The transcript's size, typing or not (the composer lets these through).
+    const z = mod(e) && !e.altKey && !ag.form ? zoomKey(e) : null;
+    if (z) {
+      zoom(z);
       return true;
     }
     if (isTyping(e) || e.altKey || mod(e)) return false;

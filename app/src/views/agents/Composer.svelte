@@ -6,6 +6,7 @@
   import { chord, mod } from '../../lib/keys.svelte';
   import { popover } from '../../lib/ui/popover';
   import { act, ag, pinned, sessionById } from './state.svelte';
+  import { zoomKey } from './zoom';
   import type { Group, Session } from './types';
 
   let {
@@ -144,6 +145,8 @@
       e.preventDefault();
     } else if (mod(e) && e.key === '.') {
       return; // the view interrupts
+    } else if (mod(e) && zoomKey(e)) {
+      return; // the view sizes the transcript
     } else {
       e.stopPropagation();
       return;

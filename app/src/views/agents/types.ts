@@ -304,6 +304,8 @@ export interface AgentsLook {
   colors: { you: string; tool: string; message: string; hub: string; needs_you: string };
   names: { color_by: 'agent' | 'template' | 'off'; palette: string[]; self_in_transcript: boolean };
   boxes: { strength: 'subtle' | 'normal' | 'strong'; fold_pairs: boolean };
+  /** The transcript's size (⌘+ / ⌘− / ⌘0). */
+  transcript_zoom?: number;
 }
 
 /** A saved agent (settings.json `agents.saved`): the New agent form's fields. Empty takes the default. */

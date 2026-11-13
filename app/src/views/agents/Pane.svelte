@@ -13,6 +13,7 @@
   import StatusLine from './StatusLine.svelte';
   import StatusMark from '../../lib/ui/StatusMark.svelte';
   import type { Fact } from './types';
+  import { transcriptZoom } from './zoom.svelte';
 
   let {
     composerEl = $bindable(),
@@ -211,7 +212,7 @@
           }
         }}
       >
-        <div class="rows" bind:this={rowsEl}>
+        <div class="rows" bind:this={rowsEl} style:zoom={String(transcriptZoom())}>
           {#each list as it (it.key)}
             {#if it.run && !it.folded}
               <div class="runbox" class:sel={ag.zone === 'thread' && ag.rowSel === it.row.id} data-row={it.row.id}>

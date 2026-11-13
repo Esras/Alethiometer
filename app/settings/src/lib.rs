@@ -307,6 +307,9 @@ pub struct AgentsSettings {
     /// a mode, or that never ask (Pi), are unaffected.
     #[schemars(extend("x-group" = "Approvals", "x-label" = "Let agents edit inside the project"))]
     pub accept_edits: bool,
+    /// The transcript's size against the rest of the window. ⌘+ and ⌘− in the Agents tab change it, ⌘0 resets it.
+    #[schemars(extend("x-group" = "Transcript", "x-label" = "Transcript size", "x-widget" = "scale", "x-step" = 0.1, "x-min" = 0.5, "x-max" = 2.5))]
+    pub transcript_zoom: f64,
     /// Running harnesses inside OpenShell sandboxes (`app/docs/agents.md` › OpenShell).
     #[schemars(extend("x-hidden" = true))]
     pub openshell: OpenShellSettings,
@@ -491,6 +494,7 @@ impl Default for AgentsSettings {
                 ),
             ],
             accept_edits: true,
+            transcript_zoom: 1.0,
             openshell: OpenShellSettings::default(),
             colors: AgentColors::default(),
             names: AgentNames::default(),

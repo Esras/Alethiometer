@@ -159,7 +159,7 @@ fn app_call(app: &App, name: &str, args: &Value) -> Result<Value> {
                 // The Assistant searches Glean first when a Glean source is on.
                 "glean": crate::glean::config(app).is_some(),
                 // How the Agents tab looks (Settings › Agents), and the Needs you count for its tab.
-                "agents": { "colors": settings.agents.colors, "names": settings.agents.names, "boxes": settings.agents.boxes },
+                "agents": { "colors": settings.agents.colors, "names": settings.agents.names, "boxes": settings.agents.boxes, "transcript_zoom": settings.agents.transcript_zoom },
                 "agents_waiting": crate::agents::attention(app),
             }))
         }
