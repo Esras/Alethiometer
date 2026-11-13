@@ -19,6 +19,9 @@ use std::fmt::Write;
 
 /// Rough cap on context size (~6k tokens), plenty for a concise answer.
 pub const BUDGET: usize = 24_000;
+/// A topic's items past the detailed ones go in as one line each, up to this much more: so a question about a
+/// big topic ("split this up") sees all of it, not only the newest few dozen.
+const INDEX_BUDGET: usize = 40_000;
 /// Share of the budget the topic note may take.
 const NOTE_CAP: usize = 6_000;
 /// Share of the budget the topic's people may take.
@@ -37,7 +40,12 @@ pub struct Context {
 impl Context {
     /// Append a block if it fits. Returns false once the budget is spent.
     fn push(&mut self, block: &str, item: Option<i64>) -> bool {
-        if self.text.len() + block.len() > BUDGET {
+        self.push_within(BUDGET, block, item)
+    }
+
+    /// `push` against a cap of its own (the one-line index past the detailed items).
+    fn push_within(&mut self, cap: usize, block: &str, item: Option<i64>) -> bool {
+        if self.text.len() + block.len() > cap {
             return false;
         }
         self.text.push_str(block);
@@ -147,6 +155,9 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
     let note = head.obsidian_path.as_deref().map_or("", |p| notes.get(p));
     let mut ctx = Context::default();
     ctx.push(&format!("Topic: {}\n", head.name), None);
+    let rows = topic_rows(reads, topic_id, "confirmed")?;
+    let suggested = topic_rows(reads, topic_id, "suggested")?;
+    ctx.push(&overview(&rows, suggested.len()), None);
     if !note.trim().is_empty() {
         ctx.push(
             &format!("\nTopic note (the user's Obsidian note):\n{}\n", clip(note, NOTE_CAP)),
@@ -163,7 +174,6 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
             None,
         );
     }
-    let suggested = topic_rows(reads, topic_id, "suggested")?;
     if !suggested.is_empty() {
         ctx.push(
             "\nNew signals suggested for this topic, not yet confirmed by the user (newest first):\n",
@@ -175,16 +185,71 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
             }
         }
     }
-    let rows = topic_rows(reads, topic_id, "confirmed")?;
     // Open tasks first so the budget never drops them; then everything else newest first.
     let (open, rest): (Vec<&ContextItem>, Vec<&ContextItem>) = rows.iter().partition(|r| is_open_task(r));
     ctx.push("\nItems linked to this topic (newest first):\n", None);
-    for r in open.into_iter().chain(rest) {
+    let mut shown = 0;
+    for r in open.iter().chain(&rest) {
         if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
             break;
         }
+        shown += 1;
+    }
+    let left: Vec<&&ContextItem> = open.iter().chain(&rest).skip(shown).collect();
+    if !left.is_empty() {
+        let cap = BUDGET + INDEX_BUDGET;
+        ctx.push_within(
+            cap,
+            &format!(
+                "\nThe other {} linked items, one line each (newest first):\n",
+                left.len()
+            ),
+            None,
+        );
+        let mut listed = 0;
+        for r in &left {
+            let line = format!(
+                "[item {}] {} {} {} \u{b7} {}\n",
+                r.id,
+                clock.day_of(r.at),
+                r.source_kind,
+                r.kind,
+                clip(&r.title, 100)
+            );
+            if !ctx.push_within(cap, &line, Some(r.id)) {
+                break;
+            }
+            listed += 1;
+        }
+        if listed < left.len() {
+            ctx.push_within(
+                cap + 200,
+                &format!("({} older items not listed.)\n", left.len() - listed),
+                None,
+            );
+        }
     }
     Ok(ctx)
+}
+
+/// A topic in numbers: its confirmed items by source and by month, and how many suggestions wait.
+fn overview(rows: &[ContextItem], suggested: usize) -> String {
+    use std::collections::BTreeMap;
+    let mut by_source: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut by_month: BTreeMap<String, usize> = BTreeMap::new();
+    for r in rows {
+        *by_source.entry(r.source_kind.as_str()).or_default() += 1;
+        *by_month.entry(r.at.to_db().chars().take(7).collect()).or_default() += 1;
+    }
+    let mut sources: Vec<_> = by_source.into_iter().collect();
+    sources.sort_by(|a, b| b.1.cmp(&a.1));
+    let list = |v: Vec<String>| if v.is_empty() { "none".to_owned() } else { v.join(", ") };
+    format!(
+        "Linked items: {} confirmed, {suggested} suggested and not yet confirmed.\nBy source: {}\nBy month (UTC): {}\n",
+        rows.len(),
+        list(sources.iter().map(|(s, n)| format!("{s} {n}")).collect()),
+        list(by_month.iter().rev().map(|(m, n)| format!("{m} {n}")).collect()),
+    )
 }
 
 /// Context for reviewing the topic list (Topics index): every active topic with its
@@ -195,7 +260,7 @@ pub fn for_topics(app: &App) -> Result<Context> {
     app.store().read(|r| {
         let mut ctx = Context::default();
         ctx.push(
-            "Active topics (id, name, linked work items, last activity, note gist, recent items):\n",
+            "Active topics (id, name, linked work items, suggestions the user rejected, last activity, note gist, recent items):\n",
             None,
         );
         for t in &topics {
@@ -215,10 +280,11 @@ pub fn for_topics(app: &App) -> Result<Context> {
                 .map(|l| app.clock.day_of(l).to_string())
                 .unwrap_or_else(|| "never".into());
             let block = format!(
-                "- [topic {}] {} · {} items · last {last}\n  note: {gist}\n  recent: {}\n",
+                "- [topic {}] {} · {} items · {} rejected · last {last}\n  note: {gist}\n  recent: {}\n",
                 t.id,
                 t.name,
                 t.items,
+                t.wrong,
                 titles.join("; ")
             );
             if !ctx.push(&block, None) {
@@ -502,8 +568,19 @@ pub mod tests {
             }
         }
         let ctx = for_topic(&app, id).unwrap();
-        assert!(ctx.text.len() <= BUDGET);
+        assert!(ctx.text.len() <= BUDGET + INDEX_BUDGET + 200);
         assert!(ctx.text.contains("Bulk 199"), "newest kept");
-        assert!(!ctx.text.contains("Bulk 0\n"), "oldest dropped");
+        let (detail, index) = ctx
+            .text
+            .split_once("linked items, one line each")
+            .expect("the rest as an index");
+        assert!(detail.len() <= BUDGET, "the detailed part keeps its budget");
+        assert!(!detail.contains("Bulk 0\n"), "the oldest aren't in detail");
+        assert!(index.contains("Bulk 0\n"), "but every item is listed: {index}");
+        assert!(
+            ctx.text.contains("200 confirmed") || ctx.text.contains("Linked items: 2"),
+            "the topic in numbers"
+        );
+        assert!(ctx.text.contains("2020-01 200"), "by month");
     }
 }

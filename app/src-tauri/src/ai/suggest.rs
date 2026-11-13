@@ -888,7 +888,8 @@ mod tests {
         configured(&app);
         let mk = |name: &str| {
             let conn = app.db();
-            conn.execute("INSERT INTO topics (name, category) VALUES (?1, '')", [name]).unwrap();
+            conn.execute("INSERT INTO topics (name, category) VALUES (?1, '')", [name])
+                .unwrap();
             conn.last_insert_rowid()
         };
         let old = mk("Infrastructure Deployments");
