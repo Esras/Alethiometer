@@ -92,8 +92,11 @@
     ag.rowSel = null;
     following = true;
   }
+  // Keys move the selection into view; a click selects a row that's already where the pointer is.
+  let clicked = false;
   $effect(() => {
     if (ag.rowSel === null) return;
+    if (clicked) return void (clicked = false);
     const el = scroller?.querySelector(`[data-row="${ag.rowSel}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   });
@@ -202,7 +205,10 @@
           ag.zone = 'thread';
           (document.activeElement as HTMLElement | null)?.blur();
           const row = (e.target as HTMLElement).closest<HTMLElement>('[data-row]');
-          if (row) ag.rowSel = Number(row.dataset.row);
+          if (row && ag.rowSel !== Number(row.dataset.row)) {
+            clicked = true;
+            ag.rowSel = Number(row.dataset.row);
+          }
         }}
       >
         <div class="rows" bind:this={rowsEl}>

@@ -387,10 +387,19 @@
   .sel {
     background: var(--aqua-tint);
   }
+  /* An unboxed row shows its selection on a layer behind it, where a box would be: padding would
+     grow the row and move the transcript under the pointer. */
   .sel:not(.b-you, .b-tool, .b-msg, .b-hub, .b-need, .b-fail) {
-    border: 1px solid transparent;
-    margin: 0 -10px;
-    padding: 6px 10px;
+    background: none;
+    position: relative;
+    isolation: isolate;
+  }
+  .sel:not(.b-you, .b-tool, .b-msg, .b-hub, .b-need, .b-fail)::before {
+    content: '';
+    position: absolute;
+    inset: -7px -11px;
+    z-index: -1;
+    background: var(--aqua-tint);
     border-radius: var(--radius-md);
   }
   .g {
