@@ -32,6 +32,8 @@ pub struct TopicOverview {
     /// Confirmed work items.
     pub items: i64,
     pub last: Option<Ts>,
+    /// Suggestions of this topic the user marked wrong.
+    pub wrong: i64,
 }
 
 /// A titled work calendar event.
@@ -53,6 +55,8 @@ pub trait ContextViews {
     fn latest_messages(&self, item_id: i64, n: usize) -> Result<Vec<(Ts, String, String)>>;
     /// Active topics by name.
     fn topics_overview(&self) -> Result<Vec<TopicOverview>>;
+    /// Names of archived topics, the latest archived first, without repeats.
+    fn archived_topic_names(&self, n: usize) -> Result<Vec<String>>;
     /// Titles of a topic's latest confirmed work items.
     fn recent_titles(&self, topic_id: i64, n: usize) -> Result<Vec<String>>;
     /// Titled work events (no life blocks) starting in `[from, to)`.

@@ -61,10 +61,22 @@ impl ContextViews for Sql<'_> {
                         (SELECT count(*) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
                           WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work'),
                         (SELECT max(i.occurred_at) FROM topic_links tl JOIN items i ON i.id = tl.item_id JOIN sources s ON s.id = i.source_id
-                          WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work')
+                          WHERE tl.topic_id = t.id AND tl.state = 'confirmed' AND s.tag = 'work'),
+                        (SELECT count(*) FROM topic_links tl WHERE tl.topic_id = t.id AND tl.state = 'wrong')
                    FROM topics t WHERE t.archived_at IS NULL ORDER BY t.name",
             )?
-            .query_map([], |r| Ok(TopicOverview { id: r.get(0)?, name: r.get(1)?, note_path: r.get(2)?, items: r.get(3)?, last: r.get(4)? }))?
+            .query_map([], |r| Ok(TopicOverview { id: r.get(0)?, name: r.get(1)?, note_path: r.get(2)?, items: r.get(3)?, last: r.get(4)?, wrong: r.get(5)? }))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn archived_topic_names(&self, n: usize) -> Result<Vec<String>> {
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "SELECT name FROM topics WHERE archived_at IS NOT NULL
+                  GROUP BY name COLLATE NOCASE ORDER BY max(archived_at) DESC LIMIT ?1",
+            )?
+            .query_map([n as i64], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?)
     }
 
