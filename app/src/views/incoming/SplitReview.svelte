@@ -10,7 +10,8 @@
   // - j/k move (⋯ isn't a row), space selects, shift+j/k selects a range
   //   (like text: back toward where it started shrinks it), t moves the selection (or the
   //   current message) to a topic's group straight away (a new topic makes a
-  //   new group; the picker's Unsorted row moves it there), d dismisses in place, u undoes, c confirms every group that
+  //   new group; the picker's Unsorted row moves it there; In order, the cursor then goes on to the next message
+  //   in time order that didn't move), d dismisses in place, u undoes, c confirms every group that
   //   has a topic (Unsorted stays in Incoming), Esc goes back.
   // - `filed` (18c chronology, 18d search): reviewing one filed signal. Only
   //   its own part and the parts this review makes are shown; a move files
@@ -23,6 +24,7 @@
   import Markdown from '../../lib/ui/Markdown.svelte';
   import PersonName from '../../lib/ui/PersonName.svelte';
   import TopicPicker from './TopicPicker.svelte';
+  import { afterMove } from './afterMove';
   import type { Family, Message, Part } from './types';
   import { toast } from '../../lib/toast.svelte';
 
@@ -216,6 +218,7 @@
     picking = false;
     const by = targets();
     if (!by.size) return;
+    const moved = new Set([...by.values()].flat().map((m) => m.id));
     act(async () => {
       for (const [part, ms] of by) {
         const live = ms.filter((m) => !isGone(m));
@@ -228,6 +231,16 @@
           ...scoped(),
         });
         if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
+      }
+      // In order, the moved run stays where it was: carry on with the conversation after it.
+      if (mode === 'order' && fam) {
+        const msgs = fam.messages;
+        focus = afterMove(
+          msgs.map((m) => m.id),
+          moved,
+          (id) => isGone(msgs.find((m) => m.id === id)!),
+          focus,
+        );
       }
       chosen = new Set();
       run = null;
