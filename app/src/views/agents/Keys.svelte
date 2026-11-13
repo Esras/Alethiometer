@@ -37,7 +37,7 @@
         [['J', 'K'], 'Move between rows'],
         [['E'], 'Fold or open: thinking, pairs, tool output'],
         [['⏎'], 'Reply to a message, or open a tool call'],
-        [['C'], 'Copy the row'],
+        [['C'], 'Copy the row (a response as Markdown)'],
         [['G'], 'Jump to latest'],
         [['T', 'M'], 'Transcript or Messages'],
       ],

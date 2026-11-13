@@ -96,6 +96,13 @@
     go(text);
     return { update: go };
   }
+  // A response copies as the agent wrote it, Markdown tables and all (the transcript shows it rendered).
+  let copied = $state(false);
+  async function copy() {
+    await navigator.clipboard?.writeText(row.text);
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
+  }
   const secs = (ms: number | null) =>
     ms == null
       ? ''
@@ -278,6 +285,13 @@
           {#if row.note}<span class="note">{row.note}</span>{/if}
           {#if row.kind === 'ask' && waiting}<span class="waiting">waiting for you ↓</span>{/if}
           {@render deliveryMark()}
+          {#if row.kind === 'output' && row.text}<button
+              class="btn copy"
+              class:shown={sel || copied}
+              title="Copy the response as Markdown (c on the selected row)"
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={copy}><i class="ph {copied ? 'ph-check' : 'ph-copy'}"></i>{copied ? 'Copied' : 'Copy'}</button
+            >{/if}
         {/snippet}
         {@render header(whoTo, r)}
         {#if row.text}<Body
@@ -438,6 +452,19 @@
     gap: 10px;
     align-items: baseline;
     white-space: nowrap;
+  }
+  /* On the row under the pointer or the selected one; kept while it says Copied. Hidden, not removed, and its
+     margin takes back the height it adds to the header line, so showing it moves nothing. */
+  .copy {
+    visibility: hidden;
+    align-self: center;
+    margin-block: -4px;
+    padding: 1px 8px;
+    gap: 5px;
+  }
+  .r:hover .copy,
+  .copy.shown {
+    visibility: visible;
   }
   .time {
     font-size: 0.846rem;
