@@ -984,13 +984,19 @@ fn state_row(at: &str, text: &str) -> Row {
 }
 
 /// A "N queued" marker stands in for a held-back message until it's actually sent.
-fn queue_message(app: &App, id: &str, text: &str, images: Vec<RowImage>) {
+/// `steer`: the agent takes messages mid-turn (this one waits behind an earlier queued one); otherwise the marker says why it waits.
+fn queue_message(app: &App, id: &str, text: &str, images: Vec<RowImage>, steer: bool) {
     let ts = now(app);
     let key = session_thread(id);
     let mut i = app.agents.store.lock();
     let marker = i.sessions.get(id).and_then(|s| s.queue_marker);
     let n = i.sessions.get(id).map(|s| s.queue_peak + 1).unwrap_or(1);
-    let note = format!("{n} message{} queued", if n == 1 { "" } else { "s" });
+    let why = if steer {
+        ""
+    } else {
+        " (this agent can't take messages mid-turn)"
+    };
+    let note = format!("{n} message{} queued{why}", if n == 1 { "" } else { "s" });
     let marker = match marker {
         Some(rid) => {
             i.update_row(&key, rid, |r| r.text = note);
@@ -3333,7 +3339,8 @@ pub fn send(app: &App, id: &str, text: &str, images: Vec<RowImage>) -> Result<()
                 let text = text.to_owned();
                 std::thread::spawn(move || steer(&arc, &conn, row, text, images));
             } else {
-                queue_message(app, id, text, images);
+                let steer = turn.steer;
+                queue_message(app, id, text, images, steer);
                 drop(turn);
             }
         } else {
@@ -3636,7 +3643,10 @@ pub(crate) mod tests {
         let r = rows(&app, &session_thread(&id));
         assert!(r.iter().all(|r| r.kind != Kind::You), "not a real row yet");
         let marker = r.iter().find(|r| r.kind == Kind::State).unwrap();
-        assert_eq!(marker.text, "1 message queued");
+        assert_eq!(
+            marker.text,
+            "1 message queued (this agent can't take messages mid-turn)"
+        );
     }
 
     #[test]

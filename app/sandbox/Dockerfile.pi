@@ -6,7 +6,7 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
 COPY patches/pi-bedrock-no-keepalive.mjs /tmp/
 RUN node /tmp/pi-bedrock-no-keepalive.mjs "$(npm root -g)/@earendil-works/pi-coding-agent" && rm /tmp/pi-bedrock-no-keepalive.mjs
 RUN git clone https://github.com/zboerner-qventus/pi-acp.git /tmp/pi-acp && cd /tmp/pi-acp \
- && git checkout 04f7c639d8f775c1a5cba7cb22433cab5bda12e8 && npm ci && npm install -g "$(npm pack | tail -1)" \
+ && git checkout 539c43b39b372a1137cbf556138eac66149b05a4 && npm ci && npm install -g "$(npm pack | tail -1)" \
  && cd / && rm -rf /tmp/pi-acp
 ENV PI_CODING_AGENT_DIR=/tmp/pi
 # OpenShell 0.1.7's own policy advisor guide; its supervisor can't install it here (it runs unprivileged).
