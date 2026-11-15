@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Incoming · due todos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;display=swap">
+<style>
+:root {
+  --bg-app: #1d2021; --bg-panel: #282828; --bg-head: #32302f;
+  --border: #3c3836; --border-strong: #504945;
+  --tx-title: #fbf1c7; --tx-body: #ebdbb2; --tx-2: #d5c4a1; --tx-muted: #bdae93; --tx-muted-2: #a89984; --tx-label: #928374; --tx-disabled: #665c54;
+  --aqua: #8ec07c; --aqua-tint: rgba(142, 192, 124, 0.1); --aqua-tint-soft: rgba(142, 192, 124, 0.06); --aqua-fill: rgba(142, 192, 124, 0.14); --aqua-badge: rgba(142, 192, 124, 0.2); --aqua-line: rgba(142, 192, 124, 0.45);
+  --hover-tint: rgba(235, 219, 178, 0.05); --row-hover: rgba(235, 219, 178, 0.03);
+  --red: #fb4934; --green: #b8bb26; --yellow: #fabd2f; --blue: #83a598; --purple: #d3869b; --orange: #fe8019;
+  --pill-red-fill: rgba(251, 73, 52, 0.16); --pill-yellow-fill: rgba(250, 189, 47, 0.16); --pill-green-fill: rgba(184, 187, 38, 0.16);
+  --time-far: var(--green); --time-near: var(--yellow); --time-now: var(--red); --link-out: var(--blue);
+  --radius-sm: 2px; --radius-md: 6px; --radius-full: 999px;
+  --tab-underline: inset 0 -2px 0 #8ec07c; --popover: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --font-ui: 'Inter', system-ui, sans-serif; --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+body{margin:0;background:#1d2021}
+a{color:#8ec07c;text-decoration:none}a:hover{color:#fbf1c7}
+.kbd{display:inline-block;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;line-height:14px;padding:0 4px;border:1px solid var(--border-strong);border-radius:2px;background:var(--bg-head);color:var(--tx-label)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--tx-muted);font-family:inherit;font-size:12px;white-space:nowrap}
+.box{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:1.5px solid var(--tx-muted-2);border-radius:2px;flex:none}
+.app{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:2px;background:var(--bg-head);color:var(--tx-2);font-size:9px;font-weight:500;flex:none}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: var(--bg-app); color: var(--tx-body); font-family: 'Inter', system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-feature-settings: 'cv11';">
+  <div style="height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--border); background: var(--bg-panel); font-size: 11.5px; color: var(--tx-label);">Alethiometer</div>
+  <div style="flex: none; display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--bg-panel); font-size: 12.5px;">
+    <span style="padding: 8px 10px; color: var(--tx-title); box-shadow: inset 0 -2px 0 var(--aqua); display: flex; gap: 6px; align-items: center;">Incoming <span style="font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: var(--aqua-tint); color: var(--aqua);">{{tabCount}}</span></span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Priorities</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Topics</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">People</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Todos</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Notes</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Reflect</span>
+    <span style="padding: 8px 10px; color: var(--tx-muted-2);">Agents</span>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex;">
+
+    <div style="width: 220px; flex: none; border-right: 1px solid var(--border); padding: 10px 0; display: flex; flex-direction: column; overflow: hidden;">
+      <div style="padding: 0 14px 6px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--tx-label);">Topics</div>
+      <sc-for list="{{topics}}" as="t" hint-placeholder-count="10">
+        <sc-if value="{{t.rule}}" hint-placeholder-val="{{false}}"><div style="height: 1px; margin: 6px 14px; background: var(--border);"></div></sc-if>
+        <div style="{{t.rowStyle}}">
+          <span style="width: 3px; height: 14px; border-radius: 2px; flex: none; background: {{t.color}};"></span>
+          <span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {{t.nameColor}};">{{t.name}}</span>
+          <span style="font-size: 11px; color: var(--tx-label); white-space: nowrap;">{{t.due}}</span>
+          <span style="{{t.countStyle}}">{{t.count}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px;">
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+        <div style="flex: 1; min-height: 0; overflow: hidden;">
+
+          <sc-if value="{{done}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; gap: 8px; align-items: center; padding: 8px 16px; color: var(--green); border-bottom: 1px solid var(--border);"><span>✓</span><span>Done: FIN-2649: Review shared postmortem headcount after alert</span><button class="btn">Undo <span class="kbd">u</span></button></div>
+          </sc-if>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--tx-2);"><span class="app">✓</span>Todos <span style="letter-spacing: 0; color: var(--tx-muted-2);">{{todoCount}}</span><span style="flex: 1;"></span><span style="letter-spacing: 0; text-transform: none; font-size: 11.5px; color: var(--tx-label);">overdue and due today</span></div>
+          <sc-for list="{{todos}}" as="td" hint-placeholder-count="2">
+            <div style="{{td.rowStyle}}">
+              <span class="box"></span>
+              <span class="app">{{td.app}}</span>
+              <span style="min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{td.title}}</span>
+              <span style="font-size: 12px; color: var(--tx-label); white-space: nowrap; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px;">{{td.from}}</span>
+              <span style="flex: 1;"></span>
+              <span style="font-size: 12px; white-space: nowrap; color: {{td.dueColor}};">{{td.due}}</span>
+              <button class="btn">Done</button>
+            </div>
+          </sc-for>
+
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; border-top: 1px solid var(--border); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--tx-2);"><span class="app">{{g.app}}</span>{{g.name}} <span style="letter-spacing: 0; color: var(--tx-muted-2);">{{g.count}}</span></div>
+            <sc-for list="{{g.rows}}" as="s" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 10px; min-height: 38px; box-sizing: border-box; padding: 6px 12px 6px 20px;">
+                <span style="min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{s.title}}</span>
+                <span style="font-size: 12px; color: var(--tx-muted-2); white-space: nowrap;">{{s.meta}}</span>
+                <span style="flex: 1;"></span>
+                <sc-if value="{{s.chat}}" hint-placeholder-val="{{false}}"><button class="btn">Reply <span class="kbd">r</span></button></sc-if>
+                <button class="btn">Todo… <span class="kbd">n</span></button>
+                <button class="btn">Confirm</button>
+                <button class="btn">Wrong topic</button>
+                <button class="btn">Dismiss</button>
+              </div>
+            </sc-for>
+          </sc-for>
+
+        </div>
+        <div style="flex: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--tx-label);">
+          <span><span class="kbd">j</span> <span class="kbd">k</span> move</span>
+          <span><span class="kbd">Space</span> done</span>
+          <span><span class="kbd">u</span> undo</span>
+          <span><span class="kbd">o</span> open source</span>
+          <span><span class="kbd">↵</span> expand</span>
+          <span><span class="kbd">?</span> keys</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 240px; flex: none; border-left: 1px solid var(--border); background: var(--bg-panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--tx-label);">Assistant</div>
+      <div style="height: 10px; width: 80%; border-radius: 2px; background: var(--bg-head);"></div>
+      <div style="height: 10px; width: 65%; border-radius: 2px; background: var(--bg-head);"></div>
+      <div style="height: 10px; width: 72%; border-radius: 2px; background: var(--bg-head);"></div>
+      <div style="font-size: 11.5px; color: var(--tx-disabled);">Unchanged</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"done":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const done = !!this.props.done;
+    const work = 'var(--yellow)', life = 'var(--blue)', jobs = 'var(--green)', self = 'var(--purple)';
+    const tRow = 'display:flex;align-items:center;gap:8px;min-height:30px;box-sizing:border-box;padding:0 14px;';
+    const cnt = 'font-size:10.5px;padding:0 6px;border-radius:999px;background:var(--border);color:var(--tx-muted-2);';
+    const cntOn = 'font-size:10.5px;padding:0 6px;border-radius:999px;background:var(--aqua-tint);color:var(--aqua);';
+    const topic = (t) => ({
+      rule: false, due: '', nameColor: 'var(--tx-body)', ...t,
+      rowStyle: tRow + (t.on ? 'background:var(--aqua-tint);' : ''),
+      countStyle: t.count === '' ? 'display:none;' : t.on ? cntOn : cnt,
+    });
+    const tdRow = 'display:flex;align-items:center;gap:10px;min-height:38px;box-sizing:border-box;padding:6px 12px 6px 20px;';
+    // Counts are signals plus due todos; "N due" says how many of them are todos.
+    // Order: newest signal first; a due todo counts as arriving at the start of today.
+    const todos = [
+      { app: 'J', title: 'FIN-2649: Review shared postmortem headcount after alert', from: '', due: 'overdue · Fri', dueColor: 'var(--red)' },
+      { app: 'A', title: 'Send Suri the contract redline notes', from: 'Rotate partial contract… · Slack', due: 'today', dueColor: 'var(--tx-label)' }
+    ].slice(done ? 1 : 0).map((t, i) => ({ ...t, rowStyle: tdRow + (i === 0 ? 'background:var(--aqua-tint);' : '') }));
+    return {
+      done,
+      tabCount: done ? '45' : '46',
+      todoCount: String(todos.length),
+      todos,
+      topics: [
+        topic({ name: 'Legacy contract Q4', count: done ? '5' : '6', due: done ? '1 due' : '2 due', color: work, on: true }),
+        topic({ name: 'Weekly pipeline migration', count: '4', color: work }),
+        topic({ name: 'Noisy audit rollout', count: '3', color: work }),
+        topic({ name: 'Noisy contract', count: '4', due: '1 due', color: jobs }),
+        topic({ name: 'Weekly pipeline', count: '2', color: work }),
+        topic({ name: 'Quarterly bucket review', count: '2', due: '2 due', color: work }),
+        topic({ name: 'Quarterly incident review', count: '2', due: '2 due', color: work }),
+        topic({ name: 'Urgent audit v2', count: '2', due: '2 due', color: life }),
+        topic({ name: 'Stale schema migration', count: '1', due: '1 due', color: work }),
+        topic({ name: 'Shared sprint v2', count: '1', due: '1 due', color: work }),
+        topic({ name: 'Flaky alert v2', count: '1', due: '1 due', color: jobs }),
+        topic({ name: '… 7 more with only todos due', count: '', color: 'transparent', nameColor: 'var(--tx-disabled)' }),
+        topic({ name: 'Slow alert v2', count: '2', color: self }),
+        topic({ name: 'Unsorted', count: '9', due: '3 due', color: 'transparent', rule: true }),
+        topic({ name: 'Agents waiting', count: '2', color: 'transparent' })
+      ],
+      groups: [
+        { app: 'J', name: 'Jira', count: '1', rows: [
+          { title: 'DATA-9628: Rename quarterly pipeline budget in deploy', meta: 'Hollis Oyelaran · 07:41', chat: false }
+        ] },
+        { app: 'S', name: 'Slack', count: '2', rows: [
+          { title: 'Check shared contract terms before Thursday', meta: 'Maeve O. · 09:11', chat: true },
+          { title: 'Rotate partial contract owners', meta: 'Suri Novak · 08:34', chat: true }
+        ] },
+        { app: '◎', name: 'Agents', count: '1', rows: [
+          { title: 'Pin flaky endpoint postmortem', meta: 'ask · 10:42', chat: false }
+        ] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

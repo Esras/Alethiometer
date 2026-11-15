@@ -699,6 +699,27 @@ Reference: `design/Helm Agents Archive.dc.html`, sections **01–05**. Earlier a
 - What happens to the group thread on Scion once its agents are deleted. Deferred; it's Scion-specific.
 - A Hub delete that fails after the undo window isn't designed yet.
 
+### Due todos in Incoming (Incoming Todo Reminders)
+Reference: `project/Incoming Todo Reminders.dc.html` (one screen; its `done` tweak shows the state after marking one done), screenshots `incoming-todo-reminders.png` and `incoming-todo-reminders-done.png`. Agreed with the user 2026-11-04; the decision is in `app/docs/decisions.md`. The conversation is `chats/chat3.md`. Sample data follows `fixtures/fake-account.json` (20 Jira todos overdue or due today across about 17 topics, 3 with no topic); the titles and counts in the mock are illustrative.
+
+**What it's for:** a reminder, so todos you already have don't get forgotten. It isn't a way to make todos (`n` already does that) and doesn't link todos to signals.
+
+**Rules:**
+- **Which todos:** open todos that are overdue or due today, by `due`. Undated todos never show. All of them, no cap.
+- **Where:** a **Todos** group at the top of each topic, before that topic's source groups (Jira, Slack, Gmail, Agents…). It is drawn like a source group: icon, `.panel-head` label, bare count, and "overdue and due today" on the right in `tx-label`.
+- **Topic list:** a topic with due todos and no new signals still gets a row, mixed in with the rest. The list stays newest signal first; a due todo counts as arriving at the start of today. Todos with no topic show in Unsorted the same way, with no extra section.
+- **Counts:** the Incoming tab's count and each topic's count are signals plus due todos. A topic row with due todos says "N due" in `tx-label` before its count.
+- **Rows:** comfortable density, like the Todos tab: check square, app icon, title, the signal it was made from (local todos only, as a `link-nav`), the due label (overdue in `--time-now` red text, today in `tx-label`), and a plain **Done** button on every row (decision 19).
+- **Cursor:** one cursor; `j`/`k` runs through the Todos group and the signals as one list.
+- **Keys on a todo row:** `Space` done (as in the Todos tab; `x` stays Wrong topic in Incoming), `u` undo, `o` open its source, `↵` expand the signal it was made from in place (both as in the Todos tab). The hint bar shows these while the cursor is on a todo.
+- **Done:** the todo leaves the group at once and the bar Confirm uses appears at the top ("Done: <title>", Undo `u`). The cursor moves to the next row, and the counts drop by one.
+
+**Open:**
+- Colours for the group and the due marks (overdue red is a stand-in).
+- A nudge to date undated todos.
+- Todos linked to several signals (today a todo links to at most one).
+- The "… 7 more" row in the mock's topic list stands in for the rest of the list; the real list shows every topic.
+
 ## Interaction model
 Keyboard-first throughout: `j`/`k` move, `↵` opens, `o` opens in the source app, `/` or `⌘K` search, `z` fold, `Tab` retarget, `⌘R` retry, `Esc` close. Every action needs a key. Use hover tints from the palette and an aqua focus ring. No animations beyond short (≤150ms) fades or collapses.
 
@@ -722,6 +743,7 @@ Static renders of each reference view, in `screenshots/`, for side-by-side compa
 - `8a-incoming.png`, `8b-priorities.png`
 - `9a-notes.png`, `9b-reflect-day.png`, `9c-reflect-week.png`, `9d-reflect-nudge.png` (2x)
 - `10a-life-blocks.png`, `11a-notes-receipts.png`, `12c-topics-index.png`, `13a-incoming-dismiss.png`, `13b-ai-failure.png`, `14a-rsvp-incoming.png`, `14b-rsvp-topic.png`, `15g-split-by-topic.png`, `15h-split-thread.png`, `16c-person-palette.png`, `17a-new-person.png`, `17b-link-person.png`, `18c-chronology-expand.png`, `18d-search-results.png`, `19a-gmail-rows.png`, `19b-gmail-todo.png`
+- `incoming-todo-reminders.png`, `incoming-todo-reminders-done.png` (2x, 1280×800)
 - At 1760×1175 (`ui_scale` 1.15): `20a-incoming.png`, `20b-topic.png`, `20c-priorities.png`, `20d-notes.png`, `20e-reflect-day.png`, `20f-topics-index.png`. Where these differ from rounds 7–19 on sizing, the day strip or the Incoming row layout, follow round 20.
 
 Caveats:
@@ -731,6 +753,7 @@ Caveats:
 - **Removed pieces:** 10a's "Pixel · connected" status and popover action "open on Pixel" are dropped (there's no link to the phone). Keep the popover's time, busy state and buffer.
 
 ## Files
+- `../Incoming Todo Reminders.dc.html`: due todos in Incoming (see Due todos in Incoming). Opens with `support.js` from `project/`; tokens are inline.
 - `design/Helm Agents Archive.dc.html`: archiving agents, **01–05** (see Archiving agents). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Agents Incoming.dc.html`: agents in Incoming, **2a–2c** (see Agents in Incoming). Opens with `support.js`, `_ds/`, `icons/` and `DayStripGruv.dc.html` from this folder.
 - `design/Helm Agents Final.dc.html`: the Agents tab, screens **01–08** (see the Agents section). Opens with `support.js`, `_ds/` and `DayStripGruv.dc.html` from this folder.
