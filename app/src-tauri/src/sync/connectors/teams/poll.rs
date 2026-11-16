@@ -848,7 +848,8 @@ impl Poller<'_, '_, '_> {
             ..Default::default()
         });
         let (conv_id, channel_id) = (conv.id.as_str(), super::split_conv(&conv.id).map(|c| c.1).unwrap_or(""));
-        if self.cfg.is_muted(&[conv_id, channel_id]) {
+        let name = (conv.kind == "channel").then(|| conv.title.split(" · ").next().unwrap_or(""));
+        if self.cfg.is_muted(&[conv_id, channel_id], name) {
             self.seen.push(id.clone());
         }
         self.state.open.insert(

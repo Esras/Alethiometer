@@ -79,8 +79,12 @@ impl Config {
         }
     }
 
-    pub fn is_muted(&self, ids: &[&str]) -> bool {
-        self.muted.iter().any(|m| ids.contains(&m.as_str()))
+    /// `name` is a channel's `#name` (a chat has none); entries with `*` or `?` match it as a glob.
+    pub fn is_muted(&self, ids: &[&str], name: Option<&str>) -> bool {
+        self.muted.iter().any(|m| {
+            ids.contains(&m.as_str())
+                || name.is_some_and(|n| m.contains(['*', '?']) && glob::Pattern::new(m).is_ok_and(|p| p.matches(n)))
+        })
     }
 
     /// The listed channels as (team id, channel id); an entry that's neither

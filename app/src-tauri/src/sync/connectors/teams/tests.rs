@@ -286,6 +286,19 @@ fn a_muted_chat_is_read_but_never_new() {
 }
 
 #[test]
+fn a_wildcard_muted_entry_matches_channel_names() {
+    let mut cfg = with_channel();
+    cfg["muted"] = json!(["#incid*"]);
+    let b = run_poll(&tenant(), &source(cfg, None)).unwrap();
+    assert!(
+        b.seen.iter().any(|s| s.starts_with(&format!("{TEAM}|{CH}/"))),
+        "{:?}",
+        b.seen
+    );
+    assert!(!b.seen.iter().any(|s| s.starts_with(GRP_ID)), "{:?}", b.seen);
+}
+
+#[test]
 fn a_channel_reply_attaches_to_its_post_and_new_posts_are_a_run() {
     let http = tenant();
     let b = run_poll(&http, &source(with_channel(), None)).unwrap();

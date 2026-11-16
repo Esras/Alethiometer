@@ -812,6 +812,20 @@ fn muted_channels_are_stored_but_never_new() {
 }
 
 #[test]
+fn a_wildcard_muted_entry_matches_channel_names() {
+    let conn = db();
+    let mut src = crate::sync::load_source(&conn, 1).unwrap();
+    src.config = json!({ "channels": ["#inc-2291"], "muted": ["#inc-*"] });
+    let b = run_poll(&workspace(HISTORY_INC_1), &src).unwrap();
+    apply_now(&conn, &src, &b).unwrap();
+    assert!(
+        unseen(&conn).iter().all(|id| !id.starts_with("C0INC/")),
+        "{:?}",
+        unseen(&conn)
+    );
+}
+
+#[test]
 fn a_muted_dm_by_the_other_users_id_is_stored_but_never_new() {
     let conn = db();
     let mut src = crate::sync::load_source(&conn, 1).unwrap();

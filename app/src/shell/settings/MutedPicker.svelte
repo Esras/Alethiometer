@@ -28,7 +28,12 @@
 
   const shown = $derived.by(() => {
     const n = q.trim().toLowerCase().replace(/^#/, '');
-    return (data?.choices ?? []).filter((c) => !muted.includes(c.value) && (!n || c.name.toLowerCase().includes(n)));
+    const found = (data?.choices ?? []).filter(
+      (c) => !muted.includes(c.value) && (!n || c.name.toLowerCase().includes(n)),
+    );
+    const pattern = `#${n}`;
+    if (!/[*?]/.test(n) || muted.includes(pattern)) return found;
+    return [{ value: pattern, name: pattern, kind: 'channel' as const }, ...found];
   });
 
   function add(i: number) {
@@ -71,7 +76,7 @@
     </div>
     <footer>
       <span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> ignore</span><span
-        >Conversations Alethiometer has seen, most recent first.</span
+        >Conversations Alethiometer has seen, most recent first. Type a wildcard like #miao-* to ignore a pattern.</span
       ><span class="last"><kbd>Esc</kbd> done</span>
     </footer>
   </div>

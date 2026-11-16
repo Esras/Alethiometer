@@ -116,7 +116,9 @@ pub struct Config {
 
 impl Config {
     pub fn is_muted(&self, id: &str, name: &str) -> bool {
-        self.muted.iter().any(|m| m == id || m == name)
+        self.muted.iter().any(|m| {
+            m == id || m == name || (m.contains(['*', '?']) && glob::Pattern::new(m).is_ok_and(|p| p.matches(name)))
+        })
     }
 
     pub fn from_json(v: &Value) -> Config {
