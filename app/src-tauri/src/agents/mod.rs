@@ -20,6 +20,7 @@ pub use crate::domain::agents::model;
 pub mod openshell;
 pub mod shell;
 pub mod store;
+pub mod title;
 
 use crate::api::arg_str;
 use crate::error::{msg, Result};
@@ -433,6 +434,25 @@ pub fn call(app: &App, name: &str, args: &Value) -> Result<Value> {
         }
         "set_thinking" => {
             acp::set_thinking(app, &arg_str(args, "session")?, &arg_str(args, "value")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        // A title you typed: kept, never replaced by the model's (`title.rs`). Empty goes back to the model's next try.
+        "rename" => {
+            let id = arg_str(args, "session")?;
+            let title = arg_str(args, "title")?;
+            let title = title.trim();
+            let mut st = app.agents.store.lock();
+            if !st.sessions.contains_key(&id) {
+                return Err(msg("no such session"));
+            }
+            st.update_session(&id, |s| {
+                if title.is_empty() {
+                    s.title_by.clear();
+                } else {
+                    s.title = title.to_owned();
+                    s.title_by = "you".into();
+                }
+            });
             Ok(json!({ "ok": true }))
         }
         "stop" => {

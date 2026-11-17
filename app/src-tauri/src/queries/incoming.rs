@@ -54,6 +54,9 @@ pub struct Message {
     pub text: String,
     /// Person colour and People note (16c, 17a).
     pub who: Who,
+    /// People its text names, to show the way their names show as authors (`Resolver::mentions`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<people::Mention>,
     /// Messages of another part of this split came in just before this one (⋯).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub gap: bool,
@@ -634,6 +637,7 @@ fn message_rows(look: &Lookup, source: &str, rows: Vec<MessageRow>) -> Vec<MsgRo
                 key: m.ext_key.clone(),
                 time: look.clock.local(m.at).strftime("%H:%M").to_string(),
                 who: look.people.who(source, m.author_id.as_deref(), &m.author),
+                mentions: look.people.mentions(source, &m.text),
                 author: m.author,
                 text: m.text,
                 gap: false,

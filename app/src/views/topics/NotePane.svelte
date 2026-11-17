@@ -12,6 +12,7 @@
   import { chord, mod, plain, useKeys } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
   import NoteText from '../../lib/ui/NoteText.svelte';
+  import PersonComplete from '../../lib/ui/PersonComplete.svelte';
   import type { SaveState, TopicNote } from './types';
 
   let { topicId, note, keepO = false }: { topicId: number; note: TopicNote | null; keepO?: boolean } = $props();
@@ -239,6 +240,7 @@
       onkeydown={indentKeys}
       onblur={done}
     ></textarea>
+    <PersonComplete el={area} />
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="note-body scroll" ondblclick={edit}>

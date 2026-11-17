@@ -133,6 +133,8 @@ Ticket, PR, branch and todo for a session (`agents/facts.rs`), refreshed when a 
 
 ## Thread
 
+**Title** (the header): the first prompt split at its first sentence until the first turn ends, then the small model's title and line under it, from your first message and the agent's first reply (`agents/title.rs`; once, tried again after a turn if it failed; nothing with the small tier off). A title you type (`r`, or a click on it) is kept for good and stays in Alethiometer: it isn't sent to the harness (user, 2026-11-13). Clearing it lets the model try again.
+
 Rows follow the row grammar (icon column coloured by kind, mono header, body). A session's own rows drop its name (`agents.names.self_in_transcript` brings it back). A run of messages between the same two agents folds to its last message ("N earlier · E"); the latest run stays open in one box (`agents.boxes.fold_pairs`). Thinking folds to one italic line; long tool output to three lines (`e`). The legend chips filter kinds. A notice row (kind `notice`; `hub` before 2026-11-07, still read) is word from whatever runs the agent (harness or adapter: retries, provider errors, cache misses), led by the row's `label` when it has one. Remote sessions have a Messages tab (`t`/`m`): you ↔ the agent, your mentions of it in rooms, its asks.
 
 ## Keys
@@ -142,7 +144,7 @@ Rows follow the row grammar (icon column coloured by kind, mono header, body). A
 | Where | Keys |
 |---|---|
 | Everywhere | `⌘K` search, `/` filter sessions, `g i` / `g a`, `⌘.` interrupt, `?` keys |
-| Tree | `j`/`k`, `h`/`l` fold or open a remote group, `⏎` open, `n` new session (its Directories default to the selected row's repos), `a` archive, `u` undo an archive (10 s) |
+| Tree | `j`/`k`, `h`/`l` fold or open a remote group, `⏎` open, `n` new session (its Directories default to the selected row's repos), `r` rename (the header title; a click on it too), `a` archive, `u` undo an archive (10 s) |
 | Thread | `j`/`k`, `e` fold/open, `⏎` reply (`@name` in a room) or open a tool call, `c` copy (a response as its Markdown; also a Copy button on the row), `g` latest, `t`/`m` tabs, `⌘+`/`⌘−` transcript size, `⌘0` back to 1 (also while typing; `agents.transcript_zoom`, a CSS zoom on the rows, saved 400 ms after the last key) |
 | Needs you | `o` `s` `a` `d`, `1`–`3` pick an answer, `r` write a reply, `Esc` later |
 | Composer | `⌘⏎` send (the hint is a button too), `@` address one member (rooms), `↑` bring back your last message, `Esc` back |

@@ -14,6 +14,7 @@
   import { refresh } from '../../lib/app.svelte';
   import { chord } from '../../lib/keys.svelte';
   import AppIcon from '../../lib/ui/AppIcon.svelte';
+  import PersonComplete from '../../lib/ui/PersonComplete.svelte';
   import type { ReflectNote, SaveResult, SaveStatus, Scope } from './types';
 
   let {
@@ -247,6 +248,7 @@
               edited();
             }}
           ></textarea>
+          <PersonComplete el={areas[i]} />
         {/if}
       {/each}
     </div>
@@ -263,6 +265,7 @@
         edited();
       }}
     ></textarea>
+    <PersonComplete el={areas[0]} />
   {/if}
 </div>
 

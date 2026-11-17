@@ -69,6 +69,8 @@ export interface Session {
   status: Status;
   title: string;
   subtitle: string;
+  /** Who wrote the title: "" the first prompt, "ai" the small model, "you" a rename. */
+  title_by?: string;
   context: string;
   created_at: string;
   active_at: string;

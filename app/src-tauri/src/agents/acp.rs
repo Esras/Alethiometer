@@ -1328,7 +1328,10 @@ fn run_after(app: &App, id: &str, after: After) {
                 prompt(&a, &c, row, q.text, q.images);
             }
         }
-        After::Facts => super::facts::refresh(app, id),
+        After::Facts => {
+            super::facts::refresh(app, id);
+            super::title::after_turn(app, id);
+        }
         After::Forget => {
             let _ = daemon::call(app, &dproto::Request::Forget { id: id.to_owned() });
         }

@@ -39,7 +39,7 @@
       <div class="msg">
         <span class="t tnum">{m.time}</span>
         <PersonName who={m.who} name={m.author} />
-        <div class="txt"><Markdown text={m.text} tags={d.source !== 'slack'} /></div>
+        <div class="txt"><Markdown text={m.text} tags={d.source !== 'slack'} mentions={m.mentions} /></div>
       </div>
       {#if m.replies?.length}
         <div class="replies">
@@ -47,7 +47,7 @@
             <div class="msg">
               <span class="t tnum">{r.time}</span>
               <PersonName who={r.who} name={r.author} />
-              <div class="txt"><Markdown text={r.text} tags={d.source !== 'slack'} /></div>
+              <div class="txt"><Markdown text={r.text} tags={d.source !== 'slack'} mentions={r.mentions} /></div>
             </div>
           {/each}
         </div>

@@ -177,6 +177,8 @@ fn services_do_not_take_app() {
             ("agents/incoming.rs", 3),
             ("agents/mod.rs", 8),
             ("agents/openshell.rs", 7),
+            // `after_turn` (the small model titles a session, 2026-11-13): it reads the store and calls the AI tier.
+            ("agents/title.rs", 1),
             ("ai/context.rs", 3),
             ("ai/estimate.rs", 1),
             ("ai/mod.rs", 4),

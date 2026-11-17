@@ -59,7 +59,7 @@ Moved out of HANDOFF.md (2026-10-21), unchanged. Add new decisions here.
 - GitHub: one work org; token from `gh` (installed via Nix) is fine; mostly read-only (`read_only: true` available); **team-only review requests are noise, filter them out** (`team_review_requests: false`).
 - Obsidian: edits can be anywhere in a note; go through the running Obsidian app (Local REST API plugin); prompting that Obsidian isn't open is fine. The work vault is **work-only and doesn't sync to any external system** (the self-hosted sync plugin is the user's separate personal vault, not part of this app). Person notes in `People/` hold coworker details and stay in this vault.
 - Google sign-in: fine with re-auth every 7 days if needed; one Connect button saves the token.
-- **AI-proposed topics should be 2 to 5 words and fairly broad** (a recurring subject, not a one-off event's title).
+- ~~**AI-proposed topics should be 2 to 5 words and fairly broad**~~ superseded 2026-11-13: **2 to 5 words naming something specific and recurring** (a project, system, vendor, customer, incident, hire, a person's 1:1s), never a general area of work ("DevOps Engineering", "Security Incidents", "AI Agents": one user had 626 items under "DevOps Engineering"); archived topics aren't proposed again. `docs/ai.md` › New topics.
 - **Dismissing a signal in Incoming without linking it to a topic**: built (design 13a, `d`/`u`).
 - Calendar: quiet first sync (only pending invites surface); one Incoming row per recurring series, but the topic timeline shows individual instances (past + next upcoming only). Horizon trickle of new instances is fine.
 - GCP: no personal projects (user blocks project creation org-wide); reuse existing Internal tooling project.

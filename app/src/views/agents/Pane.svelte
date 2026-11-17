@@ -124,6 +124,10 @@
   function open(how: 'app' | 'terminal') {
     if (s) act('open', { session: s.id, how }).catch(() => {});
   }
+  function focusSelect(el: HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
 </script>
 
 {#if !key || (!s && !g)}
@@ -148,7 +152,33 @@
             >{isRoom ? `${g?.room?.hub || g?.source} · project ${g?.project} · group thread` : s?.context}</span
           >
         </div>
-        <div class="pane-title title">{title}</div>
+        {#if ag.renaming && s && !isRoom}
+          <input
+            class="pane-title title rename"
+            value={s.title}
+            aria-label="Session title"
+            use:focusSelect
+            onkeydown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') {
+                const t = e.currentTarget.value;
+                ag.renaming = false;
+                act('rename', { session: s.id, title: t }).catch(() => {});
+              } else if (e.key === 'Escape') ag.renaming = false;
+            }}
+            onblur={() => (ag.renaming = false)}
+          />
+        {:else}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div
+            class="pane-title title"
+            class:editable={!!s && !isRoom}
+            title={s && !isRoom ? 'Rename (r in the tree)' : undefined}
+            onclick={() => s && !isRoom && (ag.renaming = true)}
+          >
+            {title}
+          </div>
+        {/if}
         {#if subtitle}<div class="subtitle">{subtitle}</div>{/if}
       </div>
       <div class="facts inset">
@@ -321,6 +351,20 @@
   .title {
     line-height: 1.3;
     text-wrap: pretty;
+  }
+  .title.editable {
+    cursor: text;
+  }
+  /* The title in place, as an input: same type and line, a field's border drawn outside it. */
+  .rename {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: none;
+    outline: 1.5px solid var(--aqua);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
   }
   .subtitle {
     font-size: 1rem;

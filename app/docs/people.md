@@ -33,6 +33,15 @@ Gmail, Jira and GitHub messages now store `author_id` too (it was Slack only). R
 
 **You** are your Slack and Teams sources' own user ids, each Jira source's `email` (the API token's owner; each poll also stores your Jira accountId with that email in `account_profiles`), plus `people.me` in settings (`["email:me@work.com", "jira:…"]`), shown in `people.my_color` (default 0, Gruvbox red).
 
+## People in text (user, 2026-11-13)
+
+Anyone named in text who resolves to a person shows the same way everywhere: a **PersonPill** (`lib/ui/PersonPill.svelte`), their name in their person colour on a tint of it, as their name reads as an author; a dotted underline when they have no People note.
+
+- **Messages** (Incoming, the split review, an item's detail): `Resolver::mentions` resolves each message's mentions in its source's own form. Slack `<@U123>`: the People note's name, else the Slack profile's (an id nobody knows stays as text). GitHub `@login` and Jira's `@Display Name` (ADF keeps only the name): only someone with a People note, or you. Not covered: Teams (its `<at>` mentions keep a name and no id), names in email bodies.
+- **Assistant answers:** `@Name` (a People note's name, or a unique first name) uses the same pill.
+- **Obsidian notes:** a wikilink to a People note, `[[People/Kim Lee]]` (or `[[Kim Lee]]`, `[[People/Kim Lee|alias]]`), shows as the pill in a topic's note. Typing `@` in a note's textarea (a topic's note, Reflect) opens a menu of people at the caret; ⏎ or Tab writes `[[People/Name]]`, the note's vault path, which is what Obsidian links (the People notes are named by full name). Esc closes it until the word changes. The textarea shows the link as text: only the rendered note has pills.
+- Clicking a pill does nothing yet (the person page isn't built).
+
 ## Colours (16c)
 
 256 colours interpolated in OKLCH through the Gruvbox brights (red, orange, yellow, green, aqua, blue, purple, back to red) at lightness 0.65. A person's colour is their note's `color`, else `fnv1a(key) % 256` (32-bit FNV-1a), where the key is their first email when the note lists one, otherwise their first account, otherwise their name. An unknown sender is hashed by their email when the source gives one (mail, or a Slack profile), otherwise by their account id (or name). Colours are not spread apart; some people land in the grey stretch between green and aqua, by design.

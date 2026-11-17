@@ -60,6 +60,8 @@ export const ag = $state({
   bringBack: null as string | null,
   /** Archived but still in the undo window (03), newest last. */
   pending: [] as Pending[],
+  /** The header title being renamed (r on a tree row, or a click on it). */
+  renaming: false,
   /** The right-click menu (05). */
   menu: null as { key: string; x: number; y: number } | null,
 });

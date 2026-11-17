@@ -3,14 +3,31 @@
   import type { Token } from 'marked';
   import { openExternal } from '../api';
   import { mdTokens, safeHref } from '../markdown';
+  import { markMentions, mentionRuns, type Mention } from '../mentionMarks';
+  import PersonPill from './PersonPill.svelte';
   import Rich from './Rich.svelte';
 
-  /** `tags`: text after an opening fence may be a language tag. Slack has none, so it's content there. */
-  let { text, tags = true, rich = false }: { text: string; tags?: boolean; rich?: boolean } = $props();
+  /** `tags`: text after an opening fence may be a language tag. Slack has none, so it's content there.
+   *  `mentions`: people the text names (a message's `mentions`), shown as PersonPill. */
+  let {
+    text,
+    tags = true,
+    rich = false,
+    mentions,
+  }: { text: string; tags?: boolean; rich?: boolean; mentions?: Mention[] } = $props();
 
-  const parsed = $derived(mdTokens(text, tags));
+  const parsed = $derived(mdTokens(markMentions(text, mentions), tags));
   const code = (t: string) => (tags ? t : t.replace(/^\n+|\n+$/g, ''));
 </script>
+
+{#snippet plain(s: string)}
+  {#if mentions?.length}{#each mentionRuns(s) as r}{#if typeof r === 'number' && mentions[r]}<PersonPill
+          who={mentions[r].who}
+          name={mentions[r].name}
+          title={mentions[r].text}
+        />{:else if typeof r === 'string'}{#if rich}<Rich text={r} />{:else}{r}{/if}{/if}{/each}
+  {:else if rich}<Rich text={s} />{:else}{s}{/if}
+{/snippet}
 
 {#snippet link(href: string | null, label: string, kids: Token[] | undefined)}
   {#if href}<a class="link-out" {href} onclick={(e) => (e.preventDefault(), openExternal(href))}
@@ -21,7 +38,7 @@
 {#snippet inline(tokens: Token[] | undefined)}
   {#each tokens ?? [] as t}
     {#if t.type === 'text' && t.tokens}{@render inline(t.tokens)}
-    {:else if t.type === 'text'}{#if rich}<Rich text={t.text} />{:else}{t.text}{/if}
+    {:else if t.type === 'text'}{@render plain(t.text)}
     {:else if t.type === 'codespan'}<code>{t.text}</code>
     {:else if t.type === 'strong'}<strong>{@render inline(t.tokens)}</strong>
     {:else if t.type === 'em'}<em>{@render inline(t.tokens)}</em>
@@ -32,7 +49,7 @@
     {:else if t.type === 'checkbox'}{t.checked ? '\u2611 ' : '\u2610 '}
     {:else if t.type === 'html'}{t.raw}
     {:else if 'tokens' in t && t.tokens}{@render inline(t.tokens)}
-    {:else if 'text' in t}{t.text}{/if}
+    {:else if 'text' in t}{@render plain(t.text)}{/if}
   {/each}
 {/snippet}
 
