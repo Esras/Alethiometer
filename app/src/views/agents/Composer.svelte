@@ -22,6 +22,7 @@
     el?: HTMLTextAreaElement;
     onOpen: (how: 'app' | 'terminal') => void;
   } = $props();
+  const inputId = $props.id();
 
   const room = $derived(thread.startsWith('r:') ? group?.room : null);
   const members = $derived(room && group ? (ag.tree?.sessions ?? []).filter((s) => s.group_id === group.id) : []);
@@ -172,7 +173,7 @@
 </script>
 
 <div class="row">
-  <label class="box" class:focus={ag.zone === 'composer'} class:reply={!!replyingTo}>
+  <label class="box" for={inputId} class:focus={ag.zone === 'composer'} class:reply={!!replyingTo}>
     <i class="ph {replyingTo ? 'ph-arrow-bend-up-left' : 'ph-chat-circle'}"></i>
     <div class="input-col">
       {#if images.length}
@@ -188,6 +189,7 @@
         </div>
       {/if}
       <textarea
+        id={inputId}
         bind:this={el}
         bind:value={text}
         rows="1"
