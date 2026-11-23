@@ -43,7 +43,8 @@
   const BIN = -1;
 
   type Meta = { topic: Part['topic']; color: string };
-  type Mark = { kind: 'moved' | 'dismissed'; from: string; undo: number | null };
+  // `undo`: the topic to go back to (null: Unsorted), or 'dismiss' for a message moved out of Dismissed.
+  type Mark = { kind: 'moved' | 'dismissed'; from: string; undo: number | null | 'dismiss'; prev?: Mark };
 
   let fam = $state<Family | null>(null);
   let mode = $state<'topic' | 'order'>('topic');
@@ -208,7 +209,12 @@
   function mark(m: Message, kind: Mark['kind']) {
     const g = groupOf(m);
     const next = new Map(marks);
-    next.set(m.id, { kind, from: label(g), undo: meta.get(g)?.topic?.id ?? null });
+    next.set(
+      m.id,
+      isGone(m)
+        ? { kind, from: 'Dismissed', undo: 'dismiss', prev: marks.get(m.id) }
+        : { kind, from: label(g), undo: meta.get(g)?.topic?.id ?? null },
+    );
     marks = next;
     history = [...history.filter((id) => id !== m.id), m.id];
   }
@@ -221,12 +227,10 @@
     const moved = new Set([...by.values()].flat().map((m) => m.id));
     act(async () => {
       for (const [part, ms] of by) {
-        const live = ms.filter((m) => !isGone(m));
-        if (!live.length) continue;
-        for (const m of live) mark(m, 'moved');
+        for (const m of ms) mark(m, 'moved');
         const r = await call<{ item_id: number }>('incoming.review_move', {
           item_id: part,
-          message_ids: live.map((m) => m.id),
+          message_ids: ms.map((m) => m.id),
           topic_id: topicId,
           ...scoped(),
         });
@@ -273,20 +277,26 @@
     const k = id === undefined ? undefined : marks.get(id);
     if (!m || !k) return;
     act(async () => {
-      const r = await call<{ item_id: number }>('incoming.review_move', {
-        item_id: m.part,
-        message_ids: [m.id],
-        topic_id: k.undo,
-        ...scoped(),
-      });
-      if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
       const next = new Map(marks);
-      next.delete(m.id);
+      if (k.undo === 'dismiss') {
+        await call('incoming.review_dismiss', { item_id: m.part, message_ids: [m.id] });
+        if (k.prev) next.set(m.id, k.prev);
+        else next.delete(m.id);
+      } else {
+        const r = await call<{ item_id: number }>('incoming.review_move', {
+          item_id: m.part,
+          message_ids: [m.id],
+          topic_id: k.undo,
+          ...scoped(),
+        });
+        if (!scope.includes(r.item_id)) scope = [...scope, r.item_id];
+        next.delete(m.id);
+        const o = new Map(origin);
+        o.delete(m.id);
+        origin = o;
+      }
       marks = next;
-      const o = new Map(origin);
-      o.delete(m.id);
-      origin = o;
-      history = history.filter((x) => x !== m.id);
+      if (!next.has(m.id)) history = history.filter((x) => x !== m.id);
       focus = m.id;
     });
   }
