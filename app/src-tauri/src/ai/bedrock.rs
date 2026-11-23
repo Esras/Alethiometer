@@ -40,6 +40,9 @@ pub struct Request<'a> {
     pub max_tokens: u32,
     /// None = the model's own default (medium for both Opus 5.5 and GPT-6 Luna).
     pub effort: Option<Effort>,
+    /// Turns after the user message (earlier replies and tool results), as `Reply::turn` and `results` make them.
+    pub history: &'a [Value],
+    pub tools: &'a [super::ToolDef],
 }
 
 /// Model families Alethiometer knows the request shape for.
@@ -146,6 +149,10 @@ pub struct Reply {
     pub stop_reason: String,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    /// Tools the model asked to run.
+    pub calls: Vec<super::ToolCall>,
+    /// The reply as it goes back into `Request::history`.
+    pub turn: Vec<Value>,
 }
 
 impl Reply {
@@ -197,11 +204,27 @@ fn encode_label(s: &str) -> String {
 }
 
 pub fn body(req: &Request) -> Value {
+    let mut user = vec![json!({ "text": req.user })];
+    if !req.tools.is_empty() && family(req.model) == Some(Family::Anthropic) {
+        user.push(json!({ "cachePoint": { "type": "default" } }));
+    }
+    let mut messages = vec![json!({ "role": "user", "content": user })];
+    messages.extend(req.history.iter().cloned());
     let mut b = json!({
         "system": [{ "text": req.system }],
-        "messages": [{ "role": "user", "content": [{ "text": req.user }] }],
+        "messages": messages,
         "inferenceConfig": { "maxTokens": req.max_tokens },
     });
+    if !req.tools.is_empty() {
+        let tools: Vec<Value> = req
+            .tools
+            .iter()
+            .map(|t| {
+                json!({ "toolSpec": { "name": t.name, "description": t.description, "inputSchema": { "json": t.schema() } } })
+            })
+            .collect();
+        b["toolConfig"] = json!({ "tools": tools });
+    }
     if let (Some(effort), Some(fam)) = (req.effort, family(req.model)) {
         b["additionalModelRequestFields"] = effort_fields(fam, effort);
     }
@@ -251,12 +274,38 @@ pub fn parse_reply(body: &str) -> anyhow::Result<Reply> {
         .unwrap_or_default();
     let text = text.trim().to_string();
     let tokens = |k: &str| v.pointer(&format!("/usage/{k}")).and_then(Value::as_i64).unwrap_or(0);
+    let message = v.pointer("/output/message").cloned().unwrap_or(Value::Null);
+    let calls = message
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b.get("toolUse"))
+        .filter_map(|u| {
+            Some(super::ToolCall {
+                id: u.get("toolUseId")?.as_str()?.to_string(),
+                name: u.get("name")?.as_str()?.to_string(),
+                input: u.get("input").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
     Ok(Reply {
         text,
         stop_reason,
         input_tokens: tokens("inputTokens"),
         output_tokens: tokens("outputTokens"),
+        calls,
+        turn: vec![message],
     })
+}
+
+/// Tool outputs as the user turn that answers the model's `toolUse` blocks: (tool use id, text).
+pub fn results(outputs: &[(String, String)]) -> Vec<Value> {
+    let content: Vec<Value> = outputs
+        .iter()
+        .map(|(id, text)| json!({ "toolResult": { "toolUseId": id, "content": [{ "text": text }] } }))
+        .collect();
+    vec![json!({ "role": "user", "content": content })]
 }
 
 /// Turn a Bedrock error response into a message the user can act on.
@@ -469,6 +518,8 @@ mod tests {
             user: "USER",
             max_tokens: 256,
             effort: None,
+            history: &[],
+            tools: &[],
         }
     }
 

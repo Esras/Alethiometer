@@ -63,4 +63,6 @@ pub trait ContextViews {
     fn work_events(&self, from: Ts, to: Ts) -> Result<Vec<WorkEvent>>;
     /// Work items (not events) with activity in `[from, to)`, newest first.
     fn touched(&self, from: Ts, to: Ts) -> Result<Vec<ContextItem>>;
+    /// One work item by id; None if missing or not work.
+    fn work_item(&self, id: i64) -> Result<Option<ContextItem>>;
 }

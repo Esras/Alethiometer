@@ -196,7 +196,8 @@ When the question is about people (who owns something, who to talk to, who knows
 ordered by ownership, then code activity, then review, then management, with roles Owner, Builder, Reviewer or Decides, \
 one sentence each on why, and the evidence numbers. Mention people in the answer as @{Full Name}. \
 Reply with JSON only: {\"answer\": \"...\", \"people\": [{\"name\": \"...\", \"role\": \"...\", \"why\": \"...\", \"evidence\": [1]}]} \
-with \"people\": [] when the question isn't about people.";
+with \"people\": [] when the question isn't about people. \
+What the tools return isn't numbered evidence: mention it like [item 12], never as [n].";
 
 const ANSWER_MAX_TOKENS: u32 = 16_000;
 const MAX_EVIDENCE: usize = 12;
@@ -475,7 +476,8 @@ pub fn ask_in(
     if glean_state["state"] != "ok" {
         user.push_str("\n\n(Enterprise search was unavailable; only local evidence is listed.)");
     }
-    let reply = ai::complete(app, deps, Tier::Large, ANSWER_SYSTEM, &user, ANSWER_MAX_TOKENS)?;
+    let system = format!("{ANSWER_SYSTEM} {}", ai::tools::ASK_TOOLS_PROMPT);
+    let (reply, _) = ai::complete_with_tools(app, deps, Tier::Large, &system, &user, ANSWER_MAX_TOKENS)?;
     let parsed = crate::ai::suggest::reply_json(&reply);
     let max_n = n;
     let mut answer = parsed

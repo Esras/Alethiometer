@@ -15,6 +15,7 @@ use crate::error::{msg, Result};
 pub use crate::queries::note_text::{clip, note_gist, Notes};
 use crate::state::App;
 use crate::time::{Date, Due, Ts};
+use jiff::ToSpan;
 use std::fmt::Write;
 
 /// Rough cap on context size (~6k tokens), plenty for a concise answer.
@@ -29,6 +30,13 @@ const PEOPLE_CAP: usize = 2_500;
 const BODY_CAP: usize = 600;
 const MSG_CAP: usize = 300;
 const MSGS_PER_ITEM: usize = 6;
+
+/// How much of an item `item_block` shows: the prompt's own context, or one item the model asked for.
+#[derive(Clone, Copy)]
+enum Depth {
+    Brief,
+    Full,
+}
 
 #[derive(Debug, Default)]
 pub struct Context {
@@ -80,7 +88,11 @@ fn is_open_task(r: &ContextItem) -> bool {
     matches!(r.kind.as_str(), "task" | "issue" | "email") && r.owner.is_some() && r.status == "open"
 }
 
-fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem) -> Result<String> {
+fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem, depth: Depth) -> Result<String> {
+    let (body_cap, msgs, msg_cap) = match depth {
+        Depth::Brief => (BODY_CAP, MSGS_PER_ITEM, MSG_CAP),
+        Depth::Full => (4_000, 40, 1_000),
+    };
     let mut b = format!(
         "\n[item {}] {} {} · {}",
         r.id,
@@ -109,16 +121,11 @@ fn item_block(reads: &dyn Reads, clock: &Clock, r: &ContextItem) -> Result<Strin
         let _ = writeln!(b, "Summary: {}", clip(s, 300));
     }
     if !r.body.trim().is_empty() {
-        let _ = writeln!(b, "Body: {}", clip(&r.body, BODY_CAP));
+        let _ = writeln!(b, "Body: {}", clip(&r.body, body_cap));
     }
     // Most recent messages, shown oldest to newest.
-    for (at, author, text) in reads.context().latest_messages(r.id, MSGS_PER_ITEM)? {
-        let _ = writeln!(
-            b,
-            "  {} {author}: {}",
-            clock.local(at).strftime("%H:%M"),
-            clip(&text, MSG_CAP)
-        );
+    for (at, author, text) in reads.context().latest_messages(r.id, msgs)? {
+        let _ = writeln!(b, "  {} {author}: {}", local(clock, at), clip(&text, msg_cap));
     }
     Ok(b)
 }
@@ -180,7 +187,7 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
             None,
         );
         for r in &suggested {
-            if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
+            if !ctx.push(&item_block(reads, clock, r, Depth::Brief)?, Some(r.id)) {
                 break;
             }
         }
@@ -190,7 +197,7 @@ fn topic_context(reads: &dyn Reads, clock: &Clock, notes: &Notes, topic_id: i64)
     ctx.push("\nItems linked to this topic (newest first):\n", None);
     let mut shown = 0;
     for r in open.iter().chain(&rest) {
-        if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
+        if !ctx.push(&item_block(reads, clock, r, Depth::Brief)?, Some(r.id)) {
             break;
         }
         shown += 1;
@@ -297,12 +304,37 @@ pub fn for_topics(app: &App) -> Result<Context> {
 
 /// Context for "today": today's work calendar and work items touched today.
 pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Context> {
-    let (day_start, day_end) = clock.day_range(today);
+    for_days(reads, clock, today, today, today + 1.days())
+}
+
+/// The days `from` to `to` (exclusive): calendar, items in detail, then one line per other item, shared out by day.
+pub fn for_days(reads: &dyn Reads, clock: &Clock, today: Date, from: Date, to: Date) -> Result<Context> {
+    let (day_start, day_end) = (clock.day_range(from).0, clock.day_range(to).0);
+    let one_day = to == from + 1.days();
+    let when = if one_day && from == today {
+        "today".to_string()
+    } else if one_day {
+        format!("on {}", from.strftime("%A %Y-%m-%d"))
+    } else {
+        format!(
+            "from {} to {}",
+            from.strftime("%a %Y-%m-%d"),
+            (to - 1.days()).strftime("%a %Y-%m-%d")
+        )
+    };
+    let days: Vec<Date> = std::iter::successors(Some(from), |d| Some(*d + 1.days()))
+        .take_while(|d| *d < to)
+        .collect();
+    let day_of = |t: Ts| {
+        let d = clock.local(t).date().clamp(from, to - 1.days());
+        days.iter().position(|x| *x == d).unwrap_or(0)
+    };
     let mut ctx = Context::default();
     ctx.push(
-        &format!("Today is {}.\n\nWork calendar today:\n", today.strftime("%A %Y-%m-%d")),
+        &format!("Today is {}.\n\nWork calendar {when}:\n", today.strftime("%A %Y-%m-%d")),
         None,
     );
+    let mut events: Vec<Vec<Line>> = vec![vec![]; days.len()];
     for e in reads.context().work_events(day_start, day_end)? {
         if e.tag != "work" {
             continue;
@@ -323,42 +355,97 @@ pub fn for_today(reads: &dyn Reads, clock: &Clock, today: Date) -> Result<Contex
             let _ = write!(line, " [item {id}]");
         }
         line.push('\n');
-        if !ctx.push(&line, e.item_id) {
-            return Ok(ctx);
-        }
+        events[day_of(e.start)].push((line, e.item_id));
     }
+    by_day(&mut ctx, BUDGET / 3, &days, &events, "meetings");
+
     let rows: Vec<ContextItem> = reads
         .context()
         .touched(day_start, day_end)?
         .into_iter()
         .filter(|r| r.tag == "work")
         .collect();
-    ctx.push("\nWork items touched today (newest first):\n", None);
-    let (skipped, rows): (Vec<ContextItem>, Vec<ContextItem>) = rows.into_iter().partition(|r| r.dismissed);
-    for r in &rows {
-        if !ctx.push(&item_block(reads, clock, r)?, Some(r.id)) {
-            break;
-        }
+    let mut detail: Vec<Vec<Line>> = vec![vec![]; days.len()];
+    for r in rows.iter().filter(|r| !r.dismissed) {
+        detail[day_of(r.ended.unwrap_or(r.at))].push((item_block(reads, clock, r, Depth::Brief)?, Some(r.id)));
     }
-    if !skipped.is_empty() {
-        ctx.push(
-            "\nDismissed by the user without filing under a topic (low importance; mention only if asked, and never as a count):\n",
+    ctx.push(
+        &format!("\nWork items touched {when}, in detail (newest first within a day):\n"),
+        None,
+    );
+    let left = BUDGET.saturating_sub(ctx.text.len());
+    let shown = by_day(&mut ctx, left, &days, &detail, "");
+
+    let mut index: Vec<Vec<Line>> = vec![vec![]; days.len()];
+    for r in rows.iter().filter(|r| !shown.contains(&r.id)) {
+        let line = format!(
+            "- [item {}] {} {}: {} · {}{}\n",
+            r.id,
+            r.source_kind,
+            r.kind,
+            clip(&r.title, 120),
+            if is_open_task(r) { "OPEN TASK" } else { &r.status },
+            if r.dismissed { " [dismissed]" } else { "" }
+        );
+        index[day_of(r.ended.unwrap_or(r.at))].push((line, Some(r.id)));
+    }
+    if index.iter().any(|d| !d.is_empty()) {
+        ctx.push_within(
+            usize::MAX,
+            &format!(
+                "\nOther work items touched {when}, one line each (newest first within a day; get_item reads one in full). \
+                 [dismissed]: dismissed by the user without filing under a topic (low importance; mention only if asked, \
+                 and never as a count):\n"
+            ),
             None,
         );
-        for r in &skipped {
-            let line = format!(
-                "- [item {}] {} {}: {}\n",
-                r.id,
-                r.source_kind,
-                r.kind,
-                clip(&r.title, 120)
-            );
-            if !ctx.push(&line, Some(r.id)) {
-                break;
-            }
-        }
+        by_day(&mut ctx, INDEX_BUDGET, &days, &index, "items");
     }
     Ok(ctx)
+}
+
+/// One work item in full for the ask's `get_item` tool; None if it isn't a work item.
+pub fn item_detail(reads: &dyn Reads, clock: &Clock, id: i64) -> Result<Option<String>> {
+    match reads.context().work_item(id)? {
+        Some(r) => Ok(Some(item_block(reads, clock, &r, Depth::Full)?)),
+        None => Ok(None),
+    }
+}
+
+/// A block for the prompt and the item it shows, if any.
+type Line = (String, Option<i64>);
+
+/// Each day's lines under its date, an even share of `cap` per day (unused share rolls forward); returns items pushed.
+fn by_day(ctx: &mut Context, cap: usize, days: &[Date], lines: &[Vec<Line>], more: &str) -> Vec<i64> {
+    let start = ctx.text.len();
+    let mut pushed = vec![];
+    for (i, (day, ls)) in days.iter().zip(lines).enumerate() {
+        if ls.is_empty() {
+            continue;
+        }
+        let share = cap.saturating_sub(ctx.text.len() - start) / (days.len() - i);
+        let limit = ctx.text.len() + share;
+        if days.len() > 1 {
+            ctx.push_within(usize::MAX, &format!("{}:\n", day.strftime("%a %Y-%m-%d")), None);
+        }
+        let mut cut = 0;
+        for (l, id) in ls {
+            if ctx.push_within(limit, l, *id) {
+                pushed.extend(*id);
+            } else {
+                cut += 1;
+            }
+        }
+        if cut > 0 && !more.is_empty() {
+            let s = if days.len() > 1 { " this day" } else { "" };
+            ctx.push_within(
+                usize::MAX,
+                &format!("- (+{cut} more {more}{s}; get_day reads them)\n"),
+                None,
+            );
+        }
+    }
+    pushed
 }
 
 #[cfg(test)]
@@ -492,7 +579,7 @@ pub mod tests {
             ctx.text.find("DISMISSED-ONE").unwrap(),
         );
         assert!(
-            kept < dismissed && ctx.text.contains("Dismissed by the user"),
+            kept < dismissed && ctx.text.contains("DISMISSED-ONE newsletter \u{b7} open [dismissed]"),
             "{}",
             ctx.text
         );
@@ -542,6 +629,40 @@ pub mod tests {
         // Life blocks (12:00–13:00 etc.) have no title and must not appear at all.
         assert!(!ctx.text.contains("12:00–13:00"), "{}", ctx.text);
         assert!(!ctx.text.to_lowercase().contains("busy"));
+    }
+
+    #[test]
+    fn a_period_has_its_days_meetings_dated_and_no_others() {
+        let (app, _dir) = app();
+        let today = app.clock.today();
+        let week = app
+            .store()
+            .read(|r| for_days(r, &app.clock, today, today - 2.days(), today + 5.days()))
+            .unwrap();
+        assert!(week.text.contains("Work calendar from "), "{}", week.text);
+        assert!(week.text.contains(&today.strftime("%a %Y-%m-%d:\n").to_string()) && week.text.contains("Acme call"));
+        let later = app
+            .store()
+            .read(|r| for_days(r, &app.clock, today, today + 30.days(), today + 37.days()))
+            .unwrap();
+        assert!(!later.text.contains("Acme call"), "{}", later.text);
+    }
+
+    #[test]
+    fn by_day_gives_every_day_a_share_and_counts_the_rest() {
+        let days: Vec<Date> = (0..3).map(|i| jiff::civil::date(2026, 11, 9) + i.days()).collect();
+        let line = |d: i64, n: i64| (format!("{:<99}\n", format!("day{d} line{n}")), Some(d * 100 + n));
+        let lines: Vec<Vec<Line>> = (0..3).map(|d| (0..10).map(|n| line(d, n)).collect()).collect();
+        let mut ctx = Context::default();
+        let pushed = by_day(&mut ctx, 960, &days, &lines, "items");
+        for d in 0..3 {
+            assert!(pushed.iter().filter(|id| **id / 100 == d).count() >= 2, "{}", ctx.text);
+        }
+        assert!(
+            ctx.text.contains("Mon 2026-11-09:\n") && ctx.text.contains("more items this day"),
+            "{}",
+            ctx.text
+        );
     }
 
     #[test]

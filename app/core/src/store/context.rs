@@ -4,7 +4,7 @@ use super::Sql;
 use crate::domain::context::{ContextItem, ContextViews, TopicOverview, WorkEvent};
 use crate::error::Result;
 use crate::time::{Date, Due, Ts};
-use rusqlite::{params, Row};
+use rusqlite::{params, OptionalExtension, Row};
 
 const ITEM: &str = "i.id, s.tag, s.kind, i.kind, i.title, i.summary, i.body, i.occurred_at, i.ended_at, i.due_at, i.due_day, i.status, i.owner,
     (i.seen = 1 AND NOT EXISTS (SELECT 1 FROM topic_links tl WHERE tl.item_id = i.id AND tl.state = 'confirmed'))";
@@ -128,5 +128,17 @@ impl ContextViews for Sql<'_> {
             ))?
             .query_map(params![from, to], item)?
             .collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn work_item(&self, id: i64) -> Result<Option<ContextItem>> {
+        Ok(self
+            .conn()
+            .prepare_cached(&format!(
+                "SELECT {ITEM}
+                   FROM items i JOIN sources s ON s.id = i.source_id
+                  WHERE i.id = ?1 AND s.tag = 'work'"
+            ))?
+            .query_row([id], item)
+            .optional()?)
     }
 }

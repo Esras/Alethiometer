@@ -7,7 +7,7 @@
   // Keys: d w m q scope · [ ] or ←/→ period · t this period ·
   // e/↵ write · Esc leave the note · o open in Obsidian · j/k carry row ·
   // > tomorrow · < schedule · x let go · u undo · T where time went ·
-  // D decided · F finished · a ask about today.
+  // D decided · F finished · a ask about the period.
   import { call } from '../lib/api';
   import { refresh, ui } from '../lib/app.svelte';
   import { isTyping, plain, useKeys } from '../lib/keys.svelte';
@@ -106,19 +106,20 @@
 
   async function ask() {
     const q = question.trim();
-    if (!q || asking) return;
+    if (!q || asking || !d) return;
+    const key = askKey;
     asking = true;
     question = '';
     let turn: { q: string; ok: boolean; text: string };
     try {
-      const r = await call<{ answer: string }>('ai.ask', { question: q, scope: 'today' });
+      const r = await call<{ answer: string }>('ai.ask', { question: q, scope: 'period', from: d.period, to: d.next });
       turn = { q, ok: true, text: r.answer };
     } catch (e) {
       turn = { q, ok: false, text: String((e as Error).message ?? e) };
     } finally {
       asking = false;
     }
-    thread.push(turn);
+    if (askKey === key) thread.push(turn);
   }
 
   useKeys((e) => {
@@ -136,7 +137,7 @@
     if (plain(e, 'e') || (plain(e, 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON'))
       return (editor?.focus(), true);
     if (plain(e, 'o')) return (editor?.openInObsidian(), true);
-    if (plain(e, 'a') && d?.scope === 'day' && rs.lens !== 'life') return (askEl?.focus(), true);
+    if (plain(e, 'a') && d && rs.lens !== 'life') return (askEl?.focus(), true);
     if (plain(e, 'T') && d?.brief) return ((showWhere = !showWhere), true);
     if (plain(e, 'D') && d?.brief && rs.lens !== 'life') return ((showDecided = !showDecided), true);
     if (plain(e, 'F') && d?.brief && rs.lens !== 'life') return ((showFinished = !showFinished), true);
@@ -152,6 +153,12 @@
   const placeholder = $derived(
     rs.lens === 'life' ? 'Write if you want to. Only the busy hours are counted here.' : 'What stood out today?',
   );
+  const askAbout = $derived(!d ? '' : !d.is_current ? d.title : d.scope === 'day' ? 'today' : `this ${d.scope}`);
+  const askKey = $derived(d ? `${d.scope}|${d.period}` : '');
+  $effect(() => {
+    void askKey;
+    thread = [];
+  });
 </script>
 
 <div class="view">
@@ -207,7 +214,7 @@
           </div>
         {:else}
           <CarryList rows={d.carry} label={OPEN_LABEL[d.scope]} bind:selected textButtons={d.scope !== 'day'} {act} />
-          {#if d.scope === 'day'}
+          {#if askAbout}
             <div class="ask input">
               <label class="askrow">
                 <i class="ph ph-magnifying-glass"></i>
@@ -216,10 +223,10 @@
                     bind:this={askEl}
                     bind:value={question}
                     onkeydown={(e) => e.key === 'Enter' && ask()}
-                    aria-label="Ask about today"
+                    aria-label="Ask about {askAbout}"
                   />
                   {#if !question}<span class="hint ellipsis"
-                      >Ask about today… <span>e.g. "what did Jordan say about the fix ETA?"</span></span
+                      >Ask about {askAbout}… <span>e.g. "what did Jordan say about the fix ETA?"</span></span
                     >{/if}
                 </span>
                 {#if asking}<span class="asking nowrap">asking…</span>{/if}
