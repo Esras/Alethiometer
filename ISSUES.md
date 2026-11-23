@@ -4,6 +4,66 @@ Found while wiring up connectors on the real Mac. Not in HANDOFF.md's "in flight
 
 ## Open
 
+### `SETUP.md` offers Nix vs. no-Nix with no guidance on which to pick (found 2026-11-06)
+
+`SETUP.md` §1 describes a Nix devshell path and a manual (`rustup` + system Node) path with no recommendation either way. A newcomer who already has Homebrew tools (`direnv`, Node) has to stop and make an infrastructure decision cold before starting. A one-line steer ("use Nix if you already have it or do cross-machine Rust work; otherwise `rustup` is faster to start") would help.
+
+### `SETUP.md`'s Node version range is inaccurate (found 2026-11-06)
+
+"Node.js 22 or later" isn't accurate. Homebrew's current Node (v25.6.1) immediately hit vitest's engine warning on `npm ci`: `required: { node: '^22.12.0 || ^24.0.0 || >=26.0.0' }`. Node 25.x sits in a gap vitest doesn't support. Name the actual supported ranges, or recommend a version manager pinned to a known-good LTS (e.g. Node 22).
+
+### `rustup`'s "restart your shell" doesn't cover scripted/agent installs (found 2026-11-06)
+
+After installing Rust via `rustup`, `cargo`/`rustc` weren't on `PATH` until `~/.cargo/env` was sourced explicitly. Expected `rustup` behavior, but worth a one-line callout in `SETUP.md` for anyone scripting the install rather than using an interactive shell.
+
+### `npm ci` reports 6 dependency vulnerabilities, untriaged (found 2026-11-06)
+
+`npm ci` in `app/` reports 2 low, 2 moderate, 2 high (`npm audit` for detail). Not investigated this session; worth a look.
+
+### `SETUP.md` doesn't mention Gatekeeper behavior for a locally-built app (found 2026-11-06)
+
+A locally built, ad-hoc-signed `Alethiometer.app` launched with no Gatekeeper prompt (no `com.apple.quarantine` attribute, since it wasn't downloaded). Worth a one-line reassurance in `SETUP.md` so users unfamiliar with code signing don't expect, or worry about the absence of, a security dialog.
+
+### Sync status chip says "sample data" even with `demo_data: false` and nothing seeded (found 2026-11-06)
+
+`app/src/shell/SyncStatus.svelte` line 172: `{#if live.length}synced {ago(newest)}{:else}sample data{/if}`. This is a fallback for "nothing has synced yet," not a check of `demo_data` or the database. Confirmed with `demo_data: false` set before first launch and 0 rows in `items`/`topics`: the chip still read "sample data." Should distinguish "no sources connected yet" from "demo data is seeded."
+
+### Source `tag: "personal"` is easily confused with Topic `category: "life"`, and picking it wrong silently breaks the source (found 2026-11-06)
+
+`tag` (source-level, `work`/`personal`) is not a casual label. `app/src-tauri/src/sync/mod.rs::apply` rejects any `tag: "personal"` source that tries to store real items (`"personal source tried to store items; only busy blocks are allowed"`), and `outbox.rs::request` blocks writes from personal-tagged sources outright. It's reserved for calendar-only busy-block sources (Proton Calendar's "Life" blocks). The actual "this is personal, not work" mechanism is `Category` (`work`/`life`), assigned to Topics, not sources. Hit this directly trying to tag a GitHub source for personal-account repos as `personal`, expecting a casual label; it would have synced forever and failed every time. Recommend renaming the `personal` tag value (e.g. `calendar_only`), or having `sources::validate`/the Settings UI warn when a non-calendar kind is paired with `tag: "personal"`.
+
+### Jira has no OAuth, only Basic auth with email + token, and this isn't documented (found 2026-11-06)
+
+`app/docs/sources/jira.md` never says there's no OAuth option. Confirmed in `app/src-tauri/src/sync/connectors/jira.rs` line 1 and `Api::new` (hardcoded `Basic` header from `base64(email:token)`). A reasonable design choice, but worth a one-line callout since Gmail/Calendar do use OAuth and users will compare.
+
+### A newly added source defaults to Enabled before its config is filled in; Jira's resulting error doesn't clear itself (found 2026-11-06)
+
+Adding Jira via Settings → Sources → Add source: "Enabled" was already on before Site/Email/Token were entered, which triggered an immediate sync error. Filling in the fields afterward didn't clear the error or retry; took manually disabling and re-enabling the source. Adding Slack the same way behaved better: a distinct "no token" status, not a generic error, cleared cleanly once the token was saved. Worth comparing the two connectors' incomplete-config handling directly; Slack's is the better model.
+
+### "Keychain on the Mac" is documented as current behavior across source docs, but it's a TODO (found 2026-11-06)
+
+`jira.md`, `github.md`, and `slack.md` each say secrets go to the Keychain on the Mac. `app/platform/src/platform.rs` lines 1-8 say otherwise: `TODO(mac): Keychain via security-framework... Until then macOS uses the same file-backed stub [as Linux]`. Confirmed: secrets currently land in plain `secrets.json` (0600) on the Mac too. `app/README.md`'s data-and-config section already gets this right; the three per-source docs don't.
+
+### `slack.md` doesn't warn that Slack's own UI flags Socket Mode as needing extra setup (found 2026-11-06)
+
+The manifest sets `socket_mode_enabled: true`, but Slack's app-creation UI warns Socket Mode "requires additional setup in App Settings." That setup is exactly `slack.md` step 3 (the app-level token), so nothing's actually missing, but the warning could make a first-time user think something failed. Worth a one-line cross-reference right after the manifest block.
+
+### The Connect button for OAuth sources only lives in the sync status popover, never in Settings, where the error telling you to press it actually appears (found 2026-11-06)
+
+Settings showed: `'Gmail' isn't connected to Google yet (no secret 'gmail.refresh_token'); press Connect or run gcal.auth_start`, and the secret slot's own hint says "Connect in the sync status." But there is no Connect button anywhere in Settings (`app/src/shell/SyncStatus.svelte` lines 193-195: it only renders in the top-bar popover, gated on `SIGN_IN[s.kind] && s.last_error`). Either add a Connect button in Settings next to the OAuth secret slots, or make the hint text explicit that it means a different, separately-opened UI element.
+
+### (High priority) `ai.allowed_providers` ships with `"bedrock"` pre-set, which the docs frame as a deliberate BAA decision nobody on a fresh install actually made (found 2026-11-06)
+
+`app/settings/src/lib.rs`, `impl Default for Settings`: `ai.allowed_providers: vec!["bedrock".into()]`, with comment `// US inference profiles only; the org's BAA covers Bedrock in US regions.` Both AI tiers default to `enabled: true`. `app/docs/ai.md` frames this value as recording your own confirmed BAA decision, but it's already set before anyone confirms anything: valid AWS credentials alone turn AI on and start sending work-source content to Bedrock, including a third-party model (OpenAI GPT-6 Luna) the doc says needs its own separate BAA check. Confirmed with this install's user (Qventus, healthcare-adjacent org) that the BAA does cover both models, but that confirmation should be required up front, not assumed by a shipped default. Recommend shipping `allowed_providers` empty by default, or adding an explicit first-run confirmation step that writes it.
+
+### Concrete symptom of the above: topic suggestions run and fail, loudly, before any AI credential exists (found 2026-11-06)
+
+With zero AWS credentials configured anywhere, the sync status popover already showed "suggestions failed" and a wall of orange error text (`No AWS credentials found for Bedrock...`) alongside "292 signals waiting in Unsorted." Accurate once you're looking for it, but reads as "something is broken" for a feature nobody turned on yet. Recommend a neutral "not set up" state instead of a failed/retry state when there are no AI credentials anywhere, same idea as the "sample data" mislabeling above.
+
+### (High priority, functional blocker) Settings UI cannot save any AI/price setting at all on a fresh install (found 2026-11-06)
+
+Entering model prices in Settings → LLM Providers produced `settings.json: missing field 'allowed_providers'`. Root cause: `AiSettings` (`app/settings/src/lib.rs`) has no struct-level `#[serde(default)]`; `allowed_providers`, `region`, `small`, `large` are all required with no fallback. Before this edit, `settings.json` had never had an `ai` key written to it (the Rust defaults are in-memory only until persisted). The live-edit `slot()` function (`app/src-tauri/src/settings/live.rs` ~line 73) creates any missing intermediate object as a bare `{}` when applying a nested-path edit, with no awareness of what fields that type requires, so editing `ai.prices.<model>` produced an incomplete `ai` object that failed validation and was correctly never written (no corruption), but the edit was silently lost with no way to retry successfully. Since `allowed_providers` is `x-readonly` in the schema, there is no UI path to seed a complete `ai` object from scratch: every field edit under `ai` hits this on a fresh install. Worked around by hand-writing the complete object directly into `settings.json`. Recommend adding `#[serde(default)]` plus a real `Default` impl to `AiSettings`, or having `slot()` populate full default-valued objects (from that type's `Default`) instead of empty ones when creating a missing container.
+
 ### Thread replies don't count toward a signal's message count (user, 2026-10-26: undecided)
 
 Replies stored under an untriaged Slack or Teams signal now move its `ended_at` (migration 0039), so Incoming sorts it and labels its range by the latest reply. `msg_count` still counts only the run's own messages, so "N new" leaves the replies out; 197 threads on the real store hold more messages than their count. The user wants to think about what the count should track before changing it.
